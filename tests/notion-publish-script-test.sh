@@ -7,6 +7,19 @@ cd "$ROOT"
 export GITHUB_REPOSITORY="bhjeon-cginside/nh-ad-compliance"
 export GITHUB_SHA="$(git rev-parse HEAD)"
 
+workflow_path=".github/workflows/notion-docs-publish-test.yml"
+job_environment="$(
+  awk '
+    /^    env:$/ { capture = 1; next }
+    capture && /^    [^ ]/ { exit }
+    capture { print }
+  ' "$workflow_path"
+)"
+if grep -q 'NOTION_API_TOKEN' <<<"$job_environment"; then
+  echo "Notion API token must not be exposed to every workflow step" >&2
+  exit 1
+fi
+
 dry_run_output="$(scripts/publish-notion-docs-test.sh --dry-run)"
 grep -q '^selected_markdown_count=93$' <<<"$dry_run_output"
 grep -q '^general_markdown_count=15$' <<<"$dry_run_output"
@@ -43,7 +56,7 @@ cleanup() {
   rm -f "$result_path"
 }
 trap cleanup EXIT
-mkdir -p "$mock_dir/titles"
+mkdir -p "$mock_dir/markdown" "$mock_dir/titles"
 printf '0' >"$mock_dir/counter"
 : >"$mock_dir/events"
 
@@ -71,24 +84,25 @@ case "${1:-}:${2:-}" in
     printf '%s' "$count" >"$MOCK_NTN_STATE_DIR/counter"
     page_id="mock-page-$count"
     first_line="$(sed -n '1p' <<<"$markdown")"
+    printf '%s' "$markdown" >"$MOCK_NTN_STATE_DIR/markdown/$page_id"
     printf 'create\t%s\t%s\t%s\n' "$page_id" "$parent" "$first_line" >>"$event_log"
     jq -n --arg id "$page_id" --arg url "https://notion.example/$page_id" '{id:$id,url:$url}'
     ;;
   pages:get)
     page_id="$3"
+    if [ "${MOCK_NTN_PERMANENT_GET_PAGE:-}" = "$page_id" ]; then
+      echo 'error: Public API request failed: 502 Bad Gateway' >&2
+      exit 5
+    fi
     if [ "$page_id" = "mock-page-1" ] && [ ! -e "$MOCK_NTN_STATE_DIR/transient-get-failed" ]; then
       : >"$MOCK_NTN_STATE_DIR/transient-get-failed"
       echo 'error: Public API request failed: 502 Bad Gateway' >&2
       exit 5
     fi
     title="$(cat "$MOCK_NTN_STATE_DIR/titles/$page_id")"
-    probes="$(
-      while IFS= read -r source_path; do
-        awk '/^## / {print; exit}' "$source_path"
-      done < <(git ls-files -- 'docs/*.md' 'docs/**/*.md' | LC_ALL=C sort)
-    )"
-    jq -n --arg probes "$probes" --arg title "$title" \
-      '{page:{is_locked:true,properties:{title:{title:[{plain_text:$title}]}}},markdown:{truncated:false,unknown_block_ids:[],markdown:$probes}}'
+    markdown="$(cat "$MOCK_NTN_STATE_DIR/markdown/$page_id")"
+    jq -n --arg markdown "$markdown" --arg title "$title" \
+      '{page:{is_locked:true,properties:{title:{title:[{plain_text:$title}]}}},markdown:{truncated:false,unknown_block_ids:[],markdown:$markdown}}'
     ;;
   pages:edit)
     echo 'pages edit must not be used for hierarchical publication' >&2
@@ -105,6 +119,13 @@ case "${1:-}:${2:-}" in
 
     if [ -z "$request" ] && [[ "$endpoint" == v1/blocks/*/children ]]; then
       printf '{"results":[],"has_more":false,"next_cursor":null}\n'
+      exit 0
+    fi
+
+    if [ -z "$request" ] && [[ "$endpoint" == v1/blocks/mock-divider-* ]]; then
+      block_id="${endpoint##*/}"
+      printf 'delete-block\t%s\n' "$block_id" >>"$event_log"
+      jq -n --arg id "$block_id" '{id:$id,in_trash:true}'
       exit 0
     fi
 
@@ -130,10 +151,18 @@ case "${1:-}:${2:-}" in
     page_id="${endpoint##*/}"
     if jq -e '.children[0].type == "divider"' <<<"$request" >/dev/null 2>&1; then
       printf 'divider\t%s\n' "$(cut -d/ -f3 <<<"$endpoint")" >>"$event_log"
-      jq '{results:.children}' <<<"$request"
-    elif jq -e '.is_locked == true' <<<"$request" >/dev/null; then
-      printf 'lock\t%s\n' "$page_id" >>"$event_log"
-      printf '{"is_locked":true}\n'
+      jq '.children[0].id = "mock-divider-1" | {results:.children}' <<<"$request"
+    elif jq -e '.in_trash == true' <<<"$request" >/dev/null; then
+      printf 'trash\t%s\n' "$page_id" >>"$event_log"
+      jq -n --arg id "$page_id" '{id:$id,in_trash:true}'
+    elif jq -e 'has("is_locked")' <<<"$request" >/dev/null; then
+      lock_state="$(jq -r '.is_locked' <<<"$request")"
+      if [ "$lock_state" = "true" ]; then
+        printf 'lock\t%s\n' "$page_id" >>"$event_log"
+      else
+        printf 'unlock\t%s\n' "$page_id" >>"$event_log"
+      fi
+      jq -n --argjson is_locked "$lock_state" '{is_locked:$is_locked}'
     else
       title="$(jq -er '.properties.title.title[0].text.content' <<<"$request")"
       printf '%s' "$title" >"$MOCK_NTN_STATE_DIR/titles/$page_id"
@@ -182,5 +211,29 @@ test "$(awk -F '\t' '$1 == "divider" && $2 == "test-parent" {count++} END {print
 test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 95
 grep -q $'^lock\ttest-parent$' "$mock_dir/events"
 grep -q $'^lock\tmock-page-16$' "$mock_dir/events"
+
+rm -f "$result_path" "$mock_dir/transient-get-failed"
+rm -rf "$mock_dir/markdown" "$mock_dir/titles"
+mkdir -p "$mock_dir/markdown" "$mock_dir/titles"
+printf '0' >"$mock_dir/counter"
+: >"$mock_dir/events"
+
+if PATH="$mock_dir:$PATH" \
+  MOCK_NTN_STATE_DIR="$mock_dir" \
+  MOCK_NTN_PERMANENT_GET_PAGE=mock-page-17 \
+  NOTION_API_TOKEN=test-token \
+  NOTION_PARENT_PAGE_ID=test-parent \
+  NOTION_REQUEST_INTERVAL_SECONDS=0 \
+  NOTION_RETRY_ATTEMPTS=2 \
+  NOTION_RETRY_DELAY_SECONDS=0 \
+  scripts/publish-notion-docs-test.sh --publish >/dev/null 2>&1; then
+  echo "publication must fail when Notion verification remains unavailable" >&2
+  exit 1
+fi
+
+test ! -e "$result_path"
+test "$(awk -F '\t' '$1 == "trash" {count++} END {print count + 0}' "$mock_dir/events")" -eq 16
+grep -q $'^delete-block\tmock-divider-1$' "$mock_dir/events"
+grep -q $'^unlock\ttest-parent$' "$mock_dir/events"
 
 echo "notion publish script contract passed"

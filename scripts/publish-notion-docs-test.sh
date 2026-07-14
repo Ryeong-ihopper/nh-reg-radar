@@ -213,6 +213,47 @@ retry_ntn() {
   done
 }
 
+cleanup_publication() {
+  local status="$1"
+  local temp_dir="$2"
+  local page_id
+  local block_id
+
+  if [ "$status" -ne 0 ]; then
+    echo "Publication failed; removing pages created by this run" >&2
+
+    if ! jq -n '{is_locked:false}' \
+      | retry_ntn api "v1/pages/$NOTION_PARENT_PAGE_ID" -X PATCH --data @- \
+      | jq -e '.is_locked == false' >/dev/null; then
+      echo "warning: failed to unlock target page before cleanup" >&2
+    fi
+    throttle
+
+    if [ -s "$temp_dir/root-page-ids" ]; then
+      while IFS= read -r page_id; do
+        if ! jq -n '{in_trash:true}' \
+          | retry_ntn api "v1/pages/$page_id" -X PATCH --data @- \
+          | jq -e --arg id "$page_id" '.id == $id and .in_trash == true' >/dev/null; then
+          echo "warning: failed to remove created page $page_id" >&2
+        fi
+        throttle
+      done < <(awk '{lines[NR]=$0} END {for (line=NR; line>0; line--) print lines[line]}' "$temp_dir/root-page-ids")
+    fi
+
+    if [ -s "$temp_dir/divider-ids" ]; then
+      while IFS= read -r block_id; do
+        if ! ntn api "v1/blocks/$block_id" -X DELETE </dev/null \
+          | jq -e --arg id "$block_id" '.id == $id and .in_trash == true' >/dev/null; then
+          echo "warning: failed to remove created divider $block_id" >&2
+        fi
+        throttle
+      done <"$temp_dir/divider-ids"
+    fi
+  fi
+
+  rm -rf "$temp_dir"
+}
+
 lock_page() {
   local page_id="$1"
 
@@ -236,11 +277,16 @@ set_page_title() {
 
 append_divider() {
   local parent_page_id="$1"
+  local response
 
-  jq -n '{children:[{object:"block",type:"divider",divider:{}}]}' \
-    | ntn api "v1/blocks/$parent_page_id/children" -X PATCH --data @- \
-    | jq -e '.results | length == 1 and .[0].type == "divider"' >/dev/null
+  response="$(
+    jq -n '{children:[{object:"block",type:"divider",divider:{}}]}' \
+      | ntn api "v1/blocks/$parent_page_id/children" -X PATCH --data @-
+  )"
+  jq -e '.results | length == 1 and .[0].type == "divider" and .[0].id != null' \
+    <<<"$response" >/dev/null
   throttle
+  jq -er '.results[0].id' <<<"$response"
 }
 
 validate_empty_parent() {
@@ -281,6 +327,7 @@ publish_document() {
   local title="$4"
   local parent_page_id="$5"
   local result_jsonl="$6"
+  local cleanup_page_ids="${7:-}"
   local page_response
   local page_id
   local page_url
@@ -292,6 +339,9 @@ publish_document() {
   page_response="$(render_markdown "$source_path" \
     | ntn pages create --parent "page:$parent_page_id" --json)"
   page_id="$(jq -er '.id' <<<"$page_response")"
+  if [ -n "$cleanup_page_ids" ]; then
+    printf '%s\n' "$page_id" >>"$cleanup_page_ids"
+  fi
   page_url="$(jq -er '.url' <<<"$page_response")"
   throttle
 
@@ -339,6 +389,8 @@ publish_document() {
 publish_documents() {
   local temp_dir
   local result_jsonl
+  local cleanup_page_ids
+  local cleanup_divider_ids
   local root_page_url
   local adr_response
   local adr_page_id
@@ -360,16 +412,21 @@ publish_documents() {
   root_page_url="$(validate_empty_parent "$NOTION_PARENT_PAGE_ID")"
   temp_dir="$(mktemp -d)"
   result_jsonl="$temp_dir/results.jsonl"
-  trap "rm -rf '$temp_dir'" EXIT
+  cleanup_page_ids="$temp_dir/root-page-ids"
+  cleanup_divider_ids="$temp_dir/divider-ids"
+  : >"$cleanup_page_ids"
+  : >"$cleanup_divider_ids"
+  trap 'cleanup_publication "$?" "$temp_dir"' EXIT
 
   while IFS=$'\t' read -r section order source_path title; do
     publish_document "$section" "$order" "$source_path" "$title" \
-      "$NOTION_PARENT_PAGE_ID" "$result_jsonl"
+      "$NOTION_PARENT_PAGE_ID" "$result_jsonl" "$cleanup_page_ids"
   done < <(print_manifest | awk -F '\t' '$1 == "general"')
 
-  append_divider "$NOTION_PARENT_PAGE_ID"
+  append_divider "$NOTION_PARENT_PAGE_ID" >>"$cleanup_divider_ids"
   adr_response="$(create_container_page "$NOTION_PARENT_PAGE_ID" '16. ADR')"
   adr_page_id="$(jq -er '.id' <<<"$adr_response")"
+  printf '%s\n' "$adr_page_id" >>"$cleanup_page_ids"
   adr_page_url="$(jq -er '.url' <<<"$adr_response")"
   throttle
 
