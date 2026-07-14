@@ -3,7 +3,7 @@ info:
   title: NH Advertisement Compliance API
   description: Source contract for the advertisement-compliance PoC. Capability-specific paths and
     schemas are added only when their implementation slice begins.
-  version: 0.7.0
+  version: 0.8.0
 servers:
   - url: /api/v1
 paths:
@@ -1396,6 +1396,48 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /advertisements/{advertisementId}/revisions:
+    post:
+      operationId: createAdvertisementRevision
+      parameters:
+        - $ref: "#/components/parameters/AdvertisementId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AdvertisementRevisionRequest"
+      responses:
+        "201":
+          description: Stored advertisement revision registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvertisementRevision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: Request entity too large.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported media type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
       security:
         - BearerAuth: []
   /comparisons/{comparisonId}:
@@ -4387,6 +4429,35 @@ components:
           type: array
           items:
             type: string
+    AdvertisementRevisionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - revisedAdvertisementFile
+      properties:
+        revisionMemo:
+          type: string
+          maxLength: 2000
+        revisedAdvertisementFile:
+          type: string
+          format: binary
+    AdvertisementRevision:
+      type: object
+      additionalProperties: false
+      required:
+        - advertisementId
+        - revisionId
+        - reviewStatus
+      properties:
+        advertisementId:
+          type: string
+          pattern: ^ADV-[A-Za-z0-9-]+$
+        revisionId:
+          type: string
+          pattern: ^REVISION-[A-Za-z0-9-]+$
+        reviewStatus:
+          type: string
+          const: REVISED
     ComparisonItem:
       type: object
       additionalProperties: false

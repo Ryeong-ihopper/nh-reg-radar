@@ -12,16 +12,17 @@ import {
 
 const contractPath = new URL('../../openapi/openapi.yaml', import.meta.url).pathname;
 
-test('TC-NFR-API-001: M7 source document is valid and capability-bounded', async () => {
+test('TC-NFR-API-001: M8 source document is valid and capability-bounded', async () => {
   const document = await validateOpenApi(contractPath);
   assert.equal(document.openapi, '3.1.0');
   assert.equal(typeof document.info.title, 'string');
-  assert.equal(document.info.version, '0.7.0');
+  assert.equal(document.info.version, '0.8.0');
   const requiredM5Paths = [
     '/admin/audit-logs',
     '/advertisements',
     '/advertisements/{advertisementId}',
     '/advertisements/{advertisementId}/comparisons',
+    '/advertisements/{advertisementId}/revisions',
     '/advertisements/{advertisementId}/reviews',
     '/auth/login',
     '/auth/logout',

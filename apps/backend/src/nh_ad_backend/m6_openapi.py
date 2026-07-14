@@ -433,8 +433,22 @@ M6_OPENAPI: dict[str, Any] = {
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
-                    "413": {"$ref": "#/components/responses/RequestEntityTooLarge"},
-                    "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+                    "413": {
+                        "description": "Request entity too large.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                            }
+                        },
+                    },
+                    "415": {
+                        "description": "Unsupported media type.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                            }
+                        },
+                    },
                 },
             }
         },

@@ -12,7 +12,7 @@ const manifestPath = new URL('governance/goal-manifests/G007-m6-support-outputs.
 test('G007 M6 manifest freezes the provider-independent support-output contract', async () => {
   const document = await loadOpenApi(contractPath);
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  assert.equal(document.info.version, '0.7.0');
+  assert.equal(document.info.version, '0.8.0');
   assert.equal(manifest.openapi.version, '0.6.0');
   assert.equal(manifest.openapi.source_sha256, 'ab0311b4d075d79ee65648e3a35212b0ee6bd0f0e5dfbd1e56a3d7fe61ee29e5');
   assert.equal(manifest.generated_client.sha256, '9077dbaa41ff35703d3089382a5f608bcbf05de0a5aa798a6f17f56d5b5ca1e7');
@@ -54,4 +54,13 @@ test('TC-RPT-001..013 and TC-CMP-001..007: snapshots and structural comparison o
   assert.equal(fixture.networkAllowed, false);
   assert.equal(fixture.provider, null);
   assert.deepEqual(fixture.comparison.statuses, ['RESOLVED', 'UNRESOLVED', 'NEW_ISSUE']);
+});
+
+test('TC-CMP-008..011: a stored multipart revision is registered before comparison', async () => {
+  const document = await loadOpenApi(contractPath);
+  const operation = document.paths['/advertisements/{advertisementId}/revisions'].post;
+  assert.equal(operation.operationId, 'createAdvertisementRevision');
+  assert.equal(operation.requestBody.content['multipart/form-data'].schema.$ref, '#/components/schemas/AdvertisementRevisionRequest');
+  assert.ok(document.components.schemas.AdvertisementRevisionRequest.required.includes('revisedAdvertisementFile'));
+  assert.equal(operation.responses['201'].content['application/json'].schema.$ref, '#/components/schemas/AdvertisementRevision');
 });
