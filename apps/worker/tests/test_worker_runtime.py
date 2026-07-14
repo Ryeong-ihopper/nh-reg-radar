@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from threading import Event
+from threading import Event, Thread
 from time import monotonic, sleep
 
 from fastapi.testclient import TestClient
@@ -67,6 +67,23 @@ class LifecycleRunner:
         self.closed = True
 
 
+class OutageRepository(InMemoryJobRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.runner: JobRunner | None = None
+        self.recovery_calls = 0
+
+    def recover_stale(
+        self, *, now: datetime, stale_before: datetime
+    ) -> list[QueueMessage]:
+        self.recovery_calls += 1
+        if self.recovery_calls == 1:
+            raise OSError("postgres unavailable")
+        assert self.runner is not None
+        self.runner.stop()
+        return []
+
+
 def worker_job(job_id: str, *, created_at: datetime) -> WorkerJob:
     return WorkerJob(
         job_id,
@@ -103,6 +120,25 @@ def test_publish_failure_remains_recoverable_after_database_lease_expires() -> N
             "idempotencyKey": job.job_id,
         }
     ]
+
+
+def test_recovery_outage_uses_bounded_backoff_without_killing_consumer() -> None:
+    repository = OutageRepository()
+    runner = JobRunner(
+        StubQueue(),
+        StubProcessor(),
+        repository,
+        recovery_interval_seconds=0,
+        recovery_backoff_seconds=0.01,
+    )
+    repository.runner = runner
+    consumer = Thread(target=runner.run_forever)
+
+    consumer.start()
+    consumer.join(1)
+
+    assert not consumer.is_alive()
+    assert repository.recovery_calls == 2
 
 
 def test_stale_and_due_retry_are_requeued_but_future_retry_is_not() -> None:
