@@ -55,6 +55,8 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("chmod -R a+rwX /cleanup", text)
         self.assertIn("release backup directory remains", text)
         self.assertIn("release recovery resources remain", text)
+        self.assertIn('g011_compose[@]}" down --volumes --remove-orphans', text)
+        self.assertIn("G011 resources remain after outer cleanup", text)
 
     def test_recovery_rehearses_lossy_migration_restore_and_durable_stores(self) -> None:
         text = RECOVERY.read_text(encoding="utf-8")

@@ -63,6 +63,13 @@ compose=(
   --file "$root/compose.prod.yml"
   --env-file "$env_file"
 )
+g011_project="${project}-g011"
+g011_compose=(
+  docker compose
+  --project-name "$g011_project"
+  --file "$root/compose.yml"
+  --env-file "$root/.env.dev.example"
+)
 
 project_resources() {
   {
@@ -83,6 +90,7 @@ cleanup() {
       minio/mc:RELEASE.2025-07-21T05-28-08Z \
       -ec 'chmod -R a+rwX /cleanup' >/dev/null 2>&1
   fi
+  "${g011_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$backup_dir" || exit_code=1
   if [[ -e "$backup_dir" ]]; then
@@ -94,6 +102,13 @@ cleanup() {
     docker ps -a --filter "label=com.docker.compose.project=$project" >&2 || true
     docker volume ls --filter "label=com.docker.compose.project=$project" >&2 || true
     docker network ls --filter "label=com.docker.compose.project=$project" >&2 || true
+    exit_code=1
+  fi
+  if [[ -n "$(project_resources "$g011_project")" ]]; then
+    printf 'G011 resources remain after outer cleanup: %s\n' "$g011_project" >&2
+    docker ps -a --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+    docker volume ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+    docker network ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
     exit_code=1
   fi
   exit "$exit_code"
@@ -144,8 +159,7 @@ PY
 }
 
 run_g011_gate() {
-  local started elapsed fresh_elapsed g011_project g011_log
-  g011_project="${project}-g011"
+  local started elapsed fresh_elapsed g011_log
   g011_log="$backup_dir/g011-regression.log"
   started=$SECONDS
   if ! timeout --signal=TERM "$timeout_seconds" \
