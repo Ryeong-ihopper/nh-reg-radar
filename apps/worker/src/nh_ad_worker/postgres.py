@@ -566,7 +566,8 @@ class PostgresJobRepository:
             connection.execute(
                 text("""
                     UPDATE app.review_jobs SET job_status='RETRY_PENDING',retry_count=:count,
-                     next_retry_at=:next_retry,failed_reason_code=:reason,locked_by=NULL,locked_at=NULL
+                     next_retry_at=:next_retry,failed_reason_code=:reason,locked_by=NULL,
+                     locked_at=NULL,enqueued_at=NULL
                      WHERE job_id=:id
                 """),
                 {
@@ -605,13 +606,35 @@ class PostgresJobRepository:
 
     def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]:
         with self._engine.begin() as connection:
-            rows = connection.execute(
+            connection.execute(
                 text("""
-                    UPDATE app.review_jobs SET job_status='STALE',locked_by=NULL,locked_at=NULL
+                    UPDATE app.review_jobs SET job_status='STALE',locked_by=NULL,locked_at=NULL,
+                     enqueued_at=NULL
                      WHERE job_status='RUNNING' AND heartbeat_at<:stale_before
-                    RETURNING job_id,review_id,job_type
                 """),
                 {"stale_before": stale_before},
+            )
+            rows = connection.execute(
+                text("""
+                    WITH candidates AS (
+                        SELECT job_id
+                          FROM app.review_jobs
+                         WHERE (
+                               job_status='STALE'
+                            OR (job_status='PENDING' AND created_at<=:stale_before)
+                            OR (job_status='RETRY_PENDING' AND next_retry_at<=:now)
+                         )
+                           AND (enqueued_at IS NULL OR enqueued_at<=:stale_before)
+                         ORDER BY created_at,job_id
+                         FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE app.review_jobs AS jobs
+                       SET enqueued_at=:now
+                      FROM candidates
+                     WHERE jobs.job_id=candidates.job_id
+                    RETURNING jobs.job_id,jobs.review_id,jobs.job_type
+                """),
+                {"now": now, "stale_before": stale_before},
             ).all()
         return [
             QueueMessage(
@@ -623,3 +646,6 @@ class PostgresJobRepository:
             )
             for row in rows
         ]
+
+    def close(self) -> None:
+        self._engine.dispose()

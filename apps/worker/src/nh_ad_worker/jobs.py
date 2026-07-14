@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from threading import Event, Thread
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
 
 
 RETRY_DELAYS = (timedelta(minutes=1), timedelta(minutes=3), timedelta(minutes=10))
+LOGGER = logging.getLogger(__name__)
 MESSAGE_FIELDS = frozenset(
     {"messageVersion", "jobId", "reviewId", "jobType", "correlationId", "idempotencyKey"}
 )
@@ -75,6 +78,8 @@ class WorkerJob:
     locked_by: str | None = None
     failed_reason_code: str | None = None
     dead_lettered_at: datetime | None = None
+    enqueued_at: datetime | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     selected_artifact: ArtifactMetadata | None = None
     normalized_document: NormalizedDocument | None = None
     review_results: ReviewResultBundle | None = None
@@ -94,6 +99,7 @@ class JobRepository(Protocol):
     def retry_or_dead_letter(self, job_id: str, *, now: datetime, reason_code: str) -> bool: ...
     def fail_final(self, job_id: str, *, now: datetime, reason_code: str) -> None: ...
     def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]: ...
+    def close(self) -> None: ...
 
 
 class InMemoryJobRepository:
@@ -155,6 +161,7 @@ class InMemoryJobRepository:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
         job.failed_reason_code = reason_code
         job.locked_by = None
+        job.enqueued_at = None
         if job.retry_count >= job.max_retries:
             job.status = "FAILED_FINAL"
             job.review_status = "REVIEW_FAILED"
@@ -183,9 +190,24 @@ class InMemoryJobRepository:
                 or job.heartbeat_at is None
                 or job.heartbeat_at > stale_before
             ):
+                pass
+            else:
+                job.status = "STALE"
+                job.locked_by = None
+                job.enqueued_at = None
+            deliverable = (
+                job.status in {"PENDING", "STALE"}
+                or (
+                    job.status == "RETRY_PENDING"
+                    and job.next_retry_at is not None
+                    and job.next_retry_at <= now
+                )
+            )
+            lease_expired = job.enqueued_at is None or job.enqueued_at <= stale_before
+            pending_is_aged = job.status != "PENDING" or job.created_at <= stale_before
+            if not deliverable or not lease_expired or not pending_is_aged:
                 continue
-            job.status = "STALE"
-            job.locked_by = None
+            job.enqueued_at = now
             recovered.append(
                 QueueMessage(
                     job_id=job.job_id,
@@ -196,6 +218,9 @@ class InMemoryJobRepository:
                 )
             )
         return recovered
+
+    def close(self) -> None:
+        return None
 
 
 class DeadLetterSink(Protocol):
@@ -222,6 +247,7 @@ class ParserJobProcessor:
         now: Callable[[], datetime] | None = None,
         raw_output: Callable[[DocumentInput, NormalizedDocument], bytes] | None = None,
         result_engine: ReviewResultEngine | None = None,
+        heartbeat_interval_seconds: float = 30.0,
     ) -> None:
         self.repository = repository
         self.router = router
@@ -233,6 +259,7 @@ class ParserJobProcessor:
             lambda _input, output: output.model_dump_json(by_alias=True).encode("utf-8")
         )
         self._result_engine = result_engine
+        self._heartbeat_interval_seconds = heartbeat_interval_seconds
 
     def process(self, payload: dict[str, object]) -> str:
         message = QueueMessage.parse(payload)
@@ -240,6 +267,14 @@ class ParserJobProcessor:
         job = self.repository.claim(message, worker_id=self.worker_id, now=now)
         if job is None:
             return "DUPLICATE_IGNORED"
+        heartbeat_stop = Event()
+        heartbeat = Thread(
+            target=self._heartbeat_until_stopped,
+            args=(job.job_id, heartbeat_stop),
+            name=f"job-heartbeat-{job.job_id}",
+            daemon=True,
+        )
+        heartbeat.start()
         try:
             selection = self.router.parse_with_attempts(job.document)
             selected_artifact: ArtifactMetadata | None = None
@@ -305,6 +340,20 @@ class ParserJobProcessor:
                 }
             )
             return "FAILED_FINAL"
+        finally:
+            heartbeat_stop.set()
+            heartbeat.join()
+
+    def _heartbeat_until_stopped(self, job_id: str, stop: Event) -> None:
+        while not stop.wait(self._heartbeat_interval_seconds):
+            try:
+                self.repository.heartbeat(
+                    job_id,
+                    worker_id=self.worker_id,
+                    now=self._now(),
+                )
+            except Exception:
+                LOGGER.exception("job heartbeat failed", extra={"job_id": job_id})
 
 
 def redacted_log(payload: dict[str, object]) -> str:
