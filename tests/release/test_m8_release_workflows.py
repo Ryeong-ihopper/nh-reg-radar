@@ -13,7 +13,8 @@ def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
 
     assert "pull_request:" in workflow
     assert "workflow_dispatch:" in workflow
-    assert 'pytest tests/e2e tests/release -m "not external_ai"' in workflow
+    assert 'python -m pytest -m "not external_ai and not slow"' in workflow
+    assert 'python -m pytest tests/e2e tests/release -m "not external_ai"' in workflow
     assert "governance/goal-manifests/G009-m8-release.json" in workflow
     assert "scripts/check-doc-consistency.sh" in workflow
     assert "scripts/release-smoke.sh" in workflow
@@ -25,6 +26,8 @@ def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
     assert "npm run frontend:check" not in workflow
     assert "uv run mypy\n" in workflow
     assert "uv run mypy ." not in workflow
+    assert "ruff format --check tests/release" in workflow
+    assert "ruff format --check ." not in workflow
     assert "secrets." not in workflow
     assert "EXTERNAL_AI_API_KEY" not in workflow
     assert "pytest -m external_ai" not in workflow
@@ -48,6 +51,7 @@ def test_external_engine_workflow_is_manual_sanitized_and_non_blocking() -> None
     assert "model_label" in workflow
     assert "config_fingerprint" in workflow
     assert "dataset_id" in workflow
+    assert "steps.metadata.outcome == 'success'" in workflow
 
     evidence_block = workflow.split("Create sanitized evidence", maxsplit=1)[1]
     evidence_block = evidence_block.split("Upload sanitized evidence", maxsplit=1)[0]

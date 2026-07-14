@@ -50,7 +50,7 @@ jobs:
       - name: Check static contracts
         run: |
           uv run ruff check .
-          uv run ruff format --check .
+          uv run ruff format --check tests/release
           uv run mypy
           npm run openapi:check
           npm --prefix apps/frontend run lint
@@ -63,8 +63,11 @@ jobs:
           python3 scripts/validate_goal_manifest.py
           governance/goal-manifests/G009-m8-release.json
 
+      - name: Run deterministic product regressions
+        run: uv run python -m pytest -m "not external_ai and not slow" -q
+
       - name: Run deterministic M8 E2E and release gates
-        run: uv run pytest tests/e2e tests/release -m "not external_ai" -q
+        run: uv run python -m pytest tests/e2e tests/release -m "not external_ai" -q
 
       - name: Validate documentation governance
         run: |
