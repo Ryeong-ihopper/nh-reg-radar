@@ -220,8 +220,71 @@ if [[ "$qdrant_node_checksum" != "$qdrant_checksum" ]]; then
   exit 1
 fi
 
-"${compose[@]}" run --rm --no-deps \
-  --entrypoint python backend - "$qdrant_collection" "$opensearch_index" <<'PY'
+printf '%s\n' 'M8 Qdrant restore: stop OpenSearch, submit asynchronously, poll restored payload'
+"${compose[@]}" stop opensearch
+timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps \
+  --entrypoint python backend - "$qdrant_collection" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from typing import Any
+
+
+collection = sys.argv[1]
+qdrant = "http://qdrant:6333"
+
+
+def request_json(method: str, url: str, payload: Any | None = None) -> dict[str, Any]:
+    body = None if payload is None else json.dumps(payload).encode()
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = response.read()
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc.code} {exc.read()!r}") from exc
+    return json.loads(data) if data else {}
+
+
+request_json("DELETE", f"{qdrant}/collections/{collection}")
+restored = request_json(
+    "PUT",
+    f"{qdrant}/collections/{collection}/snapshots/recover?wait=false",
+    {
+        "location": f"file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot",
+        "priority": "snapshot",
+    },
+)
+if restored.get("result") is not True:
+    raise RuntimeError(f"Qdrant snapshot restore failed: {restored!r}")
+deadline = time.monotonic() + 180
+point: dict[str, Any] = {}
+while time.monotonic() < deadline:
+    try:
+        point = request_json("GET", f"{qdrant}/collections/{collection}/points/4242")
+    except RuntimeError:
+        time.sleep(2)
+        continue
+    if point.get("result", {}).get("payload", {}).get("probe") == "provider-free-qdrant-restore":
+        break
+    time.sleep(2)
+else:
+    raise RuntimeError(f"Qdrant restored point did not become ready: {point!r}")
+print("QDRANT_RESTORED source=local-file-snapshot")
+PY
+
+printf '%s\n' 'M8 OpenSearch source rebuild after Qdrant restore'
+"${compose[@]}" up -d --wait opensearch
+timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps \
+  --entrypoint python backend - "$opensearch_index" <<'PY'
 from __future__ import annotations
 
 import json
@@ -231,8 +294,7 @@ import urllib.request
 from typing import Any
 
 
-collection, index = sys.argv[1:]
-qdrant = "http://qdrant:6333"
+index = sys.argv[1]
 opensearch = "http://opensearch:9200"
 
 
@@ -245,28 +307,11 @@ def request_json(method: str, url: str, payload: Any | None = None) -> dict[str,
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:
             data = response.read()
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"{method} {url} failed: {exc.code} {exc.read()!r}") from exc
     return json.loads(data) if data else {}
-
-
-request_json("DELETE", f"{qdrant}/collections/{collection}")
-restored = request_json(
-    "PUT",
-    f"{qdrant}/collections/{collection}/snapshots/recover?wait=true",
-    {
-        "location": f"file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot",
-        "priority": "snapshot",
-    },
-)
-if restored.get("result") is not True:
-    raise RuntimeError(f"Qdrant snapshot restore failed: {restored!r}")
-point = request_json("GET", f"{qdrant}/collections/{collection}/points/4242")
-if point.get("result", {}).get("payload", {}).get("probe") != "provider-free-qdrant-restore":
-    raise RuntimeError(f"Qdrant restored point mismatch: {point!r}")
-print("QDRANT_RESTORED source=local-file-snapshot")
 
 try:
     request_json("DELETE", f"{opensearch}/{index}")
