@@ -1,0 +1,184 @@
+{
+  "fixtureVersion": "m8-provider-free-release-v1",
+  "fixtureKind": "synthetic",
+  "containsCustomerData": false,
+  "networkAllowed": false,
+  "provider": null,
+  "generatedAt": "2026-07-15T01:00:00Z",
+  "clock": "2026-07-15T01:00:00Z",
+  "advertisement": {
+    "name": "Synthetic M8 savings banner",
+    "productGroup": "SAVINGS",
+    "advertisementType": "MOBILE_BANNER",
+    "departmentId": "DPT-A",
+    "targetText": "Synthetic unsupported best-rate claim",
+    "suggestedText": "조건 충족 시 우대 금리를 제공합니다."
+  },
+  "standard": {
+    "title": "Synthetic advertising standard",
+    "content": "객관적 근거 없는 최고 표현을 금지한다.\n\n금리 조건과 적용 범위를 명확하게 표시한다.",
+    "metadata": {
+      "owningDepartment": "준법부",
+      "documentName": "Synthetic advertising standard",
+      "sectionPath": "표현/금지",
+      "effectiveDate": "2026-01-01",
+      "version": "1.0",
+      "productGroup": "SAVINGS"
+    },
+    "reindex": {
+      "reindexScope": "CHUNK_AND_INDEX",
+      "reason": "deterministic M8 fixture",
+      "parserRuleVersion": "direct-text-v1",
+      "chunkingPolicyVersion": "reference-chunking-v1",
+      "embeddingModel": "fixed-fixture-v1",
+      "searchSchemaVersion": "search-schema-v1",
+      "opensearchAnalyzerVersion": "ko-v1",
+      "synonymVersion": "synonym-v1",
+      "targetIndexes": [
+        "QDRANT",
+        "OPENSEARCH"
+      ]
+    }
+  },
+  "validation": {
+    "judgments": [
+      {
+        "targetText": "Synthetic unsupported best claim",
+        "reviewType": "MISLEADING_EXPRESSION",
+        "expectedStatus": "NEEDS_REVISION",
+        "riskLevel": "HIGH",
+        "comment": "synthetic golden judgment",
+        "excluded": false
+      }
+    ],
+    "cases": [
+      {
+        "caseId": "CASE-REQ-EXACT",
+        "metricCode": "REQUIRED_PHRASE_ACCURACY",
+        "matchScore": 1,
+        "excluded": false,
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-REQ-PARTIAL",
+        "metricCode": "REQUIRED_PHRASE_ACCURACY",
+        "matchScore": 0.5,
+        "excluded": false,
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-REQ-WRONG",
+        "metricCode": "REQUIRED_PHRASE_ACCURACY",
+        "matchScore": 0,
+        "exclusionCandidate": true,
+        "exclusionApproved": false,
+        "excluded": false,
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-MIS-EXACT",
+        "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+        "matchScore": 1,
+        "excluded": false,
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-MIS-AI-ERROR",
+        "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+        "matchScore": 0,
+        "excluded": false,
+        "aiError": true
+      },
+      {
+        "caseId": "CASE-MIS-APPROVED-EXCLUSION",
+        "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+        "matchScore": 0,
+        "excluded": true,
+        "exclusionCandidate": true,
+        "exclusionApproved": true,
+        "excludeReasonCode": "OCR_UNREADABLE",
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-EVD-EXACT",
+        "metricCode": "EVIDENCE_PRECISION",
+        "matchScore": 1,
+        "excluded": false,
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-EVD-PARTIAL",
+        "metricCode": "EVIDENCE_PRECISION",
+        "matchScore": 0.5,
+        "excluded": false,
+        "aiError": false
+      },
+      {
+        "caseId": "CASE-HUMAN-APPROVED-EXCLUSION",
+        "metricCode": "HUMAN_AGREEMENT_RATE",
+        "matchScore": 1,
+        "excluded": true,
+        "exclusionCandidate": true,
+        "exclusionApproved": true,
+        "excludeReasonCode": "PRODUCT_CONDITION_AMBIGUOUS",
+        "aiError": false
+      }
+    ],
+    "expectedExclusionSummary": [
+      {
+        "excludeReasonCode": "OCR_UNREADABLE",
+        "count": 1
+      },
+      {
+        "excludeReasonCode": "PRODUCT_CONDITION_AMBIGUOUS",
+        "count": 1
+      }
+    ],
+    "expectedMetrics": [
+      {
+        "metricCode": "REQUIRED_PHRASE_ACCURACY",
+        "numerator": 1.5,
+        "denominator": 3,
+        "score": 50,
+        "excludedCount": 0,
+        "partialCount": 1,
+        "notApplicable": false,
+        "targetScore": 80,
+        "achieved": false
+      },
+      {
+        "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+        "numerator": 1,
+        "denominator": 2,
+        "score": 50,
+        "excludedCount": 1,
+        "partialCount": 0,
+        "notApplicable": false,
+        "targetScore": 75,
+        "achieved": false
+      },
+      {
+        "metricCode": "EVIDENCE_PRECISION",
+        "numerator": 1.5,
+        "denominator": 2,
+        "score": 75,
+        "excludedCount": 0,
+        "partialCount": 1,
+        "notApplicable": false,
+        "targetScore": 85,
+        "achieved": false
+      },
+      {
+        "metricCode": "HUMAN_AGREEMENT_RATE",
+        "numerator": 0,
+        "denominator": 0,
+        "score": null,
+        "excludedCount": 1,
+        "partialCount": 0,
+        "notApplicable": true,
+        "targetScore": 75,
+        "achieved": false
+      }
+    ]
+  }
+}
