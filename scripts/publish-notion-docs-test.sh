@@ -30,6 +30,7 @@ list_markdown_files() {
 
 list_general_files() {
   printf '%s\n' \
+    docs/project-rules.md \
     docs/requirements-definition.md \
     docs/functional-specification.md \
     docs/screen-specification.md \
@@ -38,7 +39,6 @@ list_general_files() {
     docs/api-contract-sync-policy.md \
     docs/database-specification.md \
     docs/test-cases.md \
-    docs/project-rules.md \
     docs/adr-candidates.md \
     docs/development-schedule-and-notion-kanban.md \
     docs/reference-repositories.md \
@@ -81,7 +81,9 @@ display_title() {
   local title
 
   title="$(source_title "$source_path")"
-  if [ "$section" = "general" ] || [ "$order" = "00" ] || [ "$order" = "01" ]; then
+  if [ "$section" = "general" ] && [ "$order" = "00" ]; then
+    printf '%s\n' "$title"
+  elif [ "$section" = "general" ] || [ "$order" = "00" ] || [ "$order" = "01" ]; then
     printf '%s. %s\n' "$order" "$title"
   else
     printf '%s\n' "$title"
@@ -93,7 +95,13 @@ print_manifest() {
   local order=0
   local order_label
 
+  printf 'general\t00\t%s\t%s\n' \
+    docs/project-rules.md "$(display_title general 00 docs/project-rules.md)"
+
   while IFS= read -r source_path; do
+    if [ "$source_path" = "docs/project-rules.md" ]; then
+      continue
+    fi
     order=$((order + 1))
     order_label="$(printf '%02d' "$order")"
     printf 'general\t%s\t%s\t%s\n' \
@@ -421,10 +429,17 @@ publish_documents() {
   while IFS=$'\t' read -r section order source_path title; do
     publish_document "$section" "$order" "$source_path" "$title" \
       "$NOTION_PARENT_PAGE_ID" "$result_jsonl" "$cleanup_page_ids"
-  done < <(print_manifest | awk -F '\t' '$1 == "general"')
+  done < <(print_manifest | awk -F '\t' '$1 == "general" && $2 == "00"')
 
   append_divider "$NOTION_PARENT_PAGE_ID" >>"$cleanup_divider_ids"
-  adr_response="$(create_container_page "$NOTION_PARENT_PAGE_ID" '16. ADR')"
+
+  while IFS=$'\t' read -r section order source_path title; do
+    publish_document "$section" "$order" "$source_path" "$title" \
+      "$NOTION_PARENT_PAGE_ID" "$result_jsonl" "$cleanup_page_ids"
+  done < <(print_manifest | awk -F '\t' '$1 == "general" && $2 != "00"')
+
+  append_divider "$NOTION_PARENT_PAGE_ID" >>"$cleanup_divider_ids"
+  adr_response="$(create_container_page "$NOTION_PARENT_PAGE_ID" '15. ADR')"
   adr_page_id="$(jq -er '.id' <<<"$adr_response")"
   printf '%s\n' "$adr_page_id" >>"$cleanup_page_ids"
   adr_page_url="$(jq -er '.url' <<<"$adr_response")"

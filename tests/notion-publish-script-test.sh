@@ -41,8 +41,9 @@ grep -q '^excluded_non_markdown_count=33$' <<<"$dry_run_output"
 manifest="$(scripts/publish-notion-docs-test.sh --manifest)"
 test "$(awk -F '\t' '$1 == "general" {count++} END {print count + 0}' <<<"$manifest")" -eq 15
 test "$(awk -F '\t' '$1 == "adr" {count++} END {print count + 0}' <<<"$manifest")" -eq 78
+grep -q $'^general\t00\tdocs/project-rules.md\t프로젝트 규칙$' <<<"$manifest"
 grep -q $'^general\t01\tdocs/requirements-definition.md\t01. 요구사항 정의서$' <<<"$manifest"
-grep -q $'^general\t15\tdocs/risk-assessment-criteria.md\t15. 위험도 산정 기준표$' <<<"$manifest"
+grep -q $'^general\t14\tdocs/risk-assessment-criteria.md\t14. 위험도 산정 기준표$' <<<"$manifest"
 grep -q $'^adr\t00\tdocs/adr/README.md\t00. ADR 목록$' <<<"$manifest"
 grep -q $'^adr\t01\tdocs/adr/decision-questions.md\t01. ADR 의사결정 질문지$' <<<"$manifest"
 grep -q $'^adr\tADR-0076\tdocs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md\tADR-0076: AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층$' <<<"$manifest"
@@ -70,6 +71,7 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$mock_dir/markdown" "$mock_dir/titles"
 printf '0' >"$mock_dir/counter"
+printf '0' >"$mock_dir/divider-counter"
 : >"$mock_dir/events"
 
 cat >"$mock_dir/ntn" <<'EOF'
@@ -161,8 +163,11 @@ case "${1:-}:${2:-}" in
 
     page_id="${endpoint##*/}"
     if jq -e '.children[0].type == "divider"' <<<"$request" >/dev/null 2>&1; then
+      divider_count="$(cat "$MOCK_NTN_STATE_DIR/divider-counter")"
+      divider_count=$((divider_count + 1))
+      printf '%s' "$divider_count" >"$MOCK_NTN_STATE_DIR/divider-counter"
       printf 'divider\t%s\n' "$(cut -d/ -f3 <<<"$endpoint")" >>"$event_log"
-      jq '.children[0].id = "mock-divider-1" | {results:.children}' <<<"$request"
+      jq --arg id "mock-divider-$divider_count" '.children[0].id = $id | {results:.children}' <<<"$request"
     elif jq -e '.in_trash == true' <<<"$request" >/dev/null; then
       printf 'trash\t%s\n' "$page_id" >>"$event_log"
       jq -n --arg id "$page_id" '{id:$id,in_trash:true}'
@@ -204,8 +209,9 @@ jq -e '
   and .general_count == 15
   and .adr_count == 78
   and (.pages | length == 93)
-  and .pages[0].display_title == "01. 요구사항 정의서"
-  and .pages[14].display_title == "15. 위험도 산정 기준표"
+  and .pages[0].display_title == "프로젝트 규칙"
+  and .pages[1].display_title == "01. 요구사항 정의서"
+  and .pages[14].display_title == "14. 위험도 산정 기준표"
   and .pages[15].display_title == "00. ADR 목록"
   and .pages[16].display_title == "01. ADR 의사결정 질문지"
   and .pages[-1].display_title == "ADR-0076: AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층"
@@ -213,12 +219,12 @@ jq -e '
 
 test "$(awk -F '\t' '$1 == "create" && $3 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 15
 test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 78
-grep -q $'^container\tmock-page-16\ttest-parent\t16. ADR$' "$mock_dir/events"
-if grep -q $'^create\t.*\ttest-parent\t# 16. ADR$' "$mock_dir/events"; then
+grep -q $'^container\tmock-page-16\ttest-parent\t15. ADR$' "$mock_dir/events"
+if grep -q $'^create\t.*\ttest-parent\t# 15. ADR$' "$mock_dir/events"; then
   echo "ADR container contains an unnecessary heading block" >&2
   exit 1
 fi
-test "$(awk -F '\t' '$1 == "divider" && $2 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 1
+test "$(awk -F '\t' '$1 == "divider" && $2 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 2
 test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 95
 grep -q $'^lock\ttest-parent$' "$mock_dir/events"
 grep -q $'^lock\tmock-page-16$' "$mock_dir/events"
@@ -227,6 +233,7 @@ rm -f "$result_path" "$mock_dir/transient-get-failed"
 rm -rf "$mock_dir/markdown" "$mock_dir/titles"
 mkdir -p "$mock_dir/markdown" "$mock_dir/titles"
 printf '0' >"$mock_dir/counter"
+printf '0' >"$mock_dir/divider-counter"
 : >"$mock_dir/events"
 
 if PATH="$mock_dir:$PATH" \
@@ -245,6 +252,7 @@ fi
 test ! -e "$result_path"
 test "$(awk -F '\t' '$1 == "trash" {count++} END {print count + 0}' "$mock_dir/events")" -eq 16
 grep -q $'^delete-block\tmock-divider-1$' "$mock_dir/events"
+grep -q $'^delete-block\tmock-divider-2$' "$mock_dir/events"
 grep -q $'^unlock\ttest-parent$' "$mock_dir/events"
 
 echo "notion publish script contract passed"
