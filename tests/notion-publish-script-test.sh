@@ -100,8 +100,7 @@ case "${1:-}:${2:-}" in
       exit 5
     fi
     title="$(cat "$MOCK_NTN_STATE_DIR/titles/$page_id")"
-    markdown="$(cat "$MOCK_NTN_STATE_DIR/markdown/$page_id")"
-    jq -n --arg markdown "$markdown" --arg title "$title" \
+    jq -n --rawfile markdown "$MOCK_NTN_STATE_DIR/markdown/$page_id" --arg title "$title" \
       '{page:{is_locked:true,properties:{title:{title:[{plain_text:$title}]}}},markdown:{truncated:false,unknown_block_ids:[],markdown:$markdown}}'
     ;;
   pages:edit)

@@ -416,7 +416,7 @@ publish_documents() {
   cleanup_divider_ids="$temp_dir/divider-ids"
   : >"$cleanup_page_ids"
   : >"$cleanup_divider_ids"
-  trap 'cleanup_publication "$?" "$temp_dir"' EXIT
+  trap "cleanup_publication \"\$?\" \"$temp_dir\"" EXIT
 
   while IFS=$'\t' read -r section order source_path title; do
     publish_document "$section" "$order" "$source_path" "$title" \
