@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -30,7 +31,16 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
     def test_release_smoke_has_bounded_health_outage_and_exact_cleanup(self) -> None:
         text = SMOKE.read_text(encoding="utf-8")
 
-        for service in ("frontend", "backend", "worker", "postgres", "redis", "minio", "qdrant", "opensearch"):
+        for service in (
+            "frontend",
+            "backend",
+            "worker",
+            "postgres",
+            "redis",
+            "minio",
+            "qdrant",
+            "opensearch",
+        ):
             self.assertIn(service, text)
         self.assertIn("wait_for_service_health", text)
         self.assertIn("wait_for_worker_not_ready", text)
@@ -58,11 +68,12 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         text = PROD_COMPOSE.read_text(encoding="utf-8")
 
         self.assertGreaterEqual(text.count("stop_grace_period:"), 3)
-        for service in ("frontend:", "backend:", "worker:"):
-            start = text.index(f"  {service}")
-            end = text.find("\n  ", start + 3)
-            section = text[start:] if end == -1 else text[start:end]
-            self.assertIn("stop_grace_period:", section)
+        for service in ("frontend", "backend", "worker"):
+            section = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z].*:\n|\Z)", text
+            )
+            self.assertIsNotNone(section)
+            self.assertIn("stop_grace_period:", section.group("body"))  # type: ignore[union-attr]
 
     @unittest.skipUnless(
         os.environ.get("NH_RUN_M8_RELEASE_DOCKER") == "1",
