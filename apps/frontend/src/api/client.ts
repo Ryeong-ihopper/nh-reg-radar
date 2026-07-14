@@ -34,6 +34,14 @@ export type ReviewProgress = components["schemas"]["ReviewProgress"];
 export type ReviewHistory = components["schemas"]["ReviewHistory"];
 export type RerunReviewInput = components["schemas"]["RerunReviewRequest"];
 export type RerunReviewAccepted = components["schemas"]["RerunReviewAccepted"];
+export type ReviewSummary = components["schemas"]["ReviewSummary"];
+export type ReviewItemSummary = components["schemas"]["ReviewItemSummary"];
+export type ReviewItemPage = components["schemas"]["ReviewItemPage"];
+export type ReviewItemDetail = components["schemas"]["ReviewItemDetail"];
+export type ReviewAnnotation = components["schemas"]["Annotation"];
+export type ReviewAnnotationCollection = components["schemas"]["AnnotationCollection"];
+export type ReviewItemSearch = NonNullable<operations["listReviewItems"]["parameters"]["query"]>;
+export type ReviewAnnotationSearch = NonNullable<operations["listReviewAnnotations"]["parameters"]["query"]>;
 
 export interface AdvertisementCreateInput {
   advertisementName: string;
@@ -308,6 +316,36 @@ export const api = {
 
   getReviewStatus(accessToken: string, reviewId: string): Promise<ReviewProgress> {
     return request<ReviewProgress>(`/reviews/${encodeURIComponent(reviewId)}/status`, accessToken);
+  },
+
+  getReviewSummary(accessToken: string, reviewId: string): Promise<ReviewSummary> {
+    return request<ReviewSummary>(`/reviews/${encodeURIComponent(reviewId)}/summary`, accessToken);
+  },
+
+  listReviewItems(
+    accessToken: string,
+    reviewId: string,
+    search: ReviewItemSearch = {},
+  ): Promise<ReviewItemPage> {
+    return request<ReviewItemPage>(`/reviews/${encodeURIComponent(reviewId)}/items${queryString(search)}`, accessToken);
+  },
+
+  getReviewItem(accessToken: string, reviewId: string, reviewItemId: string): Promise<ReviewItemDetail> {
+    return request<ReviewItemDetail>(
+      `/reviews/${encodeURIComponent(reviewId)}/items/${encodeURIComponent(reviewItemId)}`,
+      accessToken,
+    );
+  },
+
+  listReviewAnnotations(
+    accessToken: string,
+    reviewId: string,
+    search: ReviewAnnotationSearch = {},
+  ): Promise<ReviewAnnotationCollection> {
+    return request<ReviewAnnotationCollection>(
+      `/reviews/${encodeURIComponent(reviewId)}/annotations${queryString(search)}`,
+      accessToken,
+    );
   },
 
   rerunReview(accessToken: string, reviewId: string, input: RerunReviewInput): Promise<RerunReviewAccepted> {

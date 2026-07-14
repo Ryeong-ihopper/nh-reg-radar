@@ -56,9 +56,7 @@ def _print_findings(findings: Sequence[Finding], output_format: OutputFormat) ->
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Validate project document governance rules."
-    )
+    parser = argparse.ArgumentParser(description="Validate project document governance rules.")
     _ = parser.add_argument(
         "command",
         choices=("validate", "impact", "files"),
@@ -67,9 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _ = parser.add_argument("--root", default=".")
     _ = parser.add_argument("--config", default="governance/document-policy.json")
-    _ = parser.add_argument(
-        "--scope", choices=("all", "staged", "working", "diff"), default="all"
-    )
+    _ = parser.add_argument("--scope", choices=("all", "staged", "working", "diff"), default="all")
     _ = parser.add_argument("--base-ref")
     _ = parser.add_argument(
         "--format",

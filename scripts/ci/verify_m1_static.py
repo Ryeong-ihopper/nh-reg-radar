@@ -7,13 +7,15 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
+from typing import cast
 
 
 ENV_LINE = re.compile(r"^(?:export\s+)?([A-Z][A-Z0-9_]*)=(.*)$")
 PRIVILEGED_NAME = re.compile(
     r"\b(?=[A-Z0-9_]*(?:BOOTSTRAP|ADMIN))"
-    r"(?=[A-Z0-9_]*(?:DATABASE_URL|DSN|PASSWORD|SECRET))[A-Z][A-Z0-9_]+\b"
+    + r"(?=[A-Z0-9_]*(?:DATABASE_URL|DSN|PASSWORD|SECRET))[A-Z][A-Z0-9_]+\b"
 )
 NAMESPACE_GROUPS = {
     "postgres database": re.compile(r"POSTGRES.*(?:_DB|DATABASE_NAME)$"),
@@ -73,8 +75,9 @@ def workflow_job_blocks(text: str) -> dict[str, str]:
     for line in lines:
         match = re.match(r"^  ([a-zA-Z0-9_-]+):\s*(?:#.*)?$", line)
         if match:
-            current = match.group(1)
-            blocks[current] = [line]
+            name = match.group(1)
+            current = name
+            blocks[name] = [line]
         elif current is not None:
             if line and not line.startswith((" ", "\t", "\n", "\r")):
                 break
@@ -121,53 +124,65 @@ def verify_product_sources(root: Path) -> None:
 
 def _environment_keys(value: object) -> set[str]:
     if isinstance(value, dict):
-        return {key for key in value if isinstance(key, str)}
+        mapping = cast("dict[object, object]", value)
+        return {key for key in mapping if isinstance(key, str)}
     if isinstance(value, list):
-        return {item.split("=", 1)[0] for item in value if isinstance(item, str) and "=" in item}
+        items = cast("list[object]", value)
+        return {item.split("=", 1)[0] for item in items if isinstance(item, str) and "=" in item}
     return set()
 
 
+def _object_mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return cast("dict[str, object]", value)
+
+
+def _load_json(path: Path) -> object:
+    return cast(object, json.loads(path.read_text(encoding="utf-8")))
+
+
 def verify_compose_json(path: Path) -> None:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    services = payload.get("services") if isinstance(payload, dict) else None
-    if not isinstance(services, dict):
+    payload = _object_mapping(_load_json(path))
+    services = _object_mapping(payload.get("services")) if payload is not None else None
+    if services is None:
         raise VerificationError(f"{path}: rendered Compose has no services mapping")
     failures: list[str] = []
-    bootstrap = services.get("db-bootstrap")
-    if not isinstance(bootstrap, dict):
+    bootstrap = _object_mapping(services.get("db-bootstrap"))
+    if bootstrap is None:
         failures.append("missing db-bootstrap service")
     else:
-        bootstrap_environment = bootstrap.get("environment")
+        bootstrap_environment = _object_mapping(bootstrap.get("environment"))
         revoke_value = (
             bootstrap_environment.get("NH_DB_REVOKE_BOOTSTRAP_LOGIN")
-            if isinstance(bootstrap_environment, dict)
+            if bootstrap_environment is not None
             else None
         )
         if str(revoke_value).lower() not in {"1", "true"}:
             failures.append("db-bootstrap:NH_DB_REVOKE_BOOTSTRAP_LOGIN must be true")
-        bootstrap_command = "\n".join(str(item) for item in bootstrap.get("command", []))
+        command = cast("Iterable[object]", bootstrap.get("command", []))
+        bootstrap_command = "\n".join(str(item) for item in command)
         if 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER"' not in bootstrap_command:
             failures.append("db-bootstrap readiness must use POSTGRES_USER")
 
-    postgres = services.get("postgres")
-    if not isinstance(postgres, dict):
+    postgres = _object_mapping(services.get("postgres"))
+    if postgres is None:
         failures.append("missing postgres service")
     else:
-        dependencies = postgres.get("depends_on")
+        dependencies = _object_mapping(postgres.get("depends_on"))
         bootstrap_dependency = (
-            dependencies.get("db-bootstrap") if isinstance(dependencies, dict) else None
+            _object_mapping(dependencies.get("db-bootstrap")) if dependencies is not None else None
         )
         condition = (
-            bootstrap_dependency.get("condition")
-            if isinstance(bootstrap_dependency, dict)
-            else None
+            bootstrap_dependency.get("condition") if bootstrap_dependency is not None else None
         )
         if condition != "service_completed_successfully":
             failures.append("postgres must depend on successful one-shot db-bootstrap completion")
-        healthcheck = postgres.get("healthcheck")
-        healthcheck_test = healthcheck.get("test") if isinstance(healthcheck, dict) else None
+        healthcheck = _object_mapping(postgres.get("healthcheck"))
+        healthcheck_test = healthcheck.get("test") if healthcheck is not None else None
         if not isinstance(healthcheck_test, list) or not any(
-            "pg_isready" in str(item) and "-U app" in str(item) for item in healthcheck_test
+            "pg_isready" in str(item) and "-U app" in str(item)
+            for item in cast("list[object]", healthcheck_test)
         ):
             failures.append("postgres healthcheck must use the app role")
         leaked = sorted(
@@ -177,26 +192,26 @@ def verify_compose_json(path: Path) -> None:
         )
         failures.extend(f"postgres:{key}" for key in leaked)
 
-    opensearch = services.get("opensearch")
-    if not isinstance(opensearch, dict):
+    opensearch = _object_mapping(services.get("opensearch"))
+    if opensearch is None:
         failures.append("missing opensearch service")
     else:
-        opensearch_environment = opensearch.get("environment")
+        opensearch_environment = _object_mapping(opensearch.get("environment"))
         security_disabled = (
             opensearch_environment.get("DISABLE_SECURITY_PLUGIN")
-            if isinstance(opensearch_environment, dict)
+            if opensearch_environment is not None
             else None
         )
         if str(security_disabled).lower() not in {"1", "true"}:
             failures.append("opensearch:DISABLE_SECURITY_PLUGIN must be true")
         if (
-            isinstance(opensearch_environment, dict)
+            opensearch_environment is not None
             and "plugins.security.disabled" in opensearch_environment
         ):
             failures.append("opensearch must not duplicate the security-disabled setting")
     for service_name in ("backend", "worker", "frontend"):
-        service = services.get(service_name)
-        if not isinstance(service, dict):
+        service = _object_mapping(services.get(service_name))
+        if service is None:
             failures.append(f"missing product service {service_name}")
             continue
         leaked = sorted(
@@ -210,16 +225,17 @@ def verify_compose_json(path: Path) -> None:
 
 
 def verify_image_inspect_json(path: Path) -> None:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _load_json(path)
     if not isinstance(payload, list) or not payload:
         raise VerificationError(f"{path}: image inspect payload must be a non-empty array")
     failures: list[str] = []
-    for image in payload:
-        if not isinstance(image, dict):
+    for item in cast("list[object]", payload):
+        image = _object_mapping(item)
+        if image is None:
             raise VerificationError(f"{path}: invalid image inspect entry")
         image_id = image.get("Id", "unknown-image")
-        config = image.get("Config")
-        environment = config.get("Env") if isinstance(config, dict) else None
+        config = _object_mapping(image.get("Config"))
+        environment = config.get("Env") if config is not None else None
         leaked = sorted(
             key for key in _environment_keys(environment) if PRIVILEGED_NAME.search(key)
         )
@@ -238,15 +254,18 @@ def verify(root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("--compose-json", type=Path, action="append", default=[])
-    parser.add_argument("--image-inspect-json", type=Path, action="append", default=[])
-    args = parser.parse_args(argv)
+    _ = parser.add_argument("--root", type=Path, default=Path.cwd())
+    _ = parser.add_argument("--compose-json", type=Path, action="append", default=[])
+    _ = parser.add_argument("--image-inspect-json", type=Path, action="append", default=[])
+    args = cast("dict[str, object]", vars(parser.parse_args(argv)))
+    root = cast(Path, args["root"])
+    compose_paths = cast("list[Path]", args["compose_json"])
+    image_inspect_paths = cast("list[Path]", args["image_inspect_json"])
     try:
-        verify(args.root.resolve())
-        for path in args.compose_json:
+        verify(root.resolve())
+        for path in compose_paths:
             verify_compose_json(path)
-        for path in args.image_inspect_json:
+        for path in image_inspect_paths:
             verify_image_inspect_json(path)
     except (OSError, VerificationError) as error:
         print(f"M1 static verification failed: {error}", file=sys.stderr)

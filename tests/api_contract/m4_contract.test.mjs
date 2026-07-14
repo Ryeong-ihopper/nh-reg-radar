@@ -15,7 +15,8 @@ test('G005-m4 manifest freezes the Review Job Parser boundary', async () => {
   const operations = collectOperationIds(document);
 
   assert.equal(manifest.goal_id, 'G005-m4-parser-ocr-job');
-  assert.equal(document.info.version, manifest.openapi.version);
+  assert.equal(manifest.openapi.version, '0.4.0');
+  assert.equal(document.info.version, '0.5.0');
   for (const operationId of manifest.openapi.operation_ids) {
     assert.ok(operations.has(operationId), `missing operationId ${operationId}`);
   }

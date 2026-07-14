@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.8 |
+| 현행 버전 | v1.10 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.10 | 2026-07-14 | G006 M5 결정적 Rule→근거 선택→provider-independent structured 실행, 0005 영속화와 결과 조회 handler 경계 반영 |
+| v1.9 | 2026-07-14 | G006 M5 Rule→RAG→structured mock 결과·근거 상태·위험도 근거·Annotation entry gate 반영 |
 | v1.8 | 2026-07-14 | M4 정책 기반 보조 parser 실행, 결정적 후보 비교, 전체 시도 raw artifact 추적과 단일 선택 산출물 영속화 경계 보강 |
 | v1.7 | 2026-07-14 | M4 Redis delivery의 정확한 버전·필드 집합과 Job 기준 idempotency claim 선검증 경계 보강 |
 | v1.6 | 2026-07-14 | M4 frozen 계약을 소비하는 Review API, PostgreSQL Job/Step, Redis delivery, parser worker와 raw artifact lifecycle 실행 경계 반영 |
@@ -268,6 +270,23 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 | Raw artifact | 모든 1차·보조 시도의 engine, 재처리 사유, confidence, raw artifact 참조와 선택 여부를 기록하되 Text/Layout block은 정확히 하나의 선택 산출물만 영속화. bucket 본문과 DB metadata/checksum을 분리하고 일반 사용자 접근 금지, 예외 접근·삭제 redacted audit, retention hold/승인 삭제 적용 |
 
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
+
+### M5 근거 기반 결과·Annotation entry gate
+
+| 경계 | M5 계약 기준 |
+| --- | --- |
+| Thin slice | M5a 결정적 Rule → M5b M3 Hybrid Search 근거 → M5c provider-independent structured mock 순서 |
+| 판정 불변조건 | 모든 item은 정책 버전, 사유 코드, 구조화 score detail, source engine/version을 포함 |
+| 근거 불변조건 | evidence 연결 또는 `NOT_REQUIRED`/`INSUFFICIENT`/`SEARCH_UNAVAILABLE` 명시 상태를 반드시 포함 |
+| 실패 분리 | 정상 검색의 근거 부족과 `RAG_SEARCH_UNAVAILABLE`/`RAG_SEARCH_FAILED` 기술 장애를 분리 |
+| Rule 보존 | M5b/M5c 실패가 M5a Rule 결과를 무근거 정상이나 덮어쓰기 상태로 변경하지 않음 |
+| Structured output | `review-structured-output-v1` fixture만 사용하고 provider/model/credential/network 선택 금지 |
+| Annotation | 이미지/PDF BOX, HWP/HWPX TEXT_HIGHLIGHT, 좌표·offset 미확정 LIST_ONLY/UNAVAILABLE |
+| Snapshot | effective date, standard/evidence/chunk version, rank/score/match source를 결과와 함께 고정 |
+
+이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계의 Top-K를 0.70 이상 최대 3개로 선택하며, 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. structured 경계는 fixture callable만 허용하며 provider/model/credential/network adapter를 구성하지 않는다.
+
+backend의 summary/items/detail/annotations handler는 기존 Review 부서 scope를 재사용하고 위험도 우선 정렬, evidence 필터, frozen standard version, BOX/TEXT_HIGHLIGHT/LIST_ONLY 정보를 반환한다. frontend runtime은 같은 frozen 계약을 소비하는 별도 lane이며 backend 구현은 OpenAPI, migration 또는 기존 M0~M4 revision을 재작성하지 않는다.
 
 ---
 

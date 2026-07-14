@@ -12,11 +12,11 @@ import {
 
 const contractPath = new URL('../../openapi/openapi.yaml', import.meta.url).pathname;
 
-test('TC-NFR-API-001: M4 source document is valid and capability-bounded', async () => {
+test('TC-NFR-API-001: M5 source document is valid and capability-bounded', async () => {
   const document = await validateOpenApi(contractPath);
   assert.equal(document.openapi, '3.1.0');
   assert.equal(typeof document.info.title, 'string');
-  assert.equal(document.info.version, '0.4.0');
+  assert.equal(document.info.version, '0.5.0');
   assert.deepEqual(Object.keys(document.paths).sort(), [
     '/admin/audit-logs',
     '/advertisements',
@@ -33,8 +33,12 @@ test('TC-NFR-API-001: M4 source document is valid and capability-bounded', async
     '/files/{fileId}/download',
     '/files/{fileId}/preview',
     '/files/{fileId}/preview/content',
+    '/reviews/{reviewId}/annotations',
+    '/reviews/{reviewId}/items',
+    '/reviews/{reviewId}/items/{reviewItemId}',
     '/reviews/{reviewId}/rerun',
     '/reviews/{reviewId}/status',
+    '/reviews/{reviewId}/summary',
     '/standard-reindex-jobs/{jobId}',
     '/standards',
     '/standards/{standardId}',

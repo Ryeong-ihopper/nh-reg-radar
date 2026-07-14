@@ -11,9 +11,9 @@ from .models import Finding, GovernanceConfig
 def path_matches(path: str, pattern: str) -> bool:
     normalized_path = unicodedata.normalize("NFC", path.replace("\\", "/"))
     normalized_pattern = unicodedata.normalize("NFC", pattern.replace("\\", "/"))
-    return fnmatch.fnmatch(normalized_path, normalized_pattern) or PurePath(
-        normalized_path
-    ).match(normalized_pattern)
+    return fnmatch.fnmatch(normalized_path, normalized_pattern) or PurePath(normalized_path).match(
+        normalized_pattern
+    )
 
 
 def _matches_any(path: str, patterns: Iterable[str]) -> bool:
@@ -29,14 +29,10 @@ def _required_pattern_changed(changed: Sequence[str], pattern: str) -> bool:
 
 
 def filter_changed_paths(changed: Sequence[str], config: GovernanceConfig) -> list[str]:
-    return sorted(
-        path for path in changed if not _matches_any(path, config.change_path_exclude)
-    )
+    return sorted(path for path in changed if not _matches_any(path, config.change_path_exclude))
 
 
-def validate_change_impact(
-    changed: Sequence[str], config: GovernanceConfig
-) -> list[Finding]:
+def validate_change_impact(changed: Sequence[str], config: GovernanceConfig) -> list[Finding]:
     findings: list[Finding] = []
     if not changed:
         return findings
@@ -51,8 +47,7 @@ def validate_change_impact(
             if not _required_pattern_changed(changed, pattern)
         ]
         missing_any = bool(rule.require_any_changed) and not any(
-            _required_pattern_changed(changed, pattern)
-            for pattern in rule.require_any_changed
+            _required_pattern_changed(changed, pattern) for pattern in rule.require_any_changed
         )
         if not missing_all and not missing_any:
             continue
@@ -99,7 +94,5 @@ def impact_report(changed: Sequence[str], config: GovernanceConfig) -> str:
             lines.extend(f"    - {path}" for path in rule.require_any_changed)
         lines.append(f"  - 이유: {rule.message}")
     if not matched:
-        lines.append(
-            "- 자동 매핑된 계약 영향이 없습니다. 문서와 테스트 영향을 수동 검토하세요."
-        )
+        lines.append("- 자동 매핑된 계약 영향이 없습니다. 문서와 테스트 영향을 수동 검토하세요.")
     return "\n".join(lines)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
@@ -13,6 +14,7 @@ from nh_ad_parser_contracts import ArtifactMetadata, DocumentInput, NormalizedDo
 from sqlalchemy import Engine, text
 
 from nh_ad_worker.jobs import QueueMessage, RETRY_DELAYS, WorkerJob
+from nh_ad_worker.results import ReviewResultBundle
 
 
 class PostgresArtifactMetadataRepository:
@@ -330,6 +332,168 @@ class PostgresJobRepository:
                     },
                 )
 
+    def persist_results(self, job_id: str, results: ReviewResultBundle) -> None:
+        """Persist a complete M5 result bundle in the migration-0005 owner tables."""
+        with self._engine.begin() as connection:
+            review_id = connection.execute(
+                text("SELECT review_id FROM app.review_jobs WHERE job_id=:job_id"),
+                {"job_id": job_id},
+            ).scalar_one_or_none()
+            if review_id != results.review_id:
+                raise ValueError("REVIEW_RESULT_SOURCE_NOT_PERSISTED")
+            existing = connection.execute(
+                text("SELECT 1 FROM app.review_items WHERE review_id=:review_id LIMIT 1"),
+                {"review_id": review_id},
+            ).scalar_one_or_none()
+            if existing is not None:
+                raise ValueError("REVIEW_RESULTS_ALREADY_PERSISTED")
+            for item in results.items:
+                connection.execute(
+                    text("""
+                        INSERT INTO app.review_items
+                        (review_item_id,review_id,review_type,target_text,normalized_target_text,
+                         result_status,risk_level,risk_policy_version,risk_reason_codes,
+                         risk_score_detail,evidence_status,evidence_failure_code,reason,
+                         recommendation,engine_type,engine_version,confidence_score,page_no,
+                         result_json,created_at)
+                        VALUES (:id,:review_id,:review_type,:target,:normalized,:result_status,
+                         :risk_level,:policy,CAST(:codes AS jsonb),CAST(:score AS jsonb),
+                         :evidence_status,:failure,:reason,:recommendation,:engine,:version,
+                         :confidence,:page_no,CAST(:result AS jsonb),CURRENT_TIMESTAMP)
+                    """),
+                    {
+                        "id": item.review_item_id,
+                        "review_id": item.review_id,
+                        "review_type": item.review_type,
+                        "target": item.target_text,
+                        "normalized": item.target_text.casefold(),
+                        "result_status": item.result_status,
+                        "risk_level": item.risk_level,
+                        "policy": item.risk_policy_version,
+                        "codes": json.dumps(item.risk_reason_codes),
+                        "score": json.dumps(item.score_detail),
+                        "evidence_status": item.evidence_status,
+                        "failure": item.evidence_failure_code,
+                        "reason": item.reason,
+                        "recommendation": item.recommendation,
+                        "engine": item.source_engine,
+                        "version": item.source_version,
+                        "confidence": item.confidence_score,
+                        "page_no": item.page_no,
+                        "result": json.dumps(
+                            {
+                                "schemaVersion": "review-result-v1",
+                                "scoreDetail": item.score_detail,
+                            }
+                        ),
+                    },
+                )
+                for evidence in item.evidences:
+                    candidate = evidence.candidate
+                    connection.execute(
+                        text("""
+                            INSERT INTO app.review_item_evidences
+                            (review_item_evidence_id,review_item_id,evidence_id,
+                             standard_version_id,evidence_chunk_id,matched_text,relevance_score,
+                             rank_no,match_source,score_detail,created_at)
+                            VALUES (:id,:item,:evidence,:version,:chunk,:matched,:score,:rank,
+                             :source,CAST(:detail AS jsonb),CURRENT_TIMESTAMP)
+                        """),
+                        {
+                            "id": uuid4(),
+                            "item": item.review_item_id,
+                            "evidence": candidate.evidence_id,
+                            "version": candidate.standard_version_id,
+                            "chunk": candidate.evidence_chunk_id,
+                            "matched": candidate.matched_text,
+                            "score": candidate.relevance_score,
+                            "rank": evidence.rank_no,
+                            "source": candidate.match_source,
+                            "detail": json.dumps({"selection": "TOP_K", "rank": evidence.rank_no}),
+                        },
+                    )
+                annotation = item.annotation
+                if annotation is None:
+                    continue
+                coordinate = annotation.coordinate
+                coordinate_values = {
+                    "source_width": coordinate.source_width if coordinate else None,
+                    "source_height": coordinate.source_height if coordinate else None,
+                    "source_unit": coordinate.source_unit if coordinate else None,
+                    "x": coordinate.x if coordinate else None,
+                    "y": coordinate.y if coordinate else None,
+                    "width": coordinate.width if coordinate else None,
+                    "height": coordinate.height if coordinate else None,
+                    "normalized_x": coordinate.normalized_x if coordinate else None,
+                    "normalized_y": coordinate.normalized_y if coordinate else None,
+                    "normalized_width": coordinate.normalized_width if coordinate else None,
+                    "normalized_height": coordinate.normalized_height if coordinate else None,
+                    "rotation": coordinate.rotation if coordinate else None,
+                    "coordinate_confidence": coordinate.coordinate_confidence
+                    if coordinate
+                    else None,
+                }
+                connection.execute(
+                    text("""
+                        INSERT INTO app.annotations
+                        (annotation_id,review_id,review_item_id,file_id,page_no,text_block_id,
+                         text_path,annotation_display_mode,annotation_status,location_confidence,
+                         confidence_policy_version,display_reason,annotation_type,source_width,
+                         source_height,source_unit,x,y,width,height,normalized_x,normalized_y,
+                         normalized_width,normalized_height,rotation,coordinate_confidence,
+                         raw_start_offset,raw_end_offset,normalized_start_offset,
+                         normalized_end_offset,matched_text,risk_level,review_type,display_order,
+                         created_at)
+                        VALUES (:id,:review_id,:item,:file,:page_no,:text_block,:text_path,:mode,
+                         :status,:location_confidence,:policy,:display_reason,'REVIEW_RESULT',
+                         :source_width,:source_height,:source_unit,:x,:y,:width,:height,
+                         :normalized_x,:normalized_y,:normalized_width,:normalized_height,
+                         :rotation,:coordinate_confidence,:raw_start,:raw_end,:normalized_start,
+                         :normalized_end,:matched,:risk,:review_type,0,CURRENT_TIMESTAMP)
+                    """),
+                    {
+                        "id": annotation.annotation_id,
+                        "review_id": annotation.review_id,
+                        "item": annotation.review_item_id,
+                        "file": annotation.file_id,
+                        "page_no": annotation.page_no,
+                        "text_block": annotation.text_block_id,
+                        "text_path": annotation.text_path,
+                        "mode": annotation.display_mode,
+                        "status": annotation.status,
+                        "location_confidence": annotation.location_confidence,
+                        "policy": annotation.confidence_policy_version,
+                        "display_reason": annotation.display_reason,
+                        "raw_start": annotation.raw_start_offset,
+                        "raw_end": annotation.raw_end_offset,
+                        "normalized_start": annotation.normalized_start_offset,
+                        "normalized_end": annotation.normalized_end_offset,
+                        "matched": annotation.matched_text,
+                        "risk": annotation.risk_level,
+                        "review_type": annotation.review_type,
+                        **coordinate_values,
+                    },
+                )
+            severity = {"LOW": 0, "MEDIUM": 1, "CHECK_REQUIRED": 2, "HIGH": 3}
+            overall = (
+                max(results.items, key=lambda item: severity[item.risk_level]).risk_level
+                if results.items
+                else "CHECK_REQUIRED"
+            )
+            connection.execute(
+                text("""
+                    UPDATE app.reviews
+                       SET applied_standard_version_ids=CAST(:versions AS jsonb),
+                           overall_risk_level=:risk,updated_at=CURRENT_TIMESTAMP
+                     WHERE review_id=:review_id
+                """),
+                {
+                    "versions": json.dumps(results.standard_version_ids),
+                    "risk": overall,
+                    "review_id": results.review_id,
+                },
+            )
+
     def complete(self, job_id: str, *, now: datetime, check_required: bool) -> None:
         review_status = "CHECK_REQUIRED" if check_required else "REVIEW_COMPLETED"
         with self._engine.begin() as connection:
@@ -349,7 +513,9 @@ class PostgresJobRepository:
             connection.execute(
                 text("""
                     UPDATE app.review_steps SET step_status='COMPLETED',completed_at=:now
-                     WHERE job_id=:job_id AND step_code='OCR_EXTRACTION'
+                     WHERE job_id=:job_id AND step_code IN
+                           ('OCR_EXTRACTION','LAYOUT_ANALYSIS','RULE_REVIEW','RAG_REVIEW',
+                            'RESULT_GENERATION')
                 """),
                 {"now": now, "job_id": job_id},
             )

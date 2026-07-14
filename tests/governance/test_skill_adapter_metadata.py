@@ -30,13 +30,7 @@ class SkillAdapterMetadataTest(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            marker = (
-                root
-                / ".agents"
-                / "skills"
-                / "sample-skill"
-                / ".skill-adapter-source.sha256"
-            )
+            marker = root / ".agents" / "skills" / "sample-skill" / ".skill-adapter-source.sha256"
             with marker.open("a", encoding="utf-8") as marker_file:
                 _ = marker_file.write("extra=value\n")
 
@@ -72,13 +66,7 @@ class SkillAdapterMetadataTest(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            marker = (
-                root
-                / ".agents"
-                / "skills"
-                / "sample-skill"
-                / ".skill-adapter-source.sha256"
-            )
+            marker = root / ".agents" / "skills" / "sample-skill" / ".skill-adapter-source.sha256"
             with marker.open("a", encoding="utf-8") as marker_file:
                 _ = marker_file.write("extra=value")
 

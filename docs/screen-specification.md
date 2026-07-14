@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.4 |
+| 현행 버전 | v1.5 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.5 | 2026-07-14 | M5 S-006~S-008 생성 client 기반 결과 요약·상세 필터/근거·BOX/TEXT_HIGHLIGHT/LIST_ONLY Annotation과 신뢰도·부분 실패·권한 상태 실행 동기화 |
 | v1.4 | 2026-07-14 | M4 S-004/S-005 생성 client 기반 검토 요청·진행률·단계·retry/stale/최종 실패·OCR 확인 필요·재분석·권한/redaction 상태를 실행 화면과 동기화 |
 | v1.3 | 2026-07-14 | S-014 내부 기준 등록의 필수 메타데이터 입력·multipart payload와 `REFERENCE_METADATA_INVALID` 안전 오류 상태 동기화 |
 | v1.2 | 2026-07-14 | S-014 생성 계약 기반 기준자료 CRUD·불변 버전·이력·재색인·Chunk·Hybrid Search와 loading/empty/error/권한/redaction 상태, 로그인 후 역할별 기본 진입 반영 |
@@ -27,7 +28,7 @@
 | --- | --- |
 | 문서명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 화면설계서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.4 |
+| 문서 버전 | v1.5 |
 | 작성 목적 | 화면기획서 작성 전, 주요 화면의 구조·역할·입출력·버튼·이동 흐름을 정의 |
 | 작성 범위 | PoC 화면 기준 |
 | 비고 | 본 문서는 상세 UI 디자인이 아닌 화면 설계 틀이다. |
@@ -689,6 +690,17 @@ ADR-0060 기준으로 PoC 1차 구현은 핵심 화면만 상세 레이아웃, �
 | 광고 화면에서 보기 | S-007의 해당 위치로 이동 |
 | 문구 추천 보기 | S-009로 이동 |
 | 리포트 반영 | 선택 항목을 리포트에 포함 |
+
+### 5) M5 실행 상태와 화면 경계
+
+| 구분 | 실행 기준 |
+| --- | --- |
+| 진입 route | 검토 완료 상태의 `결과 보기`는 `/reviews/{reviewId}/results`로 이동하고, 상세 결과는 `/reviews/{reviewId}/results/items`, 광고 화면은 `/reviews/{reviewId}/results/annotations`에서 실행한다. |
+| S-006 | 종합 위험도·전체/수정 필요/확인 필요 건수, 검토유형별 요약, 주요 리스크를 생성 client 계약으로 표시한다. `SEARCH_UNAVAILABLE`은 “RAG 검토 실패/복구 필요”, `INSUFFICIENT`는 “기준자료 확인 필요”로 구분한다. |
+| S-008 | 검토유형·위험도·판정 결과 필터와 목록/선택 상세 패널을 제공하고, Rule 판정은 RAG/structured 단계의 부분 실패에도 판단 사유와 최종 결정 규칙을 유지한다. |
+| S-007 | 이미지/PDF는 `coordinate.normalized*`를 미리보기 크기에 곱한 BOX, HWP/HWPX는 `textBlockId + normalized offset` 하이라이트, 위치 미확정 항목은 `LIST_ONLY`/`UNAVAILABLE` 목록으로 표시한다. |
+| 위치 신뢰도 | `PARTIALLY_LOCATED`, `LOW_CONFIDENCE`, `locationConfidence < 0.80` 항목은 별도 확인 필요 목록에 유지하며, 위치가 없어도 검토 항목과 상세 이동을 누락하지 않는다. |
+| 공통 상태 | loading, empty, partial failure, final failure, 403 permission 상태를 일반화 메시지로 표시하고 raw artifact reference, object key, presigned URL을 노출하지 않는다. 모바일에서는 조회를 유지하되 정밀 Annotation 검토는 PC/노트북 사용을 안내한다. |
 
 ---
 

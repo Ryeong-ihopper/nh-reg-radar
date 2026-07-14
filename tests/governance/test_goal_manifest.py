@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from scripts.validate_goal_manifest import JsonValue, Manifest, validate_manifest
 
@@ -90,14 +91,34 @@ class GoalManifestValidatorTest(unittest.TestCase):
     def test_g005_m4_repository_manifest_is_valid_and_complete(self) -> None:
         manifest = self.repository / "governance" / "goal-manifests" / "G005-m4-parser-ocr-job.json"
         findings = validate_manifest(self.repository, manifest)
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-        identifiers = {item["id"] for item in payload["test_cases"]}
+        payload = cast(Manifest, json.loads(manifest.read_text(encoding="utf-8")))
+        test_cases = cast(list[dict[str, JsonValue]], payload["test_cases"])
+        identifiers = {cast(str, item["id"]) for item in test_cases}
 
         self.assertEqual([], findings)
         self.assertEqual(
             {
                 *(f"TC-REV-{number:03d}" for number in range(1, 15)),
                 *(f"TC-OCR-{number:03d}" for number in range(1, 25)),
+            },
+            identifiers,
+        )
+
+    def test_g006_m5_repository_manifest_is_valid_and_complete(self) -> None:
+        manifest = self.repository / "governance" / "goal-manifests" / "G006-m5-review-results.json"
+        findings = validate_manifest(self.repository, manifest)
+        payload = cast(Manifest, json.loads(manifest.read_text(encoding="utf-8")))
+        test_cases = cast(list[dict[str, JsonValue]], payload["test_cases"])
+        identifiers = {cast(str, item["id"]) for item in test_cases}
+
+        self.assertEqual([], findings)
+        self.assertEqual(
+            {
+                *(f"TC-RES-{number:03d}" for number in range(1, 6)),
+                *(f"TC-ITEM-{number:03d}" for number in range(1, 8)),
+                *(f"TC-RAG-{number:03d}" for number in range(1, 6)),
+                *(f"TC-EVD-{number:03d}" for number in (7, 8, 9, 10, 11, 14)),
+                *(f"TC-ANN-{number:03d}" for number in range(1, 12)),
             },
             identifiers,
         )

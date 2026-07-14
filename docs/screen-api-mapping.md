@@ -8,13 +8,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.5 |
+| 현행 버전 | v1.6 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.6 | 2026-07-14 | OpenAPI v0.5.0 S-006~S-008 결과 요약·상세·Annotation 생성 client route와 preview/필터/부분 실패·권한 화면 상태 동기화 |
 | v1.5 | 2026-07-14 | OpenAPI v0.4.0 S-004/S-005 요청·진행·retry/stale/final failure·quality warning·재분석·권한/redaction client 흐름 동기화 |
 | v1.4 | 2026-07-14 | S-014 내부 기준 등록의 필수 metadata JSON, 상위 필드 정합성 및 `REFERENCE_METADATA_INVALID` 안전 표시 경계 반영 |
 | v1.3 | 2026-07-14 | S-014 생성 client 연동, 역할별 route gate, 직접 입력 등록·불변 version·Hybrid 503·Chunk redaction의 화면 상태를 실행 흐름과 동기화 |
@@ -30,7 +31,7 @@
 | --- | --- |
 | 문서명 | 화면-API 매핑표 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.5 |
+| 문서 버전 | v1.6 |
 | 작성 목적 | 화면별 호출 API, 호출 시점, 요청값, 응답값, 화면 반영 항목을 정의 |
 | 기준 문서 | 화면설계서 v0.1, API 명세서 v0.1 |
 | API Base URL | `/api/v1` |
@@ -333,6 +334,16 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 행 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 상세 판단 사유, ADR-0043 기준 핵심 근거 최대 3개, 추천 문구, Coordinate | 상세 패널 또는 팝업 |
 | 광고 화면에서 보기 클릭 | Annotation 위치 이동 | `/reviews/{reviewId}/annotations` | GET | `reviewItemId` 또는 `pageNo` | 표시 모드, 위치 상태, Coordinate/텍스트 위치 | S-007 이동 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 근거 상세정보 | 근거 팝업 |
+
+### 3.18.1 M5 생성 client 실행 매핑
+
+| 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
+| --- | --- | --- |
+| S-006 `/reviews/{reviewId}/results` | `getReviewSummary` | 종합 위험도·집계·주요 리스크를 표시하고 `EvidenceStatus`의 검색 장애와 업무적 근거 부족을 서로 다른 안내로 표시한다. |
+| S-008 `/reviews/{reviewId}/results/items` | `listReviewItems`, `getReviewItem` | `reviewType`, `riskLevel`, `resultStatus` query를 생성 타입으로 전달하고, 선택 항목의 판단 사유·최종 결정 규칙·근거·수정 권고를 상세 패널에 표시한다. |
+| S-007 `/reviews/{reviewId}/results/annotations` | `listReviewAnnotations` | `pageNo`, `reviewType`, `riskLevel` query와 BOX/TEXT_HIGHLIGHT/LIST_ONLY/UNAVAILABLE 표시 모드를 소비하며, 위치 신뢰도 확인 목록을 유지한다. |
+| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. 이미지/PDF BOX는 정규화 좌표를 사용하고 HWP/HWPX는 offset 하이라이트를 사용한다. |
+| 공통 | 위 네 M5 operation | loading/empty/error/403을 전용 상태로 표시하고 서버 원문, raw artifact/object key/presigned URL은 렌더링하지 않는다. |
 
 ---
 

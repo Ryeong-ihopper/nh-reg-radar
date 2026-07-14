@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.6 |
+| 현행 버전 | v1.7 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.7 | 2026-07-14 | G006 M5 Review Result/Evidence/Annotation OpenAPI v0.5.0, 명시적 근거 상태와 provider-independent structured mock 계약 잠금 반영 |
 | v1.6 | 2026-07-14 | M4 worker delivery의 exact `review-job-v1` envelope와 Job 기준 idempotency 선검증 규칙 보강 |
 | v1.5 | 2026-07-14 | M4 frozen Review API runtime handler, PostgreSQL 상태 조회, 최소 Redis enqueue와 immutable rerun 실행 증거 반영 |
 | v1.4 | 2026-07-14 | G005 M4 Review/Job/Parser OpenAPI v0.4.0, PostgreSQL 상태 원천, 최소 Redis 메시지와 NormalizedDocument v1 계약 잠금 반영 |
@@ -962,6 +963,7 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
         "PROHIBITED_EXPRESSION",
         "HIGH_RAG_RELEVANCE"
       ],
+      "evidenceStatus": "CONNECTED",
       "targetText": "국내 최고 수준의 혜택",
       "reason": "확정적·과장 표현으로 소비자 오인 가능성이 있습니다."
     }
@@ -1008,15 +1010,19 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
         "HIGH_RAG_RELEVANCE"
       ],
       "reason": "객관적 근거 없이 최고 수준이라는 표현을 사용하여 과장 표현으로 해석될 수 있습니다.",
+      "evidenceStatus": "CONNECTED",
+      "evidenceFailureCode": null,
       "evidenceCount": 2,
-      "suggestionCount": 1,
       "pageNo": 1,
-      "hasAnnotation": true
+      "hasAnnotation": true,
+      "sourceEngine": "RULE",
+      "sourceVersion": "rule-config-v1"
     }
   ],
   "page": 1,
   "size": 20,
-  "totalElements": 1
+  "totalElements": 1,
+  "totalPages": 1
 }
 ```
 
@@ -1080,6 +1086,14 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
     }
   },
   "reason": "객관적 근거 없이 최고 수준이라는 표현을 사용하여 소비자 오인 가능성이 있습니다.",
+  "evidenceStatus": "CONNECTED",
+  "evidenceFailureCode": null,
+  "evidenceCount": 2,
+  "pageNo": 1,
+  "hasAnnotation": true,
+  "sourceEngine": "RULE",
+  "sourceVersion": "rule-config-v1",
+  "recommendation": "객관적 조건과 적용 범위를 함께 표시합니다.",
   "evidences": [
     {
       "evidenceId": "EVD-0001",
@@ -1102,10 +1116,21 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
   ],
   "annotation": {
     "pageNo": 1,
-    "x": 120,
-    "y": 240,
-    "width": 320,
-    "height": 48
+    "coordinate": {
+      "sourceWidth": 1080,
+      "sourceHeight": 1920,
+      "sourceUnit": "px",
+      "x": 120,
+      "y": 240,
+      "width": 320,
+      "height": 48,
+      "normalizedX": 0.1111,
+      "normalizedY": 0.125,
+      "normalizedWidth": 0.2963,
+      "normalizedHeight": 0.025,
+      "rotation": 0,
+      "coordinateConfidence": 0.94
+    }
   }
 }
 ```
@@ -1149,10 +1174,21 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
       "confidencePolicyVersion": "confidence-thresholds-v1",
       "displayReason": "MATCHED_BOX",
       "pageNo": 1,
-      "x": 120,
-      "y": 240,
-      "width": 320,
-      "height": 48,
+      "coordinate": {
+        "sourceWidth": 1080,
+        "sourceHeight": 1920,
+        "sourceUnit": "px",
+        "x": 120,
+        "y": 240,
+        "width": 320,
+        "height": 48,
+        "normalizedX": 0.1111,
+        "normalizedY": 0.125,
+        "normalizedWidth": 0.2963,
+        "normalizedHeight": 0.025,
+        "rotation": 0,
+        "coordinateConfidence": 0.94
+      },
       "textBlockId": null,
       "textPath": null,
       "rawStartOffset": null,
@@ -1173,10 +1209,7 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
       "confidencePolicyVersion": "confidence-thresholds-v1",
       "displayReason": "PARTIAL_TEXT_MATCH",
       "pageNo": null,
-      "x": null,
-      "y": null,
-      "width": null,
-      "height": null,
+      "coordinate": null,
       "textBlockId": "OCR-0007",
       "textPath": "body/section[1]/paragraph[4]",
       "rawStartOffset": 348,
@@ -2565,6 +2598,14 @@ Coordinate는 ADR-0015, ADR-0065, ADR-0066 기준 원본 좌표와 정규화 좌
 ```
 
 `rawArtifactRef`는 내부 raw artifact 참조값이며, 일반 사용자에게 다운로드 가능한 URL 또는 Object Storage 전체 경로로 제공하지 않는다.
+
+## 17.9 M5 Review Result/Evidence/Annotation entry gate
+
+M5 원천 계약은 `openapi/openapi.yaml` v0.5.0이며 M0~M4 operation을 보존한 채 `getReviewSummary`, `listReviewItems`, `getReviewItem`, `listReviewAnnotations`만 추가한다. 모든 검토 항목은 `riskPolicyVersion`, `riskReasonCodes`, `RiskScoreDetail`, `sourceEngine`, `sourceVersion`을 가지며, 근거는 `CONNECTED`, `NOT_REQUIRED`, `INSUFFICIENT`, `SEARCH_UNAVAILABLE` 중 하나로 명시한다.
+
+`INSUFFICIENT`는 검색이 정상 수행됐지만 업무 근거가 부족한 상태이고 `SEARCH_UNAVAILABLE`은 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED` 기술 장애다. 두 상태를 `CHECK_REQUIRED` 하나로 숨기지 않는다. M5a Rule 결과는 RAG/LLM 없이도 완결되며 M5b 검색 장애나 M5c `INVALID_SCHEMA`가 기존 Rule 항목을 정상 또는 무근거 상태로 덮어쓰지 않는다.
+
+M5c는 `review-structured-output-v1` fixture 계약만 사용한다. 실제 provider/model은 null이고 network 호출과 credential을 금지하며 Accepted ADR 없이 외부 adapter를 선택하지 않는다. Annotation은 ADR-0051/0053/0066에 따라 `BOX`, `TEXT_HIGHLIGHT`, `LIST_ONLY`, `UNAVAILABLE`을 지원하고 Coordinate가 없을 때도 목록/상세 결과를 유지한다.
 
 ---
 

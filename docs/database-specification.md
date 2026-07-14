@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.5 |
+| 현행 버전 | v1.7 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.7 | 2026-07-14 | M5 worker의 parser 선택 산출물→결과 bundle 원자 영속화와 review snapshot/완료 상태 갱신 경계 반영 |
+| v1.6 | 2026-07-14 | M5 owner revision의 review item/risk rationale/evidence 상태·버전 snapshot/Annotation 좌표·offset 불변조건 반영 |
 | v1.5 | 2026-07-14 | M4 품질 재처리 전체 시도의 artifact metadata 기록과 단계별 단일 선택 산출물 영속화 불변조건 보강 |
 | v1.4 | 2026-07-14 | M4 owner revision의 Review/Job/Step, normalized text/layout, raw parser artifact metadata와 retry/retention 제약 반영 |
 | v1.3 | 2026-07-14 | M3 owner revision의 standards/version/evidence/chunk/reindex 원천 테이블, 결정적 인덱스 ID 제약과 분리된 synthetic seed 경계 반영 |
@@ -240,6 +242,24 @@ Runtime `app`은 `rag` schema의 DML만, `readonly`는 조회만 허용한다. �
 | Exclusion | backend/worker 실행, provider SDK와 실제 OCR 품질 평가는 M4 entry gate migration 범위가 아님 |
 
 `review_jobs`는 최대 retry 3회, `RETRY_PENDING`/`STALE`/`FAILED_FINAL`, 다음 retry, timeout, lock/heartbeat와 dead-letter 시각을 보존한다. `parser_artifacts`는 시도 순번, primary/selected 여부, 품질 재처리 사유, checksum, parser/rule/IR 버전, confidence, 보존 만료/hold/삭제 시각을 보존한다. 일반 사용자 API는 raw 본문, bucket/object key, presigned URL을 노출하지 않는다.
+
+### M5 owner revision
+
+`0005_m5_review_results`는 `0004_m4_parser_ocr_jobs`를 직접 상속하며 기존 0001~0004를 수정하지 않는다.
+
+| 구분 | M5 기준 |
+| --- | --- |
+| Owner tables | `app.review_items`, `app.review_item_evidences`, `app.annotations` |
+| Risk rationale | `risk_policy_version`, `risk_reason_codes`, `risk_score_detail`, source engine/version 필수 |
+| Evidence state | 연결/Rule 불필요/업무적 부족/검색 장애를 `evidence_status`와 제한된 failure code로 분리 |
+| Version snapshot | evidence, chunk, `standard_version_id`, rank, relevance, match source를 검토 시점 값으로 보존 |
+| Annotation | BOX는 원본·정규화 Coordinate, TEXT_HIGHLIGHT는 text block+normalized offset, 위치 미확정은 목록 fallback |
+| Upgrade | 빈 DB 0001→0002→0003→0004→0005 및 기존 M4 DB 0004→0005 모두 지원 |
+| Exclusion | backend pipeline/frontend runtime, provider SDK, 실제 LLM 호출은 M5 entry gate migration 범위가 아님 |
+
+검토 항목은 evidence mapping이 없어도 `NOT_REQUIRED`, `INSUFFICIENT`, `SEARCH_UNAVAILABLE` 중 하나를 저장해야 한다. 검색 장애에만 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED`를 허용하고 정상 검색의 근거 부족과 분리한다. 항목별 저장 근거는 ADR-0043 기준 최대 5개이며 `rank_no`는 1~5로 제한한다.
+
+M5 worker는 선택된 `NormalizedDocument`와 raw artifact metadata가 먼저 영속화된 동일 Job에 대해서만 결과 bundle을 저장한다. `review_items`와 연결 근거·Annotation을 한 transaction에서 추가하고, 중복 bundle 저장은 거부한다. 이후 `reviews.applied_standard_version_ids`와 `overall_risk_level` snapshot을 갱신하고 Rule/RAG/결과 단계 완료와 Job/Review 완료를 순서대로 반영한다. 검색 장애 또는 structured schema 오류가 발생해도 기존 Rule item row를 삭제·정상화하지 않는다.
 
 ---
 
@@ -849,15 +869,18 @@ AI 검토 항목별 판정 결과를 관리한다.
 | layout_block_id | varchar(50) |  | layout_blocks |  | 레이아웃 블록 ID |
 | result_status | varchar(50) |  |  | Y | 판정 결과 |
 | risk_level | varchar(50) |  |  | Y | 위험도 |
-| risk_policy_version | varchar(100) |  |  |  | ADR-0068 기준 위험도 산정 정책 버전 |
-| risk_reason_codes | jsonb |  |  |  | ADR-0068 기준 위험도 산정 사유 코드 배열 |
-| risk_score_detail | jsonb |  |  |  | Rule/RAG/LLM/confidence 입력과 최종 결정 상세 |
-| reason | text |  |  |  | 판단 사유 |
+| risk_policy_version | varchar(100) |  |  | Y | ADR-0068 기준 위험도 산정 정책 버전 |
+| risk_reason_codes | jsonb |  |  | Y | ADR-0068 기준 위험도 산정 사유 코드 배열 |
+| risk_score_detail | jsonb |  |  | Y | Rule/RAG/LLM/confidence 입력과 최종 결정 상세 |
+| evidence_status | varchar(50) |  |  | Y | CONNECTED, NOT_REQUIRED, INSUFFICIENT, SEARCH_UNAVAILABLE |
+| evidence_failure_code | varchar(100) |  |  |  | 검색 장애일 때만 RAG_SEARCH_UNAVAILABLE 또는 RAG_SEARCH_FAILED |
+| reason | text |  |  | Y | 판단 사유 |
 | recommendation | text |  |  |  | 수정 권고 |
 | engine_type | varchar(50) |  |  | Y | RULE, RAG, MULTIMODAL, LLM |
+| engine_version | varchar(100) |  |  | Y | 결과를 생성한 rule/search/structured schema 버전 |
 | confidence_score | numeric(5,4) |  |  |  | 판정 신뢰도 |
 | page_no | int |  |  |  | 페이지 번호 |
-| result_json | jsonb |  |  |  | 엔진별 상세 결과 |
+| result_json | jsonb |  |  | Y | 엔진별 상세 결과. 위험도 계약 원천은 risk_* 필드 |
 | created_at | timestamptz |  |  | Y | 생성일시 |
 
 ### Index
@@ -869,6 +892,7 @@ AI 검토 항목별 판정 결과를 관리한다.
 | idx_review_items_status | result_status |
 | idx_review_items_risk | risk_level |
 | idx_review_items_ocr_block | ocr_block_id |
+| idx_review_items_evidence_status | evidence_status |
 
 `risk_reason_codes`는 PoC 초기에는 필터 인덱스 대상에서 제외한다. 사유 코드별 통계 조회가 필요해지면 GIN 인덱스를 별도 migration으로 추가한다.
 
@@ -886,10 +910,10 @@ AI 검토 항목별 판정 결과를 관리한다.
 | standard_version_id | varchar(50) |  | standard_versions | Y | 검토에 사용한 기준자료 버전 ID |
 | evidence_chunk_id | varchar(50) |  | evidence_chunks |  | 근거 Chunk ID |
 | matched_text | text |  |  |  | 매칭된 근거 문구 |
-| relevance_score | numeric(5,4) |  |  |  | 관련도 점수 |
-| rank_no | int |  |  |  | 근거 순위 |
-| match_source | varchar(50) |  |  |  | KEYWORD, VECTOR, HYBRID, RULE_METADATA |
-| score_detail | jsonb |  |  |  | keyword/vector/metadata/rule 점수 상세 |
+| relevance_score | numeric(5,4) |  |  | Y | 관련도 점수. 0.0~1.0 |
+| rank_no | int |  |  | Y | 검토 항목 저장 근거 순위. ADR-0043 기준 1~5 |
+| match_source | varchar(50) |  |  | Y | KEYWORD, VECTOR, HYBRID, RULE_METADATA |
+| score_detail | jsonb |  |  | Y | keyword/vector/metadata/rule 점수 상세 |
 | created_at | timestamptz |  |  | Y | 생성일시 |
 
 ### Constraint
@@ -897,6 +921,7 @@ AI 검토 항목별 판정 결과를 관리한다.
 | 제약조건 | 내용 |
 |---|---|
 | uk_review_item_evidence | review_item_id, evidence_id, evidence_chunk_id unique |
+| ck_item_evidence_rank | rank_no 1~5 |
 
 ### Index
 
@@ -923,8 +948,8 @@ AI 검토 항목별 판정 결과를 관리한다.
 | annotation_display_mode | varchar(50) |  |  | Y | BOX, TEXT_HIGHLIGHT, LIST_ONLY, UNAVAILABLE |
 | annotation_status | varchar(50) |  |  | Y | LOCATED, PARTIALLY_LOCATED, NOT_LOCATED, LOW_CONFIDENCE, DOCUMENT_LEVEL_ISSUE |
 | location_confidence | numeric(5,4) |  |  |  | 위치 식별 신뢰도. 0.0~1.0 |
-| confidence_policy_version | varchar(100) |  |  |  | ADR-0053 기준 신뢰도 임계값 정책 버전 |
-| display_reason | varchar(100) |  |  |  | MATCHED_BOX, MATCHED_TEXT, PARTIAL_TEXT_MATCH, NO_TEXT_SPAN 등 |
+| confidence_policy_version | varchar(100) |  |  | Y | ADR-0053 기준 신뢰도 임계값 정책 버전 |
+| display_reason | varchar(100) |  |  | Y | MATCHED_BOX, MATCHED_TEXT, PARTIAL_TEXT_MATCH, NO_TEXT_SPAN 등 |
 | annotation_type | varchar(50) |  |  |  | 세부 표시 유형. PoC에서는 `annotation_display_mode` 기준 사용 |
 | source_width | numeric(12,4) |  |  |  | 원본 페이지 또는 이미지 너비 |
 | source_height | numeric(12,4) |  |  |  | 원본 페이지 또는 이미지 높이 |
@@ -946,7 +971,7 @@ AI 검토 항목별 판정 결과를 관리한다.
 | matched_text | text |  |  |  | 실제 매칭된 문구 |
 | risk_level | varchar(50) |  |  | Y | 위험도 |
 | review_type | varchar(50) |  |  | Y | 검토 유형 |
-| display_order | int |  |  |  | 표시 순서 |
+| display_order | int |  |  | Y | 표시 순서. 기본 0 |
 | created_at | timestamptz |  |  | Y | 생성일시 |
 
 ### Index

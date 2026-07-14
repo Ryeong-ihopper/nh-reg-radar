@@ -9,6 +9,7 @@ from fastapi.openapi.utils import get_openapi
 from nh_ad_backend.api import CreateAdvertisementRequest
 from nh_ad_backend.m3_openapi import M3_OPENAPI
 from nh_ad_backend.m4_openapi import M4_OPENAPI
+from nh_ad_backend.m5_openapi import M5_OPENAPI
 
 
 def _without_null_branch(value: dict[str, Any]) -> dict[str, Any]:
@@ -101,6 +102,13 @@ def generated_openapi(app: FastAPI) -> dict[str, Any]:
             if isinstance(operation, dict):
                 operation.setdefault("security", [{"BearerAuth": []}])
     for component_kind, values in M4_OPENAPI["components"].items():
+        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
+    schema["paths"].update(deepcopy(M5_OPENAPI["paths"]))
+    for path in M5_OPENAPI["paths"]:
+        for operation in schema["paths"][path].values():
+            if isinstance(operation, dict):
+                operation.setdefault("security", [{"BearerAuth": []}])
+    for component_kind, values in M5_OPENAPI["components"].items():
         schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
     schema = cast(dict[str, Any], _normalize_integral_numbers(schema))
     app.openapi_schema = schema

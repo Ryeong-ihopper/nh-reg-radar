@@ -22,6 +22,12 @@ from nh_ad_backend.reviews import (
     ReviewRepository,
     ReviewService,
 )
+from nh_ad_backend.results import (
+    InMemoryResultRepository,
+    PostgresResultRepository,
+    ResultRepository,
+    ResultService,
+)
 from nh_ad_backend.s3_storage import S3ObjectStorage
 from nh_ad_backend.security import TokenService
 from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
@@ -85,6 +91,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         review_repository: ReviewRepository = PostgresReviewRepository(
             engine, settings.review_queue_name
         )
+        result_repository: ResultRepository = PostgresResultRepository(engine)
         review_queue: ReviewQueue = RedisReviewQueue(settings.redis_url, settings.review_queue_name)
         keyword_search: SearchBackend = OpenSearchBackend(
             settings.opensearch_endpoint,
@@ -112,6 +119,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         repository = InMemoryRepository()
         standard_repository = InMemoryStandardRepository()
         review_repository = InMemoryReviewRepository()
+        result_repository = InMemoryResultRepository()
         review_queue = InMemoryReviewQueue()
         keyword_search = InMemorySearchBackend("OPENSEARCH")
         vector_search = InMemorySearchBackend("QDRANT")
@@ -135,6 +143,7 @@ def build_services(settings: Settings) -> ApplicationServices:
     )
     tokens = TokenService(jwt_secret)
     advertisements = AdvertisementService(repository, storage)
+    reviews = ReviewService(review_repository, advertisements, review_queue)
     return ApplicationServices(
         repository=repository,
         auth=AuthService(repository, tokens),
@@ -145,7 +154,8 @@ def build_services(settings: Settings) -> ApplicationServices:
             environment=settings.app_env,
             audit_sink=repository.add_audit_event,
         ),
-        reviews=ReviewService(review_repository, advertisements, review_queue),
+        reviews=reviews,
+        results=ResultService(result_repository, reviews),
     )
 
 
@@ -163,7 +173,7 @@ def create_app(
             "Capability-specific paths and schemas are added only when their "
             "implementation slice begins."
         ),
-        version="0.4.0",
+        version="0.5.0",
         root_path="/api/v1",
         servers=[{"url": "/api/v1"}],
     )

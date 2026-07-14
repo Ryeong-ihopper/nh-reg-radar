@@ -11,6 +11,7 @@ import { AdvertisementListPage } from "./pages/AdvertisementListPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReviewProgressPage } from "./pages/ReviewProgressPage";
 import { ReviewRequestPage } from "./pages/ReviewRequestPage";
+import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pages/ReviewResultsPage";
 import { StandardManagementPage } from "./pages/StandardManagementPage";
 
 const ADVERTISEMENT_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
@@ -51,6 +52,9 @@ function Shell() {
           <Route path="/advertisements" element={<AdvertisementListPage />} />
           <Route path="/advertisements/:advertisementId" element={<AdvertisementDetailPage />} />
           <Route path="/reviews/:reviewId/status" element={<ReviewProgressPage />} />
+          <Route path="/reviews/:reviewId/results" element={<ReviewSummaryPage />} />
+          <Route path="/reviews/:reviewId/results/items" element={<ReviewItemsPage />} />
+          <Route path="/reviews/:reviewId/results/annotations" element={<ReviewAnnotationsPage />} />
         </Route>
         <Route element={<ProtectedRoute allowedRoles={CREATE_ROLES} />}>
           <Route path="/advertisements/new" element={<AdvertisementCreatePage />} />

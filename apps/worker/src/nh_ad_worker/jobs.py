@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from nh_ad_parser_contracts import (
@@ -16,6 +16,9 @@ from nh_ad_parser_contracts import (
     NormalizedDocument,
     ParserRouter,
 )
+
+if TYPE_CHECKING:
+    from nh_ad_worker.results import ReviewResultBundle, ReviewResultEngine
 
 
 RETRY_DELAYS = (timedelta(minutes=1), timedelta(minutes=3), timedelta(minutes=10))
@@ -74,6 +77,7 @@ class WorkerJob:
     dead_lettered_at: datetime | None = None
     selected_artifact: ArtifactMetadata | None = None
     normalized_document: NormalizedDocument | None = None
+    review_results: ReviewResultBundle | None = None
     review_status: str = "ANALYSIS_REQUESTED"
 
 
@@ -85,6 +89,7 @@ class JobRepository(Protocol):
     def persist_selected(
         self, job_id: str, document: NormalizedDocument, artifact: ArtifactMetadata
     ) -> None: ...
+    def persist_results(self, job_id: str, results: ReviewResultBundle) -> None: ...
     def complete(self, job_id: str, *, now: datetime, check_required: bool) -> None: ...
     def retry_or_dead_letter(self, job_id: str, *, now: datetime, reason_code: str) -> bool: ...
     def fail_final(self, job_id: str, *, now: datetime, reason_code: str) -> None: ...
@@ -127,6 +132,14 @@ class InMemoryJobRepository:
             raise ValueError("SELECTED_OUTPUT_ALREADY_PERSISTED")
         job.selected_artifact = artifact
         job.normalized_document = document
+
+    def persist_results(self, job_id: str, results: ReviewResultBundle) -> None:
+        job = self.jobs[job_id]
+        if job.normalized_document is None or results.review_id != job.review_id:
+            raise ValueError("REVIEW_RESULT_SOURCE_NOT_PERSISTED")
+        if job.review_results is not None:
+            raise ValueError("REVIEW_RESULTS_ALREADY_PERSISTED")
+        job.review_results = results
 
     def complete(self, job_id: str, *, now: datetime, check_required: bool) -> None:
         job = self.jobs[job_id]
@@ -208,6 +221,7 @@ class ParserJobProcessor:
         worker_id: str,
         now: Callable[[], datetime] | None = None,
         raw_output: Callable[[DocumentInput, NormalizedDocument], bytes] | None = None,
+        result_engine: ReviewResultEngine | None = None,
     ) -> None:
         self.repository = repository
         self.router = router
@@ -218,6 +232,7 @@ class ParserJobProcessor:
         self._raw_output = raw_output or (
             lambda _input, output: output.model_dump_json(by_alias=True).encode("utf-8")
         )
+        self._result_engine = result_engine
 
     def process(self, payload: dict[str, object]) -> str:
         message = QueueMessage.parse(payload)
@@ -259,6 +274,10 @@ class ParserJobProcessor:
             normalized = selection.selected_document
             self.repository.persist_selected(job.job_id, normalized, selected_artifact)
             check_required = normalized.confidence.status.value != "READABLE"
+            if self._result_engine is not None:
+                results = self._result_engine.execute(normalized)
+                self.repository.persist_results(job.job_id, results)
+                check_required = check_required or results.check_required
             self.repository.complete(job.job_id, now=now, check_required=check_required)
             return "CHECK_REQUIRED" if check_required else "COMPLETED"
         except TransientParserError as exc:

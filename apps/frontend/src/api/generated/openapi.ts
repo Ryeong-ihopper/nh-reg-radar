@@ -416,10 +416,232 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reviews/{reviewId}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns the immutable standard-version snapshot and risk summary. */
+        get: operations["getReviewSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists scoped result items without hiding evidence insufficiency or search failure. */
+        get: operations["listReviewItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/items/{reviewItemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns risk rationale, frozen evidence versions, and optional display location. */
+        get: operations["getReviewItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns BOX, TEXT_HIGHLIGHT, or list fallback annotations. */
+        get: operations["listReviewAnnotations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        RiskLevel: "HIGH" | "MEDIUM" | "LOW" | "CHECK_REQUIRED";
+        /** @enum {string} */
+        ReviewResultStatus: "APPROPRIATE" | "NEEDS_REVISION" | "NEEDS_CONFIRMATION";
+        /** @enum {string} */
+        EvidenceStatus: "CONNECTED" | "NOT_REQUIRED" | "INSUFFICIENT" | "SEARCH_UNAVAILABLE";
+        /** @enum {string} */
+        ReviewEngineType: "RULE" | "RAG" | "MULTIMODAL" | "LLM";
+        /** @enum {string} */
+        StructuredOutputStatus: "NOT_RUN" | "VALID" | "INVALID_SCHEMA";
+        /** @enum {string} */
+        AnnotationDisplayMode: "BOX" | "TEXT_HIGHLIGHT" | "LIST_ONLY" | "UNAVAILABLE";
+        /** @enum {string} */
+        AnnotationStatus: "LOCATED" | "PARTIALLY_LOCATED" | "NOT_LOCATED" | "LOW_CONFIDENCE" | "DOCUMENT_LEVEL_ISSUE";
+        RiskRuleScore: {
+            matched: boolean;
+            ruleIds: string[];
+            severity: components["schemas"]["RiskLevel"] | null;
+        };
+        RiskRagScore: {
+            topRelevanceScore: number | null;
+            evidenceCount: number;
+            evidenceSufficient: boolean;
+            status: components["schemas"]["EvidenceStatus"];
+            failureCode: ("RAG_SEARCH_UNAVAILABLE" | "RAG_SEARCH_FAILED") | null;
+        };
+        RiskLlmScore: {
+            /** @constant */
+            schemaVersion: "review-structured-output-v1";
+            status: components["schemas"]["StructuredOutputStatus"];
+            decision: string | null;
+            confidence: number | null;
+        };
+        RiskParserScore: {
+            confidenceStatus: components["schemas"]["ConfidenceStatus"];
+        };
+        RiskFinalScore: {
+            riskLevel: components["schemas"]["RiskLevel"];
+            decisionRule: string;
+        };
+        RiskScoreDetail: {
+            rule: components["schemas"]["RiskRuleScore"];
+            rag: components["schemas"]["RiskRagScore"];
+            llm: components["schemas"]["RiskLlmScore"];
+            parser: components["schemas"]["RiskParserScore"];
+            final: components["schemas"]["RiskFinalScore"];
+        };
+        RiskRationale: {
+            riskLevel: components["schemas"]["RiskLevel"];
+            policyVersion: string;
+            reasonCodes: string[];
+            scoreDetail: components["schemas"]["RiskScoreDetail"];
+        };
+        ReviewTypeSummary: {
+            reviewType: components["schemas"]["ReviewType"];
+            totalCount: number;
+            needsRevisionCount: number;
+            needsConfirmationCount: number;
+        };
+        TopRisk: {
+            reviewItemId: string;
+            riskLevel: components["schemas"]["RiskLevel"];
+            riskPolicyVersion: string;
+            riskReasonCodes: string[];
+            targetText: string;
+            reason: string;
+            evidenceStatus: components["schemas"]["EvidenceStatus"];
+        };
+        ReviewSummary: {
+            reviewId: string;
+            advertisementId: string;
+            /** Format: date */
+            standardEffectiveDate: string;
+            standardVersionIds: string[];
+            overallRiskLevel: components["schemas"]["RiskLevel"];
+            totalItemCount: number;
+            needsRevisionCount: number;
+            needsConfirmationCount: number;
+            reviewTypeSummary: components["schemas"]["ReviewTypeSummary"][];
+            topRisks: components["schemas"]["TopRisk"][];
+            /** Format: date-time */
+            completedAt: string;
+        };
+        ReviewItemSummary: {
+            reviewItemId: string;
+            reviewType: components["schemas"]["ReviewType"];
+            targetText: string;
+            resultStatus: components["schemas"]["ReviewResultStatus"];
+            riskLevel: components["schemas"]["RiskLevel"];
+            riskPolicyVersion: string;
+            riskReasonCodes: string[];
+            reason: string;
+            evidenceStatus: components["schemas"]["EvidenceStatus"];
+            evidenceFailureCode: ("RAG_SEARCH_UNAVAILABLE" | "RAG_SEARCH_FAILED") | null;
+            evidenceCount: number;
+            pageNo: number | null;
+            hasAnnotation: boolean;
+            sourceEngine: components["schemas"]["ReviewEngineType"];
+            sourceVersion: string;
+        };
+        ReviewItemPage: {
+            contents: components["schemas"]["ReviewItemSummary"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        ReviewItemEvidence: {
+            evidenceId: string;
+            evidenceChunkId: string | null;
+            standardVersionId: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            title: string;
+            articleNo?: string | null;
+            matchedText: string;
+            rankNo: number;
+            relevanceScore: number;
+            /** @enum {string} */
+            matchSource: "KEYWORD" | "VECTOR" | "HYBRID" | "RULE_METADATA";
+        };
+        Annotation: {
+            annotationId: string;
+            reviewItemId: string;
+            reviewType: components["schemas"]["ReviewType"];
+            riskLevel: components["schemas"]["RiskLevel"];
+            targetText: string;
+            annotationDisplayMode: components["schemas"]["AnnotationDisplayMode"];
+            annotationStatus: components["schemas"]["AnnotationStatus"];
+            locationConfidence: number | null;
+            confidencePolicyVersion: string;
+            displayReason: string;
+            pageNo: number | null;
+            coordinate: components["schemas"]["Coordinate"] | null;
+            textBlockId: string | null;
+            textPath: string | null;
+            rawStartOffset: number | null;
+            rawEndOffset: number | null;
+            normalizedStartOffset: number | null;
+            normalizedEndOffset: number | null;
+            matchedText: string | null;
+        };
+        AnnotationCollection: {
+            reviewId: string;
+            fileId: string;
+            fileType: string;
+            pageNo: number | null;
+            annotations: components["schemas"]["Annotation"][];
+        };
+        ReviewItemDetail: components["schemas"]["ReviewItemSummary"] & {
+            riskRationale: components["schemas"]["RiskRationale"];
+            evidences: components["schemas"]["ReviewItemEvidence"][];
+            recommendation: string | null;
+            annotation: components["schemas"]["Annotation"] | null;
+        };
         /** @example {
          *       "code": "FILE_NOT_SUPPORTED",
          *       "message": "지원하지 않는 파일 형식입니다.",
@@ -1182,6 +1404,12 @@ export interface components {
         Page: number;
         Size: number;
         ReviewId: string;
+        ReviewItemId: string;
+        ReviewTypeQuery: components["schemas"]["ReviewType"];
+        RiskLevelQuery: components["schemas"]["RiskLevel"];
+        ResultStatusQuery: components["schemas"]["ReviewResultStatus"];
+        EvidenceRequiredQuery: boolean;
+        PageNoQuery: number;
     };
     requestBodies: never;
     headers: never;
@@ -1990,6 +2218,122 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getReviewSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped review result returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listReviewItems: {
+        parameters: {
+            query?: {
+                reviewType?: components["parameters"]["ReviewTypeQuery"];
+                riskLevel?: components["parameters"]["RiskLevelQuery"];
+                resultStatus?: components["parameters"]["ResultStatusQuery"];
+                evidenceRequired?: components["parameters"]["EvidenceRequiredQuery"];
+                page?: components["parameters"]["Page"];
+                size?: components["parameters"]["Size"];
+            };
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped review result returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewItemPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getReviewItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+                reviewItemId: components["parameters"]["ReviewItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped review result returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewItemDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listReviewAnnotations: {
+        parameters: {
+            query?: {
+                pageNo?: components["parameters"]["PageNoQuery"];
+                reviewType?: components["parameters"]["ReviewTypeQuery"];
+                riskLevel?: components["parameters"]["RiskLevelQuery"];
+            };
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped review result returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationCollection"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

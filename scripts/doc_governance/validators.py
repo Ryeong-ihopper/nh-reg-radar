@@ -135,9 +135,7 @@ def _field_value(text: str, field: str) -> str | None:
     heading_match = heading_pattern.search(text)
     if heading_match is not None:
         return heading_match.group(1).strip()
-    table_pattern = re.compile(
-        rf"^\|\s*{re.escape(field)}\s*\|\s*([^|]+?)\s*\|", re.MULTILINE
-    )
+    table_pattern = re.compile(rf"^\|\s*{re.escape(field)}\s*\|\s*([^|]+?)\s*\|", re.MULTILINE)
     table_match = table_pattern.search(text)
     return table_match.group(1).strip() if table_match is not None else None
 
@@ -161,9 +159,7 @@ def _validate_adr_file(
     if status not in {"Accepted", "Proposed", "Deprecated"} and not (
         status is not None and status.startswith("Superseded")
     ):
-        findings.append(
-            Finding("error", "ADR_STATUS", relative, "유효한 ADR 상태가 필요합니다.")
-        )
+        findings.append(Finding("error", "ADR_STATUS", relative, "유효한 ADR 상태가 필요합니다."))
     for alternatives in section_groups:
         if not any(section in headings for section in alternatives):
             findings.append(
@@ -176,9 +172,7 @@ def _validate_adr_file(
             )
     if _field_value(text, "관련 문서") is None and "관련 문서" not in headings:
         findings.append(
-            Finding(
-                "error", "ADR_RELATED_DOCS", relative, "관련 문서 정보가 필요합니다."
-            )
+            Finding("error", "ADR_RELATED_DOCS", relative, "관련 문서 정보가 필요합니다.")
         )
     return findings
 
@@ -199,15 +193,11 @@ def _validate_adrs(root: Path, config: GovernanceConfig) -> list[Finding]:
         relative = str(path.relative_to(root))
         if adr_id in seen:
             findings.append(
-                Finding(
-                    "error", "ADR_DUPLICATE", relative, f"ADR ID가 중복됩니다: {adr_id}"
-                )
+                Finding("error", "ADR_DUPLICATE", relative, f"ADR ID가 중복됩니다: {adr_id}")
             )
         seen.add(adr_id)
         findings.extend(
-            _validate_adr_file(
-                relative, path, adr_id, config.adr.required_section_groups
-            )
+            _validate_adr_file(relative, path, adr_id, config.adr.required_section_groups)
         )
         if path.name not in index_text:
             findings.append(
@@ -237,8 +227,7 @@ def _validate_traceability(root: Path, config: GovernanceConfig) -> list[Finding
             )
         }
         references = {
-            match.group(0)
-            for match in re.finditer(rule.reference_pattern, _read(target))
+            match.group(0) for match in re.finditer(rule.reference_pattern, _read(target))
         }
         for identifier in sorted(references - declarations):
             findings.append(

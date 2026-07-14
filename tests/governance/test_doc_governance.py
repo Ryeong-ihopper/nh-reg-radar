@@ -14,9 +14,7 @@ from scripts.doc_governance.validators import validate_repository
 
 class DocumentGovernanceTest(unittest.TestCase):
     repository: Path = Path(__file__).resolve().parents[2]
-    config: GovernanceConfig = load_config(
-        repository / "governance" / "document-policy.json"
-    )
+    config: GovernanceConfig = load_config(repository / "governance" / "document-policy.json")
 
     def test_current_documents_satisfy_repository_policy(self) -> None:
         findings = validate_repository(self.repository, self.config)
@@ -204,9 +202,7 @@ class DocumentGovernanceTest(unittest.TestCase):
                 self.config.with_required_documents(()),
             )
 
-        protected_paths = [
-            finding.path for finding in findings if "광고예시" in finding.path
-        ]
+        protected_paths = [finding.path for finding in findings if "광고예시" in finding.path]
         self.assertEqual([], protected_paths)
 
     def test_invalid_diff_base_is_an_error(self) -> None:

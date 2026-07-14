@@ -1,6 +1,6 @@
 {
   "include": ["../scripts", "../tests/governance"],
   "extraPaths": [".."],
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.11",
   "typeCheckingMode": "all"
 }

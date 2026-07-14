@@ -1,0 +1,340 @@
+{
+  "schema_version": 1,
+  "goal_id": "G006-m5-review-results",
+  "capability": "M5 evidence-backed Review Result and Annotation entry gate",
+  "trace": {
+    "requirements": [
+      "FR-004",
+      "FR-005",
+      "FR-006",
+      "FR-007",
+      "FR-008",
+      "FR-009",
+      "FR-010",
+      "FR-011",
+      "FR-012"
+    ],
+    "functions": [
+      "F-006",
+      "F-007",
+      "F-008",
+      "F-009",
+      "F-010",
+      "F-011",
+      "F-012",
+      "F-013"
+    ],
+    "screens": [
+      "S-006",
+      "S-007",
+      "S-008"
+    ],
+    "api_operations": [
+      "GET /api/v1/reviews/{reviewId}/summary",
+      "GET /api/v1/reviews/{reviewId}/items",
+      "GET /api/v1/reviews/{reviewId}/items/{reviewItemId}",
+      "GET /api/v1/reviews/{reviewId}/annotations"
+    ],
+    "db_objects": [
+      "app.review_items",
+      "app.review_item_evidences",
+      "app.annotations"
+    ]
+  },
+  "openapi": {
+    "version": "0.5.0",
+    "source_sha256": "c5e9baa34523ca61e736d6ae13a840a2d96d821c3253cd9b3f68c68bbbd5e333",
+    "operation_ids": [
+      "getReviewSummary",
+      "listReviewItems",
+      "getReviewItem",
+      "listReviewAnnotations"
+    ],
+    "schemas": [
+      "RiskLevel",
+      "ReviewResultStatus",
+      "EvidenceStatus",
+      "ReviewEngineType",
+      "StructuredOutputStatus",
+      "RiskScoreDetail",
+      "RiskRationale",
+      "ReviewSummary",
+      "ReviewItemSummary",
+      "ReviewItemPage",
+      "ReviewItemEvidence",
+      "ReviewItemDetail",
+      "AnnotationDisplayMode",
+      "AnnotationStatus",
+      "Annotation",
+      "AnnotationCollection"
+    ]
+  },
+  "generated_client": {
+    "path": "apps/frontend/src/api/generated/openapi.ts",
+    "sha256": "a07e4f1ca8c24741b32e8b6499121efb318f2e36c9fab34dd40f575d1ee7d786"
+  },
+  "migration": {
+    "revision": "0005_m5_review_results",
+    "down_revision": "0004_m4_parser_ocr_jobs",
+    "path": "apps/backend/migrations/versions/0005_m5_review_results.py",
+    "owned_tables": [
+      "app.review_items",
+      "app.review_item_evidences",
+      "app.annotations"
+    ]
+  },
+  "fixtures": [
+    {
+      "path": "tests/fixtures/m5/annotation-display-v1.json",
+      "sha256": "782a75377e00b81a0ea0892c4e33b5e5292981189d255e6793724b94789a78a9",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    },
+    {
+      "path": "tests/fixtures/m5/rule-results-v1.json",
+      "sha256": "a8042605db30376dd70f26111db185d7fd3c987409d77e8dab16f11ec201e9f7",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    },
+    {
+      "path": "tests/fixtures/m5/search-evidence-v1.json",
+      "sha256": "58ef06c781915b12a0b4cf4145bfff1f10d487dcd9bf50d2650cb0961f19208e",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    },
+    {
+      "path": "tests/fixtures/m5/structured-output-v1.json",
+      "sha256": "5ddc02c3cd5441c872b3bffeaf877a650e4a20c27685b910ac2c969d41c161e0",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "TC-RES-001",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-RES-002",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-RES-003",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-RES-004",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-RES-005",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-001",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-002",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-003",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-004",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-005",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-006",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-ITEM-007",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RES-001..005/TC-ITEM-001..007: review results require risk rationale and explicit evidence state"
+      ]
+    },
+    {
+      "id": "TC-RAG-001",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-RAG-002",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-RAG-003",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-RAG-004",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-RAG-005",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-EVD-007",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-EVD-008",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-EVD-009",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-EVD-010",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-EVD-011",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-EVD-014",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-RAG-001..005/TC-EVD-007..011/014: staged fixtures preserve Rule results and distinguish RAG failures"
+      ]
+    },
+    {
+      "id": "TC-ANN-001",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-002",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-003",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-004",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-005",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-006",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-007",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-008",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-009",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-010",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    },
+    {
+      "id": "TC-ANN-011",
+      "nodes": [
+        "tests/api_contract/m5_contract.test.mjs::TC-ANN-001..011: Annotation contract covers box highlight and list fallback"
+      ]
+    }
+  ],
+  "changed_paths": [
+    "openapi/openapi.yaml",
+    "apps/backend/src/nh_ad_backend/m5_openapi.py",
+    "apps/backend/src/nh_ad_backend/openapi_runtime.py",
+    "apps/backend/src/nh_ad_backend/main.py",
+    "apps/backend/migrations/versions/0005_m5_review_results.py",
+    "apps/frontend/src/api/generated/openapi.ts",
+    "tests/api_contract/m5_contract.test.mjs",
+    "tests/integration/test_m5_database_contract.py",
+    "tests/fixtures/m5",
+    "governance/goal-manifests/G006-m5-review-results.json",
+    "docs/api-specification.md",
+    "docs/database-specification.md",
+    "docs/functional-specification.md",
+    "docs/test-cases.md"
+  ],
+  "synchronized_documents": [
+    "docs/api-specification.md",
+    "docs/database-specification.md",
+    "docs/functional-specification.md",
+    "docs/test-cases.md"
+  ]
+}

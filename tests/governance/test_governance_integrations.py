@@ -97,15 +97,11 @@ class GovernanceIntegrationTest(unittest.TestCase):
 
         self.assertIn("github.event.before", workflow)
         self.assertIn("uvx ruff check", workflow)
-        self.assertIn(
-            "uvx basedpyright --project governance/pyrightconfig.json", workflow
-        )
+        self.assertIn("uvx basedpyright --project governance/pyrightconfig.json", workflow)
         self.assertNotIn("--base-ref HEAD~1", workflow)
 
     def test_pre_commit_tracks_governance_entrypoints(self) -> None:
-        hook = (self.repository / ".githooks" / "pre-commit").read_text(
-            encoding="utf-8"
-        )
+        hook = (self.repository / ".githooks" / "pre-commit").read_text(encoding="utf-8")
 
         self.assertIn("setup-dev-tools", hook)
         self.assertIn("skill-adapters/", hook)

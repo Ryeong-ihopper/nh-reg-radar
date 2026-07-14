@@ -131,6 +131,26 @@ test.each([
   else expect(screen.queryByRole("button", { name: "재분석" })).not.toBeInTheDocument();
 });
 
+test("renders the final failure as a terminal error without exposing result navigation", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => response(progress({
+    reviewStatus: "REVIEW_FAILED",
+    jobStatus: "FAILED_FINAL",
+    currentStep: "LLM_REVIEW",
+    progressRate: 70,
+    isRetryable: false,
+    failedReasonCode: "LLM_TIMEOUT",
+    failedReason: "허용된 재시도 횟수를 초과했습니다.",
+  }))));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-001/status"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("검토 작업이 최종 실패했습니다.");
+  expect(alert).toHaveTextContent("허용된 재시도 횟수를 초과했습니다.");
+  expect(screen.queryByRole("link", { name: "결과 보기" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "재분석" })).not.toBeInTheDocument();
+});
+
 test("shows unreadable content as confirmation-only without leaking raw artifact data", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => response({
     ...progress({ reviewStatus: "CHECK_REQUIRED", jobStatus: "COMPLETED", progressRate: 100, failedReasonCode: "OCR_UNREADABLE" }),

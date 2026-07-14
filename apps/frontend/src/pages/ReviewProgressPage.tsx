@@ -80,6 +80,7 @@ export function ReviewProgressPage() {
           {rerun.isError ? <ErrorState error={rerun.error} /> : null}
           <div className="form-actions">
             <Link className="button-link button-secondary" to="/advertisements">목록으로</Link>
+            {progress.data.jobStatus === "COMPLETED" ? <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results`}>결과 보기</Link> : null}
             <button type="button" className="button-secondary" disabled={progress.isFetching} onClick={() => void progress.refetch()}>{progress.isFetching ? "새로고침 중..." : "새로고침"}</button>
             {canRerun ? <button type="button" disabled={rerun.isPending} onClick={() => rerun.mutate()}>{rerun.isPending ? "재분석 요청 중..." : "재분석"}</button> : null}
           </div>

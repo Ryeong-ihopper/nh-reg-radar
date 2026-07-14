@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import cast
 
 
 RESOURCE_KEYS: dict[str, tuple[str, ...]] = {
@@ -80,12 +81,14 @@ def validate_isolation(dev: dict[str, str], prod: dict[str, str]) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dev", type=Path, default=Path(".env.dev.example"))
-    parser.add_argument("--prod", type=Path, default=Path(".env.prod.example"))
-    args = parser.parse_args()
+    _ = parser.add_argument("--dev", type=Path, default=Path(".env.dev.example"))
+    _ = parser.add_argument("--prod", type=Path, default=Path(".env.prod.example"))
+    args = cast("dict[str, object]", vars(parser.parse_args()))
+    dev_path = cast(Path, args["dev"])
+    prod_path = cast(Path, args["prod"])
 
     try:
-        errors = validate_isolation(load_env(args.dev), load_env(args.prod))
+        errors = validate_isolation(load_env(dev_path), load_env(prod_path))
     except (OSError, ValueError) as caught_error:
         print(f"environment isolation check failed: {caught_error}")
         return 1

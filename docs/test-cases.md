@@ -6,13 +6,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.11 |
+| 현행 버전 | v1.14 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.14 | 2026-07-14 | G006 M5 backend/worker Rule→RAG→structured 실행·영속화·조회·실패 보존 회귀 증거 반영 |
+| v1.13 | 2026-07-14 | M5 S-006~S-008 결과/Annotation 생성 client component 및 광고물→분석 완료→결과→Annotation 결정적 통합 실행 Gate 반영 |
+| v1.12 | 2026-07-14 | G006 M5 OpenAPI/0005 migration/Rule·검색·structured output·Annotation synthetic fixture trace Gate 반영 |
 | v1.11 | 2026-07-14 | M4 품질 재처리의 보조 adapter 실행·결정적 후보 선택·전체 시도 추적·선택 산출물 단일 영속화 회귀 검증 보강 |
 | v1.10 | 2026-07-14 | M4 queue의 exact 6-field/version 계약과 교차 Job idempotency key 실행 전 거부 회귀 검증 보강 |
 | v1.9 | 2026-07-14 | M4 backend/worker Review API·idempotency·1/3/10 retry·dead-letter·stale recovery·selected output와 실제 PostgreSQL+Redis+MinIO artifact lifecycle 실행 증거 반영 |
@@ -35,7 +38,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.11 |
+| 문서 버전 | v1.13 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -623,6 +626,33 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | Worker state machine | `apps/worker/tests/test_m4_jobs.py` | exact `review-job-v1` 6-field payload, 교차 Job idempotency key 실행 전 거부, duplicate delivery 무시, 합법 claim, 1/3/10분 세 번 retry 후 `FAILED_FINAL`/dead-letter, heartbeat stale recovery를 검증 |
 | Parser persistence/security | `apps/worker/tests/test_m4_jobs.py`, parser contract suite | 선택된 `NormalizedDocument`만 영속화하고 저신뢰도 확인 필요, raw/checksum, queue/log redaction을 검증 |
 | Actual tri-store | `tests/integration/test_m4_actual_postgres_redis_minio.py` | migration 0004가 적용된 실제 PostgreSQL, Redis 7, MinIO private buckets에서 enqueue→claim→artifact/block 저장→완료, restart recovery, 접근 거부/예외 감사, retention hold/승인 삭제를 synthetic fixture로 검증 |
+
+## 19.11 M5 계약·DB·fixture entry Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Goal trace | `governance/goal-manifests/G006-m5-review-results.json` | 실제 `TC-RES-001..005`, `TC-ITEM-001..007`, `TC-RAG-001..005`, `TC-EVD-007..011/014`, `TC-ANN-001..011`이 executable node에 매핑되고 OpenAPI/client/fixture SHA-256이 고정됨 |
+| Result contract | `tests/api_contract/m5_contract.test.mjs` | summary/items/detail/annotations operation, risk rationale, source engine/version, 명시적 evidence 상태 계약 잠금 |
+| Failure semantics | `tests/fixtures/m5/search-evidence-v1.json`, `structured-output-v1.json` | 업무적 근거 부족과 검색 장애, structured schema 오류가 분리되고 Rule item ID 보존 |
+| Annotation contract | `tests/fixtures/m5/annotation-display-v1.json` | 0.80 BOX, 0.79 TEXT_HIGHLIGHT, 0.49 LIST_ONLY 세 표시 경로와 Coordinate/offset fallback 잠금 |
+| DB static | `tests/integration/test_m5_database_contract.py` | 0005가 0004를 상속하고 3개 owner table, evidence rank/version, 장애 code, BOX/offset 제약 포함 |
+| Generated client | `cd apps/frontend && npm run openapi:check` | OpenAPI v0.5.0 네 operation과 M5 schema 생성물이 clean diff 유지 |
+| Frontend result/Annotation | `cd apps/frontend && npm test -- --run src/m5-results.test.tsx` | `TC-RES-001/003`, `TC-ITEM-001/003/005/006/007`, `TC-ANN-001/005/006/007/008/010/011`, `TC-NFR-UI-005`를 S-006 집계·부분 실패, S-008 필터/상세, S-007 BOX/offset/list fallback·권한/empty 상태와 광고물 분석 완료→결과→Annotation 이동으로 결정적으로 검증 |
+| Runtime parity | `apps/backend/tests/test_backend_health.py::test_runtime_openapi_semantically_matches_static_contract` | 실제 M5 handler와 frozen projection을 포함한 runtime/static operation/schema/status 의미 차이 0 |
+
+이 Gate는 external LLM/provider/network 호출을 금지하고 provider/model을 null로 유지한다. S-006~S-008 화면은 frozen generated client와 local fetch fixture로 실행하며, backend Rule/RAG/structured pipeline은 다음 runtime lane에서 같은 계약을 소비한다.
+
+## 19.12 M5 backend·worker 실행 검증
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Rule/risk property table | `apps/worker/tests/test_m5_results.py` | 최상급/절대 표현, 조건 없는 금리, 정상 문구가 동일 config에서 각각 HIGH/MEDIUM/LOW 구조 결과를 결정적으로 만들고 policy/reason/source version을 항상 포함 |
+| RAG evidence/failure | `apps/worker/tests/test_m5_results.py` | 고정 후보 중 0.70 이상 최대 3개를 선정하고 `INSUFFICIENT`, `RAG_SEARCH_UNAVAILABLE`, `RAG_SEARCH_FAILED`가 Rule 판정·위험도를 덮지 않음 |
+| Structured fixture | `apps/worker/tests/test_m5_results.py`, `tests/fixtures/m5/structured-output-v1.json` | provider/model null, `networkAllowed=false`인 versioned mock만 사용하고 invalid schema를 명시하면서 Rule/RAG 결과 보존 |
+| Worker integration | `apps/worker/tests/test_m5_results.py` | 선택된 parser 산출물 이후 result bundle이 completion 전에 저장되고 확인 필요 상태가 job/review에 전파됨 |
+| Result API/scope | `apps/backend/tests/test_m5_result_api.py` | summary/items/detail/annotations 실제 handler가 frozen v0.5 응답, evidence snapshot, BOX 위치와 부서 scope 403을 반환 |
+| Regression gates | `uv run pytest apps/backend/tests apps/worker/tests`, `uv run mypy`, `uv run ruff check apps/backend apps/worker` | M0~M4 회귀 없이 backend/worker 전체 test, type, lint 통과 |
+
 | Cleanup/namespace | 고유 Compose project + dev env example | 종료 후 M4 검증 컨테이너/network/volume/임시 env 잔여물이 0이고 parser bucket/queue가 환경 prefix로 격리됨 |
 
 ---

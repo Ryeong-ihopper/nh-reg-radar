@@ -1,0 +1,47 @@
+{
+  "fixtureVersion": 1,
+  "schemaVersion": "annotation-display-v1",
+  "confidencePolicyVersion": "confidence-thresholds-v1",
+  "annotations": [
+    {
+      "annotationId": "ANN-SYNTH-M5-BOX",
+      "annotationDisplayMode": "BOX",
+      "annotationStatus": "LOCATED",
+      "locationConfidence": 0.8,
+      "coordinate": {
+        "sourceWidth": 1000,
+        "sourceHeight": 500,
+        "sourceUnit": "px",
+        "x": 100,
+        "y": 50,
+        "width": 400,
+        "height": 50,
+        "normalizedX": 0.1,
+        "normalizedY": 0.1,
+        "normalizedWidth": 0.4,
+        "normalizedHeight": 0.1,
+        "rotation": 0,
+        "coordinateConfidence": 0.8
+      }
+    },
+    {
+      "annotationId": "ANN-SYNTH-M5-TEXT",
+      "annotationDisplayMode": "TEXT_HIGHLIGHT",
+      "annotationStatus": "PARTIALLY_LOCATED",
+      "locationConfidence": 0.79,
+      "coordinate": null,
+      "textBlockId": "OCR-SYNTH-002",
+      "normalizedStartOffset": 4,
+      "normalizedEndOffset": 12,
+      "matchedText": "중도해지"
+    },
+    {
+      "annotationId": "ANN-SYNTH-M5-LIST",
+      "annotationDisplayMode": "LIST_ONLY",
+      "annotationStatus": "NOT_LOCATED",
+      "locationConfidence": 0.49,
+      "coordinate": null,
+      "displayReason": "NO_TEXT_SPAN"
+    }
+  ]
+}

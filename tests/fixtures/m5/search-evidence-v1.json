@@ -1,0 +1,43 @@
+{
+  "fixtureVersion": 1,
+  "schemaVersion": "review-evidence-selection-v1",
+  "searchConfigVersion": "hybrid-search-fixture-v1",
+  "cases": [
+    {
+      "caseId": "CONNECTED",
+      "status": "CONNECTED",
+      "failureCode": null,
+      "selected": [
+        {
+          "evidenceId": "EVD-SYNTH-M5-001",
+          "evidenceChunkId": "ECH-SYNTH-M5-001",
+          "standardVersionId": "STDVER-SYNTH-M5-001",
+          "rankNo": 1,
+          "relevanceScore": 0.91,
+          "matchSource": "HYBRID",
+          "matchedText": "객관적 기준 없는 절대적 표현은 사용할 수 없습니다."
+        }
+      ]
+    },
+    {
+      "caseId": "INSUFFICIENT",
+      "status": "INSUFFICIENT",
+      "failureCode": null,
+      "selected": []
+    },
+    {
+      "caseId": "SEARCH_UNAVAILABLE",
+      "status": "SEARCH_UNAVAILABLE",
+      "failureCode": "RAG_SEARCH_UNAVAILABLE",
+      "selected": [],
+      "preservedRuleItemIds": ["ITEM-SYNTH-M5-001"]
+    },
+    {
+      "caseId": "SEARCH_FAILED",
+      "status": "SEARCH_UNAVAILABLE",
+      "failureCode": "RAG_SEARCH_FAILED",
+      "selected": [],
+      "preservedRuleItemIds": ["ITEM-SYNTH-M5-001"]
+    }
+  ]
+}

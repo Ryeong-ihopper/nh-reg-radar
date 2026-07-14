@@ -47,7 +47,5 @@ class GovernanceConfig(NamedTuple):
     implementation_patterns: tuple[str, ...]
     test_patterns: tuple[str, ...]
 
-    def with_required_documents(
-        self, required_documents: tuple[str, ...]
-    ) -> "GovernanceConfig":
+    def with_required_documents(self, required_documents: tuple[str, ...]) -> "GovernanceConfig":
         return self._replace(required_documents=required_documents)

@@ -1,0 +1,26 @@
+{
+  "fixtureVersion": 1,
+  "schemaVersion": "review-structured-output-v1",
+  "provider": null,
+  "model": null,
+  "networkAllowed": false,
+  "cases": [
+    {
+      "caseId": "VALID",
+      "status": "VALID",
+      "output": {
+        "decision": "RISKY",
+        "confidence": 0.86,
+        "reasonCode": "LLM_MISLEADING_CONTEXT",
+        "explanation": "조건이 생략된 절대적 표현이 오인 가능성을 높입니다."
+      }
+    },
+    {
+      "caseId": "INVALID_SCHEMA",
+      "status": "INVALID_SCHEMA",
+      "output": {"unexpected": true},
+      "failureCode": "LLM_OUTPUT_SCHEMA_INVALID",
+      "preservedRuleItemIds": ["ITEM-SYNTH-M5-001"]
+    }
+  ]
+}

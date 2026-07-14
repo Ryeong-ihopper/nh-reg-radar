@@ -1,0 +1,31 @@
+{
+  "fixtureVersion": 1,
+  "schemaVersion": "review-result-v1",
+  "reviewId": "REV-SYNTH-M5-001",
+  "standardEffectiveDate": "2026-07-14",
+  "standardVersionIds": ["STDVER-SYNTH-M5-001"],
+  "riskPolicyVersion": "risk-policy-v1",
+  "ruleConfigVersion": "rule-config-v1",
+  "items": [
+    {
+      "reviewItemId": "ITEM-SYNTH-M5-001",
+      "reviewType": "REQUIRED_PHRASE",
+      "targetText": "연 이율 기준 문구 없음",
+      "resultStatus": "NEEDS_REVISION",
+      "riskLevel": "HIGH",
+      "riskReasonCodes": ["REQUIRED_PHRASE_MISSING", "RULE_EXPLICIT_VIOLATION"],
+      "evidenceStatus": "NOT_REQUIRED",
+      "evidenceFailureCode": null,
+      "sourceEngine": "RULE",
+      "sourceVersion": "rule-config-v1",
+      "reason": "결정적 필수 문구 규칙에 따라 연 이율 기준 문구 누락이 확인되었습니다.",
+      "scoreDetail": {
+        "rule": {"matched": true, "ruleIds": ["RULE-REQUIRED-001"], "severity": "HIGH"},
+        "rag": {"topRelevanceScore": null, "evidenceCount": 0, "evidenceSufficient": false, "status": "NOT_REQUIRED", "failureCode": null},
+        "llm": {"schemaVersion": "review-structured-output-v1", "status": "NOT_RUN", "decision": null, "confidence": null},
+        "parser": {"confidenceStatus": "READABLE"},
+        "final": {"riskLevel": "HIGH", "decisionRule": "RULE_EXPLICIT_VIOLATION"}
+      }
+    }
+  ]
+}

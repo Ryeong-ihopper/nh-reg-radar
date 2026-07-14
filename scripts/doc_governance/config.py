@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Final, Protocol, Union
+from typing import Final, Protocol
 
 from .models import AdrPolicy, ChangeRule, GovernanceConfig, Severity, TraceabilityRule
 
-JsonScalar = Union[str, int, float, bool, None]
-JsonValue = Union[JsonScalar, list["JsonValue"], dict[str, "JsonValue"]]
+JsonScalar = str | int | float | bool | None
+JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 SEVERITY_VALUES: Final[dict[str, Severity]] = {
     "error": "error",
     "warning": "warning",
@@ -86,9 +86,7 @@ def _traceability_rule(value: JsonValue, index: int) -> TraceabilityRule:
         declaration_pattern=_string(
             rule.get("declaration_pattern"), f"{field}.declaration_pattern"
         ),
-        reference_pattern=_string(
-            rule.get("reference_pattern"), f"{field}.reference_pattern"
-        ),
+        reference_pattern=_string(rule.get("reference_pattern"), f"{field}.reference_pattern"),
     )
 
 
@@ -96,9 +94,7 @@ def load_config(path: Path) -> GovernanceConfig:
     raw = _decode_json(path.read_text(encoding="utf-8"))
     policy = _mapping(raw, "policy")
     adr_raw = _mapping(policy.get("adr"), "adr")
-    section_values = _list(
-        adr_raw.get("required_section_groups"), "adr.required_section_groups"
-    )
+    section_values = _list(adr_raw.get("required_section_groups"), "adr.required_section_groups")
     section_groups = tuple(
         _strings(value, "adr.required_section_groups[]") for value in section_values
     )
@@ -106,15 +102,9 @@ def load_config(path: Path) -> GovernanceConfig:
     change_values = _list(policy.get("change_rules", []), "change_rules")
 
     return GovernanceConfig(
-        required_documents=_strings(
-            policy.get("required_documents"), "required_documents"
-        ),
-        metadata_patterns=_strings(
-            policy.get("metadata_patterns"), "metadata_patterns"
-        ),
-        metadata_exclude=_strings(
-            policy.get("metadata_exclude", []), "metadata_exclude"
-        ),
+        required_documents=_strings(policy.get("required_documents"), "required_documents"),
+        metadata_patterns=_strings(policy.get("metadata_patterns"), "metadata_patterns"),
+        metadata_exclude=_strings(policy.get("metadata_exclude", []), "metadata_exclude"),
         active_markdown_patterns=_strings(
             policy.get("active_markdown_patterns"),
             "active_markdown_patterns",
@@ -135,9 +125,7 @@ def load_config(path: Path) -> GovernanceConfig:
         traceability_rules=tuple(
             _traceability_rule(value, index) for index, value in enumerate(trace_values)
         ),
-        change_rules=tuple(
-            _change_rule(value, index) for index, value in enumerate(change_values)
-        ),
+        change_rules=tuple(_change_rule(value, index) for index, value in enumerate(change_values)),
         implementation_patterns=_strings(
             policy.get("implementation_patterns", []), "implementation_patterns"
         ),

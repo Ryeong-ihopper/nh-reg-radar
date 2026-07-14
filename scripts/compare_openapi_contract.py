@@ -21,6 +21,7 @@ JsonObject: TypeAlias = dict[str, JsonValue]
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 DESCRIPTIVE_FIELDS = {"description", "example", "examples", "externalDocs", "title", "xml"}
+EMPTY_REFERENCES: frozenset[str] = frozenset()
 
 
 def _as_object(value: JsonValue | None) -> JsonObject:
@@ -60,7 +61,9 @@ def _json_sort_key(value: JsonValue) -> str:
 
 
 def _canonical_schema(
-    value: JsonValue, document: JsonObject, resolving: frozenset[str] = frozenset()
+    value: JsonValue,
+    document: JsonObject,
+    resolving: frozenset[str] = EMPTY_REFERENCES,
 ) -> JsonValue:
     if isinstance(value, list):
         return [_canonical_schema(item, document, resolving) for item in value]
@@ -87,7 +90,7 @@ def _canonical_schema(
         if key == "additionalProperties" and item is True:
             continue
         if key == "required" and isinstance(item, list):
-            required = sorted(str(entry) for entry in item)
+            required = cast(list[JsonValue], sorted(str(entry) for entry in item))
             if required:
                 result[key] = required
             continue
@@ -98,7 +101,10 @@ def _canonical_schema(
             )
             continue
         if key == "type" and isinstance(item, list):
-            types = sorted(str(entry) for entry in item if entry != "null")
+            types = cast(
+                list[JsonValue],
+                sorted(str(entry) for entry in item if entry != "null"),
+            )
             nullable = "null" in item
             result[key] = types[0] if len(types) == 1 else types
             continue
@@ -129,12 +135,15 @@ def _canonical_security(value: JsonValue | None) -> JsonValue:
             normalized.append(requirement)
             continue
         normalized.append(
-            {
-                scheme: sorted(str(scope) for scope in scopes)
-                if isinstance(scopes, list)
-                else scopes
-                for scheme, scopes in sorted(requirement.items())
-            }
+            cast(
+                JsonObject,
+                {
+                    scheme: sorted(str(scope) for scope in scopes)
+                    if isinstance(scopes, list)
+                    else scopes
+                    for scheme, scopes in sorted(requirement.items())
+                },
+            )
         )
     return sorted(normalized, key=_json_sort_key)
 
@@ -158,7 +167,7 @@ def _canonical_parameter(value: JsonValue, document: JsonObject) -> JsonValue:
         # For an optional HTTP parameter, omission is the only portable representation of null.
         # FastAPI nevertheless emits a JSON-Schema null branch for ``T | None``.
         if not result["required"] and isinstance(schema, dict):
-            schema.pop("nullable", None)
+            _ = schema.pop("nullable", None)
         result["schema"] = schema
     if "content" in value:
         result["content"] = _canonical_content(value["content"], document)
