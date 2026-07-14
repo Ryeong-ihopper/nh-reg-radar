@@ -52,9 +52,7 @@ def test_support_service_retains_histories_snapshots_and_download_audit(
     pdf = service.create_report(actor("COMPLIANCE_REVIEWER"), "REV-0001", {"format": "PDF"})
     assert pdf["sourceReportId"] == "RPT-0002"
     assert hwpx["snapshotHash"].startswith("sha256:")
-    payload, report_format = service.download_report(
-        actor("COMPLIANCE_REVIEWER"), hwpx["reportId"]
-    )
+    payload, report_format = service.download_report(actor("COMPLIANCE_REVIEWER"), hwpx["reportId"])
     assert report_format == "HWPX"
     assert payload
     assert repository.list_audit_events()[0].action_type == "REPORT_DOWNLOADED"
@@ -115,20 +113,23 @@ def test_support_outputs_survive_service_restart_without_mutating_snapshots(
         repository=support_repository,
         audit_sink=repository.add_audit_event,
     )
-    assert restarted.list_suggestions(actor("COMPLIANCE_REVIEWER"), "REV-0001")[0][
-        "decisionStatus"
-    ] == decision["decisionStatus"]
+    assert (
+        restarted.list_suggestions(actor("COMPLIANCE_REVIEWER"), "REV-0001")[0]["decisionStatus"]
+        == decision["decisionStatus"]
+    )
     assert restarted.drafts_for(actor("COMPLIANCE_REVIEWER"), "REV-0001") == [updated]
-    assert restarted.get_report(actor("COMPLIANCE_REVIEWER"), report["reportId"])[
-        "snapshotHash"
-    ] == report["snapshotHash"]
+    assert (
+        restarted.get_report(actor("COMPLIANCE_REVIEWER"), report["reportId"])["snapshotHash"]
+        == report["snapshotHash"]
+    )
     payload, report_format = restarted.download_report(
         actor("COMPLIANCE_REVIEWER"), report["reportId"], trace_id="req-download"
     )
     assert payload and report_format == "HWPX"
-    assert restarted.get_comparison(
-        actor("COMPLIANCE_REVIEWER"), comparison["comparisonId"]
-    ) == comparison
+    assert (
+        restarted.get_comparison(actor("COMPLIANCE_REVIEWER"), comparison["comparisonId"])
+        == comparison
+    )
     assert support_repository.decisions[0]["finalText"] == "조건 충족 시 혜택 제공"
     assert {event.action_type for event in repository.audit_events} >= {
         "SUGGESTION_DECISION_CREATE",
@@ -173,8 +174,15 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
             == 200
         )
         assert (
-            client.get("/api/v1/reviews/REV-0001/suggestions", headers=product_headers).status_code
-            == 200
+            len(client.get("/api/v1/reviews/REV-0001/suggestions", headers=product_headers).json())
+            == 1
+        )
+
+        assert (
+            client.post(
+                "/api/v1/reviews/REV-0001/opinion-drafts", headers=product_headers, json={}
+            ).status_code
+            == 403
         )
 
         qa = client.post(
@@ -188,12 +196,12 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
         )
 
         draft = client.post(
-            "/api/v1/reviews/REV-0001/opinion-drafts", headers=product_headers, json={}
+            "/api/v1/reviews/REV-0001/opinion-drafts", headers=reviewer_headers, json={}
         ).json()
         assert (
             client.patch(
                 f"/api/v1/opinion-drafts/{draft['draftId']}",
-                headers=product_headers,
+                headers=reviewer_headers,
                 json={"finalContent": "검토 의견"},
             ).status_code
             == 200
@@ -206,7 +214,7 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
         )
 
         report = client.post(
-            "/api/v1/reviews/REV-0001/reports", headers=product_headers, json={"format": "PDF"}
+            "/api/v1/reviews/REV-0001/reports", headers=reviewer_headers, json={"format": "PDF"}
         ).json()
         assert report["sourceReportId"]
         assert (
@@ -217,7 +225,7 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
             client.get(
                 f"/api/v1/reports/{report['reportId']}/download", headers=product_headers
             ).status_code
-            == 403
+            == 200
         )
         download = client.get(
             f"/api/v1/reports/{report['reportId']}/download", headers=reviewer_headers

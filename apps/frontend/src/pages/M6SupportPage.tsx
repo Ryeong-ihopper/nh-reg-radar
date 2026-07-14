@@ -42,7 +42,7 @@ export function M6SupportPage() {
 
   function submitDecision(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const suggestion = suggestions.data;
+    const suggestion = suggestions.data?.[0];
     if (!suggestion) return;
     const finalText = new FormData(event.currentTarget).get("finalText")?.toString().trim() ?? "";
     if (decisionStatus === "MODIFIED_AND_USED" && !finalText) {
@@ -61,9 +61,10 @@ export function M6SupportPage() {
 
   function submitDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!opinion.data) return;
+    const draft = opinion.data?.[0];
+    if (!draft) return;
     const finalContent = new FormData(event.currentTarget).get("finalContent")?.toString().trim() ?? "";
-    if (finalContent) updateDraft.mutate({ draftId: opinion.data.draftId, finalContent });
+    if (finalContent) updateDraft.mutate({ draftId: draft.draftId, finalContent });
   }
 
   async function downloadReport() {
@@ -86,7 +87,7 @@ export function M6SupportPage() {
       <section aria-labelledby="suggestion-heading"><h3 id="suggestion-heading">문구 추천</h3>
         {suggestions.isPending ? <LoadingState label="추천 문구를 불러오는 중입니다." /> : null}
         {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => void suggestions.refetch()} /> : null}
-        {suggestions.data ? <><p><strong>{suggestions.data.originalText}</strong> → {suggestions.data.suggestedText}</p><p>{suggestions.data.suggestionReason}</p>
+        {suggestions.data?.[0] ? <><p><strong>{suggestions.data[0].originalText}</strong> → {suggestions.data[0].suggestedText}</p><p>{suggestions.data[0].suggestionReason}</p>
           <form onSubmit={submitDecision}><label>판단<select value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value as keyof typeof DECISION_LABELS)}>{Object.entries(DECISION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label>최종 문구<textarea name="finalText" /></label>
             {decisionError ? <p role="alert" className="state-message state-error">{decisionError}</p> : null}
@@ -102,7 +103,7 @@ export function M6SupportPage() {
 
       <section aria-labelledby="opinion-heading"><h3 id="opinion-heading">심의 의견 초안</h3>
         {opinion.isPending ? <LoadingState label="심의 의견 초안을 불러오는 중입니다." /> : null}{opinion.isError ? <ErrorState error={opinion.error} onRetry={() => void opinion.refetch()} /> : null}
-        {!opinion.data ? <button type="button" onClick={() => createDraft.mutate()} disabled={createDraft.isPending}>{createDraft.isPending ? "초안 생성 중..." : "심의 의견 초안 생성"}</button> : <form onSubmit={submitDraft}><p>{opinion.data.draftContent}</p><label>담당자 수정본<textarea name="finalContent" defaultValue={opinion.data.finalContent ?? opinion.data.draftContent} required /></label><button type="submit" disabled={updateDraft.isPending}>{updateDraft.isPending ? "저장 중..." : "수정본 저장"}</button></form>}
+        {!opinion.data?.[0] ? <button type="button" onClick={() => createDraft.mutate()} disabled={createDraft.isPending}>{createDraft.isPending ? "초안 생성 중..." : "심의 의견 초안 생성"}</button> : <form onSubmit={submitDraft}><p>{opinion.data[0].draftContent}</p><label>담당자 수정본<textarea name="finalContent" defaultValue={opinion.data[0].finalContent ?? opinion.data[0].draftContent} required /></label><button type="submit" disabled={updateDraft.isPending}>{updateDraft.isPending ? "저장 중..." : "수정본 저장"}</button></form>}
         {createDraft.isError ? <ErrorState error={createDraft.error} /> : null}{updateDraft.isError ? <ErrorState error={updateDraft.error} /> : null}
       </section>
 

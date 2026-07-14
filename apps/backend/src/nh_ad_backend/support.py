@@ -639,6 +639,11 @@ class SupportService:
         if self._advertisements is not None:
             self._advertisements.get(actor, advertisement_id, trace_id)
 
+    @staticmethod
+    def _require_compliance_reviewer(actor: CurrentUser) -> None:
+        if "COMPLIANCE_REVIEWER" not in actor.roles:
+            raise ServiceError(403, "FORBIDDEN", "준법감시 담당자 권한이 필요합니다.")
+
     def list_suggestions(
         self, actor: CurrentUser, review_id: str, trace_id: str = "support-direct"
     ) -> list[dict[str, Any]]:
@@ -745,6 +750,7 @@ class SupportService:
         body: dict[str, Any],
         trace_id: str = "support-direct",
     ) -> dict[str, Any]:
+        self._require_compliance_reviewer(actor)
         self._authorize_review(actor, review_id, trace_id)
         now = self._now()
         draft = {
@@ -774,6 +780,7 @@ class SupportService:
         text_value = body.get("finalContent")
         if draft is None:
             raise ServiceError(404, "NOT_FOUND", "의견 초안을 찾을 수 없습니다.")
+        self._require_compliance_reviewer(actor)
         self._authorize_review(actor, draft["reviewId"], trace_id)
         if not isinstance(text_value, str) or not text_value.strip():
             raise ServiceError(400, "BAD_REQUEST", "최종 의견을 입력해 주세요.")
@@ -792,19 +799,26 @@ class SupportService:
         body: dict[str, Any],
         trace_id: str = "support-direct",
     ) -> dict[str, Any]:
+        self._require_compliance_reviewer(actor)
         self._authorize_review(actor, review_id, trace_id)
         requested_format = body.get("format", "HWPX")
         if requested_format not in {"HWPX", "PDF"}:
             raise ServiceError(400, "BAD_REQUEST", "지원하지 않는 보고서 형식입니다.")
+        include_suggestions = bool(body.get("includeSuggestions", False))
+        include_drafts = bool(body.get("includeOpinionDraft", False))
         snapshot = {
             "reviewId": review_id,
             "suggestions": [
                 self._suggestion_response(value)
                 for value in self.repository.list_suggestions(review_id)
-            ],
+            ]
+            if include_suggestions
+            else [],
             "drafts": [
                 self._draft_response(value) for value in self.repository.list_drafts(review_id)
-            ],
+            ]
+            if include_drafts
+            else [],
             "options": {
                 key: body.get(key, False)
                 for key in (
@@ -899,8 +913,6 @@ class SupportService:
         report_id: str,
         trace_id: str = "support-direct",
     ) -> tuple[bytes, str]:
-        if not set(actor.roles).intersection({"COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"}):
-            raise ServiceError(403, "FORBIDDEN", "보고서 다운로드 권한이 없습니다.")
         report = self.repository.get_report(report_id)
         if report is None:
             raise ServiceError(404, "NOT_FOUND", "보고서를 찾을 수 없습니다.")

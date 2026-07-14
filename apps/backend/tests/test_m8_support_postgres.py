@@ -101,6 +101,7 @@ def postgres_url() -> Iterator[str]:
     try:
         wait_for_postgres(name, raw_url)
         for role in ("app", "readonly"):
+            role_options = "LOGIN PASSWORD 'app'" if role == "app" else "NOLOGIN"
             run(
                 "docker",
                 "exec",
@@ -113,7 +114,7 @@ def postgres_url() -> Iterator[str]:
                 "--set",
                 "ON_ERROR_STOP=1",
                 "--command",
-                f"CREATE ROLE {role} NOLOGIN",
+                f"CREATE ROLE {role} {role_options}",
             )
         env = os.environ.copy()
         env["NH_DB_MIGRATION_URL"] = raw_url.replace(
@@ -126,10 +127,10 @@ def postgres_url() -> Iterator[str]:
             "-c",
             "apps/backend/alembic.ini",
             "upgrade",
-            "0007_m7_validation_kpi",
+            "0008_m8_support_privileges",
             env=env,
         )
-        yield raw_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        yield f"postgresql+psycopg://app:app@127.0.0.1:{port}/postgres"
     finally:
         subprocess.run(
             ["docker", "rm", "--force", name], capture_output=True, check=False, timeout=45

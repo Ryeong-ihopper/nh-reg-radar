@@ -29,6 +29,7 @@ test('G007 M6 manifest freezes the provider-independent support-output contract'
 test('TC-SUG-001..008: suggestions retain append-only human decisions', async () => {
   const document = await loadOpenApi(contractPath);
   assert.equal(document.paths['/reviews/{reviewId}/suggestions'].get.operationId, 'listReviewSuggestions');
+  assert.equal(document.paths['/reviews/{reviewId}/suggestions'].get.responses['200'].content['application/json'].schema.type, 'array');
   assert.equal(document.paths['/suggestions/{suggestionId}/decision'].patch.operationId, 'recordSuggestionDecision');
   assert.deepEqual(document.components.schemas.SuggestionDecisionStatus.enum, ['PENDING', 'ACCEPTED', 'REJECTED', 'MODIFIED_AND_USED']);
   assert.deepEqual(document.components.schemas.SuggestionDecisionRequest.properties.decisionStatus.enum, ['ACCEPTED', 'REJECTED', 'MODIFIED_AND_USED']);
@@ -40,6 +41,7 @@ test('TC-QA-001..006 and TC-OPN-001..006: fixed references and editable draft bo
   assert.equal(document.paths['/qa/questions'].get.operationId, 'listComplianceQuestions');
   assert.equal(document.components.schemas.QaAnswer.properties.needsHumanReview.type, 'boolean');
   assert.equal(document.paths['/reviews/{reviewId}/opinion-drafts'].post.operationId, 'createOpinionDraft');
+  assert.equal(document.paths['/reviews/{reviewId}/opinion-drafts'].get.responses['200'].content['application/json'].schema.type, 'array');
   assert.ok(document.components.schemas.OpinionDraft.required.includes('draftContent'));
   assert.ok(Object.hasOwn(document.components.schemas.OpinionDraft.properties, 'finalContent'));
 });
@@ -54,6 +56,8 @@ test('TC-RPT-001..013 and TC-CMP-001..007: snapshots and structural comparison o
   assert.equal(fixture.networkAllowed, false);
   assert.equal(fixture.provider, null);
   assert.deepEqual(fixture.comparison.statuses, ['RESOLVED', 'UNRESOLVED', 'NEW_ISSUE']);
+  assert.equal(document.paths['/advertisements/{advertisementId}/revisions'].post.operationId, 'createAdvertisementRevision');
+  assert.equal(document.paths['/advertisements/{advertisementId}/revisions'].post.responses['201'].content['application/json'].schema.$ref, '#/components/schemas/AdvertisementRevisionCreated');
 });
 
 test('TC-CMP-008..011: a stored multipart revision is registered before comparison', async () => {
