@@ -1,13 +1,13 @@
 # Database seed boundary
 
-M1 intentionally contains no business or sample seed data. Alembic owns only
-database structure. Starting in M2:
+Alembic owns only database structure. M2 defines two explicit seed classes:
 
-- system-required common codes and roles belong to an idempotent common seed;
-- sample users and departments belong to a `dev`-only seed;
+- `common.sql` idempotently upserts the fixed roles and M2 common codes;
+- `dev.sql` idempotently upserts synthetic users and departments only when the
+  guarded `scripts/seed-dev-data.sh` entrypoint runs with `NH_ENVIRONMENT=dev`;
 - `prod(main)` accepts only explicitly approved seed/import inputs;
 - operating or customer data must never be embedded in a migration.
 
-The root `scripts/seed-common-data.sh` and `scripts/seed-dev-data.sh` entrypoints
-lock this boundary without pre-designing later capability data.
-
+Both entrypoints require the `app` runtime identity. The dev entrypoint accepts
+only `NH_DEV_SEED_PASSWORD_HASH`; it never accepts or stores a plaintext seed
+password. No customer data or M3+ capability seed is included.

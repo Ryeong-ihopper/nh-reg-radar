@@ -8,10 +8,10 @@ COPY apps/backend/src ./src
 
 FROM source AS development
 RUN pip install --no-cache-dir --editable .
-CMD ["uvicorn", "nh_ad_backend.main:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "nh_ad_backend.main:create_app", "--factory", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 FROM source AS production
 RUN pip install --no-cache-dir .
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
-CMD ["uvicorn", "nh_ad_backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "nh_ad_backend.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

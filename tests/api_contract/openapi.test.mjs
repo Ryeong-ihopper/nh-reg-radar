@@ -12,18 +12,30 @@ import {
 
 const contractPath = new URL('../../openapi/openapi.yaml', import.meta.url).pathname;
 
-test('TC-NFR-API-001/006: M0 document is valid and bounded', async () => {
+test('TC-NFR-API-001/006: M2 document is valid and capability-bounded', async () => {
   const document = await validateOpenApi(contractPath);
   assert.equal(document.openapi, '3.1.0');
   assert.equal(typeof document.info.title, 'string');
-  assert.equal(typeof document.info.version, 'string');
-  assert.deepEqual(document.paths, {});
-  assert.deepEqual(Object.keys(document.components.schemas), ['ErrorResponse']);
+  assert.equal(document.info.version, '0.2.0');
+  assert.deepEqual(Object.keys(document.paths).sort(), [
+    '/admin/audit-logs',
+    '/advertisements',
+    '/advertisements/{advertisementId}',
+    '/auth/login',
+    '/auth/logout',
+    '/auth/refresh',
+    '/codes/{codeGroup}',
+    '/files/{fileId}/download',
+    '/files/{fileId}/preview',
+    '/files/{fileId}/preview/content',
+    '/users/me',
+  ]);
+  assert.ok(Object.hasOwn(document.components.schemas, 'ErrorResponse'));
 });
 
 test('TC-NFR-API-007: every local ref resolves', async () => {
   const dereferenced = await SwaggerParser.dereference(contractPath);
-  const responseSchema = dereferenced.components.responses.ErrorResponse.content['application/json'].schema;
+  const responseSchema = dereferenced.components.responses.Unauthorized.content['application/json'].schema;
   assert.equal(responseSchema, dereferenced.components.schemas.ErrorResponse);
 });
 

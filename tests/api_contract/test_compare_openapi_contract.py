@@ -13,7 +13,11 @@ def make_contract(
     request_type: str = "string",
     path_parameter: str = "tenantId",
     security_scheme: str = "BearerAuth",
+    minimum_length: int | None = None,
 ) -> JsonObject:
+    identifier_schema: JsonObject = {"type": id_type}
+    if minimum_length is not None:
+        identifier_schema["minLength"] = minimum_length
     return {
         "security": [{security_scheme: []}],
         "paths": {
@@ -28,13 +32,9 @@ def make_contract(
                 "get": {
                     "operationId": operation_id,
                     "requestBody": {
-                        "content": {
-                            "application/json": {"schema": {"type": request_type}}
-                        }
+                        "content": {"application/json": {"schema": {"type": request_type}}}
                     },
-                    "responses": {
-                        status: {"$ref": "#/components/responses/ThingResponse"}
-                    },
+                    "responses": {status: {"$ref": "#/components/responses/ThingResponse"}},
                 },
             }
         },
@@ -42,16 +42,14 @@ def make_contract(
             "schemas": {
                 "Thing": {
                     "type": "object",
-                    "properties": {"id": {"type": id_type}},
+                    "properties": {"id": identifier_schema},
                 }
             },
             "responses": {
                 "ThingResponse": {
                     "description": "OK",
                     "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/Thing"}
-                        }
+                        "application/json": {"schema": {"$ref": "#/components/schemas/Thing"}}
                     },
                 }
             },
@@ -76,11 +74,42 @@ class OpenApiContractComparisonTest(unittest.TestCase):
         generated["info"] = {"title": "Generated", "version": "different"}
         self.assertEqual([], compare_contracts(self.contract, generated))
 
+    def test_equivalent_contract_resolves_component_names_and_root_security(self) -> None:
+        generated = make_contract()
+        generated["security"] = []
+        operation = generated["paths"]["/things"]["get"]
+        operation["security"] = [{"BearerAuth": []}]
+        operation["responses"]["200"] = {
+            "description": "Generator wording is irrelevant.",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}},
+                    }
+                }
+            },
+        }
+        generated["components"]["schemas"] = {}
+        generated["components"]["responses"] = {}
+        self.assertEqual([], compare_contracts(self.contract, generated))
+
+    def test_equivalent_contract_normalizes_nullable_schema_forms(self) -> None:
+        generated = make_contract()
+        generated["components"]["schemas"]["Thing"]["properties"]["id"] = {
+            "type": ["string", "null"]
+        }
+        self.contract["components"]["schemas"]["Thing"]["properties"]["id"] = {
+            "oneOf": [{"type": "string"}, {"type": "null"}]
+        }
+        self.assertEqual([], compare_contracts(self.contract, generated))
+
     def test_path_and_method_drift_is_detected(self) -> None:
         self.assert_drift(make_contract(path="/other"))
 
     def test_schema_drift_is_detected(self) -> None:
         self.assert_drift(make_contract(id_type="integer"))
+        self.assert_drift(make_contract(minimum_length=3))
 
     def test_status_drift_is_detected(self) -> None:
         self.assert_drift(make_contract(status="201"))

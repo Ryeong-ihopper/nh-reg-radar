@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.2 |
+| 현행 버전 | v1.3 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.3 | 2026-07-14 | M2 capability-local OpenAPI/migration/seed/fixture trace Gate, queryless preview descriptor와 scope·redaction negative contract 검증 반영 |
 | v1.2 | 2026-07-14 | M1 앱 독립 검증, Compose smoke, DB bootstrap/Alembic 경계, 최소권한 및 dev/prod namespace 격리 CI 항목 반영 |
 | v1.1 | 2026-07-14 | M0 OpenAPI core skeleton, lockfile 기반 lint, 참조/example/operationId 계약 검증 항목 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/Parser/OCR/RAG/평가 snapshot 테스트 기준 보강 |
@@ -26,9 +27,9 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.2 |
+| 문서 버전 | v1.3 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
-| 기준 문서 | API 명세서 v1.1, DB 명세서 v0.1 |
+| 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
 
 ---
@@ -162,7 +163,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 
 | TC ID | 테스트 항목 | 사전조건 | 테스트 절차 | 기대 결과 | 관련 DB | 우선순위 |
 | --- | --- | --- | --- | --- | --- | --- |
-| TC-ADV-001 | 광고물 정상 등록 | 유효한 광고 파일 준비 | 필수값과 파일을 포함하여 광고물 등록 API 호출 | 광고물 ID 생성, 상태 `UPLOADED` 저장 | `advertisements`, `advertisement_files` | P0 |
+| TC-ADV-001 | 광고물 정상 등록 | 유효한 광고 파일과 실제 PostgreSQL/MinIO 준비 | 필수값과 파일을 포함하여 광고물 등록 API 호출 | 광고물 ID와 상태 `UPLOADED` 저장, private bucket object 및 `storage_provider`/`bucket`/`object_key`/`checksum_sha256` 메타데이터 생성 | `advertisements`, `advertisement_files`, MinIO | P0 |
 | TC-ADV-002 | 광고명 누락 | 광고명 미입력 | 광고물 등록 API 호출 | 400 BAD_REQUEST, 필수값 오류 반환 | - | P0 |
 | TC-ADV-003 | 상품군 누락 | 상품군 미입력 | 광고물 등록 API 호출 | 400 BAD_REQUEST 반환 | - | P0 |
 | TC-ADV-004 | 광고유형 누락 | 광고유형 미입력 | 광고물 등록 API 호출 | 400 BAD_REQUEST 반환 | - | P0 |
@@ -489,9 +490,9 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | --- | --- | --- | --- | --- |
 | TC-NFR-SEC-001 | 상품부서 사용자의 타 부서 광고물 목록 필터링 | 광고물 목록 조회 | 타 부서 광고물은 목록에서 제외 | P0 |
 | TC-NFR-SEC-002 | 기준 관리자 외 기준자료 수정 제한 | 상품부서 권한으로 기준자료 수정 | 403 FORBIDDEN | P0 |
-| TC-NFR-SEC-003 | 파일 다운로드 권한 검증 | 권한 없는 파일 다운로드 시도 | 403 FORBIDDEN | P0 |
-| TC-NFR-SEC-004 | 민감정보 로그 저장 방지 | API 호출 후 로그 확인 | Token, 파일 원문 등 민감정보 미저장 | P0 |
-| TC-NFR-SEC-005 | 상품부서 사용자의 타 부서 광고물 단건 접근 제한 | 타 부서 광고물 상세 조회 | 403 FORBIDDEN | P0 |
+| TC-NFR-SEC-003 | 파일 다운로드 권한 검증 | 실제 private MinIO object에 권한 없는 사용자가 backend proxy 다운로드 시도 | 403 FORBIDDEN, object key/presigned URL 비노출, DENIED 감사 기록 | P0 |
+| TC-NFR-SEC-004 | 민감정보 로그 저장 방지 | API 호출 후 로그/감사/오류 응답 확인 | Token/hash, 비밀번호, 파일 원문, bucket/object key 등 민감정보 미노출 | P0 |
+| TC-NFR-SEC-005 | 상품부서 사용자의 타 부서 광고물 단건 접근 제한 | 타 부서 광고물 상세 조회 | 403 FORBIDDEN과 traceId 기반 안전 메시지, 광고/파일 원문 미노출 | P0 |
 | TC-NFR-SEC-006 | 시스템 관리자 원본 파일 접근 사유 기록 | SYSTEM_ADMIN이 원본 파일 접근 | 장애 대응 사유와 감사 로그 기록 | P1 |
 | TC-NFR-SEC-007 | Refresh token cookie 보호 속성 | 로그인 수행 | Set-Cookie 확인 | HttpOnly, SameSite, Secure 속성 적용. 로컬 개발은 Secure 예외 가능 | P0 |
 | TC-NFR-SEC-008 | CORS allowlist 검증 | 미허용 Origin에서 API 호출 | CORS 차단 또는 403 처리 | P0 |
@@ -525,17 +526,17 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-NFR-API-002 | Spectral lint | lockfile 설치 후 repository의 OpenAPI lint script 실행 | transient `npx` 다운로드 없이 ADR-0026/0062 기준 lint 통과 | P0 |
 | TC-NFR-API-003 | TypeScript 타입 생성 diff | `openapi-typescript` 생성 후 git diff 확인 | 생성 타입 변경이 PR에 반영됨 | P1 |
 | TC-NFR-API-004 | FastAPI generated OpenAPI diff | FastAPI 구현 후 `/openapi.json`과 원천 OpenAPI 비교 | path/method/schema/status code 차이 없음 | P1 |
-| TC-NFR-API-005 | 핵심 플로우 API 포함 범위 | OpenAPI path 목록 확인 | Auth, 광고물/파일, AI 검토, 결과/Annotation, 기준자료, 리포트, PoC 검증 핵심 API 포함 | P0 |
-| TC-NFR-API-006 | M0 core skeleton 범위 | OpenAPI metadata, paths, components 확인 | `paths`는 비어 있고 schema는 `ErrorResponse`만 존재하며 capability 계약을 선설계하지 않음 | P0 |
+| TC-NFR-API-005 | M2 핵심 플로우 API 포함 범위 | OpenAPI path 목록과 FilePreview example/pattern 확인 | Auth/Common, 광고물 등록·목록·상세, authorized 파일 preview/content/download, redacted 감사 조회만 포함하고 previewPath는 queryless content descriptor이며 `pageNo`는 실제 content 요청에만 사용 | P0 |
+| TC-NFR-API-006 | M2 capability-local 범위 | OpenAPI metadata, paths, components 확인 | v0.2.0의 12 operation/schema가 trace manifest와 일치하고 Review/Parser/Search/Result/Report 등 M3+ 계약이 없음 | P0 |
 | TC-NFR-API-007 | OpenAPI 참조 및 example 검증 | 모든 local `$ref` 해석과 schema example validation 실행 | 끊어진 참조와 schema 불일치 example이 없음 | P0 |
-| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | 현재 빈 paths를 허용하고 후속 path 추가 시 누락·중복 `operationId`가 없음 | P0 |
+| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | M2 operation 12개에 누락·중복 `operationId`가 없음 | P0 |
 
 ## 19.5 화면 UI 및 반응형
 
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
-| TC-NFR-UI-001 | 핵심 화면 기본 상태 표시 | S-003, S-004, S-005, S-006, S-007, S-008, S-012, S-014, S-015, S-016 진입 | loading, empty, error 상태가 화면별로 표시됨 | P1 |
-| TC-NFR-UI-002 | 권한별 action 노출 | 상품부서, 준법감시, 기준 관리자, 시스템 관리자 계정으로 핵심 화면 진입 | 권한 없는 메뉴/action은 숨김 또는 비활성화되고 직접 접근은 403 처리 | P1 |
+| TC-NFR-UI-001 | 핵심 화면 기본 상태 표시 | 로그인, S-002, S-003 및 후속 핵심 화면 진입 | 로그인 validation과 S-002/S-003 loading, empty, error, required/file validation 상태가 화면별로 표시됨 | P1 |
+| TC-NFR-UI-002 | 권한별 action 노출 | 상품부서, 준법감시, 기준 관리자, 시스템 관리자 계정으로 핵심 화면 진입 | STANDARD_MANAGER의 광고 등록/목록 action은 요청 전 거부되고, 타 부서 상세 직접 접근은 403 traceId 기반 안전 메시지를 표시하며 민감 원문을 숨김 | P1 |
 | TC-NFR-UI-003 | PC 기준 핵심 레이아웃 | 1280px 이상 viewport에서 핵심 화면 확인 | ADR-0060 기준 레이아웃 패턴과 주요 액션 영역이 유지됨 | P1 |
 | TC-NFR-UI-004 | Tablet/Mobile fallback | 768px, 375px viewport에서 핵심 화면 확인 | 텍스트 겹침, 버튼 잘림, 필수 상태 확인 불가가 없음 | P2 |
 | TC-NFR-UI-005 | Annotation 화면 반응형 제한 안내 | 모바일 viewport에서 S-007 진입 | 정밀 검토는 PC 사용 권장 안내 또는 제한된 fallback 표시 | P2 |
@@ -546,9 +547,29 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | --- | --- | --- | --- | --- |
 | TC-NFR-INFRA-001 | 앱별 독립 품질 Gate | backend와 worker의 lint/typecheck/test를 각각 실행하고 frontend의 clean install/lint/typecheck/test/build를 실행 | 세 앱이 다른 앱의 런타임 기동 없이 독립 통과하고 capability 업무 로직이 포함되지 않음 | P0 |
 | TC-NFR-INFRA-002 | dev/prod Compose 및 dev health smoke | env example을 사용해 dev/prod `docker compose config`를 검증하고 dev stack의 앱·PostgreSQL·Redis·MinIO·Qdrant·OpenSearch health를 확인 | 두 config 오류가 없고 dev 필수 서비스가 healthy 또는 readiness 응답 성공 | P0 |
-| TC-NFR-INFRA-003 | DB bootstrap, migration 및 seed 경계 | bootstrap 전용 identity로 초기화를 두 번 실행하고 migration identity로 schema-only Alembic base를 clean/sequential upgrade한 뒤 seed를 별도 실행 | role/grant drift와 Alembic role 관리가 없고 `app`, `rag`, `validation`, `audit` schema 및 `app.alembic_version`만 base에 생성되며 seed가 revision에 포함되지 않음 | P0 |
+| TC-NFR-INFRA-003 | DB bootstrap, migration 및 seed 경계 | bootstrap 전용 identity로 초기화를 두 번 실행하고 migration identity로 M1 base→M2 owner revision을 clean/sequential upgrade한 뒤 common/dev seed를 각각 두 번 실행 | M1 base 무변경, M2 auth/common/advertisement/file/audit 테이블만 생성, runtime DML/readonly SELECT 권한, seed idempotency와 prod dev-seed 거부 확인 | P0 |
 | TC-NFR-INFRA-004 | DB 최소권한 및 privileged credential 격리 | migration role 관리, app DDL, readonly write를 실제 DB에서 시도하고 workflow/config/image/artifact에서 bootstrap/admin 자격증명 주입을 검사 | 모든 금지 SQL이 거부되고 privileged 자격증명은 일회성 bootstrap/probe 경계 밖에 존재하지 않으며 runtime DSN과 migration DSN identity가 다름 | P0 |
 | TC-NFR-INFRA-005 | dev/prod namespace 격리 | env example과 rendered Compose에서 PostgreSQL DB, MinIO bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 비교하고 교차 환경 접근 probe 실행 | 모든 namespace 값이 환경별로 다르고 dev 자격증명으로 prod namespace 접근이 거부됨 | P0 |
+
+## 19.7 M2 계약·통합 trace Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Goal trace | `tests/fixtures/m2/trace-manifest.json` | `G003-m2`, OpenAPI 12 operation/schema, `0002_m2_auth_advertisement_audit`, synthetic fixture hash, 실제 `TC-COM-001..020`/`TC-ADV-001..017` 매핑 일치 |
+| Contract | `npm run openapi:check` | schema/example, `$ref`, operationId, multipart/status, 403 scope, response redaction 검증 통과 및 Spectral 경고 0 |
+| DB static | `python3 -m unittest tests.integration.test_m2_database_contract -v` | M2 owner table/column/grant, active refresh revoke index, seed 분리/guard 검증 통과 |
+| DB/Object Storage integration | 실제 PostgreSQL/MinIO backend integration test | clean upgrade, duplicate seed, private object 저장/조회, 타 부서 preview/download 403, DB/object rollback 및 secret/object-key 비노출 |
+| Browser | frontend test suite | unauth validation, cookie/Bearer 호출, loading/error redaction, login→multipart 등록→목록/상세, 타 부서 상세 403 검증 통과 |
+
+## 19.7 M2 계약·통합 trace Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Goal trace | `tests/fixtures/m2/trace-manifest.json` | `G003-m2`, OpenAPI 12 operation/schema, `0002_m2_auth_advertisement_audit`, synthetic fixture hash, 실제 `TC-COM-001..020`/`TC-ADV-001..017` 매핑 일치 |
+| Contract | `npm run openapi:check` | schema/example, `$ref`, operationId, multipart/status, 403 scope, response redaction 검증 통과 및 Spectral 경고 0 |
+| DB static | `python3 -m unittest tests.integration.test_m2_database_contract -v` | M2 owner table/column/grant, active refresh revoke index, seed 분리/guard 검증 통과 |
+| DB/Object Storage integration | 실제 PostgreSQL/MinIO backend integration test | clean upgrade, duplicate seed, private object 저장/조회, 타 부서 preview/download 403, DB/object rollback 및 secret/object-key 비노출 |
+| Browser | frontend test suite | unauth validation, cookie/Bearer 호출, loading/error redaction, login→multipart 등록→목록/상세, 타 부서 상세 403 검증 통과 |
 
 ---
 

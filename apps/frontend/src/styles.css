@@ -48,6 +48,20 @@ a {
   color: #fff;
 }
 
+.app-header nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.header-button {
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  text-decoration: underline;
+}
+
 .brand-mark {
   display: grid;
   width: 2.5rem;
@@ -70,6 +84,229 @@ main section {
   border-radius: 1rem;
   background: #fff;
   box-shadow: 0 0.7rem 2rem rgb(20 83 45 / 8%);
+}
+
+button,
+.button-link {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #166534;
+  border-radius: 0.45rem;
+  color: #fff;
+  background: #166534;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.button-secondary {
+  color: #166534;
+  background: #fff;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 2.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #a8b5a7;
+  border-radius: 0.4rem;
+  font: inherit;
+}
+
+label,
+dt {
+  font-weight: 700;
+}
+
+.login-card {
+  width: min(28rem, 100%);
+  margin: 5rem auto;
+}
+
+.login-card form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.login-card button {
+  margin-top: 0.7rem;
+}
+
+.page-heading,
+.form-actions,
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.page-heading {
+  justify-content: space-between;
+}
+
+.page-heading h2 {
+  margin-top: 0;
+}
+
+.search-bar {
+  margin: 1.5rem 0;
+}
+
+.search-bar label {
+  white-space: nowrap;
+}
+
+.search-bar input {
+  max-width: 26rem;
+}
+
+.state-message {
+  padding: 1.2rem;
+  border-radius: 0.5rem;
+  background: #f2f6f1;
+}
+
+.state-error,
+.field-error {
+  color: #991b1b;
+  background: #fff1f2;
+}
+
+.state-error {
+  border-left: 0.3rem solid #b91c1c;
+}
+
+.state-error small {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.8rem;
+  border-bottom: 1px solid #dbe7d8;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2rem;
+  margin: 1.5rem 0;
+}
+
+.detail-grid dl {
+  margin: 0;
+}
+
+.detail-grid dl div {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid #dbe7d8;
+}
+
+.detail-grid dd {
+  margin: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.form-grid .field-error,
+.form-actions {
+  grid-column: 1 / -1;
+}
+
+.file-list {
+  display: grid;
+  gap: 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: 1px solid #dbe7d8;
+  border-radius: 0.5rem;
+}
+
+.file-actions span,
+.file-actions .field-error,
+.file-preview {
+  width: 100%;
+}
+
+.file-preview {
+  height: auto;
+  border: 1px solid #dbe7d8;
+}
+
+.form-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 767px) {
+  .app-header,
+  .page-heading,
+  .search-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app-header nav {
+    flex-wrap: wrap;
+  }
+
+  main {
+    margin: 1rem auto;
+  }
+
+  main section {
+    padding: 1.2rem;
+  }
+
+  .detail-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid .field-error,
+  .form-actions {
+    grid-column: auto;
+  }
 }
 
 .eyebrow {

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.2 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-07-14 | M2 owner revision의 auth/common/advertisement/file/audit 테이블과 분리된 idempotent common/dev seed 경계 반영 |
 | v1.1 | 2026-07-14 | M1 schema-only Alembic base, 일회성 bootstrap, 계정별 최소권한 및 runtime/migration DSN 분리 기준 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, schema/계정/Parser/OCR/RAG/평가 snapshot 기준 보강 |
 
@@ -25,7 +26,7 @@
 | 문서명 | DB 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.2 |
 | 작성 목적 | API, 백엔드, AI 분석 모듈, RAG 검색, PoC 검증을 위한 데이터 구조 정의 |
 | 주요 DB | PostgreSQL |
 | 벡터 DB | Qdrant |
@@ -190,6 +191,22 @@ Compose 초기화에서는 4종 운영 계정을 만들기 위한 별도의 일�
 | 고객사 승인 샘플 데이터 | 승인 범위 내 별도 import 또는 seed |
 | 테스트 fixture | 테스트 코드 또는 fixture 파일 |
 | 운영 데이터 | migration/seed로 임의 주입 금지 |
+
+### M2 owner revision
+
+`0002_m2_auth_advertisement_audit`은 `0001_schema_only_base`를 직접 상속하며 아래 테이블만 생성한다.
+
+| Schema | M2 소유 테이블 |
+| --- | --- |
+| `app` | `departments`, `roles`, `users`, `user_roles`, `refresh_tokens`, `common_codes` |
+| `app` | `advertisements`, `advertisement_revisions`, `advertisement_files` |
+| `audit` | `audit_logs` |
+
+M2 revision은 seed, role 생성/변경, M1 schema bootstrap, M3 이후 `reviews`/검색/리포트 테이블을 포함하지 않는다. `advertisements.latest_review_id`와 `advertisement_revisions.base_review_id`는 M2에서 nullable 식별자 컬럼으로만 두고 reviews owner revision이 생성될 때 FK를 추가한다.
+
+Migration 완료 후 runtime `app`에는 `app`/`audit` schema의 DML만, `readonly`에는 조회만 부여한다. 공통 역할/코드는 `apps/backend/seeds/common.sql`, synthetic 부서/사용자는 `apps/backend/seeds/dev.sql`로 분리하고 두 seed 모두 idempotent하게 적용한다. Dev seed는 `NH_ENVIRONMENT=dev`, `app` runtime identity, 평문이 아닌 `NH_DEV_SEED_PASSWORD_HASH`를 요구한다.
+
+Refresh session은 발급 당시 `token_version`을 저장하고 `users.auth_token_version` 불일치 시 거부한다. `(user_id, revoked_at, expires_at)` active index는 권한 변경·사용자 비활성화 시 사용자별 미폐기 token 전체 revoke를 지원한다. 광고 파일의 `storage_provider`/`bucket`/`object_key`/`checksum_sha256`은 repository 내부 필드이며 API DTO, 일반 로그와 감사 조회 응답에는 포함하지 않는다.
 
 ---
 
@@ -426,6 +443,7 @@ ADR-0056 기준 refresh token 세션과 폐기 이력을 관리한다. Token 원
 | refresh_token_id | uuid | Y |  | Y | refresh token ID |
 | user_id | varchar(100) |  | users | Y | 사용자 ID |
 | token_hash | varchar(255) |  |  | Y | refresh token hash |
+| token_version | int |  |  | Y | 발급 시점 `users.auth_token_version`; 불일치 시 refresh 거부 |
 | issued_at | timestamptz |  |  | Y | 발급 일시 |
 | expires_at | timestamptz |  |  | Y | 만료 일시 |
 | revoked_at | timestamptz |  |  |  | 폐기 일시 |
@@ -493,12 +511,13 @@ ADR-0056 기준 refresh token 세션과 폐기 이력을 관리한다. Token 원
 | revision_id | varchar(50) |  | advertisement_revisions |  | 수정본 ID |
 | file_type | varchar(50) |  |  | Y | ADVERTISEMENT, PRODUCT_DESCRIPTION, TERMS, ADDITIONAL |
 | original_file_name | varchar(500) |  |  | Y | 원본 파일명 |
-| stored_file_name | varchar(500) |  |  | Y | 저장 파일명 |
-| file_path | text |  |  | Y | 파일 저장 경로 |
+| storage_provider | varchar(50) |  |  | Y | S3 호환 저장소 provider 식별자 |
+| bucket | varchar(255) |  |  | Y | 환경별 private bucket 이름 |
+| object_key | text |  |  | Y | 내부 object key. API/로그/감사 응답 노출 금지 |
 | mime_type | varchar(100) |  |  | Y | MIME Type |
 | file_size | bigint |  |  | Y | 파일 크기 |
 | page_count | int |  |  |  | 페이지 수 |
-| checksum | varchar(128) |  |  |  | 파일 해시 |
+| checksum_sha256 | varchar(64) |  |  | Y | 중복/무결성 확인용 SHA-256 |
 | preview_status | varchar(50) |  |  |  | 미리보기 생성 상태 |
 | created_at | timestamptz |  |  | Y | 생성일시 |
 | created_by | varchar(100) |  | users | Y | 생성자 |

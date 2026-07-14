@@ -8,13 +8,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-14 | M2 로그인·광고물 목록·등록·기본 상세의 실제 API 호출, 상태, 권한 및 계약 생성 타입 사용 기준 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, 화면/API 호출 정합성 기준 보강 |
 
 ---
@@ -25,7 +26,7 @@
 | --- | --- |
 | 문서명 | 화면-API 매핑표 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.0 |
+| 문서 버전 | v1.1 |
 | 작성 목적 | 화면별 호출 API, 호출 시점, 요청값, 응답값, 화면 반영 항목을 정의 |
 | 기준 문서 | 화면설계서 v0.1, API 명세서 v0.1 |
 | API Base URL | `/api/v1` |
@@ -58,14 +59,17 @@
 
 | 구분 | API | Method | 설명 | 비고 |
 | --- | --- | --- | --- | --- |
+| 로그인 | `/auth/login` | POST | access token과 사용자 context 수신 | `credentials: include`, `refreshToken` httpOnly cookie는 브라우저가 관리 |
+| 로그아웃 | `/auth/logout` | POST | refresh session revoke와 cookie 삭제 | 화면은 성공/실패와 무관하게 메모리 access token 제거 |
 | 사용자 정보 | `/users/me` | GET | 로그인 사용자 정보 조회 | API 명세서 정의됨 |
 | 공통 코드 | `/codes/product-groups` | GET | 상품군 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |
 | 공통 코드 | `/codes/advertisement-types` | GET | 광고유형 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |
 | 공통 코드 | `/codes/review-types` | GET | 검토유형 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |
 | 공통 코드 | `/codes/risk-levels` | GET | 위험도 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |
 | 공통 코드 | `/codes/review-statuses` | GET | 검토 상태 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |
-| 파일 미리보기 | `/files/{fileId}/preview` | GET | 광고 파일 미리보기 또는 렌더링 조회 | API 명세서 정의됨 |
-| 파일 다운로드 | `/files/{fileId}/download` | GET | 첨부파일 다운로드 | API 명세서에 추가 필요 |
+| 파일 미리보기 descriptor | `/files/{fileId}/preview` | GET | 권한 검증 후 backend 상대 미리보기 경로와 페이지 메타데이터 조회 | API 명세서 정의됨 |
+| 파일 미리보기 content | `/files/{fileId}/preview/content` | GET | `pageNo`의 렌더링 이미지를 Bearer 인증 backend proxy로 조회 | API 명세서 정의됨 |
+| 파일 다운로드 | `/files/{fileId}/download` | GET | 첨부파일을 Bearer 인증 backend proxy로 다운로드 | API 명세서 정의됨 |
 
 ---
 
@@ -152,6 +156,19 @@
 | AI 검토 요청 클릭 | 검토 요청 화면 이동 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 광고물 기본정보, 파일정보 | S-004 이동 |
 | 리포트 보기 클릭 | 리포트 상세 조회 | `/reports/{reportId}` | GET | `reportId` | 리포트 메타데이터, 다운로드 URL | S-012 이동 |
 
+M2 1차 화면은 OpenAPI v0.2.0 `AdvertisementPage`에 잠긴 광고물 ID·광고명·상품군·광고유형·담당부서·등록자·등록일시·검토 상태만 표시한다. 종합 위험도와 리포트 action은 해당 후속 capability 계약이 잠기기 전에는 요청하거나 임시 필드로 합성하지 않는다. 목록 loading/empty/error와 역할 거부를 각각 표시하며, 오류는 code 매핑 문구와 `traceId`만 노출한다.
+
+### 3.5.1 M2 기본 상세 상태
+
+| 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 목록 ID 클릭 | M2 광고물 기본 상세 | `/advertisements/{advertisementId}` | GET | `advertisementId` | `AdvertisementDetail`, 안전한 `AdvertisementFile` 메타데이터 | `/advertisements/{advertisementId}` 기본정보·파일 목록 |
+| 단건 권한 거부 | 부서 scope 거부 | `/advertisements/{advertisementId}` | GET | 타 부서 `advertisementId` | 403 `ErrorResponse` | 전용 권한 안내. raw message, object key, presigned URL 미표시 |
+| 파일 미리보기 클릭 | 미리보기 descriptor 조회 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo=1` | `FilePreview`, backend 상대 `previewPath` | 안전한 content 경로 검증 후 다음 호출 |
+| descriptor 검증 후 | 렌더링 이미지 조회 | `/files/{fileId}/preview/content` | GET | `fileId`, `pageNo` | `image/png` binary | object URL로 화면 미리보기. Bearer 인증 유지 |
+| 파일 다운로드 클릭 | 원본 파일 proxy 다운로드 | `/files/{fileId}/download` | GET | `fileId` | binary, `Content-Disposition` | 파일명으로 저장. Bearer 인증 유지 |
+| 파일 권한 거부 | 부서 scope 거부 | 위 파일 API | GET | 타 부서 `fileId` | 403 `ErrorResponse` | 미리보기/다운로드 전용 권한 안내. raw message, bucket, object key 미표시 |
+
 ---
 
 ## S-003 광고물 등록
@@ -173,9 +190,11 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 상품군 코드 조회 | `/codes/product-groups` | GET | 없음 | 상품군 코드 목록 | 상품군 선택값 |
 | 화면 진입 | 광고유형 코드 조회 | `/codes/advertisement-types` | GET | 없음 | 광고유형 코드 목록 | 광고유형 선택값 |
-| 저장 버튼 클릭 | 광고물 등록 | `/advertisements` | POST | `multipart/form-data`: 광고명, 상품군, 광고유형, 광고채널, 담당부서, 광고파일, 상품설명서, 약관 | `advertisementId`, `reviewStatus`, 파일 정보 | 저장 완료 메시지, S-002 또는 S-004 이동 |
+| 저장 버튼 클릭 | 광고물 등록 | `/advertisements` | POST | `multipart/form-data`: 광고명, 상품군, 광고유형, 광고채널, 담당부서, 광고파일, 상품설명서, 약관, 추가 첨부파일(최대 10개) | `advertisementId`, `reviewStatus`, 파일 정보 | 저장 완료 메시지, S-002 또는 S-004 이동 |
 | AI 검토 요청 클릭 | 광고물 등록 후 검토 요청 화면 이동 | `/advertisements` → `/advertisements/{advertisementId}` | POST → GET | 등록 Form Data | 광고물 ID, 상세정보 | S-004 이동 |
 | 수정 모드 저장 | 광고물 기본정보 수정 | `/advertisements/{advertisementId}` | PATCH | 광고명, 상품군, 광고유형, 메모 | 수정일시 | 수정 완료 메시지 |
+
+M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한다. 공통 코드 loading/error, 필수값, 광고 파일·상품설명서·약관·추가 첨부파일 각각의 허용 확장자·50 MiB 선검증과 추가 첨부파일 최대 10개 제한, 역할별 등록 action을 처리한다. `multipart/form-data`의 `Content-Type` boundary는 브라우저가 설정한다. 성공 시 응답 `advertisementId`의 기본 상세로 이동하며, 서버 오류의 raw `message`/`details`에 포함될 수 있는 내부 경로나 민감 원문은 화면에 직접 표시하지 않는다.
 
 ---
 

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.2 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-07-14 | M2 Auth/Common/Advertisement/File/Audit OpenAPI 계약, queryless backend proxy descriptor와 redacted 감사 응답 반영 |
 | v1.1 | 2026-07-14 | M0 OpenAPI core skeleton의 점진 확장 경계와 공통 ErrorResponse 계약 원천 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/화면/테스트 정합성 기준 보강 |
 
@@ -25,7 +26,7 @@
 | 문서명 | API 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.2 |
 | 작성 목적 | 프론트엔드, 백엔드, AI 분석 모듈, DB 간 연동 기준 정의 |
 | API 유형 | REST API |
 | 데이터 형식 | JSON, Multipart Form Data |
@@ -518,11 +519,25 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
   "fileId": "FILE-0001",
   "pageNo": 1,
   "totalPages": 1,
-  "previewUrl": "/api/v1/files/FILE-0001/preview/pages/1",
+  "previewPath": "/api/v1/files/FILE-0001/preview/content",
   "width": 1080,
   "height": 1920
 }
 ```
+
+`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다.
+
+---
+
+## 4.7 파일 다운로드
+
+| 항목 | 내용 |
+| --- | --- |
+| Method | GET |
+| URI | `/api/v1/files/{fileId}/download` |
+| 설명 | 역할+부서 scope 검증 후 backend proxy로 파일을 스트리밍한다. |
+
+성공 응답은 `application/octet-stream`과 안전하게 정규화한 `Content-Disposition` 파일명을 사용한다. 권한 밖 접근은 `403 FORBIDDEN`과 redacted 감사 이벤트를 남기며 object key 또는 presigned URL을 반환하지 않는다.
 
 ---
 
@@ -587,6 +602,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 | Method | POST |
 | URI | `/api/v1/advertisements` |
 | Content-Type | `multipart/form-data` |
+| 성공 Status | `201 Created` |
 | 설명 | AI 검토 대상 광고물과 관련 첨부파일을 등록한다. |
 | 권한 | 상품부서 담당자, 준법감시 담당자 |
 
@@ -2279,6 +2295,24 @@ PDF 요청은 ADR-0054 기준 HWPX 기준 산출물을 생성한 뒤 HWPX-to-PDF
 | toDate | N | 종료일 |
 | page | N | 페이지 번호 |
 | size | N | 페이지 크기 |
+
+응답은 `auditLogId`, actor 식별자/부서/대표 역할, `actionType`, `targetType`, `targetId`, `result`, `reasonCode`, `traceId`, `createdAt`만 제공한다. `before_json`, `after_json`, `metadata_json`, IP, User-Agent, message, token/hash, 광고 원문과 파일 내부 경로는 API 응답에서 제외한다.
+
+---
+
+## 16.6 M2 OpenAPI 계약 잠금
+
+M2 원천 계약은 `openapi/openapi.yaml` v0.2.0이며 다음 operation만 연다.
+
+| Capability | operationId |
+| --- | --- |
+| Auth | `login`, `refreshAccessToken`, `logout`, `getCurrentUser` |
+| Common | `listCommonCodes` |
+| Advertisement | `listAdvertisements`, `createAdvertisement`, `getAdvertisement` |
+| File | `getFilePreview`, `getFilePreviewContent`, `downloadFile` |
+| Audit | `listAuditLogs` |
+
+`POST /auth/refresh`와 `POST /auth/logout`은 `refreshToken` httpOnly cookie와 `Origin` allowlist 검증 계약을 사용한다. M3 이후 Review/Parser/Search/Result/Report 계약은 이 버전에 포함하지 않는다.
 
 ---
 

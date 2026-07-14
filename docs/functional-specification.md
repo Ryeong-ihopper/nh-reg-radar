@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.4 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.4 | 2026-07-14 | M2 인증·scope·감사, S3 호환 광고 파일 저장 및 로그인→등록→목록/상세 수직 슬라이스 구현 경계 반영 |
 | v1.3 | 2026-07-14 | M1 API/Worker 실행 경계, queue adapter readiness, 환경 격리 및 capability 미구현 범위 명시 |
 | v1.2 | 2026-07-13 | Notion v1.1 이후 ADR-0001~ADR-0074 검토 결과 반영, 파일/Parser/OCR/권한/평가/리포트 정책 정합화 |
 
@@ -27,7 +28,7 @@
 | 대상 시스템 | 멀티모달 RAG Engine 기반 금융상품 광고심의 자동화 에이전트 PoC |
 | 수요기업 | NH농협은행 |
 | 수행기업 | ㈜씨지인사이드 |
-| 문서 버전 | v1.3 |
+| 문서 버전 | v1.4 |
 | 기준일 | 2026-07-14 |
 | 작성일 | 2026-07-02 |
 | 작성 목적 | 요구사항 정의서를 기반으로 화면, 기능, 입력값, 처리규칙, 출력값, 예외처리, 권한, 수용기준을 정의 |
@@ -232,6 +233,21 @@ M1은 이후 기능 구현이 의존할 실행 경계만 제공하며 F-001 이�
 | 자격증명 | API/Worker에는 bootstrap/admin/migration 자격증명을 주입하지 않고 runtime identity만 사용 |
 
 M1 readiness 성공은 프로세스와 의존 경계가 준비되었음을 의미하며, 광고 분석 capability가 완료되었다는 의미가 아니다. 실제 enqueue, retry, heartbeat, `review_jobs`/`review_steps` 상태 전이는 F-002 구현과 해당 수용 테스트에서 활성화한다.
+
+### M2 인증·광고물 입력 구현 경계
+
+| 경계 | M2 기준 |
+| --- | --- |
+| 인증 | 30분 access JWT, 7일 refresh cookie rotation/hash/revoke, 사용자 role/disable 시 사용자별 active refresh 전체 revoke |
+| 로그인 보호 | 실패 5회/15분 잠금, 일반화된 401, IP rate limit, refresh/logout Origin allowlist |
+| 인가 | 목록은 role+department scope filter, 단건/preview/download는 scope 밖 403과 redacted 감사 기록 |
+| 광고 파일 | jpg/jpeg/png/pdf/hwp/hwpx, 최대 50MiB, 확장자/MIME/크기/손상/중복 검증 |
+| Object Storage | private S3-compatible bucket에 저장하고 DB에는 `storage_provider`, `bucket`, `object_key`, `checksum_sha256`을 보관 |
+| 파일 응답 | backend proxy preview/download만 제공하며 object key, bucket, 내부 경로, presigned URL은 API/로그/감사 응답에서 제외 |
+| 감사 | actor/action/target/result/reason/trace 메타데이터만 노출하고 token/hash, 비밀번호, 광고 원문, 내부 storage 필드는 redaction |
+| 사용자 흐름 | 로그인 → multipart 광고물 등록 → scope-filtered 목록 → 허용된 상세/preview 확인 |
+
+M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리포트와 평가 capability를 구현하거나 OpenAPI에 선설계하지 않는다. 실제 PostgreSQL과 MinIO를 사용하는 통합 검증에서는 M2 owner migration clean upgrade, common/dev seed 중복 실행, private bucket 저장/조회/권한 거부를 함께 확인한다.
 
 ---
 

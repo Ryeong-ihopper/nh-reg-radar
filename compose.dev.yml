@@ -16,7 +16,8 @@ services:
       target: development
     command:
       - uvicorn
-      - nh_ad_backend.main:app
+      - nh_ad_backend.main:create_app
+      - --factory
       - --app-dir
       - src
       - --host

@@ -2,16 +2,465 @@ openapi: 3.1.0
 info:
   title: NH Advertisement Compliance API
   description: >-
-    Source contract for the advertisement-compliance PoC. Capability-specific
-    paths and schemas are added only when their implementation slice begins.
-  version: 0.1.0
+    Source contract for the advertisement-compliance PoC. This revision is
+    intentionally bounded to the M2 authentication, common-code,
+    advertisement, file-access, and audit capabilities.
+  version: 0.2.0
 servers:
   - url: /api/v1
-paths: {}
+tags:
+  - name: Auth
+  - name: Common
+  - name: Advertisements
+  - name: Files
+  - name: Audit
+security:
+  - BearerAuth: []
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      description: Authenticates a local PoC user and starts a rotating refresh session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Access token issued and refreshToken cookie set.
+          headers:
+            Set-Cookie:
+              description: HttpOnly refresh token cookie; Secure outside local development.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+              example:
+                accessToken: synthetic.jwt.value
+                tokenType: Bearer
+                expiresIn: 1800
+                user:
+                  userId: USR-SYNTH-PRODUCT
+                  userName: Synthetic Product User
+                  departmentId: DPT-SYNTH-PRODUCT
+                  departmentName: Synthetic Product Team
+                  roles: [PRODUCT_DEPARTMENT_USER]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshAccessToken
+      description: Rotates a valid refresh session after browser-origin validation.
+      security:
+        - RefreshCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '200':
+          description: Rotated refresh session and new access token.
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly refresh token cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      description: Revokes the current refresh session after browser-origin validation.
+      security:
+        - RefreshCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204':
+          description: Refresh session revoked and cookie cleared.
+          headers:
+            Set-Cookie:
+              description: Expired refresh token cookie.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /users/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      description: Resolves the authenticated user, roles, and department scope.
+      responses:
+        '200':
+          description: Current authenticated user context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /codes/{codeGroup}:
+    get:
+      tags: [Common]
+      operationId: listCommonCodes
+      description: Lists enabled M2 master codes for a supported code group.
+      parameters:
+        - name: codeGroup
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/CodeGroup'
+      responses:
+        '200':
+          description: Enabled common codes in display order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommonCode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /advertisements:
+    get:
+      tags: [Advertisements]
+      operationId: listAdvertisements
+      description: Results are filtered to the caller's role and department scope.
+      parameters:
+        - $ref: '#/components/parameters/Keyword'
+        - $ref: '#/components/parameters/ProductGroupQuery'
+        - $ref: '#/components/parameters/AdvertisementTypeQuery'
+        - $ref: '#/components/parameters/ReviewStatusQuery'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Scope-filtered advertisement page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvertisementPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Advertisements]
+      operationId: createAdvertisement
+      description: Validates and stores one advertisement with its allowed attachments.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateAdvertisementRequest'
+      responses:
+        '201':
+          description: Advertisement and file metadata created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvertisementCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /advertisements/{advertisementId}:
+    get:
+      tags: [Advertisements]
+      operationId: getAdvertisement
+      description: Out-of-scope access is denied and recorded without sensitive content.
+      parameters:
+        - $ref: '#/components/parameters/AdvertisementId'
+      responses:
+        '200':
+          description: Advertisement detail visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvertisementDetail'
+              example:
+                advertisementId: ADV-SYNTH-0001
+                advertisementName: Synthetic mobile banner
+                productGroup: SAVINGS
+                advertisementType: MOBILE_BANNER
+                departmentId: DPT-SYNTH-PRODUCT
+                registeredBy: USR-SYNTH-PRODUCT
+                registeredAt: '2026-07-14T06:00:00Z'
+                reviewStatus: UPLOADED
+                channelType: MOBILE_APP
+                memo: Synthetic fixture only
+                files:
+                  - fileId: FILE-SYNTH-0001
+                    fileType: ADVERTISEMENT
+                    fileName: synthetic-advertisement.png
+                    mimeType: image/png
+                    fileSize: 68
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /files/{fileId}/preview:
+    get:
+      tags: [Files]
+      operationId: getFilePreview
+      description: >-
+        Returns a backend-proxy preview route after authorization. Storage keys
+        and presigned URLs are never returned.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - name: pageNo
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        '200':
+          description: Authorized preview descriptor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePreview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /files/{fileId}/download:
+    get:
+      tags: [Files]
+      operationId: downloadFile
+      description: Streams an authorized file through the backend proxy.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: Authorized file stream.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /files/{fileId}/preview/content:
+    get:
+      tags: [Files]
+      operationId: getFilePreviewContent
+      description: Streams one authorized rendered preview page through the backend proxy.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - name: pageNo
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Authorized rendered preview page.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/audit-logs:
+    get:
+      tags: [Audit]
+      operationId: listAuditLogs
+      description: Returns redacted audit metadata to SYSTEM_ADMIN only.
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: actionType
+          in: query
+          schema:
+            type: string
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Redacted audit log page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    RefreshCookie:
+      type: apiKey
+      in: cookie
+      name: refreshToken
+  parameters:
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uri
+    AdvertisementId:
+      name: advertisementId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^ADV-[A-Za-z0-9-]+$'
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^FILE-[A-Za-z0-9-]+$'
+    Keyword:
+      name: keyword
+      in: query
+      schema:
+        type: string
+        maxLength: 300
+    ProductGroupQuery:
+      name: productGroup
+      in: query
+      schema:
+        $ref: '#/components/schemas/ProductGroup'
+    AdvertisementTypeQuery:
+      name: advertisementType
+      in: query
+      schema:
+        $ref: '#/components/schemas/AdvertisementType'
+    ReviewStatusQuery:
+      name: reviewStatus
+      in: query
+      schema:
+        $ref: '#/components/schemas/ReviewStatus'
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Size:
+      name: size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
   responses:
-    ErrorResponse:
-      description: Standard error response.
+    BadRequest:
+      description: Request validation or file integrity failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication failed without revealing account state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated caller is outside the permitted role or resource scope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Duplicate or conflicting request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: A file exceeded the 50 MiB limit.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsupportedMediaType:
+      description: File extension or MIME type is not allowed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Login IP rate limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
       content:
         application/json:
           schema:
@@ -20,34 +469,25 @@ components:
     ErrorResponse:
       type: object
       additionalProperties: false
-      required:
-        - code
-        - message
-        - traceId
-        - timestamp
+      required: [code, message, traceId, timestamp]
       properties:
         code:
           type: string
           minLength: 1
-          description: Business or system error code.
         message:
           type: string
           minLength: 1
-          description: User-safe default error message.
         details:
           type: array
-          description: Optional user-safe field errors or additional context.
           items:
             type: object
             additionalProperties: true
         traceId:
           type: string
           minLength: 1
-          description: Request trace identifier.
         timestamp:
           type: string
           format: date-time
-          description: Time at which the error occurred.
       example:
         code: FILE_NOT_SUPPORTED
         message: 지원하지 않는 파일 형식입니다.
@@ -56,3 +496,341 @@ components:
             reason: jpg, jpeg, png, pdf, hwp, hwpx 파일만 업로드할 수 있습니다.
         traceId: req-example-000001
         timestamp: '2026-07-14T06:00:00Z'
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          minLength: 10
+          maxLength: 256
+          writeOnly: true
+    AccessTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          minLength: 1
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          const: 1800
+    AuthTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+          minLength: 1
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          const: 1800
+        user:
+          $ref: '#/components/schemas/UserContext'
+    UserContext:
+      type: object
+      additionalProperties: false
+      required: [userId, userName, departmentId, departmentName, roles]
+      properties:
+        userId:
+          type: string
+        userName:
+          type: string
+        departmentId:
+          type: string
+        departmentName:
+          type: string
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Role'
+    Role:
+      type: string
+      enum: [PRODUCT_DEPARTMENT_USER, COMPLIANCE_REVIEWER, STANDARD_MANAGER, SYSTEM_ADMIN]
+    CodeGroup:
+      type: string
+      enum: [product-groups, advertisement-types, review-statuses]
+    CommonCode:
+      type: object
+      additionalProperties: false
+      required: [code, name, sortOrder, enabled]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        sortOrder:
+          type: integer
+        enabled:
+          type: boolean
+    ProductGroup:
+      type: string
+      enum: [DEPOSIT, SAVINGS, DEMAND_DEPOSIT, EVENT]
+    AdvertisementType:
+      type: string
+      enum: [BRANCH_FLYER, NOTICE, MOBILE_BANNER, WEB_BANNER, EVENT_PAGE, PUSH, SMS, ALIMTALK]
+    ReviewStatus:
+      type: string
+      enum: [UPLOADED, REVISED]
+    FileType:
+      type: string
+      enum: [ADVERTISEMENT, PRODUCT_DESCRIPTION, TERMS, ADDITIONAL]
+    AdvertisementFile:
+      type: object
+      additionalProperties: false
+      required: [fileId, fileType, fileName, mimeType, fileSize]
+      properties:
+        fileId:
+          type: string
+        fileType:
+          $ref: '#/components/schemas/FileType'
+        fileName:
+          type: string
+        mimeType:
+          type: string
+        fileSize:
+          type: integer
+          minimum: 0
+          maximum: 52428800
+    AdvertisementSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - advertisementId
+        - advertisementName
+        - productGroup
+        - advertisementType
+        - departmentId
+        - registeredBy
+        - registeredAt
+        - reviewStatus
+      properties:
+        advertisementId:
+          type: string
+        advertisementName:
+          type: string
+        productGroup:
+          $ref: '#/components/schemas/ProductGroup'
+        advertisementType:
+          $ref: '#/components/schemas/AdvertisementType'
+        departmentId:
+          type: string
+        registeredBy:
+          type: string
+        registeredAt:
+          type: string
+          format: date-time
+        reviewStatus:
+          $ref: '#/components/schemas/ReviewStatus'
+    AdvertisementPage:
+      type: object
+      additionalProperties: false
+      required: [contents, page, size, totalElements, totalPages]
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvertisementSummary'
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    CreateAdvertisementRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - advertisementName
+        - productGroup
+        - advertisementType
+        - departmentId
+        - advertisementFile
+      properties:
+        advertisementName:
+          type: string
+          minLength: 1
+          maxLength: 300
+        productGroup:
+          $ref: '#/components/schemas/ProductGroup'
+        advertisementType:
+          $ref: '#/components/schemas/AdvertisementType'
+        channelType:
+          type: string
+          maxLength: 50
+        departmentId:
+          type: string
+          maxLength: 50
+        memo:
+          type: string
+          maxLength: 2000
+        advertisementFile:
+          type: string
+          format: binary
+          description: jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
+        productDescriptionFile:
+          type: string
+          format: binary
+        termsFile:
+          type: string
+          format: binary
+        additionalFiles:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            format: binary
+    AdvertisementCreated:
+      type: object
+      additionalProperties: false
+      required: [advertisementId, advertisementName, reviewStatus, files, createdAt]
+      properties:
+        advertisementId:
+          type: string
+        advertisementName:
+          type: string
+        reviewStatus:
+          $ref: '#/components/schemas/ReviewStatus'
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AdvertisementFile'
+        createdAt:
+          type: string
+          format: date-time
+    AdvertisementDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - advertisementId
+        - advertisementName
+        - productGroup
+        - advertisementType
+        - departmentId
+        - registeredBy
+        - registeredAt
+        - reviewStatus
+        - files
+      properties:
+        advertisementId:
+          type: string
+        advertisementName:
+          type: string
+        productGroup:
+          $ref: '#/components/schemas/ProductGroup'
+        advertisementType:
+          $ref: '#/components/schemas/AdvertisementType'
+        departmentId:
+          type: string
+        registeredBy:
+          type: string
+        registeredAt:
+          type: string
+          format: date-time
+        reviewStatus:
+          $ref: '#/components/schemas/ReviewStatus'
+        channelType:
+          type: [string, 'null']
+        memo:
+          type: [string, 'null']
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvertisementFile'
+    FilePreview:
+      type: object
+      additionalProperties: false
+      required: [fileId, pageNo, totalPages, previewPath]
+      properties:
+        fileId:
+          type: string
+        pageNo:
+          type: integer
+          minimum: 1
+        totalPages:
+          type: integer
+          minimum: 1
+        previewPath:
+          type: string
+          pattern: '^/api/v1/files/[^/]+/preview/content$'
+        width:
+          type: [integer, 'null']
+          minimum: 1
+        height:
+          type: [integer, 'null']
+          minimum: 1
+    AuditLogSummary:
+      type: object
+      additionalProperties: false
+      required: [auditLogId, actionType, targetType, result, traceId, createdAt]
+      properties:
+        auditLogId:
+          type: string
+          format: uuid
+        actorId:
+          type: [string, 'null']
+        actorDepartmentId:
+          type: [string, 'null']
+        actorRole:
+          oneOf:
+            - $ref: '#/components/schemas/Role'
+            - type: 'null'
+        actionType:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: [string, 'null']
+        result:
+          type: string
+          enum: [SUCCESS, FAILURE, DENIED]
+        reasonCode:
+          type: [string, 'null']
+        traceId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AuditLogPage:
+      type: object
+      additionalProperties: false
+      required: [contents, page, size, totalElements, totalPages]
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogSummary'
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
