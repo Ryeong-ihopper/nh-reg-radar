@@ -34,6 +34,9 @@ class DatabaseBootstrapRepeatUpTests(unittest.TestCase):
 
         self.assertEqual(text.count('up -d --wait postgres'), 1)
         self.assertGreaterEqual(text.count("\ncompose_up_postgres\n"), 2)
+        self.assertIn("rm --force --stop db-bootstrap", text)
+        self.assertIn('"$bootstrap_id" == "$fresh_bootstrap_id"', text)
+        self.assertIn('"$postgres_id" != "$fresh_postgres_id"', text)
         self.assertIn("CREATE TABLE g011_repeat_guard", text)
         self.assertIn("repeat_guard_payload", text)
         self.assertIn("PANIC|invalid checkpoint|database system was interrupted", text)

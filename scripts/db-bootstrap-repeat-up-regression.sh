@@ -45,13 +45,24 @@ query_postgres g011_repeat_guard \
 fresh_roles="$(role_snapshot)"
 fresh_payload="$(query_postgres g011_repeat_guard "SELECT id || ':' || payload FROM g011_repeat_guard ORDER BY id;")"
 fresh_checksum="$(printf '%s\n%s\n' "$fresh_roles" "$fresh_payload" | sha256sum | cut -d' ' -f1)"
+fresh_bootstrap_id="$("${compose[@]}" ps -aq db-bootstrap)"
+fresh_postgres_id="$("${compose[@]}" ps -q postgres)"
 
+"${compose[@]}" rm --force --stop db-bootstrap >/dev/null
 repeat_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf 'G011 existing-volume repeat up: project=%s\n' "$project"
 compose_up_postgres
 
 bootstrap_id="$("${compose[@]}" ps -aq db-bootstrap)"
 postgres_id="$("${compose[@]}" ps -q postgres)"
+if [[ "$bootstrap_id" == "$fresh_bootstrap_id" ]]; then
+  printf '%s\n' 'repeat up did not recreate the db-bootstrap container' >&2
+  exit 1
+fi
+if [[ "$postgres_id" != "$fresh_postgres_id" ]]; then
+  printf '%s\n' 'repeat up unexpectedly recreated the running postgres container' >&2
+  exit 1
+fi
 bootstrap_repeat_logs="$(docker logs --since "$repeat_started_at" "$bootstrap_id" 2>&1)"
 postgres_repeat_logs="$(docker logs --since "$repeat_started_at" "$postgres_id" 2>&1)"
 
