@@ -185,13 +185,12 @@ class InMemoryJobRepository:
     def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]:
         recovered: list[QueueMessage] = []
         for job in self.jobs.values():
-            if (
-                job.status != "RUNNING"
-                or job.heartbeat_at is None
-                or job.heartbeat_at > stale_before
-            ):
-                pass
-            else:
+            stale_running_job = (
+                job.status == "RUNNING"
+                and job.heartbeat_at is not None
+                and job.heartbeat_at <= stale_before
+            )
+            if stale_running_job:
                 job.status = "STALE"
                 job.locked_by = None
                 job.enqueued_at = None
