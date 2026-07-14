@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.6 |
+| 현행 버전 | v1.7 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.7 | 2026-07-15 | M7 S-015/S-016 OpenAPI v0.7.0 생성 client 기반 데이터셋·담당자 판단·평가 실행/조회와 loading/empty/error/권한·평가 제외·분모 0 미적용 상태를 실행 화면과 동기화 |
 | v1.6 | 2026-07-15 | M6 S-009~S-012 통합 지원 route와 S-013 비교 route의 문구 판단·비단정 Q&A·초안 수정·불변 리포트 snapshot·재분석 연결 상태를 실행 화면과 동기화 |
 | v1.5 | 2026-07-14 | M5 S-006~S-008 생성 client 기반 결과 요약·상세 필터/근거·BOX/TEXT_HIGHLIGHT/LIST_ONLY Annotation과 신뢰도·부분 실패·권한 상태 실행 동기화 |
 | v1.4 | 2026-07-14 | M4 S-004/S-005 생성 client 기반 검토 요청·진행률·단계·retry/stale/최종 실패·OCR 확인 필요·재분석·권한/redaction 상태를 실행 화면과 동기화 |
@@ -1054,6 +1055,16 @@ PDF 다운로드는 ADR-0054 기준 HWPX 기준 산출물의 변환본을 제공
 | 평가 제외 | 평가 제외 처리 |
 | 저장 | 검증 데이터 저장 |
 
+### 4) M7 1차 구현 상태와 검증
+
+| 상태/경로 | 처리 기준 |
+| --- | --- |
+| `/validation/datasets` | 생성 client의 목록·등록·담당자 판단 API만 사용하고 dataset/judgment version과 평가 제외 사유를 표시한다. |
+| loading / empty / error | 목록 loading, 0건 안내, ADR-0045 안전 문구와 traceId만 표시하며 backend 원문 message는 숨긴다. |
+| permission | 준법감시 담당자와 기준 관리자는 등록/판단 action을 사용하고 시스템 관리자는 조회만 사용한다. 상품부서 역할의 직접 route 접근은 API 호출 전에 차단한다. |
+| exclusion | dataset/judgment 단위 승인 제외 여부와 `excludeReasonCode`를 등록하고 목록에 평가 대상/제외 상태를 구분한다. |
+| 검증 | `apps/frontend/src/m7-validation.test.tsx`에서 multipart 데이터셋 등록, JSON 판단 등록, empty/error/permission 경계를 검증한다. |
+
 ---
 
 ## S-016 성능 평가
@@ -1101,6 +1112,17 @@ PDF 다운로드는 ADR-0054 기준 HWPX 기준 산출물의 변환본을 제공
 | 결과 다운로드 | 평가 결과 파일 다운로드 |
 | 오류 유형 보기 | 오류 상세 목록 조회 |
 | 결과보고서 반영 | PoC 결과보고서에 반영 |
+
+### 5) M7 1차 구현 상태와 검증
+
+| 상태/경로 | 처리 기준 |
+| --- | --- |
+| `/validation/evaluations` | 선택한 DB 데이터셋으로 네 KPI 평가를 실행하고 `evaluationId`로 불변 snapshot 결과를 다시 조회한다. |
+| server value only | `score`, `numerator`, `denominator`, `targetScore`, `achieved`, `excludedCount`, `partialCount`를 서버 저장값 그대로 표시하며 브라우저에서 재계산하지 않는다. |
+| denominator 0 | `notApplicable=true`이면 점수 대신 `미적용`, `분모 0 · 목표 판단 제외`를 표시하고 `achieved=false`를 미달로 오해하지 않게 한다. |
+| exclusion | `exclusionSummary`를 승인 제외 사유별 건수로 표시하며 AI 오답은 제외 사유로 변환하지 않는다. |
+| permission / state | 준법감시 담당자와 시스템 관리자는 평가를 실행하고 기준 관리자는 저장 결과만 조회한다. loading/empty/error와 직접 route 권한 차단을 제공한다. |
+| 검증 | `apps/frontend/src/m7-validation.test.tsx`에서 stored KPI, 제외 집계, 분모 0 미적용, 권한과 안전 오류 표시를 검증한다. |
 
 ---
 

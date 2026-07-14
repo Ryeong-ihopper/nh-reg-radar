@@ -48,6 +48,12 @@ from nh_ad_backend.standards import (
 from nh_ad_backend.standards_postgres import PostgresStandardRepository
 from nh_ad_backend.storage import ObjectStorage, PrivateFileStorage
 from nh_ad_backend.support import SupportService
+from nh_ad_backend.validation import (
+    InMemoryValidationRepository,
+    PostgresValidationRepository,
+    ValidationRepository,
+    ValidationService,
+)
 
 
 class HealthResponse(BaseModel):
@@ -93,6 +99,7 @@ def build_services(settings: Settings) -> ApplicationServices:
             engine, settings.review_queue_name
         )
         result_repository: ResultRepository = PostgresResultRepository(engine)
+        validation_repository: ValidationRepository = PostgresValidationRepository(engine)
         review_queue: ReviewQueue = RedisReviewQueue(settings.redis_url, settings.review_queue_name)
         keyword_search: SearchBackend = OpenSearchBackend(
             settings.opensearch_endpoint,
@@ -121,6 +128,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         standard_repository = InMemoryStandardRepository()
         review_repository = InMemoryReviewRepository()
         result_repository = InMemoryResultRepository()
+        validation_repository = InMemoryValidationRepository()
         review_queue = InMemoryReviewQueue()
         keyword_search = InMemorySearchBackend("OPENSEARCH")
         vector_search = InMemorySearchBackend("QDRANT")
@@ -145,6 +153,7 @@ def build_services(settings: Settings) -> ApplicationServices:
     tokens = TokenService(jwt_secret)
     advertisements = AdvertisementService(repository, storage)
     reviews = ReviewService(review_repository, advertisements, review_queue)
+    results = ResultService(result_repository, reviews)
     return ApplicationServices(
         repository=repository,
         auth=AuthService(repository, tokens),
@@ -156,8 +165,14 @@ def build_services(settings: Settings) -> ApplicationServices:
             audit_sink=repository.add_audit_event,
         ),
         reviews=reviews,
-        results=ResultService(result_repository, reviews),
+        results=results,
         support=SupportService(audit_sink=repository.add_audit_event),
+        validation=ValidationService(
+            validation_repository,
+            reviews=reviews,
+            results=results,
+            audit_sink=repository.add_audit_event,
+        ),
     )
 
 
@@ -175,7 +190,7 @@ def create_app(
             "Capability-specific paths and schemas are added only when their "
             "implementation slice begins."
         ),
-        version="0.6.0",
+        version="0.7.0",
         root_path="/api/v1",
         servers=[{"url": "/api/v1"}],
     )

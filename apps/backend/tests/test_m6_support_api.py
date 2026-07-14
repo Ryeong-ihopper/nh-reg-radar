@@ -84,36 +84,61 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
             json={"decisionStatus": "MODIFIED_AND_USED"},
         )
         assert invalid.status_code == 400
-        assert client.patch(
-            "/api/v1/suggestions/SUG-0001/decision",
-            headers=product_headers,
-            json={"decisionStatus": "ACCEPTED"},
-        ).status_code == 200
-        assert client.get("/api/v1/reviews/REV-0001/suggestions", headers=product_headers).status_code == 200
+        assert (
+            client.patch(
+                "/api/v1/suggestions/SUG-0001/decision",
+                headers=product_headers,
+                json={"decisionStatus": "ACCEPTED"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.get("/api/v1/reviews/REV-0001/suggestions", headers=product_headers).status_code
+            == 200
+        )
 
-        qa = client.post("/api/v1/qa/questions", headers=product_headers, json={"question": "검토?"})
+        qa = client.post(
+            "/api/v1/qa/questions", headers=product_headers, json={"question": "검토?"}
+        )
         assert qa.status_code == 200
         assert qa.json()["needsHumanReview"] is True
-        assert client.get("/api/v1/qa/questions", headers=product_headers).json()[0]["qaId"] == qa.json()["qaId"]
+        assert (
+            client.get("/api/v1/qa/questions", headers=product_headers).json()[0]["qaId"]
+            == qa.json()["qaId"]
+        )
 
         draft = client.post(
             "/api/v1/reviews/REV-0001/opinion-drafts", headers=product_headers, json={}
         ).json()
-        assert client.patch(
-            f"/api/v1/opinion-drafts/{draft['draftId']}",
-            headers=product_headers,
-            json={"finalContent": "검토 의견"},
-        ).status_code == 200
-        assert client.get("/api/v1/reviews/REV-0001/opinion-drafts", headers=product_headers).status_code == 200
+        assert (
+            client.patch(
+                f"/api/v1/opinion-drafts/{draft['draftId']}",
+                headers=product_headers,
+                json={"finalContent": "검토 의견"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.get(
+                "/api/v1/reviews/REV-0001/opinion-drafts", headers=product_headers
+            ).status_code
+            == 200
+        )
 
         report = client.post(
             "/api/v1/reviews/REV-0001/reports", headers=product_headers, json={"format": "PDF"}
         ).json()
         assert report["sourceReportId"]
-        assert client.get(f"/api/v1/reports/{report['reportId']}", headers=product_headers).status_code == 200
-        assert client.get(
-            f"/api/v1/reports/{report['reportId']}/download", headers=product_headers
-        ).status_code == 403
+        assert (
+            client.get(f"/api/v1/reports/{report['reportId']}", headers=product_headers).status_code
+            == 200
+        )
+        assert (
+            client.get(
+                f"/api/v1/reports/{report['reportId']}/download", headers=product_headers
+            ).status_code
+            == 403
+        )
         download = client.get(
             f"/api/v1/reports/{report['reportId']}/download", headers=reviewer_headers
         )
@@ -126,6 +151,9 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
             json={"baseReviewId": "REV-0001", "revisionId": "REV-0002"},
         )
         assert comparison.status_code == 200
-        assert client.get(
-            f"/api/v1/comparisons/{comparison.json()['comparisonId']}", headers=product_headers
-        ).status_code == 200
+        assert (
+            client.get(
+                f"/api/v1/comparisons/{comparison.json()['comparisonId']}", headers=product_headers
+            ).status_code
+            == 200
+        )

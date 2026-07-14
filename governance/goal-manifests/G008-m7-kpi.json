@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "goal_id": "G008-m7-kpi",
+  "capability": "M7 deterministic validation dataset and immutable KPI entry gate",
+  "trace": {
+    "requirements": [
+      "FR-019",
+      "FR-020",
+      "DR-005"
+    ],
+    "functions": [
+      "F-020",
+      "F-021"
+    ],
+    "screens": [
+      "S-015",
+      "S-016"
+    ],
+    "api_operations": [
+      "GET /api/v1/validation/datasets",
+      "POST /api/v1/validation/datasets",
+      "POST /api/v1/validation/datasets/{datasetId}/judgments",
+      "POST /api/v1/validation/evaluations",
+      "GET /api/v1/validation/evaluations/{evaluationId}"
+    ],
+    "db_objects": [
+      "validation.validation_datasets",
+      "validation.validation_judgments",
+      "validation.evaluations",
+      "validation.evaluation_metrics"
+    ]
+  },
+  "openapi": {
+    "version": "0.7.0",
+    "source_sha256": "e4fdc6c9874b5984f3641a5e8f092d388df15f98d7556486f7a88c41d1db120d",
+    "operation_ids": [
+      "listValidationDatasets",
+      "createValidationDataset",
+      "createValidationJudgments",
+      "createValidationEvaluation",
+      "getValidationEvaluation"
+    ],
+    "schemas": [
+      "ExcludeReasonCode",
+      "ValidationMetricCode",
+      "ValidationEvaluationStatus",
+      "ReviewSelectionPolicy",
+      "CreateValidationDatasetRequest",
+      "ValidationDataset",
+      "ValidationDatasetPage",
+      "ValidationJudgmentInput",
+      "CreateValidationJudgmentsRequest",
+      "ValidationJudgment",
+      "ValidationJudgmentsCreated",
+      "CreateValidationEvaluationRequest",
+      "ValidationExclusionSummary",
+      "ValidationMetric",
+      "ValidationVersionSnapshot",
+      "ValidationEvaluation"
+    ]
+  },
+  "generated_client": {
+    "path": "apps/frontend/src/api/generated/openapi.ts",
+    "sha256": "5b6b60263d1a40ec40821b88d41417932e7e9c10b25d0cda991310e2c5244ea9"
+  },
+  "migration": {
+    "revision": "0007_m7_validation_kpi",
+    "down_revision": "0006_m6_support_outputs",
+    "path": "apps/backend/migrations/versions/0007_m7_validation_kpi.py",
+    "sha256": "7a0bc3bdd4dc423471c85ab3c4a1932c1a547993ac0bd46bf3e18a251a8797e1",
+    "owned_tables": [
+      "validation.validation_datasets",
+      "validation.validation_judgments",
+      "validation.evaluations",
+      "validation.evaluation_metrics"
+    ]
+  },
+  "fixtures": [
+    {
+      "path": "tests/fixtures/m7/validation-kpi-v1.json",
+      "sha256": "3c69ab6949ea4a2543245e75b9e35dc7a92b3ab553fe9846ed7133b7cdf30899",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "TC-VAL-001",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-VAL-001..005",
+        "tests/integration/test_m7_database_contract.py::test_actual_postgres_clean_and_m6_to_m7_upgrades"
+      ]
+    },
+    {
+      "id": "TC-VAL-002",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-VAL-001..005"
+      ]
+    },
+    {
+      "id": "TC-VAL-003",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-VAL-001..005",
+        "tests/integration/test_m7_database_contract.py::test_actual_postgres_clean_and_m6_to_m7_upgrades"
+      ]
+    },
+    {
+      "id": "TC-VAL-004",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-VAL-001..005"
+      ]
+    },
+    {
+      "id": "TC-VAL-005",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-VAL-001..005",
+        "tests/integration/test_m7_database_contract.py::test_actual_postgres_clean_and_m6_to_m7_upgrades"
+      ]
+    },
+    {
+      "id": "TC-EVAL-001",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011",
+        "tests/integration/test_m7_database_contract.py::test_actual_postgres_clean_and_m6_to_m7_upgrades"
+      ]
+    },
+    {
+      "id": "TC-EVAL-002",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-003",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-004",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-005",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-006",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-007",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-008",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-009",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-010",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-011",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-001..011"
+      ]
+    },
+    {
+      "id": "TC-EVAL-012",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-012..015",
+        "tests/integration/test_m7_database_contract.py::test_actual_postgres_clean_and_m6_to_m7_upgrades"
+      ]
+    },
+    {
+      "id": "TC-EVAL-013",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-012..015"
+      ]
+    },
+    {
+      "id": "TC-EVAL-014",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-012..015"
+      ]
+    },
+    {
+      "id": "TC-EVAL-015",
+      "nodes": [
+        "tests/api_contract/m7_contract.test.mjs::TC-EVAL-012..015"
+      ]
+    }
+  ],
+  "changed_paths": [
+    "openapi/openapi.yaml",
+    "apps/backend/src/nh_ad_backend/m7_openapi.py",
+    "apps/backend/src/nh_ad_backend/openapi_runtime.py",
+    "apps/backend/migrations/versions/0007_m7_validation_kpi.py",
+    "apps/frontend/src/api/generated/openapi.ts",
+    "tests/fixtures/m7/validation-kpi-v1.json",
+    "tests/api_contract/m7_contract.test.mjs",
+    "tests/integration/test_m7_database_contract.py",
+    "governance/goal-manifests/G008-m7-kpi.json",
+    "docs/api-specification.md",
+    "docs/database-specification.md",
+    "docs/test-cases.md",
+    "apps/backend/src/nh_ad_backend/main.py",
+    "apps/backend/tests/test_backend_health.py",
+    "tests/api_contract/openapi.test.mjs",
+    "tests/api_contract/m4_contract.test.mjs",
+    "tests/api_contract/m5_contract.test.mjs",
+    "tests/api_contract/m6_contract.test.mjs"
+  ],
+  "synchronized_documents": [
+    "docs/api-specification.md",
+    "docs/database-specification.md",
+    "docs/test-cases.md"
+  ]
+}

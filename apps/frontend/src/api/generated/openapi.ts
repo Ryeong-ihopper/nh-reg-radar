@@ -644,6 +644,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/validation/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists versioned validation datasets from the PostgreSQL source of truth. */
+        get: operations["listValidationDatasets"];
+        put?: never;
+        /** @description Creates version 1 of a validation dataset in the PostgreSQL source of truth. */
+        post: operations["createValidationDataset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/validation/datasets/{datasetId}/judgments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Appends versioned golden judgments without rewriting evaluation snapshots. */
+        post: operations["createValidationJudgments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/validation/evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates an immutable provider-free KPI evaluation from canonical persisted snapshots. */
+        post: operations["createValidationEvaluation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/validation/evaluations/{evaluationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns stored KPI values and the immutable execution snapshot provenance. */
+        get: operations["getValidationEvaluation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1703,6 +1772,136 @@ export interface components {
             unresolvedIssueCount: number;
             newIssueCount: number;
             items?: components["schemas"]["ComparisonItem"][];
+        };
+        /** @enum {string} */
+        ExcludeReasonCode: "OCR_UNREADABLE" | "PRODUCT_CONDITION_AMBIGUOUS" | "REFERENCE_NOT_PROVIDED" | "SOURCE_FILE_CORRUPTED" | "LABEL_UNCLEAR" | "DUPLICATE_SAMPLE" | "OUT_OF_SCOPE";
+        /** @enum {string} */
+        ValidationMetricCode: "REQUIRED_PHRASE_ACCURACY" | "MISLEADING_EXPRESSION_ACCURACY" | "EVIDENCE_PRECISION" | "HUMAN_AGREEMENT_RATE";
+        /** @enum {string} */
+        ValidationEvaluationStatus: "COMPLETED" | "FAILED";
+        /** @enum {string} */
+        ReviewSelectionPolicy: "LATEST_COMPLETED";
+        CreateValidationDatasetRequest: {
+            datasetName: string;
+            productGroup: components["schemas"]["ProductGroup"];
+            advertisementType: components["schemas"]["AdvertisementType"];
+            /** Format: binary */
+            advertisementFile: string;
+            /** Format: binary */
+            productConditionFile?: string;
+            humanReviewComment?: string;
+            /** @description JSON-serialized synthetic or approved label payload persisted as JSONB. */
+            labelJson?: string;
+            /** @default false */
+            excluded: boolean;
+            excludeReasonCode?: components["schemas"]["ExcludeReasonCode"];
+            excludeReasonDetail?: string;
+        };
+        ValidationDataset: {
+            datasetId: string;
+            datasetName: string;
+            productGroup: components["schemas"]["ProductGroup"];
+            advertisementType: components["schemas"]["AdvertisementType"];
+            advertisementId?: string | null;
+            sampleFileId?: string | null;
+            productConditionFileId?: string | null;
+            humanReviewComment?: string | null;
+            labelJson?: {
+                [key: string]: unknown;
+            } | null;
+            datasetVersion: number;
+            excluded: boolean;
+            excludeReasonCode?: components["schemas"]["ExcludeReasonCode"] | null;
+            excludeReasonDetail?: string | null;
+            excludedBy?: string | null;
+            /** Format: date-time */
+            excludedAt?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt?: string | null;
+        };
+        ValidationDatasetPage: {
+            items: components["schemas"]["ValidationDataset"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        ValidationJudgmentInput: {
+            targetText: string;
+            reviewType: components["schemas"]["ReviewType"];
+            expectedStatus: components["schemas"]["ReviewResultStatus"];
+            riskLevel?: components["schemas"]["RiskLevel"] | null;
+            comment?: string | null;
+            /** @default false */
+            excluded: boolean;
+            excludeReasonCode?: components["schemas"]["ExcludeReasonCode"] | null;
+            excludeReasonDetail?: string | null;
+        };
+        CreateValidationJudgmentsRequest: {
+            judgments: components["schemas"]["ValidationJudgmentInput"][];
+        };
+        ValidationJudgment: {
+            judgmentId: string;
+            datasetId: string;
+            targetText: string;
+            reviewType: components["schemas"]["ReviewType"];
+            expectedStatus: components["schemas"]["ReviewResultStatus"];
+            riskLevel?: components["schemas"]["RiskLevel"] | null;
+            comment?: string | null;
+            excluded: boolean;
+            excludeReasonCode?: components["schemas"]["ExcludeReasonCode"] | null;
+            excludeReasonDetail?: string | null;
+            judgmentVersion: number;
+            judgedBy: string;
+            /** Format: date-time */
+            judgedAt: string;
+        };
+        ValidationJudgmentsCreated: {
+            datasetId: string;
+            judgments: components["schemas"]["ValidationJudgment"][];
+        };
+        CreateValidationEvaluationRequest: {
+            datasetIds: string[];
+            metrics: components["schemas"]["ValidationMetricCode"][];
+            excludeInvalidSamples: boolean;
+            reviewSelectionPolicy: components["schemas"]["ReviewSelectionPolicy"];
+        };
+        ValidationExclusionSummary: {
+            excludeReasonCode: components["schemas"]["ExcludeReasonCode"];
+            count: number;
+        };
+        ValidationMetric: {
+            metricCode: components["schemas"]["ValidationMetricCode"];
+            metricName: string;
+            score: number | null;
+            numerator: number;
+            denominator: number;
+            excludedCount: number;
+            partialCount: number;
+            notApplicable: boolean;
+            targetScore: number;
+            achieved: boolean;
+        };
+        ValidationVersionSnapshot: {
+            standardVersionIds: string[];
+            modelVersion: string;
+            promptVersion: string;
+            parserOcrPolicy: string;
+            ragSearchPolicy: string;
+        };
+        ValidationEvaluation: {
+            evaluationId: string;
+            evaluationStatus: components["schemas"]["ValidationEvaluationStatus"];
+            snapshotHash: string;
+            /** Format: date-time */
+            snapshotCreatedAt: string;
+            datasetSnapshotCount: number;
+            reviewSelectionPolicy: components["schemas"]["ReviewSelectionPolicy"];
+            versionSnapshot: components["schemas"]["ValidationVersionSnapshot"];
+            exclusionSummary: components["schemas"]["ValidationExclusionSummary"][];
+            metrics: components["schemas"]["ValidationMetric"][];
         };
     };
     responses: {
@@ -3233,6 +3432,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listValidationDatasets: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                size?: components["parameters"]["Size"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scope-authorized validation dataset page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationDatasetPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createValidationDataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["CreateValidationDatasetRequest"];
+            };
+        };
+        responses: {
+            /** @description Versioned validation dataset created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationDataset"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createValidationJudgments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateValidationJudgmentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Versioned golden judgments created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationJudgmentsCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createValidationEvaluation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateValidationEvaluationRequest"];
+            };
+        };
+        responses: {
+            /** @description Immutable evaluation and four stored KPI results created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationEvaluation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getValidationEvaluation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evaluationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable evaluation snapshot and stored KPI values. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationEvaluation"];
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -514,6 +514,13 @@ progress {
   background: #f9fcf8;
 }
 
+.validation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
 .result-kpis span,
 .result-kpis strong {
   display: block;
@@ -729,6 +736,7 @@ progress {
   .result-filters,
   .result-layout,
   .annotation-layout,
+  .validation-grid,
   .management-panel .form-grid {
     grid-template-columns: 1fr;
   }

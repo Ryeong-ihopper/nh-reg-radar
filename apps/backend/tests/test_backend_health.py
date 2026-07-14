@@ -58,7 +58,7 @@ def test_runtime_openapi_semantically_matches_static_contract(tmp_path: Path) ->
         text=True,
     )
 
-    assert runtime["info"]["version"] == static["info"]["version"] == "0.6.0"
+    assert runtime["info"]["version"] == static["info"]["version"] == "0.7.0"
     assert _operations(runtime) == _operations(static)
     assert comparison.returncode == 0, comparison.stderr
 

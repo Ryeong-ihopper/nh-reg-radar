@@ -34,7 +34,12 @@ class MultipartForm:
     files: dict[str, list[ParsedFile]]
 
 
-async def parse_multipart(request: Request) -> MultipartForm:
+async def parse_multipart(
+    request: Request,
+    *,
+    extra_fields: frozenset[str] = frozenset(),
+    extra_files: frozenset[str] = frozenset(),
+) -> MultipartForm:
     content_type = request.headers.get("content-type", "")
     if (
         not content_type.casefold().startswith("multipart/form-data")
@@ -111,17 +116,21 @@ async def parse_multipart(request: Request) -> MultipartForm:
         "expiredDate",
         "metadata",
         "content",
-    }
+    } | extra_fields
     allowed_files = {
         "advertisementFile",
         "productDescriptionFile",
         "termsFile",
         "additionalFiles",
         "sourceFile",
-    }
+    } | extra_files
     if set(fields) - allowed_fields or set(files) - allowed_files:
         raise MultipartError(400, "BAD_REQUEST", "지원하지 않는 multipart 필드가 포함되었습니다.")
-    for name in ("advertisementFile", "productDescriptionFile", "termsFile"):
+    for name in (
+        "advertisementFile",
+        "productDescriptionFile",
+        "termsFile",
+    ):
         if len(files.get(name, [])) > 1:
             raise MultipartError(400, "BAD_REQUEST", f"{name} 파일은 하나만 첨부할 수 있습니다.")
     if len(files.get("additionalFiles", [])) > 10:

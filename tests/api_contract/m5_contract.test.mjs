@@ -15,7 +15,7 @@ test('G006-m5 manifest freezes Result Evidence Annotation entry gate', async () 
   const operations = collectOperationIds(document);
 
   assert.equal(manifest.goal_id, 'G006-m5-review-results');
-  assert.equal(document.info.version, '0.6.0');
+  assert.equal(document.info.version, '0.7.0');
   // M5 is a preserved subset of the additive v0.6 source contract; its
   // historical source digest is retained in the manifest rather than treated
   // as the digest of every future additive release.

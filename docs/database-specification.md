@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.8 |
-| 기준일 | 2026-07-14 |
+| 현행 버전 | v1.10 |
+| 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.10 | 2026-07-15 | G008 M7 PostgreSQL runtime repository의 version 증가, 원자 평가 저장, canonical snapshot/hash 및 기존 평가 불변 조회 실행 증거 반영 |
+| v1.9 | 2026-07-14 | G008 M7 additive 0007 migration의 validation DB 원천 version, 승인 제외, immutable snapshot/hash 및 4개 KPI 저장 제약 반영 |
 | v1.8 | 2026-07-14 | G007 M6 additive 0006 migration의 추천 판단 이력, fixed-reference Q&A, 의견 초안, immutable report snapshot 및 수정 비교/re-analysis 제약 반영 |
 | v1.7 | 2026-07-14 | M5 worker의 parser 선택 산출물→결과 bundle 원자 영속화와 review snapshot/완료 상태 갱신 경계 반영 |
 | v1.6 | 2026-07-14 | M5 owner revision의 review item/risk rationale/evidence 상태·버전 snapshot/Annotation 좌표·offset 불변조건 반영 |
@@ -32,7 +34,7 @@
 | 문서명 | DB 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.5 |
+| 문서 버전 | v1.9 |
 | 작성 목적 | API, 백엔드, AI 분석 모듈, RAG 검색, PoC 검증을 위한 데이터 구조 정의 |
 | 주요 DB | PostgreSQL |
 | 벡터 DB | Qdrant |
@@ -261,6 +263,23 @@ Runtime `app`은 `rag` schema의 DML만, `readonly`는 조회만 허용한다. �
 검토 항목은 evidence mapping이 없어도 `NOT_REQUIRED`, `INSUFFICIENT`, `SEARCH_UNAVAILABLE` 중 하나를 저장해야 한다. 검색 장애에만 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED`를 허용하고 정상 검색의 근거 부족과 분리한다. 항목별 저장 근거는 ADR-0043 기준 최대 5개이며 `rank_no`는 1~5로 제한한다.
 
 M5 worker는 선택된 `NormalizedDocument`와 raw artifact metadata가 먼저 영속화된 동일 Job에 대해서만 결과 bundle을 저장한다. `review_items`와 연결 근거·Annotation을 한 transaction에서 추가하고, 중복 bundle 저장은 거부한다. 이후 `reviews.applied_standard_version_ids`와 `overall_risk_level` snapshot을 갱신하고 Rule/RAG/결과 단계 완료와 Job/Review 완료를 순서대로 반영한다. 검색 장애 또는 structured schema 오류가 발생해도 기존 Rule item row를 삭제·정상화하지 않는다.
+
+### M7 owner revision
+
+`0007_m7_validation_kpi`는 `0006_m6_support_outputs`를 직접 상속하며 기존 0001~0006을 수정하지 않는다.
+
+| 구분 | M7 기준 |
+| --- | --- |
+| Owner tables | `validation.validation_datasets`, `validation.validation_judgments`, `validation.evaluations`, `validation.evaluation_metrics` |
+| Runtime source | 데이터셋과 정답지는 PostgreSQL 원천이고 Git fixture는 dev/test 회귀 입력 전용 |
+| Version | 정답/메타데이터 또는 담당자 판단 변경은 각각 양의 `dataset_version`, `judgment_version`으로 식별 |
+| Exclusion | 승인된 사유 코드와 확정자/시각이 있는 제외만 확정 제외로 저장하며 AI 오답은 제외하지 않음 |
+| Snapshot | dataset/judgment/exclusion/AI/version/policy JSONB와 canonical `snapshot_hash`, `LATEST_COMPLETED` 선택 정책을 평가 ID별로 고정 |
+| KPI | 4개 metric code별 numerator/denominator/partial/excluded/target/score/달성 여부를 저장하고 분모 0은 nullable score와 `not_applicable=true`, `achieved=false` |
+| Upgrade | 실제 PostgreSQL 빈 DB 0001→0007 및 기존 M6 DB 0006→0007을 모두 실행 검증 |
+| Scope exclusion | backend/frontend 실행, 외부 provider, network, credential은 M7 entry gate 범위가 아님 |
+
+M7 backend runtime은 `PostgresValidationRepository`를 통해 데이터셋·판단 version 증가와 평가·4개 KPI row 저장을 transaction 단위로 수행한다. 평가 조회는 현재 데이터셋/판단 row를 재계산하지 않고 `evaluations`의 snapshot과 `evaluation_metrics` 저장값을 반환한다. 실제 PostgreSQL roundtrip은 `apps/backend/tests/test_m7_postgres_repository.py`가 검증하고, clean 0001→0007 및 기존 0006→0007 upgrade는 `tests/integration/test_m7_database_contract.py`가 계속 잠근다.
 
 ---
 
@@ -1490,11 +1509,11 @@ PoC 성능평가 실행 결과를 관리한다.
 | evaluation_id | varchar(50) |  | evaluations | Y | 평가 ID |
 | metric_code | varchar(100) |  |  | Y | 지표 코드 |
 | metric_name | varchar(200) |  |  | Y | 지표명 |
-| score | numeric(6,2) |  |  | Y | 산출 점수 |
+| score | numeric(6,2) |  |  |  | 산출 점수. 분모 0이면 null |
 | target_score | numeric(6,2) |  |  | Y | 목표 점수 |
 | achieved | boolean |  |  | Y | 목표 달성 여부 |
-| numerator | numeric(10,2) |  |  |  | 항목별 match score 합계 |
-| denominator | int |  |  |  | 평가 대상 항목 수 또는 근거 수 |
+| numerator | numeric(10,2) |  |  | Y | 항목별 match score 합계 |
+| denominator | int |  |  | Y | 평가 대상 항목 수 또는 근거 수 |
 | excluded_count | int |  |  | Y | 평가 제외 건수 |
 | partial_count | int |  |  | Y | 부분 정답 건수 |
 | not_applicable | boolean |  |  | Y | 분모 0으로 KPI 미적용 여부 |

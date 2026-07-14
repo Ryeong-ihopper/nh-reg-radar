@@ -6,13 +6,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.15 |
-| 기준일 | 2026-07-14 |
+| 현행 버전 | v1.18 |
+| 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.18 | 2026-07-15 | G008 M7 provider-free backend KPI/API/PostgreSQL runtime과 전체 backend 회귀 실행 증거를 기존 S-015/S-016 frontend 증거와 통합 반영 |
+| v1.17 | 2026-07-15 | M7 S-015/S-016 생성 client 화면의 데이터셋/판단 등록, stored KPI·평가 제외·분모 0 미적용, loading/empty/error/권한 회귀 실행 증거 반영 |
+| v1.16 | 2026-07-14 | G008 M7 정확히 5개 Validation operation, 0007 실제 PostgreSQL clean/M6 upgrade, synthetic KPI fixture/hash 및 TC-VAL/EVAL 개별 trace Gate 반영 |
 | v1.15 | 2026-07-14 | G007 M6 contract/0006 migration synthetic fixture trace gate와 TC-SUG/QA/OPN/RPT/CMP 및 history 불변조건 검증 반영 |
 | v1.14 | 2026-07-14 | G006 M5 backend/worker Rule→RAG→structured 실행·영속화·조회·실패 보존 회귀 증거 반영 |
 | v1.13 | 2026-07-14 | M5 S-006~S-008 결과/Annotation 생성 client component 및 광고물→분석 완료→결과→Annotation 결정적 통합 실행 Gate 반영 |
@@ -39,7 +42,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.13 |
+| 문서 버전 | v1.16 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -485,6 +488,15 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-EVAL-014 | 정답지 수정 후 신규 평가 생성 | 정답지 version 증가 상태 | 새 평가 실행 | 신규 evaluationId와 신규 snapshotHash 생성, 변경된 정답지 기준 KPI 산출 | `evaluations`, `evaluation_metrics` | P1 |
 | TC-EVAL-015 | AI 재분석 결과 평가 분리 | 기존 review 평가 후 새 review 생성 | 새 평가 실행 | reviewSelectionPolicy에 따라 선택된 reviewId가 AI result snapshot에 기록 | `evaluations` | P1 |
 
+## 17.1 M7 S-015/S-016 프론트엔드 실행 증거
+
+| 검증 묶음 | 실행 증거 |
+| --- | --- |
+| TC-VAL-001~005 | `apps/frontend/src/m7-validation.test.tsx`에서 frozen 생성 client 기반 multipart 데이터셋 등록, JSON 담당자 판단, version/제외 표시와 empty/error 상태를 검증한다. |
+| TC-EVAL-001~010/012~015 | 동일 테스트에서 서버 저장 `score`, 분자/분모, 목표/달성 여부, 불변 snapshot hash, 승인 제외 집계와 `notApplicable=true` 분모 0 표시를 검증하며 브라우저 재계산을 금지한다. |
+| 권한 회귀 | 상품부서 역할의 직접 route 접근은 API 호출 전에 차단하고, 준법감시/기준 관리자/시스템 관리자의 실행·조회 action 차이를 검증한다. |
+| 실행 명령 | `npm --prefix apps/frontend run openapi:check`, `lint`, `typecheck`, `test`, `build`를 M7 frontend 완료 Gate로 사용한다. |
+
 ---
 
 # 18. 사용자/권한/감사 로그 테스트케이스
@@ -657,6 +669,31 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | Worker integration | `apps/worker/tests/test_m5_results.py` | 선택된 parser 산출물 이후 result bundle이 completion 전에 저장되고 확인 필요 상태가 job/review에 전파됨 |
 | Result API/scope | `apps/backend/tests/test_m5_result_api.py` | summary/items/detail/annotations 실제 handler가 frozen v0.5 응답, evidence snapshot, BOX 위치와 부서 scope 403을 반환 |
 | Regression gates | `uv run pytest apps/backend/tests apps/worker/tests`, `uv run mypy`, `uv run ruff check apps/backend apps/worker` | M0~M4 회귀 없이 backend/worker 전체 test, type, lint 통과 |
+
+## 19.13 M7 계약·DB·fixture entry Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Goal trace | `governance/goal-manifests/G008-m7-kpi.json` | 실제 `TC-VAL-001..005`, `TC-EVAL-001..015`가 각각 executable node에 매핑되고 OpenAPI/client/fixture SHA-256이 고정됨 |
+| Validation contract | `tests/api_contract/m7_contract.test.mjs` | OpenAPI v0.7.0에 정확히 5개 Validation operation, versioned dataset/judgment, 4개 KPI/목표/제외/부분점수/미적용 계약 잠금 |
+| Deterministic fixture | `tests/fixtures/m7/validation-kpi-v1.json` | customer data/provider/network 없이 1.0/0.5/0, 승인/미승인 제외, AI 오류 0점, 분모 0, canonical snapshot과 신규 평가 hash를 재현 |
+| DB history/static | `tests/integration/test_m7_database_contract.py` | 0001~0006 SHA-256 동일, 0007이 0006을 상속하고 validation 4개 테이블과 version/snapshot/KPI 제약만 소유 |
+| Actual PostgreSQL | `tests/integration/test_m7_database_contract.py::test_actual_postgres_clean_and_m6_to_m7_upgrades` | 임시 PostgreSQL 16에서 빈 DB 0001→0007과 기존 M6 DB 0006→0007이 실제 Alembic 실행되고 4개 테이블/nullable score/head revision 확인 |
+| Generated client | `npm --prefix apps/frontend run openapi:check` | v0.7.0 generated TypeScript client가 source 계약과 clean diff 유지 |
+| Runtime parity | `apps/backend/tests/test_backend_health.py::test_runtime_openapi_semantically_matches_static_contract` | frozen M7 fragment를 포함한 runtime/static operation/schema/status 의미 차이 0 |
+
+이 Gate는 provider SDK, 외부 network, credential 및 고객사 원문을 사용하지 않는다. 데이터셋/정답지의 운영 원천은 PostgreSQL이며 Git fixture는 개발·테스트 회귀 입력으로만 사용한다.
+
+## 19.14 M7 backend 실행 검증
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| KPI golden/unit | `apps/backend/tests/test_m7_kpi.py` | 4개 KPI의 정확한 분자/분모, 1/0.5/0, 승인 제외, AI 오답 0, partial count, 분모 0 미적용을 provider 없이 재현 |
+| Runtime API/권한 | `apps/backend/tests/test_m7_validation_api.py` | 정확히 5개 route가 dataset/judgment version, role gate, 생성 감사, 불변 evaluation snapshot/hash와 저장 KPI를 반환 |
+| PostgreSQL repository | `apps/backend/tests/test_m7_postgres_repository.py` | 실제 PostgreSQL에서 dataset/judgment 저장과 version 증가, evaluation/metric 원자 저장 및 불변 roundtrip 통과 |
+| Migration/runtime parity | `tests/integration/test_m7_database_contract.py`, `apps/backend/tests/test_backend_health.py` | clean/M6 upgrade와 runtime/static OpenAPI 의미가 frozen v0.7.0 계약과 일치 |
+| Backend regression | `uv run python -m pytest -m "not external_ai and not slow" -q` | provider/network 없이 기존 backend·worker 회귀와 M7 실행 검증이 함께 통과 |
+| Static quality | `uv run ruff check .`, `uv run mypy` | lint 오류 0, canonical package type 오류 0 |
 
 | Cleanup/namespace | 고유 Compose project + dev env example | 종료 후 M4 검증 컨테이너/network/volume/임시 env 잔여물이 0이고 parser bucket/queue가 환경 prefix로 격리됨 |
 

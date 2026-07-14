@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.8 |
-| 기준일 | 2026-07-14 |
+| 현행 버전 | v1.10 |
+| 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.10 | 2026-07-15 | G008 M7 provider-free Validation backend의 정확히 5개 runtime route, 권한·감사, 불변 snapshot/hash 및 저장 KPI 응답 실행 증거 반영 |
+| v1.9 | 2026-07-14 | G008 M7 Validation OpenAPI v0.7.0의 정확히 5개 operation, DB 원천 version, 불변 평가 snapshot과 저장 KPI 응답 계약 잠금 반영 |
 | v1.8 | 2026-07-14 | G007 M6 support output OpenAPI v0.6.0의 문구 추천·근거 고정 Q&A·의견 초안·불변 HWPX/PDF snapshot·수정 비교 계약 잠금 반영 |
 | v1.7 | 2026-07-14 | G006 M5 Review Result/Evidence/Annotation OpenAPI v0.5.0, 명시적 근거 상태와 provider-independent structured mock 계약 잠금 반영 |
 | v1.6 | 2026-07-14 | M4 worker delivery의 exact `review-job-v1` envelope와 Job 기준 idempotency 선검증 규칙 보강 |
@@ -32,7 +34,7 @@
 | 문서명 | API 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.6 |
+| 문서 버전 | v1.9 |
 | 작성 목적 | 프론트엔드, 백엔드, AI 분석 모듈, DB 간 연동 기준 정의 |
 | API 유형 | REST API |
 | 데이터 형식 | JSON, Multipart Form Data |
@@ -2613,6 +2615,28 @@ M5c는 `review-structured-output-v1` fixture 계약만 사용한다. 실제 prov
 M6 원천 계약은 `openapi/openapi.yaml` v0.6.0이며 `listReviewSuggestions`, `recordSuggestionDecision`, `askComplianceQuestion`, `listComplianceQuestions`, 의견 초안, 리포트, 비교 operation을 추가한다. 추천 판단 이력은 append-only이며 `MODIFIED_AND_USED`는 `finalText`를 요구한다. Q&A는 적용 기준자료 및 근거 버전을 고정하고 근거가 부족하면 `needsHumanReview=true`의 비단정 응답을 반환한다.
 
 리포트는 `snapshotHash`와 `snapshotVersion`으로 immutable HWPX snapshot을 식별한다. PDF는 HWPX source report를 참조하며 변환 실패는 HWPX 상태를 변경하지 않는 별도 `FAILED` report로 표현한다. 비교 결과는 `RESOLVED`, `UNRESOLVED`, `NEW_ISSUE`, `CHECK_REQUIRED` 및 재분석 linkage를 보존한다. M6 fixture는 provider와 credential 없이 결정적으로 실행된다.
+
+## 17.11 M7 Validation Dataset/KPI entry gate
+
+M7 원천 계약은 `openapi/openapi.yaml` v0.7.0이며 Validation 영역에 정확히 다음 5개 operation만 추가한다.
+
+| Method | URI | operationId |
+| --- | --- | --- |
+| GET | `/api/v1/validation/datasets` | `listValidationDatasets` |
+| POST | `/api/v1/validation/datasets` | `createValidationDataset` |
+| POST | `/api/v1/validation/datasets/{datasetId}/judgments` | `createValidationJudgments` |
+| POST | `/api/v1/validation/evaluations` | `createValidationEvaluation` |
+| GET | `/api/v1/validation/evaluations/{evaluationId}` | `getValidationEvaluation` |
+
+데이터셋과 담당자 판단은 PostgreSQL 원천의 `datasetVersion`, `judgmentVersion`을 반환한다. 평가는 `LATEST_COMPLETED` 검토 결과를 선택해 데이터셋·판단·승인된 제외·AI 결과·기준자료/모델/프롬프트/Parser/OCR/RAG/Search·KPI 정책을 canonical snapshot으로 고정하고 `sha256:` hash를 저장한다. 같은 `evaluationId`는 불변이며 변경 후 재평가는 새 ID와 hash를 만든다.
+
+4개 KPI 응답은 서버에 저장된 `numerator`, `denominator`, `score`, `excludedCount`, `partialCount`, `targetScore`, `notApplicable`, `achieved`를 그대로 반환한다. 승인된 제외만 분자와 분모에서 빠지고 AI 오답은 0점으로 남는다. 분모 0은 `score=null`, `notApplicable=true`, `achieved=false`다. 이 entry gate와 synthetic fixture는 provider, network, credential을 사용하지 않는다.
+
+### M7 backend 실행 증거
+
+`nh_ad_backend.validation`과 `nh_ad_backend.validation_api`가 위 5개 operation만 runtime에 설치한다. 데이터셋·담당자 판단·평가 생성은 준법감시자, 기준 관리자 또는 관리자 권한으로 제한하고 생성 감사 로그를 남긴다. 평가 생성은 현재 DB 원천과 `LATEST_COMPLETED` 검토 결과를 canonical UTF-8 JSON snapshot으로 고정해 SHA-256을 계산하며, 이후 같은 `evaluationId` 조회는 현재 정답지가 아니라 저장 snapshot과 KPI row를 반환한다.
+
+실행 증거는 `apps/backend/tests/test_m7_validation_api.py`의 권한·감사·version·불변성 검증과 `apps/backend/tests/test_m7_kpi.py`의 분자/분모·1/0.5/0·제외·분모 0 검증으로 유지한다. runtime/static OpenAPI parity와 정확히 5개 operation 경계는 `apps/backend/tests/test_backend_health.py` 및 `tests/api_contract/m7_contract.test.mjs`가 잠근다.
 
 ---
 

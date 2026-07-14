@@ -8,13 +8,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.7 |
+| 현행 버전 | v1.8 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.8 | 2026-07-15 | OpenAPI v0.7.0의 정확히 다섯 Validation operation으로 S-015 데이터셋/판단과 S-016 불변 KPI 실행/조회를 연결하고 권한·평가 제외·분모 0 미적용 표시 경계를 동기화 |
 | v1.7 | 2026-07-15 | OpenAPI v0.6.0 S-009~S-013 생성 client route, 문구 판단 검증, 비단정 Q&A, 초안 이력, 불변 HWPX/PDF snapshot과 구조 비교 화면 상태 동기화 |
 | v1.6 | 2026-07-14 | OpenAPI v0.5.0 S-006~S-008 결과 요약·상세·Annotation 생성 client route와 preview/필터/부분 실패·권한 화면 상태 동기화 |
 | v1.5 | 2026-07-14 | OpenAPI v0.4.0 S-004/S-005 요청·진행·retry/stale/final failure·quality warning·재분석·권한/redaction client 흐름 동기화 |
@@ -570,6 +571,15 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | AI 결과 비교 클릭 | 검증 비교 결과 조회 | `/validation/datasets/{datasetId}/comparison` | GET | `datasetId` | AI 판정, 담당자 판단, 일치 여부 | API 추가 필요 |
 | 평가 제외 클릭 | 평가 제외 처리 | `/validation/datasets/{datasetId}/exclude` | PATCH | `excluded`, `excludeReason` | 평가 제외 상태 | API 추가 필요 |
 
+M7 실행 화면은 frozen v0.7.0 범위의 `listValidationDatasets`, `createValidationDataset`, `createValidationJudgments` 세 operation만 사용한다. 데이터셋/판단 제외는 각 등록 요청의 `excluded`, `excludeReasonCode`, `excludeReasonDetail`로 처리하며 별도 PATCH 계약은 후속 범위로 유지한다.
+
+| 실행 상태 | 화면 처리 |
+| --- | --- |
+| loading / empty | 목록 요청 중 loading과 0건 상태를 분리한다. |
+| error | ADR-0045 안전 문구와 traceId만 표시한다. |
+| permission | 준법감시/기준 관리자만 등록 action을 표시하고 시스템 관리자는 조회 전용, 상품부서 직접 접근은 요청 전에 차단한다. |
+| version / exclusion | dataset version과 평가 대상/제외 사유를 목록에 표시한다. |
+
 ### 3.36 추가 필요 API
 
 | API | 사유 |
@@ -602,6 +612,16 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 평가 결과 상세 클릭 | 평가 결과 조회 | `/validation/evaluations/{evaluationId}` | GET | `evaluationId` | KPI 점수, 오류 유형, 개선 필요사항 | 상세 영역 |
 | 결과 다운로드 클릭 | 평가 결과 다운로드 | `/validation/evaluations/{evaluationId}/download` | GET | `evaluationId`, `format` | Binary File | API 추가 필요 |
 | 결과보고서 반영 클릭 | 결과보고서 반영 | `/validation/evaluations/{evaluationId}/report-reflection` | POST | 반영 항목 | 반영 결과 | API 추가 필요 |
+
+M7 실행 화면은 frozen v0.7.0의 `createValidationEvaluation`, `getValidationEvaluation` 두 operation만 사용한다. 평가 이력 목록·다운로드·결과보고서 반영은 후속 API 범위이며 현재 화면에서 호출하지 않는다.
+
+| 실행 상태 | 화면 처리 |
+| --- | --- |
+| stored KPI | 서버의 score/분자/분모/목표/달성 여부를 그대로 표시하고 재계산하지 않는다. |
+| denominator 0 | `notApplicable=true`를 `미적용`, `분모 0 · 목표 판단 제외`로 표시한다. |
+| exclusion | `exclusionSummary`를 승인 제외 사유별 건수로 표시한다. |
+| permission | 준법감시/시스템 관리자는 실행·조회, 기준 관리자는 조회 전용, 상품부서는 route 차단한다. |
+| error | 평가 대상 없음과 조회 실패를 ADR-0045 안전 오류 상태로 표시한다. |
 
 ### 3.39 추가 필요 API
 

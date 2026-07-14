@@ -14,10 +14,12 @@ import { ReviewProgressPage } from "./pages/ReviewProgressPage";
 import { ReviewRequestPage } from "./pages/ReviewRequestPage";
 import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pages/ReviewResultsPage";
 import { StandardManagementPage } from "./pages/StandardManagementPage";
+import { ValidationDatasetsPage, ValidationEvaluationPage } from "./pages/ValidationPage";
 
 const ADVERTISEMENT_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
 const STANDARD_ROLES = new Set(["STANDARD_MANAGER", "SYSTEM_ADMIN"]);
+const VALIDATION_ROLES = new Set(["COMPLIANCE_REVIEWER", "STANDARD_MANAGER", "SYSTEM_ADMIN"]);
 
 function homePath(roles: string[]): string {
   return roles.some((role) => STANDARD_ROLES.has(role)) && !roles.some((role) => ADVERTISEMENT_ROLES.has(role))
@@ -44,6 +46,7 @@ function Shell() {
           {session ? <Link to="/advertisements">광고물 목록</Link> : <Link to="/login">로그인</Link>}
           {session?.user.roles.some((role) => CREATE_ROLES.has(role)) ? <Link to="/advertisements/new">광고물 등록</Link> : null}
           {session?.user.roles.some((role) => STANDARD_ROLES.has(role)) ? <Link to="/standards">기준자료 관리</Link> : null}
+          {session?.user.roles.some((role) => VALIDATION_ROLES.has(role)) ? <Link to="/validation/datasets">PoC 검증</Link> : null}
           {session ? <button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button> : null}
         </nav>
       </header>
@@ -64,6 +67,7 @@ function Shell() {
           <Route path="/advertisements/:advertisementId/reviews/new" element={<ReviewRequestPage />} />
         </Route>
         <Route element={<ProtectedRoute allowedRoles={STANDARD_ROLES} />}><Route path="/standards" element={<StandardManagementPage />} /></Route>
+        <Route element={<ProtectedRoute allowedRoles={VALIDATION_ROLES} />}><Route path="/validation/datasets" element={<ValidationDatasetsPage />} /><Route path="/validation/evaluations" element={<ValidationEvaluationPage />} /></Route>
         <Route path="/" element={<Navigate to={session ? homePath(session.user.roles) : "/login"} replace />} />
         <Route path="*" element={<section><h2>페이지를 찾을 수 없습니다.</h2><Link to="/">홈으로 이동</Link></section>} />
       </Routes></main>

@@ -1,0 +1,298 @@
+{
+  "fixtureVersion": "validation-kpi-v1",
+  "containsCustomerData": false,
+  "networkAllowed": false,
+  "provider": null,
+  "generatedAt": "2026-07-14T10:00:00Z",
+  "datasetVersions": {
+    "DATASET-M7-0001": 2,
+    "DATASET-M7-0002": 1
+  },
+  "judgmentVersions": {
+    "JUDG-M7-0001": 3,
+    "JUDG-M7-0002": 1
+  },
+  "matchScores": [
+    1,
+    0.5,
+    0
+  ],
+  "targets": {
+    "REQUIRED_PHRASE_ACCURACY": 80,
+    "MISLEADING_EXPRESSION_ACCURACY": 75,
+    "EVIDENCE_PRECISION": 85,
+    "HUMAN_AGREEMENT_RATE": 75
+  },
+  "cases": [
+    {
+      "caseId": "CASE-REQ-EXACT",
+      "metricCode": "REQUIRED_PHRASE_ACCURACY",
+      "matchScore": 1,
+      "excluded": false,
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-REQ-PARTIAL",
+      "metricCode": "REQUIRED_PHRASE_ACCURACY",
+      "matchScore": 0.5,
+      "excluded": false,
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-REQ-WRONG",
+      "metricCode": "REQUIRED_PHRASE_ACCURACY",
+      "matchScore": 0,
+      "exclusionCandidate": true,
+      "exclusionApproved": false,
+      "excluded": false,
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-MIS-EXACT",
+      "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+      "matchScore": 1,
+      "excluded": false,
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-MIS-AI-ERROR",
+      "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+      "matchScore": 0,
+      "excluded": false,
+      "aiError": true
+    },
+    {
+      "caseId": "CASE-MIS-APPROVED-EXCLUSION",
+      "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+      "matchScore": 0,
+      "excluded": true,
+      "exclusionCandidate": true,
+      "exclusionApproved": true,
+      "excludeReasonCode": "OCR_UNREADABLE",
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-EVD-EXACT",
+      "metricCode": "EVIDENCE_PRECISION",
+      "matchScore": 1,
+      "excluded": false,
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-EVD-PARTIAL",
+      "metricCode": "EVIDENCE_PRECISION",
+      "matchScore": 0.5,
+      "excluded": false,
+      "aiError": false
+    },
+    {
+      "caseId": "CASE-HUMAN-APPROVED-EXCLUSION",
+      "metricCode": "HUMAN_AGREEMENT_RATE",
+      "matchScore": 1,
+      "excluded": true,
+      "exclusionCandidate": true,
+      "exclusionApproved": true,
+      "excludeReasonCode": "PRODUCT_CONDITION_AMBIGUOUS",
+      "aiError": false
+    }
+  ],
+  "expectedExclusionSummary": [
+    {
+      "excludeReasonCode": "OCR_UNREADABLE",
+      "count": 1
+    },
+    {
+      "excludeReasonCode": "PRODUCT_CONDITION_AMBIGUOUS",
+      "count": 1
+    }
+  ],
+  "expectedMetrics": [
+    {
+      "metricCode": "REQUIRED_PHRASE_ACCURACY",
+      "numerator": 1.5,
+      "denominator": 3,
+      "score": 50,
+      "excludedCount": 0,
+      "partialCount": 1,
+      "notApplicable": false,
+      "targetScore": 80,
+      "achieved": false
+    },
+    {
+      "metricCode": "MISLEADING_EXPRESSION_ACCURACY",
+      "numerator": 1,
+      "denominator": 2,
+      "score": 50,
+      "excludedCount": 1,
+      "partialCount": 0,
+      "notApplicable": false,
+      "targetScore": 75,
+      "achieved": false
+    },
+    {
+      "metricCode": "EVIDENCE_PRECISION",
+      "numerator": 1.5,
+      "denominator": 2,
+      "score": 75,
+      "excludedCount": 0,
+      "partialCount": 1,
+      "notApplicable": false,
+      "targetScore": 85,
+      "achieved": false
+    },
+    {
+      "metricCode": "HUMAN_AGREEMENT_RATE",
+      "numerator": 0,
+      "denominator": 0,
+      "score": null,
+      "excludedCount": 1,
+      "partialCount": 0,
+      "notApplicable": true,
+      "targetScore": 75,
+      "achieved": false
+    }
+  ],
+  "canonicalSnapshotInput": {
+    "aiResults": [
+      {
+        "reviewId": "REV-M7-0002",
+        "reviewStatus": "REVIEW_COMPLETED",
+        "completedAt": "2026-07-14T09:30:00Z",
+        "reviewItems": [
+          {
+            "caseId": "CASE-REQ-EXACT",
+            "matchScore": "1.0"
+          },
+          {
+            "caseId": "CASE-REQ-PARTIAL",
+            "matchScore": "0.5"
+          },
+          {
+            "caseId": "CASE-REQ-WRONG",
+            "matchScore": "0"
+          },
+          {
+            "caseId": "CASE-MIS-EXACT",
+            "matchScore": "1.0"
+          },
+          {
+            "caseId": "CASE-MIS-AI-ERROR",
+            "matchScore": "0"
+          },
+          {
+            "caseId": "CASE-EVD-EXACT",
+            "matchScore": "1.0"
+          },
+          {
+            "caseId": "CASE-EVD-PARTIAL",
+            "matchScore": "0.5"
+          }
+        ]
+      }
+    ],
+    "datasets": [
+      {
+        "datasetId": "DATASET-M7-0001",
+        "datasetVersion": 2,
+        "sampleFileId": "FILE-M7-SYNTH-0001",
+        "productConditionFileId": "FILE-M7-SYNTH-0002",
+        "productGroup": "SAVINGS",
+        "advertisementType": "MOBILE_BANNER",
+        "labelJson": {
+          "fixture": "synthetic",
+          "containsCustomerData": false
+        }
+      },
+      {
+        "datasetId": "DATASET-M7-0002",
+        "datasetVersion": 1,
+        "sampleFileId": "FILE-M7-SYNTH-0003",
+        "productConditionFileId": null,
+        "productGroup": "DEPOSIT",
+        "advertisementType": "WEB_BANNER",
+        "labelJson": {
+          "fixture": "synthetic-zero-denominator",
+          "containsCustomerData": false
+        }
+      }
+    ],
+    "exclusions": [
+      {
+        "caseId": "CASE-MIS-APPROVED-EXCLUSION",
+        "excluded": true,
+        "excludeReasonCode": "OCR_UNREADABLE",
+        "excludedBy": "USR-M7-SYNTH-REVIEWER",
+        "excludedAt": "2026-07-14T09:00:00Z"
+      },
+      {
+        "caseId": "CASE-HUMAN-APPROVED-EXCLUSION",
+        "excluded": true,
+        "excludeReasonCode": "PRODUCT_CONDITION_AMBIGUOUS",
+        "excludedBy": "USR-M7-SYNTH-REVIEWER",
+        "excludedAt": "2026-07-14T09:05:00Z"
+      },
+      {
+        "caseId": "CASE-REQ-WRONG",
+        "excluded": false,
+        "excludeReasonCode": null,
+        "excludedBy": null,
+        "excludedAt": null
+      }
+    ],
+    "judgments": [
+      {
+        "judgmentId": "JUDG-M7-0001",
+        "judgmentVersion": 3,
+        "datasetId": "DATASET-M7-0001",
+        "targetText": "Synthetic required disclosure",
+        "reviewType": "REQUIRED_PHRASE",
+        "expectedStatus": "APPROPRIATE",
+        "riskLevel": "LOW"
+      },
+      {
+        "judgmentId": "JUDG-M7-0002",
+        "judgmentVersion": 1,
+        "datasetId": "DATASET-M7-0001",
+        "targetText": "Synthetic unsupported best claim",
+        "reviewType": "MISLEADING_EXPRESSION",
+        "expectedStatus": "NEEDS_REVISION",
+        "riskLevel": "HIGH"
+      }
+    ],
+    "policy": {
+      "excludeInvalidSamples": true,
+      "kpiPolicyVersion": "m7-kpi-v1",
+      "matchScores": [
+        "1.0",
+        "0.5",
+        "0"
+      ],
+      "reviewSelectionPolicy": "LATEST_COMPLETED",
+      "targets": {
+        "EVIDENCE_PRECISION": "85",
+        "HUMAN_AGREEMENT_RATE": "75",
+        "MISLEADING_EXPRESSION_ACCURACY": "75",
+        "REQUIRED_PHRASE_ACCURACY": "80"
+      }
+    },
+    "versions": {
+      "modelVersion": "provider-free-fixture-v1",
+      "ocrAdapterVersion": "fixture-ocr-v1",
+      "parserAdapterVersion": "fixture-parser-v1",
+      "promptVersion": "fixture-prompt-v1",
+      "ragSearchPolicyVersion": "ADR-0043/ADR-0071",
+      "standardVersionIds": [
+        "STDVER-M7-SYNTH-0001"
+      ]
+    }
+  },
+  "expectedSnapshotSha256": "sha256:da1e34296d64fb0a8db92ddaf721368aa28ff92807479efc2d7a48bb1ebc2e04",
+  "immutability": {
+    "existingEvaluationRemainsUnchanged": true,
+    "changedJudgmentCreatesNewEvaluation": true,
+    "originalEvaluationId": "EVAL-M7-0001",
+    "nextEvaluationId": "EVAL-M7-0002",
+    "originalSnapshotSha256": "sha256:da1e34296d64fb0a8db92ddaf721368aa28ff92807479efc2d7a48bb1ebc2e04",
+    "nextSnapshotSha256": "sha256:2617d0cafa1c11a5b88049558df6b381052264f31dc9889fad1d168e131ce0e8"
+  }
+}

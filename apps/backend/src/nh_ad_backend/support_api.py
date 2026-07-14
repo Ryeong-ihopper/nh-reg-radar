@@ -22,9 +22,7 @@ def install_support_routes(
     ) -> list[dict[str, object]]:
         return service.list_suggestions(current, review_id)
 
-    @router.patch(
-        "/suggestions/{suggestionId}/decision", operation_id="recordSuggestionDecision"
-    )
+    @router.patch("/suggestions/{suggestionId}/decision", operation_id="recordSuggestionDecision")
     async def decision(
         request: Request,
         current: Actor,

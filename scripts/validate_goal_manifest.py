@@ -40,9 +40,7 @@ TRACE_SOURCES = {
     ),
 }
 TEST_CASE_SOURCE = "docs/test-cases.md"
-TEST_CASE_PATTERN = re.compile(
-    r"^\|\s*(TC-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{3})\s*\|", re.MULTILINE
-)
+TEST_CASE_PATTERN = re.compile(r"^\|\s*(TC-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{3})\s*\|", re.MULTILINE)
 API_SOURCE = "docs/api-specification.md"
 API_OPERATION_PATTERN = re.compile(
     r"^\|\s*Method\s*\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|.*?^\|\s*URI\s*\|\s*`([^`]+)`\s*\|",
@@ -87,9 +85,7 @@ def _load_json(path: Path) -> tuple[Manifest | None, list[ManifestFinding]]:
         return None, [ManifestFinding("MANIFEST_READ", str(path), str(error))]
     if not isinstance(value, dict):
         return None, [
-            ManifestFinding(
-                "MANIFEST_TYPE", str(path), "manifest root must be an object"
-            )
+            ManifestFinding("MANIFEST_TYPE", str(path), "manifest root must be an object")
         ]
     return value, []
 
@@ -99,9 +95,7 @@ def _strings(
 ) -> tuple[list[str], list[ManifestFinding]]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         return [], [
-            ManifestFinding(
-                "MANIFEST_TYPE", manifest_path, f"{field} must be an array of strings"
-            )
+            ManifestFinding("MANIFEST_TYPE", manifest_path, f"{field} must be an array of strings")
         ]
     return [item for item in value if isinstance(item, str)], []
 
@@ -120,9 +114,7 @@ def _declared_ids(root: Path, relative: str, pattern: re.Pattern[str]) -> set[st
     path = root / relative
     if not path.is_file():
         return set()
-    return {
-        match.group(1) for match in pattern.finditer(path.read_text(encoding="utf-8"))
-    }
+    return {match.group(1) for match in pattern.finditer(path.read_text(encoding="utf-8"))}
 
 
 def _validate_string_list(
@@ -167,14 +159,11 @@ def _db_objects(root: Path) -> set[str]:
     if not path.is_file():
         return set()
     return {
-        match.group(1)
-        for match in DB_OBJECT_PATTERN.finditer(path.read_text(encoding="utf-8"))
+        match.group(1) for match in DB_OBJECT_PATTERN.finditer(path.read_text(encoding="utf-8"))
     }
 
 
-def _test_node_finding(
-    root: Path, manifest_path: str, node: str
-) -> ManifestFinding | None:
+def _test_node_finding(root: Path, manifest_path: str, node: str) -> ManifestFinding | None:
     if "::" not in node:
         return ManifestFinding(
             "TEST_NODE_INVALID", manifest_path, f"test node must contain '::': {node}"
@@ -197,15 +186,9 @@ def _test_node_finding(
     return None
 
 
-def _validate_test_cases(
-    root: Path, manifest_path: str, value: JsonValue
-) -> list[ManifestFinding]:
+def _validate_test_cases(root: Path, manifest_path: str, value: JsonValue) -> list[ManifestFinding]:
     if not isinstance(value, list):
-        return [
-            ManifestFinding(
-                "MANIFEST_TYPE", manifest_path, "test_cases must be an array"
-            )
-        ]
+        return [ManifestFinding("MANIFEST_TYPE", manifest_path, "test_cases must be an array")]
     if not value:
         return [
             ManifestFinding(
@@ -221,9 +204,7 @@ def _validate_test_cases(
         field = f"test_cases[{index}]"
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             findings.append(
-                ManifestFinding(
-                    "MANIFEST_TYPE", manifest_path, f"{field}.id must be a string"
-                )
+                ManifestFinding("MANIFEST_TYPE", manifest_path, f"{field}.id must be a string")
             )
             continue
         identifier_value = entry["id"]
@@ -295,15 +276,11 @@ def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
     missing_fields = REQUIRED_TOP_LEVEL - manifest.keys()
     for field in sorted(missing_fields):
         findings.append(
-            ManifestFinding(
-                "MANIFEST_FIELD_MISSING", display_path, f"missing field: {field}"
-            )
+            ManifestFinding("MANIFEST_FIELD_MISSING", display_path, f"missing field: {field}")
         )
     if manifest.get("schema_version") != 1:
         findings.append(
-            ManifestFinding(
-                "MANIFEST_VERSION", display_path, "schema_version must be 1"
-            )
+            ManifestFinding("MANIFEST_VERSION", display_path, "schema_version must be 1")
         )
     for field in ("goal_id", "capability"):
         value = manifest.get(field)
@@ -316,9 +293,7 @@ def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
 
     trace = manifest.get("trace")
     if not isinstance(trace, dict):
-        findings.append(
-            ManifestFinding("MANIFEST_TYPE", display_path, "trace must be an object")
-        )
+        findings.append(ManifestFinding("MANIFEST_TYPE", display_path, "trace must be an object"))
     else:
         for field in sorted(REQUIRED_TRACE_FIELDS - trace.keys()):
             findings.append(
@@ -359,9 +334,7 @@ def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
                     )
                 )
 
-    findings.extend(
-        _validate_test_cases(root, display_path, manifest.get("test_cases"))
-    )
+    findings.extend(_validate_test_cases(root, display_path, manifest.get("test_cases")))
     changed_paths, changed_findings = _validate_string_list(
         display_path, "changed_paths", manifest.get("changed_paths")
     )
@@ -371,9 +344,7 @@ def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
     )
     findings.extend(synchronized_findings)
     api_changed = any(
-        fnmatch.fnmatch(path, pattern)
-        for path in changed_paths
-        for pattern in API_CHANGE_PATTERNS
+        fnmatch.fnmatch(path, pattern) for path in changed_paths for pattern in API_CHANGE_PATTERNS
     )
     if api_changed:
         for missing in sorted(API_SYNC_DOCUMENTS - set(synchronized)):
@@ -393,9 +364,7 @@ class CliOptions(argparse.Namespace):
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Validate capability goal trace manifests."
-    )
+    parser = argparse.ArgumentParser(description="Validate capability goal trace manifests.")
     _ = parser.add_argument(
         "manifests",
         nargs="*",
@@ -413,9 +382,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if not manifest_paths:
         manifest_paths = sorted((root / "governance" / "goal-manifests").glob("*.json"))
     if not manifest_paths:
-        print(
-            "[ERROR] MANIFEST_MISSING | governance/goal-manifests | no manifests found"
-        )
+        print("[ERROR] MANIFEST_MISSING | governance/goal-manifests | no manifests found")
         return 1
     findings = [
         finding

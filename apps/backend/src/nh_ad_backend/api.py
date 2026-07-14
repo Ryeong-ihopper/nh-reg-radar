@@ -26,6 +26,7 @@ from nh_ad_backend.reviews import ReviewService
 from nh_ad_backend.results import ResultService
 from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
 from nh_ad_backend.support import SupportService
+from nh_ad_backend.validation import ValidationService
 from nh_ad_backend.settings import Settings
 from nh_ad_backend.standards import StandardService
 
@@ -223,6 +224,7 @@ class ApplicationServices:
     reviews: ReviewService | None = None
     results: ResultService | None = None
     support: SupportService | None = None
+    validation: ValidationService | None = None
 
 
 def _user_response(user: User | CurrentUser) -> UserContext:
@@ -323,6 +325,10 @@ def install_routes(
         from nh_ad_backend.support_api import install_support_routes
 
         install_support_routes(router, services.support, actor)
+    if services.validation is not None:
+        from nh_ad_backend.validation_api import install_validation_routes
+
+        install_validation_routes(router, services.validation, actor)
 
     @router.post(
         "/auth/login",

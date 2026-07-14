@@ -55,6 +55,14 @@ export type ReportInput = components["schemas"]["ReportRequest"];
 export type ReportFormat = components["schemas"]["ReportFormat"];
 export type Comparison = components["schemas"]["Comparison"];
 export type ComparisonInput = components["schemas"]["ComparisonRequest"];
+export type ValidationDataset = components["schemas"]["ValidationDataset"];
+export type ValidationDatasetPage = components["schemas"]["ValidationDatasetPage"];
+export type ValidationJudgmentsInput = components["schemas"]["CreateValidationJudgmentsRequest"];
+export type ValidationJudgmentsCreated = components["schemas"]["ValidationJudgmentsCreated"];
+export type ValidationEvaluationInput = components["schemas"]["CreateValidationEvaluationRequest"];
+export type ValidationEvaluation = components["schemas"]["ValidationEvaluation"];
+export type ValidationMetricCode = components["schemas"]["ValidationMetricCode"];
+export type ExcludeReasonCode = components["schemas"]["ExcludeReasonCode"];
 
 export interface AdvertisementCreateInput {
   advertisementName: string;
@@ -81,6 +89,19 @@ export interface StandardCreateInput {
   metadata: Record<string, unknown>;
   content: string;
   sourceFile?: File;
+}
+
+export interface ValidationDatasetCreateInput {
+  datasetName: string;
+  productGroup: ProductGroup;
+  advertisementType: AdvertisementType;
+  advertisementFile: File;
+  productConditionFile?: File;
+  humanReviewComment?: string;
+  labelJson?: string;
+  excluded: boolean;
+  excludeReasonCode?: ExcludeReasonCode;
+  excludeReasonDetail?: string;
 }
 
 export type AdvertisementSearch = NonNullable<operations["listAdvertisements"]["parameters"]["query"]>;
@@ -425,6 +446,40 @@ export const api = {
 
   getAdvertisementComparison(accessToken: string, comparisonId: string): Promise<Comparison> {
     return request<Comparison>(`/comparisons/${encodeURIComponent(comparisonId)}`, accessToken);
+  },
+
+  listValidationDatasets(accessToken: string, page = 1, size = 20): Promise<ValidationDatasetPage> {
+    return request<ValidationDatasetPage>(`/validation/datasets${queryString({ page, size })}`, accessToken);
+  },
+
+  createValidationDataset(accessToken: string, input: ValidationDatasetCreateInput): Promise<ValidationDataset> {
+    const body = new FormData();
+    body.set("datasetName", input.datasetName);
+    body.set("productGroup", input.productGroup);
+    body.set("advertisementType", input.advertisementType);
+    body.set("advertisementFile", input.advertisementFile);
+    body.set("excluded", String(input.excluded));
+    if (input.productConditionFile) body.set("productConditionFile", input.productConditionFile);
+    if (input.humanReviewComment) body.set("humanReviewComment", input.humanReviewComment);
+    if (input.labelJson) body.set("labelJson", input.labelJson);
+    if (input.excludeReasonCode) body.set("excludeReasonCode", input.excludeReasonCode);
+    if (input.excludeReasonDetail) body.set("excludeReasonDetail", input.excludeReasonDetail);
+    return request<ValidationDataset>("/validation/datasets", accessToken, { method: "POST", body });
+  },
+
+  createValidationJudgments(accessToken: string, datasetId: string, input: ValidationJudgmentsInput): Promise<ValidationJudgmentsCreated> {
+    return request<ValidationJudgmentsCreated>(`/validation/datasets/${encodeURIComponent(datasetId)}/judgments`, accessToken, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  createValidationEvaluation(accessToken: string, input: ValidationEvaluationInput): Promise<ValidationEvaluation> {
+    return request<ValidationEvaluation>("/validation/evaluations", accessToken, { method: "POST", body: JSON.stringify(input) });
+  },
+
+  getValidationEvaluation(accessToken: string, evaluationId: string): Promise<ValidationEvaluation> {
+    return request<ValidationEvaluation>(`/validation/evaluations/${encodeURIComponent(evaluationId)}`, accessToken);
   },
 };
 
