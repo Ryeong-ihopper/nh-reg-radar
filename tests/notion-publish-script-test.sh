@@ -42,7 +42,8 @@ case "${1:-}:${2:-}" in
     ;;
   pages:edit)
     cat >/dev/null
-    printf '{}\n'
+    echo 'error: replacing root content would delete child pages' >&2
+    exit 5
     ;;
   pages:get)
     markdown="$(git ls-files -- 'docs/*.md' 'docs/**/*.md'; printf '%s\n' "$GITHUB_SHA")"
@@ -57,7 +58,9 @@ case "${1:-}:${2:-}" in
       exit 4
     fi
 
-    if jq -e '.is_locked == true' <<<"$request" >/dev/null; then
+    if jq -e '.children | type == "array"' <<<"$request" >/dev/null; then
+      jq '{results:.children}' <<<"$request"
+    elif jq -e '.is_locked == true' <<<"$request" >/dev/null; then
       printf '{"is_locked":true}\n'
     else
       title="$(jq -er '.properties.title.title[0].text.content' <<<"$request")"

@@ -105,6 +105,29 @@ set_page_title() {
   throttle
 }
 
+append_root_index() {
+  local root_page_id="$1"
+  local result_jsonl="$2"
+  local selected_count="$3"
+  local expected_block_count=$((selected_count + 2))
+
+  jq -s --arg commit_sha "$COMMIT_SHA" \
+    '{children:
+      ([
+        {object:"block",type:"heading_2",heading_2:{rich_text:[{type:"text",text:{content:"게시 문서"}}]}},
+        {object:"block",type:"paragraph",paragraph:{rich_text:[{type:"text",text:{content:("게시 및 검증 완료: " + (length | tostring) + "개, commit " + $commit_sha)}}]}}
+      ] + map(
+        {object:"block",type:"bulleted_list_item",bulleted_list_item:{rich_text:[
+          {type:"text",text:{content:.source_path,link:{url:.page_url}}}
+        ]}}
+      ))}' \
+    "$result_jsonl" \
+    | ntn api "v1/blocks/$root_page_id/children" -X PATCH --data @- \
+    | jq -e --argjson expected "$expected_block_count" \
+      '(.results | length) == $expected' >/dev/null
+  throttle
+}
+
 publish_documents() {
   local result_jsonl
   local root_markdown
@@ -189,16 +212,7 @@ publish_documents() {
       >>"$result_jsonl"
   done < <(list_markdown_files)
 
-  {
-    printf '# Git Docs Sync Test %s\n\n' "$test_label"
-    printf '게시와 검증이 완료되었습니다.\n\n'
-    printf -- '- 대상 커밋: `%s`\n- 게시 완료: %s개\n- 검증: 잠금, 원본 경로, 커밋, 콘텐츠 비절단\n\n' \
-      "$COMMIT_SHA" "$selected_count"
-    jq -r '"- [" + .source_path + "](" + .page_url + ")"' "$result_jsonl"
-  } >"$root_markdown"
-
-  ntn pages edit "$root_page_id" --json <"$root_markdown" >/dev/null
-  throttle
+  append_root_index "$root_page_id" "$result_jsonl" "$selected_count"
   set_page_title "$root_page_id" "$root_title"
   lock_page "$root_page_id"
 
