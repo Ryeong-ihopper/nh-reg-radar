@@ -15,7 +15,10 @@ test('G004-m3 manifest freezes the Standards/Evidence/Reindex/Search boundary', 
   const operations = collectOperationIds(document);
 
   assert.equal(manifest.goalId, 'G004-m3');
-  assert.equal(document.info.version, manifest.openapi.version);
+  assert.ok(
+    document.info.version.localeCompare(manifest.openapi.version, undefined, { numeric: true }) >= 0,
+    'the current additive contract must not precede the M3 manifest baseline',
+  );
   for (const operationId of manifest.openapi.operationIds) {
     assert.ok(operations.has(operationId), `missing operationId ${operationId}`);
   }

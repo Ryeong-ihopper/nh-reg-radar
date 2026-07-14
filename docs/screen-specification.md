@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.4 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.4 | 2026-07-14 | M4 S-004/S-005 생성 client 기반 검토 요청·진행률·단계·retry/stale/최종 실패·OCR 확인 필요·재분석·권한/redaction 상태를 실행 화면과 동기화 |
 | v1.3 | 2026-07-14 | S-014 내부 기준 등록의 필수 메타데이터 입력·multipart payload와 `REFERENCE_METADATA_INVALID` 안전 오류 상태 동기화 |
 | v1.2 | 2026-07-14 | S-014 생성 계약 기반 기준자료 CRUD·불변 버전·이력·재색인·Chunk·Hybrid Search와 loading/empty/error/권한/redaction 상태, 로그인 후 역할별 기본 진입 반영 |
 | v1.1 | 2026-07-14 | M2 로그인과 광고물 목록·등록·기본 상세의 loading/empty/error/validation/권한 상태 및 구현 경계 반영 |
@@ -26,7 +27,7 @@
 | --- | --- |
 | 문서명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 화면설계서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.3 |
+| 문서 버전 | v1.4 |
 | 작성 목적 | 화면기획서 작성 전, 주요 화면의 구조·역할·입출력·버튼·이동 흐름을 정의 |
 | 작성 범위 | PoC 화면 기준 |
 | 비고 | 본 문서는 상세 UI 디자인이 아닌 화면 설계 틀이다. |
@@ -461,6 +462,14 @@ ADR-0060 기준으로 PoC 1차 구현은 핵심 화면만 상세 레이아웃, �
 | 이전 | S-002로 이동 |
 | 취소 | 분석 요청 취소 |
 
+### 5) M4 실행 상태 및 권한
+
+| 구분 | 구현 기준 |
+| --- | --- |
+| loading/error | 광고물 기본정보와 분석 요청을 각각 loading 및 일반화 오류 상태로 표시한다. 서버 내부 사유와 raw artifact 정보는 표시하지 않는다. |
+| permission | `PRODUCT_DEPARTMENT_USER`, `COMPLIANCE_REVIEWER`만 요청 route/action을 사용한다. 직접 접근 권한이 없으면 API 호출 전 권한 없음 상태를 표시한다. |
+| success | OpenAPI v0.4.0 `CreateReviewRequest`로 요청하고 `ReviewAccepted.reviewId`를 사용해 S-005로 이동한다. |
+
 ---
 
 ## S-005 검토 진행 상태
@@ -500,6 +509,16 @@ ADR-0060 기준으로 PoC 1차 구현은 핵심 화면만 상세 레이아웃, �
 | 목록으로 | S-002로 이동 |
 | 결과 보기 | 검토 완료 시 S-006으로 이동 |
 | 재분석 | 실패 시 재분석 요청 |
+
+### 4) M4 실행 상태 및 보안
+
+| 구분 | 구현 기준 |
+| --- | --- |
+| 진행 | `ReviewProgress.currentStep`, `progressRate`, `steps`를 표시하고 terminal 상태 전까지 자동 갱신과 수동 새로고침을 제공한다. |
+| 복구 | `RETRY_PENDING`은 retry 횟수·최대 횟수·다음 시각을, `STALE`은 복구 지연 상태를 표시한다. |
+| 실패 | `FAILED`/`FAILED_FINAL`을 구분하고 `isRetryable=true`인 실패 또는 stale 상태에서만 재분석 action을 제공한다. |
+| 품질 확인 | `CHECK_REQUIRED` 또는 `OCR_UNREADABLE`은 자동 retry가 아닌 담당자 확인 필요 상태로 표시한다. |
+| permission/redaction | 타 부서·권한 부족 403을 전용 상태로 표시하고 raw artifact reference, object key, presigned URL은 화면에 노출하지 않는다. |
 
 ---
 

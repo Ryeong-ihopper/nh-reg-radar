@@ -9,6 +9,8 @@ import { AdvertisementCreatePage } from "./pages/AdvertisementCreatePage";
 import { AdvertisementDetailPage } from "./pages/AdvertisementDetailPage";
 import { AdvertisementListPage } from "./pages/AdvertisementListPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ReviewProgressPage } from "./pages/ReviewProgressPage";
+import { ReviewRequestPage } from "./pages/ReviewRequestPage";
 import { StandardManagementPage } from "./pages/StandardManagementPage";
 
 const ADVERTISEMENT_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
@@ -48,8 +50,12 @@ function Shell() {
         <Route element={<ProtectedRoute allowedRoles={ADVERTISEMENT_ROLES} />}>
           <Route path="/advertisements" element={<AdvertisementListPage />} />
           <Route path="/advertisements/:advertisementId" element={<AdvertisementDetailPage />} />
+          <Route path="/reviews/:reviewId/status" element={<ReviewProgressPage />} />
         </Route>
-        <Route element={<ProtectedRoute allowedRoles={CREATE_ROLES} />}><Route path="/advertisements/new" element={<AdvertisementCreatePage />} /></Route>
+        <Route element={<ProtectedRoute allowedRoles={CREATE_ROLES} />}>
+          <Route path="/advertisements/new" element={<AdvertisementCreatePage />} />
+          <Route path="/advertisements/:advertisementId/reviews/new" element={<ReviewRequestPage />} />
+        </Route>
         <Route element={<ProtectedRoute allowedRoles={STANDARD_ROLES} />}><Route path="/standards" element={<StandardManagementPage />} /></Route>
         <Route path="/" element={<Navigate to={session ? homePath(session.user.roles) : "/login"} replace />} />
         <Route path="*" element={<section><h2>페이지를 찾을 수 없습니다.</h2><Link to="/">홈으로 이동</Link></section>} />

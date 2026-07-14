@@ -13,6 +13,15 @@ from sqlalchemy import create_engine
 from nh_ad_backend.api import ApplicationServices, error_response, install_routes
 from nh_ad_backend.openapi_runtime import generated_openapi
 from nh_ad_backend.repository import InMemoryRepository, PostgresRepository, Repository
+from nh_ad_backend.reviews import (
+    InMemoryReviewQueue,
+    InMemoryReviewRepository,
+    PostgresReviewRepository,
+    RedisReviewQueue,
+    ReviewQueue,
+    ReviewRepository,
+    ReviewService,
+)
 from nh_ad_backend.s3_storage import S3ObjectStorage
 from nh_ad_backend.security import TokenService
 from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
@@ -73,6 +82,10 @@ def build_services(settings: Settings) -> ApplicationServices:
             bucket=settings.ad_originals_bucket,
         )
         standard_repository: StandardRepository = PostgresStandardRepository(engine)
+        review_repository: ReviewRepository = PostgresReviewRepository(
+            engine, settings.review_queue_name
+        )
+        review_queue: ReviewQueue = RedisReviewQueue(settings.redis_url, settings.review_queue_name)
         keyword_search: SearchBackend = OpenSearchBackend(
             settings.opensearch_endpoint,
             settings.opensearch_index,
@@ -98,6 +111,8 @@ def build_services(settings: Settings) -> ApplicationServices:
     else:
         repository = InMemoryRepository()
         standard_repository = InMemoryStandardRepository()
+        review_repository = InMemoryReviewRepository()
+        review_queue = InMemoryReviewQueue()
         keyword_search = InMemorySearchBackend("OPENSEARCH")
         vector_search = InMemorySearchBackend("QDRANT")
     if storage_configured:
@@ -119,16 +134,18 @@ def build_services(settings: Settings) -> ApplicationServices:
         else secrets.token_urlsafe(48)
     )
     tokens = TokenService(jwt_secret)
+    advertisements = AdvertisementService(repository, storage)
     return ApplicationServices(
         repository=repository,
         auth=AuthService(repository, tokens),
-        advertisements=AdvertisementService(repository, storage),
+        advertisements=advertisements,
         standards=StandardService(
             standard_repository,
             HybridSearch(keyword=keyword_search, vector=vector_search),
             environment=settings.app_env,
             audit_sink=repository.add_audit_event,
         ),
+        reviews=ReviewService(review_repository, advertisements, review_queue),
     )
 
 
@@ -146,7 +163,7 @@ def create_app(
             "Capability-specific paths and schemas are added only when their "
             "implementation slice begins."
         ),
-        version="0.3.0",
+        version="0.4.0",
         root_path="/api/v1",
         servers=[{"url": "/api/v1"}],
     )

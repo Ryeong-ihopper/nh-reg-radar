@@ -6,13 +6,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.4 |
+| 현행 버전 | v1.8 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.8 | 2026-07-14 | M4 정책 기반 보조 parser 실행, 결정적 후보 비교, 전체 시도 raw artifact 추적과 단일 선택 산출물 영속화 경계 보강 |
+| v1.7 | 2026-07-14 | M4 Redis delivery의 정확한 버전·필드 집합과 Job 기준 idempotency claim 선검증 경계 보강 |
+| v1.6 | 2026-07-14 | M4 frozen 계약을 소비하는 Review API, PostgreSQL Job/Step, Redis delivery, parser worker와 raw artifact lifecycle 실행 경계 반영 |
+| v1.5 | 2026-07-14 | G005 M4 Review/Job/Parser entry gate, NormalizedDocument v1, retry/복구 및 raw artifact 보안 경계 반영 |
 | v1.4 | 2026-07-14 | M2 인증·scope·감사, S3 호환 광고 파일 저장 및 로그인→등록→목록/상세 수직 슬라이스 구현 경계 반영 |
 | v1.3 | 2026-07-14 | M1 API/Worker 실행 경계, queue adapter readiness, 환경 격리 및 capability 미구현 범위 명시 |
 | v1.2 | 2026-07-13 | Notion v1.1 이후 ADR-0001~ADR-0074 검토 결과 반영, 파일/Parser/OCR/권한/평가/리포트 정책 정합화 |
@@ -28,7 +32,7 @@
 | 대상 시스템 | 멀티모달 RAG Engine 기반 금융상품 광고심의 자동화 에이전트 PoC |
 | 수요기업 | NH농협은행 |
 | 수행기업 | ㈜씨지인사이드 |
-| 문서 버전 | v1.4 |
+| 문서 버전 | v1.8 |
 | 기준일 | 2026-07-14 |
 | 작성일 | 2026-07-02 |
 | 작성 목적 | 요구사항 정의서를 기반으로 화면, 기능, 입력값, 처리규칙, 출력값, 예외처리, 권한, 수용기준을 정의 |
@@ -248,6 +252,22 @@ M1 readiness 성공은 프로세스와 의존 경계가 준비되었음을 의�
 | 사용자 흐름 | 로그인 → multipart 광고물 등록 → scope-filtered 목록 → 허용된 상세/preview 확인 |
 
 M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리포트와 평가 capability를 구현하거나 OpenAPI에 선설계하지 않는다. 실제 PostgreSQL과 MinIO를 사용하는 통합 검증에서는 M2 owner migration clean upgrade, common/dev seed 중복 실행, private bucket 저장/조회/권한 거부를 함께 확인한다.
+
+### M4 Parser/OCR·비동기 Job entry gate
+
+| 경계 | M4 계약 기준 |
+| --- | --- |
+| Review API | 요청/이력/상태/재분석 4개 operation과 중복 활성 요청 409 계약 |
+| 상태 원천 | Redis는 최소 식별자 전달만 담당하고 Job/Step 진행·retry·heartbeat·dead-letter는 PostgreSQL이 원천 |
+| Delivery claim | Worker는 `review-job-v1`의 정확한 6개 필드만 수용하고 `idempotencyKey == jobId`를 실행 전에 검증하여 교차 Job delivery를 거부 |
+| Parser 출력 | 모든 adapter는 `normalized-document-v1`을 반환하고 후속 업무는 provider raw 구조를 읽지 않음 |
+| 라우팅 | PDF/복합 PDF `opendataloader-pdf`, 이미지/스캔 PDF `PaddleOCR`, HWP/HWPX `rhwp` 우선 |
+| 품질/재시도 | 기술 retry(1/3/10분, 최대 3회)와 정책 기반 품질 재처리를 분리한다. 품질 재처리 사유와 허용·구성된 보조 adapter가 함께 있을 때만 보조 엔진을 실행하고 OCR `<0.50`은 자동 retry하지 않음 |
+| 후보 선택 | 1차·보조 결과를 confidence, 필수 필드, Text IR/Coordinate 완전성, warning 수, 판정 문구 판독성을 순서대로 비교하고 동률은 앞선 시도를 선택하여 재현 가능한 단일 결과를 확정 |
+| 위치/신뢰도 | Coordinate 원본/정규화 값, HWP/HWPX raw/normalized offset, 0.80/0.79/0.49 경계를 손실 없이 보존 |
+| Raw artifact | 모든 1차·보조 시도의 engine, 재처리 사유, confidence, raw artifact 참조와 선택 여부를 기록하되 Text/Layout block은 정확히 하나의 선택 산출물만 영속화. bucket 본문과 DB metadata/checksum을 분리하고 일반 사용자 접근 금지, 예외 접근·삭제 redacted audit, retention hold/승인 삭제 적용 |
+
+공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
 ---
 

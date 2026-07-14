@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "goal_id": "G005-m4-parser-ocr-job",
+  "capability": "M4 asynchronous Review Job and normalized Parser OCR entry gate",
+  "trace": {
+    "requirements": [
+      "UR-001",
+      "UR-003",
+      "FR-002",
+      "FR-003",
+      "NFR-004",
+      "NFR-006",
+      "NFR-007"
+    ],
+    "functions": [
+      "F-002",
+      "F-003"
+    ],
+    "screens": [
+      "S-004",
+      "S-005"
+    ],
+    "api_operations": [
+      "POST /api/v1/advertisements/{advertisementId}/reviews",
+      "GET /api/v1/advertisements/{advertisementId}/reviews",
+      "GET /api/v1/reviews/{reviewId}/status",
+      "POST /api/v1/reviews/{reviewId}/rerun"
+    ],
+    "db_objects": [
+      "app.reviews",
+      "app.review_jobs",
+      "app.review_steps",
+      "app.parser_artifacts",
+      "app.ocr_text_blocks",
+      "app.layout_blocks"
+    ]
+  },
+  "openapi": {
+    "version": "0.4.0",
+    "operation_ids": [
+      "requestAdvertisementReview",
+      "listAdvertisementReviews",
+      "getReviewStatus",
+      "rerunReview"
+    ],
+    "schemas": [
+      "CreateReviewRequest",
+      "ReviewAccepted",
+      "ReviewProgress",
+      "ReviewStepStatus",
+      "ReviewHistory",
+      "RerunReviewRequest",
+      "RerunReviewAccepted",
+      "ReviewQueueMessageV1",
+      "NormalizedDocument",
+      "Coordinate",
+      "TextBlock",
+      "LayoutBlock",
+      "Confidence",
+      "Warning"
+    ]
+  },
+  "fixtures": [
+    {
+      "path": "tests/fixtures/m4/normalized-image-v1.json",
+      "sha256": "53bbe1f4b6252beb3516c94e5e682cb31776071f662cfbac70b4ea87adbfdc7e",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    },
+    {
+      "path": "tests/fixtures/m4/normalized-hwpx-v1.json",
+      "sha256": "5907df56dd5a6fbd5973235b49f24bfbd91ec1758b1b520cc323ebd1fcdc7213",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    },
+    {
+      "path": "tests/fixtures/m4/raw-provider-v1.json",
+      "sha256": "a2573a240aef51d383423e55741024b09c3b83a635c0f3c8ad8579f270a07cc8",
+      "kind": "synthetic",
+      "contains_customer_data": false
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "TC-REV-001",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-002",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-003",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-004",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-005",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-006",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-007",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-008",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-009",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-010",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-011",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-012",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-013",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-REV-014",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-REV-001..014: Review Job contract locks idempotent retry progress and rerun fields"
+      ]
+    },
+    {
+      "id": "TC-OCR-001",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-002",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-003",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-004",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-005",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-006",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-007",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-008",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-009",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-010",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-011",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-012",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-OCR-001..024: NormalizedDocument and minimal queue payload are provider-independent"
+      ]
+    },
+    {
+      "id": "TC-OCR-013",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-014",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_raw_artifact_checksum_access_retention_and_audit_are_enforced"
+      ]
+    },
+    {
+      "id": "TC-OCR-015",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_raw_artifact_checksum_access_retention_and_audit_are_enforced"
+      ]
+    },
+    {
+      "id": "TC-OCR-016",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_parser_router_selects_primary_engines_and_guards_vlm"
+      ]
+    },
+    {
+      "id": "TC-OCR-017",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_normalized_document_v1_round_trip_is_lossless"
+      ]
+    },
+    {
+      "id": "TC-OCR-018",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_parser_router_selects_primary_engines_and_guards_vlm"
+      ]
+    },
+    {
+      "id": "TC-OCR-019",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-OCR-001..024: NormalizedDocument and minimal queue payload are provider-independent"
+      ]
+    },
+    {
+      "id": "TC-OCR-020",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-OCR-001..024: NormalizedDocument and minimal queue payload are provider-independent"
+      ]
+    },
+    {
+      "id": "TC-OCR-021",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_parser_router_selects_primary_engines_and_guards_vlm"
+      ]
+    },
+    {
+      "id": "TC-OCR-022",
+      "nodes": [
+        "tests/api_contract/m4_contract.test.mjs::TC-OCR-001..024: NormalizedDocument and minimal queue payload are provider-independent"
+      ]
+    },
+    {
+      "id": "TC-OCR-023",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_coordinate_and_confidence_thresholds_are_contract_validated"
+      ]
+    },
+    {
+      "id": "TC-OCR-024",
+      "nodes": [
+        "packages/parser-contracts/tests/test_contracts.py::test_parser_router_selects_primary_engines_and_guards_vlm"
+      ]
+    }
+  ],
+  "changed_paths": [
+    "openapi/openapi.yaml",
+    "apps/backend/src/nh_ad_backend/m4_openapi.py",
+    "apps/backend/src/nh_ad_backend/openapi_runtime.py",
+    "apps/backend/migrations/versions/0004_m4_parser_ocr_jobs.py",
+    "packages/parser-contracts",
+    "tests/api_contract/m4_contract.test.mjs",
+    "tests/integration/test_m4_database_contract.py",
+    "tests/fixtures/m4",
+    "governance/goal-manifests/G005-m4-parser-ocr-job.json",
+    "docs/api-specification.md",
+    "docs/database-specification.md",
+    "docs/functional-specification.md",
+    "docs/test-cases.md"
+  ],
+  "synchronized_documents": [
+    "docs/api-specification.md",
+    "docs/database-specification.md",
+    "docs/functional-specification.md",
+    "docs/test-cases.md"
+  ]
+}

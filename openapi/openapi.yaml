@@ -2,10 +2,8 @@ openapi: 3.1.0
 info:
   title: NH Advertisement Compliance API
   description: >-
-    Source contract for the advertisement-compliance PoC. This revision is
-    bounded through M3 authentication, advertisement input, immutable
-    standards, evidence, reindex, and deterministic search capabilities.
-  version: 0.3.0
+    Source contract for the advertisement-compliance PoC. This revision is bounded through M4 authentication, advertisement input, immutable standards/search, and asynchronous Review/Job/Parser contracts.
+  version: 0.4.0
 servers:
   - url: /api/v1
 tags:
@@ -17,12 +15,13 @@ tags:
   - name: Standards
   - name: Evidence
   - name: Search Operations
+  - name: Reviews
 security:
   - BearerAuth: []
 paths:
   /auth/login:
     post:
-      tags: [Auth]
+      tags: [ Auth ]
       operationId: login
       description: Authenticates a local PoC user and starts a rotating refresh session.
       security: []
@@ -53,14 +52,14 @@ paths:
                   userName: Synthetic Product User
                   departmentId: DPT-SYNTH-PRODUCT
                   departmentName: Synthetic Product Team
-                  roles: [PRODUCT_DEPARTMENT_USER]
+                  roles: [ PRODUCT_DEPARTMENT_USER ]
         '401':
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
   /auth/refresh:
     post:
-      tags: [Auth]
+      tags: [ Auth ]
       operationId: refreshAccessToken
       description: Rotates a valid refresh session after browser-origin validation.
       security:
@@ -85,7 +84,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /auth/logout:
     post:
-      tags: [Auth]
+      tags: [ Auth ]
       operationId: logout
       description: Revokes the current refresh session after browser-origin validation.
       security:
@@ -106,7 +105,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /users/me:
     get:
-      tags: [Auth]
+      tags: [ Auth ]
       operationId: getCurrentUser
       description: Resolves the authenticated user, roles, and department scope.
       responses:
@@ -120,7 +119,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /codes/{codeGroup}:
     get:
-      tags: [Common]
+      tags: [ Common ]
       operationId: listCommonCodes
       description: Lists enabled M2 master codes for a supported code group.
       parameters:
@@ -144,7 +143,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /advertisements:
     get:
-      tags: [Advertisements]
+      tags: [ Advertisements ]
       operationId: listAdvertisements
       description: Results are filtered to the caller's role and department scope.
       parameters:
@@ -164,7 +163,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
-      tags: [Advertisements]
+      tags: [ Advertisements ]
       operationId: createAdvertisement
       description: Validates and stores one advertisement with its allowed attachments.
       requestBody:
@@ -194,7 +193,7 @@ paths:
           $ref: '#/components/responses/UnsupportedMediaType'
   /advertisements/{advertisementId}:
     get:
-      tags: [Advertisements]
+      tags: [ Advertisements ]
       operationId: getAdvertisement
       description: Out-of-scope access is denied and recorded without sensitive content.
       parameters:
@@ -231,11 +230,10 @@ paths:
           $ref: '#/components/responses/NotFound'
   /files/{fileId}/preview:
     get:
-      tags: [Files]
+      tags: [ Files ]
       operationId: getFilePreview
       description: >-
-        Returns a backend-proxy preview route after authorization. Storage keys
-        and presigned URLs are never returned.
+        Returns a backend-proxy preview route after authorization. Storage keys and presigned URLs are never returned.
       parameters:
         - $ref: '#/components/parameters/FileId'
         - name: pageNo
@@ -259,7 +257,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /files/{fileId}/download:
     get:
-      tags: [Files]
+      tags: [ Files ]
       operationId: downloadFile
       description: Streams an authorized file through the backend proxy.
       parameters:
@@ -284,7 +282,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /files/{fileId}/preview/content:
     get:
-      tags: [Files]
+      tags: [ Files ]
       operationId: getFilePreviewContent
       description: Streams one authorized rendered preview page through the backend proxy.
       parameters:
@@ -311,7 +309,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /admin/audit-logs:
     get:
-      tags: [Audit]
+      tags: [ Audit ]
       operationId: listAuditLogs
       description: Returns redacted audit metadata to SYSTEM_ADMIN only.
       parameters:
@@ -348,7 +346,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /standards:
     get:
-      tags: [Standards]
+      tags: [ Standards ]
       operationId: listStandards
       description: Lists standards for standard managers and system administrators.
       parameters:
@@ -382,7 +380,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
     post:
-      tags: [Standards]
+      tags: [ Standards ]
       operationId: createStandard
       description: Creates a standard and immutable version 1.0 from directly entered text.
       requestBody:
@@ -408,7 +406,7 @@ paths:
           $ref: '#/components/responses/Conflict'
   /standards/{standardId}:
     get:
-      tags: [Standards]
+      tags: [ Standards ]
       operationId: getStandard
       description: Returns the standard master with its current immutable version.
       parameters:
@@ -427,7 +425,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
-      tags: [Standards]
+      tags: [ Standards ]
       operationId: updateStandard
       description: Appends a new immutable standard version; it never overwrites history.
       parameters:
@@ -457,7 +455,7 @@ paths:
           $ref: '#/components/responses/Conflict'
   /standards/{standardId}/deactivate:
     patch:
-      tags: [Standards]
+      tags: [ Standards ]
       operationId: deactivateStandard
       description: Soft-deactivates a standard and excludes its chunks from search.
       parameters:
@@ -485,7 +483,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /standards/{standardId}/histories:
     get:
-      tags: [Standards]
+      tags: [ Standards ]
       operationId: listStandardHistories
       description: Lists immutable versions in descending effective/version order.
       parameters:
@@ -507,12 +505,10 @@ paths:
           $ref: '#/components/responses/NotFound'
   /evidences/search:
     get:
-      tags: [Evidence]
+      tags: [ Evidence ]
       operationId: searchEvidences
       description: >-
-        Searches only active, basis-date-valid chunks. Hybrid mode requires
-        both Qdrant and OpenSearch; a backend failure is never converted to a
-        keyword-only or vector-only success.
+        Searches only active, basis-date-valid chunks. Hybrid mode requires both Qdrant and OpenSearch; a backend failure is never converted to a keyword-only or vector-only success.
       parameters:
         - name: keyword
           in: query
@@ -565,7 +561,7 @@ paths:
           $ref: '#/components/responses/SearchUnavailable'
   /evidences/{evidenceId}:
     get:
-      tags: [Evidence]
+      tags: [ Evidence ]
       operationId: getEvidence
       description: Returns evidence bound to one immutable standard version.
       parameters:
@@ -583,7 +579,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /standards/{standardId}/versions/{standardVersionId}/reindex:
     post:
-      tags: [Search Operations]
+      tags: [ Search Operations ]
       operationId: requestStandardReindex
       description: Queues an idempotent deterministic-ID reindex for directly entered text.
       parameters:
@@ -616,7 +612,7 @@ paths:
           $ref: '#/components/responses/SearchUnavailable'
   /standard-reindex-jobs/{jobId}:
     get:
-      tags: [Search Operations]
+      tags: [ Search Operations ]
       operationId: getStandardReindexJob
       description: Returns independent Qdrant and OpenSearch processing states.
       parameters:
@@ -638,7 +634,7 @@ paths:
           $ref: '#/components/responses/SearchUnavailable'
   /evidences/{evidenceId}/chunks:
     get:
-      tags: [Search Operations]
+      tags: [ Search Operations ]
       operationId: listEvidenceChunks
       description: Administrator-only chunk inspection without internal index identifiers.
       parameters:
@@ -660,7 +656,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /evidence-chunks/{evidenceChunkId}:
     get:
-      tags: [Search Operations]
+      tags: [ Search Operations ]
       operationId: getEvidenceChunk
       description: Administrator-only redacted chunk detail.
       parameters:
@@ -678,6 +674,111 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /advertisements/{advertisementId}/reviews:
+    post:
+      tags:
+        - Reviews
+      operationId: requestAdvertisementReview
+      description: Persists review/job/steps before minimal Redis delivery.
+      parameters:
+        - $ref: "#/components/parameters/AdvertisementId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReviewRequest"
+      responses:
+        "202":
+          description: Review job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags:
+        - Reviews
+      operationId: listAdvertisementReviews
+      description: Lists immutable review rounds for an advertisement.
+      parameters:
+        - $ref: "#/components/parameters/AdvertisementId"
+      responses:
+        "200":
+          description: Immutable review history.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewHistory"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /reviews/{reviewId}/status:
+    get:
+      tags:
+        - Reviews
+      operationId: getReviewStatus
+      description: Returns PostgreSQL-sourced job and step progress.
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: PostgreSQL-sourced job and step progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewProgress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /reviews/{reviewId}/rerun:
+    post:
+      tags:
+        - Reviews
+      operationId: rerunReview
+      description: Creates a new review round without overwriting history.
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RerunReviewRequest"
+      responses:
+        "202":
+          description: New review round accepted without overwriting history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RerunReviewAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 components:
   securitySchemes:
     BearerAuth:
@@ -697,12 +798,12 @@ components:
         type: string
         format: uri
     AdvertisementId:
-      name: advertisementId
       in: path
+      name: advertisementId
       required: true
       schema:
         type: string
-        pattern: '^ADV-[A-Za-z0-9-]+$'
+        pattern: ^ADV-[A-Za-z0-9-]+$
     FileId:
       name: fileId
       in: path
@@ -781,6 +882,13 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    ReviewId:
+      in: path
+      name: reviewId
+      required: true
+      schema:
+        type: string
+        pattern: ^REV-[A-Za-z0-9-]+$
   responses:
     BadRequest:
       description: Request validation or file integrity failed.
@@ -837,8 +945,7 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     SearchUnavailable:
       description: >-
-        Qdrant, OpenSearch, or index consistency is unavailable; no
-        keyword-only or vector-only fallback is returned as normal evidence.
+        Qdrant, OpenSearch, or index consistency is unavailable; no keyword-only or vector-only fallback is returned as normal evidence.
       content:
         application/json:
           schema:
@@ -847,7 +954,7 @@ components:
     ErrorResponse:
       type: object
       additionalProperties: false
-      required: [code, message, traceId, timestamp]
+      required: [ code, message, traceId, timestamp ]
       properties:
         code:
           type: string
@@ -877,7 +984,7 @@ components:
     LoginRequest:
       type: object
       additionalProperties: false
-      required: [email, password]
+      required: [ email, password ]
       properties:
         email:
           type: string
@@ -891,7 +998,7 @@ components:
     AccessTokenResponse:
       type: object
       additionalProperties: false
-      required: [accessToken, tokenType, expiresIn]
+      required: [ accessToken, tokenType, expiresIn ]
       properties:
         accessToken:
           type: string
@@ -905,7 +1012,7 @@ components:
     AuthTokenResponse:
       type: object
       additionalProperties: false
-      required: [accessToken, tokenType, expiresIn, user]
+      required: [ accessToken, tokenType, expiresIn, user ]
       properties:
         accessToken:
           type: string
@@ -921,7 +1028,7 @@ components:
     UserContext:
       type: object
       additionalProperties: false
-      required: [userId, userName, departmentId, departmentName, roles]
+      required: [ userId, userName, departmentId, departmentName, roles ]
       properties:
         userId:
           type: string
@@ -939,14 +1046,14 @@ components:
             $ref: '#/components/schemas/Role'
     Role:
       type: string
-      enum: [PRODUCT_DEPARTMENT_USER, COMPLIANCE_REVIEWER, STANDARD_MANAGER, SYSTEM_ADMIN]
+      enum: [ PRODUCT_DEPARTMENT_USER, COMPLIANCE_REVIEWER, STANDARD_MANAGER, SYSTEM_ADMIN ]
     CodeGroup:
       type: string
-      enum: [product-groups, advertisement-types, review-statuses]
+      enum: [ product-groups, advertisement-types, review-statuses ]
     CommonCode:
       type: object
       additionalProperties: false
-      required: [code, name, sortOrder, enabled]
+      required: [ code, name, sortOrder, enabled ]
       properties:
         code:
           type: string
@@ -958,20 +1065,20 @@ components:
           type: boolean
     ProductGroup:
       type: string
-      enum: [DEPOSIT, SAVINGS, DEMAND_DEPOSIT, EVENT]
+      enum: [ DEPOSIT, SAVINGS, DEMAND_DEPOSIT, EVENT ]
     AdvertisementType:
       type: string
-      enum: [BRANCH_FLYER, NOTICE, MOBILE_BANNER, WEB_BANNER, EVENT_PAGE, PUSH, SMS, ALIMTALK]
+      enum: [ BRANCH_FLYER, NOTICE, MOBILE_BANNER, WEB_BANNER, EVENT_PAGE, PUSH, SMS, ALIMTALK ]
     ReviewStatus:
       type: string
-      enum: [UPLOADED, REVISED]
+      enum: [ UPLOADED, REVISED ]
     FileType:
       type: string
-      enum: [ADVERTISEMENT, PRODUCT_DESCRIPTION, TERMS, ADDITIONAL]
+      enum: [ ADVERTISEMENT, PRODUCT_DESCRIPTION, TERMS, ADDITIONAL ]
     AdvertisementFile:
       type: object
       additionalProperties: false
-      required: [fileId, fileType, fileName, mimeType, fileSize]
+      required: [ fileId, fileType, fileName, mimeType, fileSize ]
       properties:
         fileId:
           type: string
@@ -1018,7 +1125,7 @@ components:
     AdvertisementPage:
       type: object
       additionalProperties: false
-      required: [contents, page, size, totalElements, totalPages]
+      required: [ contents, page, size, totalElements, totalPages ]
       properties:
         contents:
           type: array
@@ -1082,7 +1189,7 @@ components:
     AdvertisementCreated:
       type: object
       additionalProperties: false
-      required: [advertisementId, advertisementName, reviewStatus, files, createdAt]
+      required: [ advertisementId, advertisementName, reviewStatus, files, createdAt ]
       properties:
         advertisementId:
           type: string
@@ -1130,9 +1237,9 @@ components:
         reviewStatus:
           $ref: '#/components/schemas/ReviewStatus'
         channelType:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         memo:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         files:
           type: array
           items:
@@ -1140,7 +1247,7 @@ components:
     FilePreview:
       type: object
       additionalProperties: false
-      required: [fileId, pageNo, totalPages, previewPath]
+      required: [ fileId, pageNo, totalPages, previewPath ]
       properties:
         fileId:
           type: string
@@ -1154,23 +1261,23 @@ components:
           type: string
           pattern: '^/api/v1/files/[^/]+/preview/content$'
         width:
-          type: [integer, 'null']
+          type: [ integer, 'null' ]
           minimum: 1
         height:
-          type: [integer, 'null']
+          type: [ integer, 'null' ]
           minimum: 1
     AuditLogSummary:
       type: object
       additionalProperties: false
-      required: [auditLogId, actionType, targetType, result, traceId, createdAt]
+      required: [ auditLogId, actionType, targetType, result, traceId, createdAt ]
       properties:
         auditLogId:
           type: string
           format: uuid
         actorId:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         actorDepartmentId:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         actorRole:
           oneOf:
             - $ref: '#/components/schemas/Role'
@@ -1180,12 +1287,12 @@ components:
         targetType:
           type: string
         targetId:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         result:
           type: string
-          enum: [SUCCESS, FAILURE, DENIED]
+          enum: [ SUCCESS, FAILURE, DENIED ]
         reasonCode:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         traceId:
           type: string
         createdAt:
@@ -1194,7 +1301,7 @@ components:
     AuditLogPage:
       type: object
       additionalProperties: false
-      required: [contents, page, size, totalElements, totalPages]
+      required: [ contents, page, size, totalElements, totalPages ]
       properties:
         contents:
           type: array
@@ -1225,26 +1332,26 @@ components:
         - PRODUCT_STANDARD
     RuleType:
       type: string
-      enum: [REQUIRED, PROHIBITED, RECOMMENDED, REFERENCE]
+      enum: [ REQUIRED, PROHIBITED, RECOMMENDED, REFERENCE ]
     Importance:
       type: string
-      enum: [HIGH, MEDIUM, LOW]
+      enum: [ HIGH, MEDIUM, LOW ]
     SearchMode:
       type: string
-      enum: [KEYWORD, VECTOR, HYBRID]
+      enum: [ KEYWORD, VECTOR, HYBRID ]
       default: HYBRID
     IndexStatus:
       type: string
-      enum: [PENDING, INDEXING, ACTIVE, FAILED, EXCLUDED, DELETED]
+      enum: [ PENDING, INDEXING, ACTIVE, FAILED, EXCLUDED, DELETED ]
     ReindexScope:
       type: string
-      enum: [INDEX_ONLY, CHUNK_AND_INDEX, KEYWORD_ONLY, VECTOR_ONLY]
+      enum: [ INDEX_ONLY, CHUNK_AND_INDEX, KEYWORD_ONLY, VECTOR_ONLY ]
     ReindexJobStatus:
       type: string
-      enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+      enum: [ QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED ]
     SearchBackend:
       type: string
-      enum: [QDRANT, OPENSEARCH]
+      enum: [ QDRANT, OPENSEARCH ]
     StandardSummary:
       type: object
       additionalProperties: false
@@ -1278,10 +1385,10 @@ components:
             - $ref: '#/components/schemas/Importance'
             - type: 'null'
         effectiveDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         expiredDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         currentVersion:
           type: string
@@ -1293,7 +1400,7 @@ components:
     StandardPage:
       type: object
       additionalProperties: false
-      required: [contents, page, size, totalElements, totalPages]
+      required: [ contents, page, size, totalElements, totalPages ]
       properties:
         contents:
           type: array
@@ -1314,7 +1421,7 @@ components:
     CreateStandardRequest:
       type: object
       additionalProperties: false
-      required: [title, evidenceType, ruleType, metadata, content]
+      required: [ title, evidenceType, ruleType, metadata, content ]
       properties:
         title:
           type: string
@@ -1352,7 +1459,7 @@ components:
     UpdateStandardRequest:
       type: object
       additionalProperties: false
-      required: [content, metadata, changeReason]
+      required: [ content, metadata, changeReason ]
       properties:
         title:
           type: string
@@ -1363,10 +1470,10 @@ components:
           minLength: 1
           maxLength: 1000000
         effectiveDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         expiredDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         metadata:
           type: object
@@ -1439,10 +1546,10 @@ components:
             - $ref: '#/components/schemas/Importance'
             - type: 'null'
         effectiveDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         expiredDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         metadata:
           type: object
@@ -1450,7 +1557,7 @@ components:
         content:
           type: string
         changeReason:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         isActive:
           type: boolean
         createdAt:
@@ -1461,7 +1568,7 @@ components:
     StandardHistoryPage:
       type: object
       additionalProperties: false
-      required: [contents, page, size, totalElements, totalPages]
+      required: [ contents, page, size, totalElements, totalPages ]
       properties:
         contents:
           type: array
@@ -1482,7 +1589,7 @@ components:
     DeactivateStandardRequest:
       type: object
       additionalProperties: false
-      required: [reason]
+      required: [ reason ]
       properties:
         reason:
           type: string
@@ -1515,7 +1622,7 @@ components:
         title:
           type: string
         articleNo:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         ruleType:
           $ref: '#/components/schemas/RuleType'
         productGroup:
@@ -1529,7 +1636,7 @@ components:
         contentSummary:
           type: string
         effectiveDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         version:
           type: string
@@ -1574,11 +1681,11 @@ components:
         title:
           type: string
         articleNo:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         content:
           type: string
         contentSummary:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         productGroup:
           oneOf:
             - $ref: '#/components/schemas/ProductGroup'
@@ -1594,10 +1701,10 @@ components:
             - $ref: '#/components/schemas/Importance'
             - type: 'null'
         effectiveDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         expiredDate:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date
         version:
           type: string
@@ -1620,14 +1727,14 @@ components:
           minLength: 1
           maxLength: 2000
         parserRuleVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           maxLength: 100
         chunkingPolicyVersion:
           type: string
           minLength: 1
           maxLength: 100
         embeddingModel:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           maxLength: 100
           description: Reproducibility label; M3 makes no provider network call.
         searchSchemaVersion:
@@ -1635,10 +1742,10 @@ components:
           minLength: 1
           maxLength: 100
         opensearchAnalyzerVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           maxLength: 100
         synonymVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           maxLength: 100
         targetIndexes:
           type: array
@@ -1678,17 +1785,17 @@ components:
           items:
             $ref: '#/components/schemas/SearchBackend'
         parserRuleVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         chunkingPolicyVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         embeddingModel:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         searchSchemaVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         opensearchAnalyzerVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         synonymVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         createdChunkCount:
           type: integer
           minimum: 0
@@ -1704,19 +1811,19 @@ components:
             - $ref: '#/components/schemas/IndexStatus'
             - type: 'null'
         failedReasonCode:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         failedReasonMessage:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         requestedBy:
           type: string
         requestedAt:
           type: string
           format: date-time
         startedAt:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date-time
         completedAt:
-          type: [string, 'null']
+          type: [ string, 'null' ]
           format: date-time
     EvidenceChunk:
       type: object
@@ -1748,34 +1855,34 @@ components:
         chunkText:
           type: string
         tokenCount:
-          type: [integer, 'null']
+          type: [ integer, 'null' ]
           minimum: 0
         sectionPath:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         articleNo:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         pageNo:
-          type: [integer, 'null']
+          type: [ integer, 'null' ]
           minimum: 1
         sourceSpan:
-          type: [object, 'null']
+          type: [ object, 'null' ]
           additionalProperties: true
         structureConfidence:
-          type: [number, 'null']
+          type: [ number, 'null' ]
           minimum: 0
           maximum: 1
         parserRuleVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         chunkingPolicyVersion:
           type: string
         embeddingModel:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         searchSchemaVersion:
           type: string
         opensearchAnalyzerVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         synonymVersion:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         opensearchHighlights:
           type: object
           additionalProperties:
@@ -1785,18 +1892,18 @@ components:
         qdrantIndexStatus:
           $ref: '#/components/schemas/IndexStatus'
         qdrantIndexErrorCode:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         opensearchIndexStatus:
           $ref: '#/components/schemas/IndexStatus'
         opensearchIndexErrorCode:
-          type: [string, 'null']
+          type: [ string, 'null' ]
         createdAt:
           type: string
           format: date-time
     EvidenceChunkPage:
       type: object
       additionalProperties: false
-      required: [contents, page, size, totalElements, totalPages]
+      required: [ contents, page, size, totalElements, totalPages ]
       properties:
         contents:
           type: array
@@ -1814,3 +1921,682 @@ components:
         totalPages:
           type: integer
           minimum: 0
+    AIReviewStatus:
+      type: string
+      enum:
+        - ANALYSIS_REQUESTED
+        - ANALYZING
+        - CHECK_REQUIRED
+        - REVIEW_COMPLETED
+        - REVIEW_FAILED
+    ReviewJobStatus:
+      type: string
+      enum:
+        - PENDING
+        - RUNNING
+        - RETRY_PENDING
+        - STALE
+        - COMPLETED
+        - FAILED
+        - FAILED_FINAL
+        - CANCELED
+    ReviewType:
+      type: string
+      enum:
+        - REQUIRED_PHRASE
+        - INTEREST_RATE
+        - MISLEADING_EXPRESSION
+        - PRODUCT_CONSISTENCY
+        - VISIBILITY
+        - OCR_QUALITY
+    CreateReviewRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        standardEffectiveDate:
+          type:
+            - string
+            - "null"
+          format: date
+        reviewTypes:
+          type:
+            - array
+            - "null"
+          items:
+            $ref: "#/components/schemas/ReviewType"
+          minItems: 1
+          uniqueItems: true
+        includeSuggestion:
+          type: boolean
+          default: true
+        includeOpinionDraft:
+          type: boolean
+          default: false
+        requestMemo:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+    ReviewAccepted:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - advertisementId
+        - reviewStatus
+        - jobId
+        - standardEffectiveDate
+        - standardVersionIds
+        - requestedAt
+      properties:
+        reviewId:
+          type: string
+        advertisementId:
+          type: string
+        reviewStatus:
+          const: ANALYSIS_REQUESTED
+          type: string
+        jobId:
+          type: string
+        standardEffectiveDate:
+          type: string
+          format: date
+        standardVersionIds:
+          type: array
+          items:
+            type: string
+        requestedAt:
+          type: string
+          format: date-time
+    ReviewStepStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - stepCode
+        - stepName
+        - status
+        - timeoutAt
+      properties:
+        stepCode:
+          type: string
+        stepName:
+          type: string
+        status:
+          type: string
+          enum:
+            - PENDING
+            - RUNNING
+            - RETRY_PENDING
+            - COMPLETED
+            - FAILED
+            - SKIPPED
+        timeoutAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        failedReasonCode:
+          type:
+            - string
+            - "null"
+    ReviewProgress:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - advertisementId
+        - reviewStatus
+        - jobId
+        - jobStatus
+        - progressRate
+        - retryCount
+        - maxRetries
+        - isRetryable
+        - timeoutAt
+        - steps
+        - updatedAt
+      properties:
+        reviewId:
+          type: string
+        advertisementId:
+          type: string
+        reviewStatus:
+          $ref: "#/components/schemas/AIReviewStatus"
+        jobId:
+          type: string
+        jobStatus:
+          $ref: "#/components/schemas/ReviewJobStatus"
+        currentStep:
+          type:
+            - string
+            - "null"
+        progressRate:
+          type: number
+          minimum: 0
+          maximum: 100
+        retryCount:
+          type: integer
+          minimum: 0
+          maximum: 3
+        maxRetries:
+          const: 3
+          type: integer
+        nextRetryAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        isRetryable:
+          type: boolean
+        failedReasonCode:
+          type:
+            - string
+            - "null"
+        failedReason:
+          type:
+            - string
+            - "null"
+        timeoutAt:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewStepStatus"
+        updatedAt:
+          type: string
+          format: date-time
+    ReviewHistory:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - reviewRound
+        - reviewStatus
+        - requestedAt
+      properties:
+        reviewId:
+          type: string
+        reviewRound:
+          type: integer
+          minimum: 1
+        reviewStatus:
+          $ref: "#/components/schemas/AIReviewStatus"
+        overallRiskLevel:
+          type:
+            - string
+            - "null"
+        requestedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    RerunReviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        reviewTypes:
+          type:
+            - array
+            - "null"
+          items:
+            $ref: "#/components/schemas/ReviewType"
+          minItems: 1
+          uniqueItems: true
+    RerunReviewAccepted:
+      type: object
+      additionalProperties: false
+      required:
+        - newReviewId
+        - previousReviewId
+        - reviewStatus
+        - jobId
+      properties:
+        newReviewId:
+          type: string
+        previousReviewId:
+          type: string
+        reviewStatus:
+          const: ANALYSIS_REQUESTED
+          type: string
+        jobId:
+          type: string
+    ReviewQueueMessageV1:
+      type: object
+      additionalProperties: false
+      required:
+        - messageVersion
+        - jobId
+        - reviewId
+        - jobType
+        - correlationId
+        - idempotencyKey
+      properties:
+        messageVersion:
+          const: review-job-v1
+          type: string
+        jobId:
+          type: string
+        reviewId:
+          type: string
+        jobType:
+          type: string
+          enum:
+            - REVIEW_ANALYSIS
+            - RE_REVIEW
+        correlationId:
+          type: string
+        idempotencyKey:
+          type: string
+      description: Redis delivery payload. Raw files, OCR text, and provider output are forbidden.
+    Confidence:
+      additionalProperties: false
+      properties:
+        score:
+          maximum: 1
+          minimum: 0
+          title: Score
+          type: number
+        status:
+          $ref: "#/components/schemas/ConfidenceStatus"
+        policyVersion:
+          minLength: 1
+          title: Policyversion
+          type: string
+      required:
+        - score
+        - status
+        - policyVersion
+      title: Confidence
+      type: object
+    ConfidenceStatus:
+      enum:
+        - READABLE
+        - LOW_CONFIDENCE
+        - UNREADABLE
+      title: ConfidenceStatus
+      type: string
+    Coordinate:
+      additionalProperties: false
+      properties:
+        sourceWidth:
+          exclusiveMinimum: 0
+          title: Sourcewidth
+          type: number
+        sourceHeight:
+          exclusiveMinimum: 0
+          title: Sourceheight
+          type: number
+        sourceUnit:
+          minLength: 1
+          title: Sourceunit
+          type: string
+        x:
+          minimum: 0
+          title: X
+          type: number
+        y:
+          minimum: 0
+          title: Y
+          type: number
+        width:
+          exclusiveMinimum: 0
+          title: Width
+          type: number
+        height:
+          exclusiveMinimum: 0
+          title: Height
+          type: number
+        normalizedX:
+          maximum: 1
+          minimum: 0
+          title: Normalizedx
+          type: number
+        normalizedY:
+          maximum: 1
+          minimum: 0
+          title: Normalizedy
+          type: number
+        normalizedWidth:
+          exclusiveMinimum: 0
+          maximum: 1
+          title: Normalizedwidth
+          type: number
+        normalizedHeight:
+          exclusiveMinimum: 0
+          maximum: 1
+          title: Normalizedheight
+          type: number
+        rotation:
+          default: 0
+          title: Rotation
+          type: number
+        coordinateConfidence:
+          maximum: 1
+          minimum: 0
+          title: Coordinateconfidence
+          type: number
+      required:
+        - sourceWidth
+        - sourceHeight
+        - sourceUnit
+        - x
+        - y
+        - width
+        - height
+        - normalizedX
+        - normalizedY
+        - normalizedWidth
+        - normalizedHeight
+        - coordinateConfidence
+      title: Coordinate
+      type: object
+    LayoutBlock:
+      additionalProperties: false
+      properties:
+        layoutBlockId:
+          minLength: 1
+          title: Layoutblockid
+          type: string
+        fileId:
+          minLength: 1
+          title: Fileid
+          type: string
+        pageNo:
+          minimum: 1
+          type: integer
+          title: Pageno
+          nullable: true
+        layoutType:
+          minLength: 1
+          title: Layouttype
+          type: string
+        coordinate:
+          $ref: "#/components/schemas/Coordinate"
+          nullable: true
+        relatedTextBlockIds:
+          items:
+            type: string
+          title: Relatedtextblockids
+          type: array
+        confidenceScore:
+          maximum: 1
+          minimum: 0
+          title: Confidencescore
+          type: number
+      required:
+        - layoutBlockId
+        - fileId
+        - layoutType
+        - confidenceScore
+      title: LayoutBlock
+      type: object
+    NormalizedDocument:
+      additionalProperties: false
+      properties:
+        documentId:
+          minLength: 1
+          title: Documentid
+          type: string
+        sourceFileId:
+          minLength: 1
+          title: Sourcefileid
+          type: string
+        reviewId:
+          minLength: 1
+          title: Reviewid
+          type: string
+        sourceFileType:
+          minLength: 1
+          title: Sourcefiletype
+          type: string
+        parserName:
+          minLength: 1
+          title: Parsername
+          type: string
+        parserVersion:
+          minLength: 1
+          title: Parserversion
+          type: string
+        parserRuleVersion:
+          minLength: 1
+          title: Parserruleversion
+          type: string
+        irVersion:
+          pattern: ^normalized-document-v1$
+          title: Irversion
+          type: string
+        pages:
+          items:
+            $ref: "#/components/schemas/Page"
+          title: Pages
+          type: array
+        textBlocks:
+          items:
+            $ref: "#/components/schemas/TextBlock"
+          title: Textblocks
+          type: array
+        layoutBlocks:
+          items:
+            $ref: "#/components/schemas/LayoutBlock"
+          title: Layoutblocks
+          type: array
+        tables:
+          items:
+            $ref: "#/components/schemas/Table"
+          title: Tables
+          type: array
+        warnings:
+          items:
+            $ref: "#/components/schemas/Warning"
+          title: Warnings
+          type: array
+        confidence:
+          $ref: "#/components/schemas/Confidence"
+        rawArtifactRef:
+          minLength: 1
+          title: Rawartifactref
+          type: string
+        createdAt:
+          format: date-time
+          title: Createdat
+          type: string
+      required:
+        - documentId
+        - sourceFileId
+        - reviewId
+        - sourceFileType
+        - parserName
+        - parserVersion
+        - parserRuleVersion
+        - irVersion
+        - pages
+        - textBlocks
+        - layoutBlocks
+        - tables
+        - warnings
+        - confidence
+        - rawArtifactRef
+        - createdAt
+      title: NormalizedDocument
+      type: object
+    Page:
+      additionalProperties: false
+      properties:
+        pageNo:
+          minimum: 1
+          title: Pageno
+          type: integer
+        width:
+          exclusiveMinimum: 0
+          type: number
+          title: Width
+          nullable: true
+        height:
+          exclusiveMinimum: 0
+          type: number
+          title: Height
+          nullable: true
+        unit:
+          type: string
+          title: Unit
+          nullable: true
+      required:
+        - pageNo
+      title: Page
+      type: object
+    Table:
+      additionalProperties: false
+      properties:
+        tableId:
+          minLength: 1
+          title: Tableid
+          type: string
+        pageNo:
+          minimum: 1
+          type: integer
+          title: Pageno
+          nullable: true
+        textPath:
+          type: string
+          title: Textpath
+          nullable: true
+        coordinate:
+          $ref: "#/components/schemas/Coordinate"
+          nullable: true
+        cells:
+          items:
+            items:
+              type: string
+            type: array
+          title: Cells
+          type: array
+      required:
+        - tableId
+        - cells
+      title: Table
+      type: object
+    TextBlock:
+      additionalProperties: false
+      properties:
+        textBlockId:
+          minLength: 1
+          title: Textblockid
+          type: string
+        fileId:
+          minLength: 1
+          title: Fileid
+          type: string
+        pageNo:
+          minimum: 1
+          type: integer
+          title: Pageno
+          nullable: true
+        textPath:
+          type: string
+          title: Textpath
+          nullable: true
+        textBlockType:
+          minLength: 1
+          title: Textblocktype
+          type: string
+        rawText:
+          title: Rawtext
+          type: string
+        normalizedText:
+          title: Normalizedtext
+          type: string
+        rawStartOffset:
+          minimum: 0
+          type: integer
+          title: Rawstartoffset
+          nullable: true
+        rawEndOffset:
+          minimum: 0
+          type: integer
+          title: Rawendoffset
+          nullable: true
+        normalizedStartOffset:
+          minimum: 0
+          type: integer
+          title: Normalizedstartoffset
+          nullable: true
+        normalizedEndOffset:
+          minimum: 0
+          type: integer
+          title: Normalizedendoffset
+          nullable: true
+        parserName:
+          minLength: 1
+          title: Parsername
+          type: string
+        parserVersion:
+          minLength: 1
+          title: Parserversion
+          type: string
+        parserRuleVersion:
+          minLength: 1
+          title: Parserruleversion
+          type: string
+        irVersion:
+          minLength: 1
+          title: Irversion
+          type: string
+        confidenceScore:
+          maximum: 1
+          minimum: 0
+          title: Confidencescore
+          type: number
+        confidenceStatus:
+          $ref: "#/components/schemas/ConfidenceStatus"
+        confidencePolicyVersion:
+          minLength: 1
+          title: Confidencepolicyversion
+          type: string
+        coordinate:
+          $ref: "#/components/schemas/Coordinate"
+          nullable: true
+      required:
+        - textBlockId
+        - fileId
+        - textBlockType
+        - rawText
+        - normalizedText
+        - parserName
+        - parserVersion
+        - parserRuleVersion
+        - irVersion
+        - confidenceScore
+        - confidenceStatus
+        - confidencePolicyVersion
+      title: TextBlock
+      type: object
+    Warning:
+      additionalProperties: false
+      properties:
+        code:
+          minLength: 1
+          title: Code
+          type: string
+        message:
+          minLength: 1
+          title: Message
+          type: string
+        requiresReview:
+          title: Requiresreview
+          type: boolean
+      required:
+        - code
+        - message
+        - requiresReview
+      title: Warning
+      type: object

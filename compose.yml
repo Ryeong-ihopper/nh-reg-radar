@@ -5,6 +5,7 @@ x-runtime-environment: &runtime-environment
   NH_DB_RUNTIME_URL: ${NH_DB_RUNTIME_URL:?NH_DB_RUNTIME_URL is required}
   OBJECT_STORAGE_BUCKET_PREFIX: ${OBJECT_STORAGE_BUCKET_PREFIX:?OBJECT_STORAGE_BUCKET_PREFIX is required}
   AD_ORIGINALS_BUCKET: ${AD_ORIGINALS_BUCKET:?AD_ORIGINALS_BUCKET is required}
+  PARSER_ARTIFACTS_BUCKET: ${PARSER_ARTIFACTS_BUCKET:?PARSER_ARTIFACTS_BUCKET is required}
   REFERENCE_DOCUMENTS_BUCKET: ${REFERENCE_DOCUMENTS_BUCKET:?REFERENCE_DOCUMENTS_BUCKET is required}
   REPORTS_BUCKET: ${REPORTS_BUCKET:?REPORTS_BUCKET is required}
   QDRANT_COLLECTION: ${QDRANT_COLLECTION:?QDRANT_COLLECTION is required}
@@ -90,6 +91,7 @@ services:
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
       OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?OBJECT_STORAGE_ACCESS_KEY is required}
       OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+      REVIEW_QUEUE_NAME: ${REDIS_QUEUE_PREFIX:?REDIS_QUEUE_PREFIX is required}review-jobs-v1
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,11 +121,18 @@ services:
       <<: *runtime-environment
       SERVICE_NAME: worker
       REDIS_URL: redis://redis:6379/0
+      REVIEW_QUEUE_NAME: ${REDIS_QUEUE_PREFIX:?REDIS_QUEUE_PREFIX is required}review-jobs-v1
+      REVIEW_DEAD_LETTER_NAME: ${REDIS_QUEUE_PREFIX:?REDIS_QUEUE_PREFIX is required}review-jobs-v1-dead-letter
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?OBJECT_STORAGE_ACCESS_KEY is required}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -194,19 +203,22 @@ services:
       OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?OBJECT_STORAGE_ACCESS_KEY is required}
       OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
       AD_ORIGINALS_BUCKET: ${AD_ORIGINALS_BUCKET:?AD_ORIGINALS_BUCKET is required}
+      PARSER_ARTIFACTS_BUCKET: ${PARSER_ARTIFACTS_BUCKET:?PARSER_ARTIFACTS_BUCKET is required}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
         mc mb --ignore-existing "local/$$AD_ORIGINALS_BUCKET"
+        mc mb --ignore-existing "local/$$PARSER_ARTIFACTS_BUCKET"
         cat > /tmp/ad-originals-policy.json <<EOF
-        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::$$AD_ORIGINALS_BUCKET/advertisements/*"]}]}
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::$$AD_ORIGINALS_BUCKET/advertisements/*","arn:aws:s3:::$$PARSER_ARTIFACTS_BUCKET/*"]}]}
         EOF
         mc admin user add local "$$OBJECT_STORAGE_ACCESS_KEY" "$$OBJECT_STORAGE_SECRET_KEY" 2>/dev/null || \
           mc admin user info local "$$OBJECT_STORAGE_ACCESS_KEY" >/dev/null
         mc admin policy create local nh-ad-originals /tmp/ad-originals-policy.json
         mc admin policy attach local nh-ad-originals --user "$$OBJECT_STORAGE_ACCESS_KEY"
         mc anonymous set none "local/$$AD_ORIGINALS_BUCKET"
+        mc anonymous set none "local/$$PARSER_ARTIFACTS_BUCKET"
     networks: [application]
 
   qdrant:

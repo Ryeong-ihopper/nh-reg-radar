@@ -199,9 +199,7 @@ def upgrade() -> None:
         sa.Column("chunking_policy_version", sa.String(100), nullable=False),
         sa.Column("qdrant_collection", sa.String(100)),
         sa.Column("qdrant_point_id", sa.String(255)),
-        sa.Column(
-            "qdrant_index_status", sa.String(50), nullable=False, server_default="PENDING"
-        ),
+        sa.Column("qdrant_index_status", sa.String(50), nullable=False, server_default="PENDING"),
         sa.Column("qdrant_indexed_at", sa.DateTime(timezone=True)),
         sa.Column("qdrant_index_error_code", sa.String(100)),
         sa.Column("qdrant_index_error_message", sa.Text()),

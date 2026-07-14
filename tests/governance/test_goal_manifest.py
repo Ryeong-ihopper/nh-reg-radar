@@ -22,9 +22,7 @@ class GoalManifestValidatorTest(unittest.TestCase):
             ),
             "docs/database-specification.md": "## 5.1 advertisements\n",
             "docs/test-cases.md": "| TC-ADV-001 | Advertisement upload |\n",
-            "tests/api/test_advertisements.py": (
-                "def test_create_advertisement():\n    pass\n"
-            ),
+            "tests/api/test_advertisements.py": ("def test_create_advertisement():\n    pass\n"),
         }
         for relative, contents in documents.items():
             path = root / relative
@@ -44,9 +42,7 @@ class GoalManifestValidatorTest(unittest.TestCase):
             "test_cases": [
                 {
                     "id": "TC-ADV-001",
-                    "nodes": [
-                        "tests/api/test_advertisements.py::test_create_advertisement"
-                    ],
+                    "nodes": ["tests/api/test_advertisements.py::test_create_advertisement"],
                 }
             ],
             "changed_paths": ["openapi/openapi.yaml"],
@@ -90,6 +86,21 @@ class GoalManifestValidatorTest(unittest.TestCase):
         findings = validate_manifest(self.repository, manifest)
 
         self.assertEqual([], findings)
+
+    def test_g005_m4_repository_manifest_is_valid_and_complete(self) -> None:
+        manifest = self.repository / "governance" / "goal-manifests" / "G005-m4-parser-ocr-job.json"
+        findings = validate_manifest(self.repository, manifest)
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        identifiers = {item["id"] for item in payload["test_cases"]}
+
+        self.assertEqual([], findings)
+        self.assertEqual(
+            {
+                *(f"TC-REV-{number:03d}" for number in range(1, 15)),
+                *(f"TC-OCR-{number:03d}" for number in range(1, 25)),
+            },
+            identifiers,
+        )
 
     def test_missing_trace_dimension_is_rejected(self) -> None:
         def remove_screens(manifest: Manifest) -> None:

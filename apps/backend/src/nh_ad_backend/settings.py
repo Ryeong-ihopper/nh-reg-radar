@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     qdrant_collection: str = "dev_reference_chunks"
     opensearch_endpoint: str = "http://opensearch:9200"
     opensearch_index: str = "dev_reference_docs"
+    redis_url: str = "redis://localhost:6379/0"
+    review_queue_name: str = "review-jobs-v1"
+    parser_artifacts_bucket: str = "parser-artifacts"
 
     @property
     def allowed_origins(self) -> tuple[str, ...]:

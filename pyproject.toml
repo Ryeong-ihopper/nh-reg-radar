@@ -5,6 +5,7 @@ description = "NH advertisement compliance PoC monorepo"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "nh-ad-backend",
+  "nh-ad-parser-contracts",
   "nh-ad-worker",
 ]
 
@@ -17,10 +18,11 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["apps/backend", "apps/worker"]
+members = ["apps/backend", "apps/worker", "packages/parser-contracts"]
 
 [tool.uv.sources]
 nh-ad-backend = { workspace = true }
+nh-ad-parser-contracts = { workspace = true }
 nh-ad-worker = { workspace = true }
 
 [tool.ruff]
@@ -34,6 +36,7 @@ warn_unreachable = true
 files = [
   "apps/backend/src",
   "apps/worker/src",
+  "packages/parser-contracts/src",
   "scripts/check_environment_isolation.py",
 ]
 

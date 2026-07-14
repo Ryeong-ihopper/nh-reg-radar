@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.5 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.5 | 2026-07-14 | M4 품질 재처리 전체 시도의 artifact metadata 기록과 단계별 단일 선택 산출물 영속화 불변조건 보강 |
+| v1.4 | 2026-07-14 | M4 owner revision의 Review/Job/Step, normalized text/layout, raw parser artifact metadata와 retry/retention 제약 반영 |
 | v1.3 | 2026-07-14 | M3 owner revision의 standards/version/evidence/chunk/reindex 원천 테이블, 결정적 인덱스 ID 제약과 분리된 synthetic seed 경계 반영 |
 | v1.2 | 2026-07-14 | M2 owner revision의 auth/common/advertisement/file/audit 테이블과 분리된 idempotent common/dev seed 경계 반영 |
 | v1.1 | 2026-07-14 | M1 schema-only Alembic base, 일회성 bootstrap, 계정별 최소권한 및 runtime/migration DSN 분리 기준 반영 |
@@ -27,7 +29,7 @@
 | 문서명 | DB 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.2 |
+| 문서 버전 | v1.5 |
 | 작성 목적 | API, 백엔드, AI 분석 모듈, RAG 검색, PoC 검증을 위한 데이터 구조 정의 |
 | 주요 DB | PostgreSQL |
 | 벡터 DB | Qdrant |
@@ -222,6 +224,22 @@ Refresh session은 발급 당시 `token_version`을 저장하고 `users.auth_tok
 | Exclusion | Parser/OCR, review/job/result/report 및 실제 embedding provider는 M3 owner 범위가 아님 |
 
 Runtime `app`은 `rag` schema의 DML만, `readonly`는 조회만 허용한다. 고정 fixture의 vector와 score는 테스트 재현성 전용이며 외부 embedding provider를 호출하지 않는다.
+
+### M4 owner revision
+
+`0004_m4_parser_ocr_jobs`는 `0003_m3_standards_search`를 직접 상속하며 기존 0001~0003을 수정하지 않는다.
+
+| 구분 | M4 기준 |
+| --- | --- |
+| Owner tables | `app.reviews`, `app.review_jobs`, `app.review_steps`, `app.parser_artifacts`, `app.ocr_text_blocks`, `app.layout_blocks` |
+| 상태 원천 | Review/Job/Step 상태와 retry/heartbeat/dead-letter 이력은 PostgreSQL 원천 |
+| 중복 방지 | 광고물별 활성 `ANALYSIS_REQUESTED`/`ANALYZING` review partial unique index |
+| Parser 결과 | 최종 `is_selected_output=true` NormalizedDocument의 text/layout block만 업무 테이블에 반영 |
+| Raw artifact | 환경별 `parser-artifacts` bucket 본문과 DB reference/checksum/version/attempt/retention metadata 분리 |
+| Upgrade | 빈 DB 0001→0002→0003→0004 및 기존 M3 DB 0003→0004 모두 지원 |
+| Exclusion | backend/worker 실행, provider SDK와 실제 OCR 품질 평가는 M4 entry gate migration 범위가 아님 |
+
+`review_jobs`는 최대 retry 3회, `RETRY_PENDING`/`STALE`/`FAILED_FINAL`, 다음 retry, timeout, lock/heartbeat와 dead-letter 시각을 보존한다. `parser_artifacts`는 시도 순번, primary/selected 여부, 품질 재처리 사유, checksum, parser/rule/IR 버전, confidence, 보존 만료/hold/삭제 시각을 보존한다. 일반 사용자 API는 raw 본문, bucket/object key, presigned URL을 노출하지 않는다.
 
 ---
 
@@ -777,7 +795,7 @@ Parser/OCR adapter의 raw output과 중간 산출물에 대한 Object Storage �
 | idx_parser_artifacts_selected | review_step_id, is_selected_output |
 | idx_parser_artifacts_retention | retention_until |
 
-Parser/OCR 품질 미달 시 보조 엔진 재처리와 최종 산출물 선택 기준은 ADR-0073을 따른다. `ocr_text_blocks`, `layout_blocks`, `annotations`에는 최종 채택된 `NormalizedDocument` 기준 결과만 반영하고, 미채택 시도는 `parser_artifacts` metadata와 raw artifact로 보존한다.
+Parser/OCR 품질 미달 시 보조 엔진 재처리와 최종 산출물 선택 기준은 ADR-0073을 따른다. 정책 사유가 있고 허용·구성된 보조 adapter만 실행하며 1차와 보조 시도 각각의 engine, `attempt_no`, `is_primary_attempt`, `rerun_reason_code`, confidence, raw artifact 참조와 `is_selected_output`을 `parser_artifacts`에 기록한다. `uk_parser_artifacts_selected_step`으로 처리 단계마다 선택 artifact가 최대 하나임을 보장하고, worker는 정확히 하나를 선택한 뒤 `ocr_text_blocks`, `layout_blocks`, `annotations`와 후속 ReviewPipeline에 그 `NormalizedDocument`만 반영한다. 미채택 시도는 `parser_artifacts` metadata와 raw artifact로만 보존한다.
 
 ---
 

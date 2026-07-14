@@ -364,6 +364,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/advertisements/{advertisementId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists immutable review rounds for an advertisement. */
+        get: operations["listAdvertisementReviews"];
+        put?: never;
+        /** @description Persists review/job/steps before minimal Redis delivery. */
+        post: operations["requestAdvertisementReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns PostgreSQL-sourced job and step progress. */
+        get: operations["getReviewStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates a new review round without overwriting history. */
+        post: operations["rerunReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -769,6 +821,266 @@ export interface components {
             totalElements: number;
             totalPages: number;
         };
+        /** @enum {string} */
+        AIReviewStatus: "ANALYSIS_REQUESTED" | "ANALYZING" | "CHECK_REQUIRED" | "REVIEW_COMPLETED" | "REVIEW_FAILED";
+        /** @enum {string} */
+        ReviewJobStatus: "PENDING" | "RUNNING" | "RETRY_PENDING" | "STALE" | "COMPLETED" | "FAILED" | "FAILED_FINAL" | "CANCELED";
+        /** @enum {string} */
+        ReviewType: "REQUIRED_PHRASE" | "INTEREST_RATE" | "MISLEADING_EXPRESSION" | "PRODUCT_CONSISTENCY" | "VISIBILITY" | "OCR_QUALITY";
+        CreateReviewRequest: {
+            /** Format: date */
+            standardEffectiveDate?: string | null;
+            reviewTypes?: components["schemas"]["ReviewType"][] | null;
+            /** @default true */
+            includeSuggestion: boolean;
+            /** @default false */
+            includeOpinionDraft: boolean;
+            requestMemo?: string | null;
+        };
+        ReviewAccepted: {
+            reviewId: string;
+            advertisementId: string;
+            /** @constant */
+            reviewStatus: "ANALYSIS_REQUESTED";
+            jobId: string;
+            /** Format: date */
+            standardEffectiveDate: string;
+            standardVersionIds: string[];
+            /** Format: date-time */
+            requestedAt: string;
+        };
+        ReviewStepStatus: {
+            stepCode: string;
+            stepName: string;
+            /** @enum {string} */
+            status: "PENDING" | "RUNNING" | "RETRY_PENDING" | "COMPLETED" | "FAILED" | "SKIPPED";
+            /** Format: date-time */
+            timeoutAt: string | null;
+            failedReasonCode?: string | null;
+        };
+        ReviewProgress: {
+            reviewId: string;
+            advertisementId: string;
+            reviewStatus: components["schemas"]["AIReviewStatus"];
+            jobId: string;
+            jobStatus: components["schemas"]["ReviewJobStatus"];
+            currentStep?: string | null;
+            progressRate: number;
+            retryCount: number;
+            /** @constant */
+            maxRetries: 3;
+            /** Format: date-time */
+            nextRetryAt?: string | null;
+            isRetryable: boolean;
+            failedReasonCode?: string | null;
+            failedReason?: string | null;
+            /** Format: date-time */
+            timeoutAt: string;
+            steps: components["schemas"]["ReviewStepStatus"][];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ReviewHistory: {
+            reviewId: string;
+            reviewRound: number;
+            reviewStatus: components["schemas"]["AIReviewStatus"];
+            overallRiskLevel?: string | null;
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            completedAt?: string | null;
+        };
+        RerunReviewRequest: {
+            reason: string;
+            reviewTypes?: components["schemas"]["ReviewType"][] | null;
+        };
+        RerunReviewAccepted: {
+            newReviewId: string;
+            previousReviewId: string;
+            /** @constant */
+            reviewStatus: "ANALYSIS_REQUESTED";
+            jobId: string;
+        };
+        /** @description Redis delivery payload. Raw files, OCR text, and provider output are forbidden. */
+        ReviewQueueMessageV1: {
+            /** @constant */
+            messageVersion: "review-job-v1";
+            jobId: string;
+            reviewId: string;
+            /** @enum {string} */
+            jobType: "REVIEW_ANALYSIS" | "RE_REVIEW";
+            correlationId: string;
+            idempotencyKey: string;
+        };
+        /** Confidence */
+        Confidence: {
+            /** Score */
+            score: number;
+            status: components["schemas"]["ConfidenceStatus"];
+            /** Policyversion */
+            policyVersion: string;
+        };
+        /**
+         * ConfidenceStatus
+         * @enum {string}
+         */
+        ConfidenceStatus: "READABLE" | "LOW_CONFIDENCE" | "UNREADABLE";
+        /** Coordinate */
+        Coordinate: {
+            /** Sourcewidth */
+            sourceWidth: number;
+            /** Sourceheight */
+            sourceHeight: number;
+            /** Sourceunit */
+            sourceUnit: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Normalizedx */
+            normalizedX: number;
+            /** Normalizedy */
+            normalizedY: number;
+            /** Normalizedwidth */
+            normalizedWidth: number;
+            /** Normalizedheight */
+            normalizedHeight: number;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /** Coordinateconfidence */
+            coordinateConfidence: number;
+        };
+        /** LayoutBlock */
+        LayoutBlock: {
+            /** Layoutblockid */
+            layoutBlockId: string;
+            /** Fileid */
+            fileId: string;
+            /** Pageno */
+            pageNo?: number | null;
+            /** Layouttype */
+            layoutType: string;
+            coordinate?: components["schemas"]["Coordinate"];
+            /** Relatedtextblockids */
+            relatedTextBlockIds?: string[];
+            /** Confidencescore */
+            confidenceScore: number;
+        };
+        /** NormalizedDocument */
+        NormalizedDocument: {
+            /** Documentid */
+            documentId: string;
+            /** Sourcefileid */
+            sourceFileId: string;
+            /** Reviewid */
+            reviewId: string;
+            /** Sourcefiletype */
+            sourceFileType: string;
+            /** Parsername */
+            parserName: string;
+            /** Parserversion */
+            parserVersion: string;
+            /** Parserruleversion */
+            parserRuleVersion: string;
+            /** Irversion */
+            irVersion: string;
+            /** Pages */
+            pages: components["schemas"]["Page"][];
+            /** Textblocks */
+            textBlocks: components["schemas"]["TextBlock"][];
+            /** Layoutblocks */
+            layoutBlocks: components["schemas"]["LayoutBlock"][];
+            /** Tables */
+            tables: components["schemas"]["Table"][];
+            /** Warnings */
+            warnings: components["schemas"]["Warning"][];
+            confidence: components["schemas"]["Confidence"];
+            /** Rawartifactref */
+            rawArtifactRef: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /** Page */
+        Page: {
+            /** Pageno */
+            pageNo: number;
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** Table */
+        Table: {
+            /** Tableid */
+            tableId: string;
+            /** Pageno */
+            pageNo?: number | null;
+            /** Textpath */
+            textPath?: string | null;
+            coordinate?: components["schemas"]["Coordinate"];
+            /** Cells */
+            cells: string[][];
+        };
+        /** TextBlock */
+        TextBlock: {
+            /** Textblockid */
+            textBlockId: string;
+            /** Fileid */
+            fileId: string;
+            /** Pageno */
+            pageNo?: number | null;
+            /** Textpath */
+            textPath?: string | null;
+            /** Textblocktype */
+            textBlockType: string;
+            /** Rawtext */
+            rawText: string;
+            /** Normalizedtext */
+            normalizedText: string;
+            /** Rawstartoffset */
+            rawStartOffset?: number | null;
+            /** Rawendoffset */
+            rawEndOffset?: number | null;
+            /** Normalizedstartoffset */
+            normalizedStartOffset?: number | null;
+            /** Normalizedendoffset */
+            normalizedEndOffset?: number | null;
+            /** Parsername */
+            parserName: string;
+            /** Parserversion */
+            parserVersion: string;
+            /** Parserruleversion */
+            parserRuleVersion: string;
+            /** Irversion */
+            irVersion: string;
+            /** Confidencescore */
+            confidenceScore: number;
+            confidenceStatus: components["schemas"]["ConfidenceStatus"];
+            /** Confidencepolicyversion */
+            confidencePolicyVersion: string;
+            coordinate?: components["schemas"]["Coordinate"];
+        };
+        /** Warning */
+        Warning: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Requiresreview */
+            requiresReview: boolean;
+        };
     };
     responses: {
         /** @description Request validation or file integrity failed. */
@@ -869,6 +1181,7 @@ export interface components {
         ReviewStatusQuery: components["schemas"]["ReviewStatus"];
         Page: number;
         Size: number;
+        ReviewId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1565,6 +1878,118 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAdvertisementReviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advertisementId: components["parameters"]["AdvertisementId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable review history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewHistory"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    requestAdvertisementReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advertisementId: components["parameters"]["AdvertisementId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Review job accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewAccepted"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getReviewStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PostgreSQL-sourced job and step progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewProgress"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rerunReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RerunReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description New review round accepted without overwriting history. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RerunReviewAccepted"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
 }

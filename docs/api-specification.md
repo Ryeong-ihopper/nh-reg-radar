@@ -6,13 +6,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.6 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.6 | 2026-07-14 | M4 worker delivery의 exact `review-job-v1` envelope와 Job 기준 idempotency 선검증 규칙 보강 |
+| v1.5 | 2026-07-14 | M4 frozen Review API runtime handler, PostgreSQL 상태 조회, 최소 Redis enqueue와 immutable rerun 실행 증거 반영 |
+| v1.4 | 2026-07-14 | G005 M4 Review/Job/Parser OpenAPI v0.4.0, PostgreSQL 상태 원천, 최소 Redis 메시지와 NormalizedDocument v1 계약 잠금 반영 |
 | v1.3 | 2026-07-14 | M3 Standards/Evidence/Reindex/Search OpenAPI, 직접 입력 본문 경계, 불변 버전과 명시적 검색 장애 응답 반영 |
 | v1.2 | 2026-07-14 | M2 Auth/Common/Advertisement/File/Audit OpenAPI 계약, queryless backend proxy descriptor와 redacted 감사 응답 반영 |
 | v1.1 | 2026-07-14 | M0 OpenAPI core skeleton의 점진 확장 경계와 공통 ErrorResponse 계약 원천 반영 |
@@ -27,7 +30,7 @@
 | 문서명 | API 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.2 |
+| 문서 버전 | v1.6 |
 | 작성 목적 | 프론트엔드, 백엔드, AI 분석 모듈, DB 간 연동 기준 정의 |
 | API 유형 | REST API |
 | 데이터 형식 | JSON, Multipart Form Data |
@@ -2330,6 +2333,25 @@ M2 원천 계약은 `openapi/openapi.yaml` v0.2.0이며 다음 operation만 연�
 | Audit | `listAuditLogs` |
 
 `POST /auth/refresh`와 `POST /auth/logout`은 `refreshToken` httpOnly cookie와 `Origin` allowlist 검증 계약을 사용한다. M3 이후 Review/Parser/Search/Result/Report 계약은 이 버전에 포함하지 않는다.
+
+## 16.7 M4 Review/Job/Parser OpenAPI 계약 잠금
+
+M4 원천 계약은 `openapi/openapi.yaml` v0.4.0이며 M2/M3 operation을 보존한 채 다음 operation만 추가한다.
+
+| Capability | operationId |
+| --- | --- |
+| Review 요청 | `requestAdvertisementReview` |
+| Review 이력 | `listAdvertisementReviews` |
+| Job/Step 상태 | `getReviewStatus` |
+| 재분석 | `rerunReview` |
+
+`ReviewProgress`는 `jobStatus`, `currentStep`, `progressRate`, `retryCount`, `maxRetries=3`, `nextRetryAt`, `isRetryable`, 실패 사유, 전체 timeout과 단계 목록을 반환한다. 상태 조회의 원천은 Redis가 아니라 PostgreSQL `review_jobs`/`review_steps`다. `ReviewQueueMessageV1`은 `messageVersion`, `jobId`, `reviewId`, `jobType`, `correlationId`, `idempotencyKey`만 허용하고 파일, OCR 본문, provider raw output, Object Storage key를 금지한다.
+
+Parser/OCR 공통 출력은 `NormalizedDocument` (`normalized-document-v1`)이며 Coordinate 원본/정규화 값, HWP/HWPX raw/normalized offset, confidence 상태, parser/rule/IR 버전과 내부 `rawArtifactRef`를 손실 없이 유지한다. `rawArtifactRef`는 다운로드 URL 또는 전체 object key가 아니다. 이 항목은 downstream runtime 구현 전에 잠근 entry gate이며 실제 handler/worker 실행은 별도 M4 delivery lane이 이 계약을 그대로 구현한다.
+
+M4 runtime handler는 위 4개 operationId와 v0.4.0 request/response 이름을 그대로 사용한다. 요청 시 `reviews`/`review_jobs`/ordered `review_steps`를 한 트랜잭션에 먼저 저장한 뒤 최소 Redis envelope를 전달하고, 상태/이력 조회와 재분석 round는 PostgreSQL에서 읽는다. Redis 장애나 중복 delivery가 상태 원천을 대체하지 않으며 일반 API/로그에는 raw artifact body, 전체 bucket/object key, presigned URL을 반환하지 않는다.
+
+Worker는 `ReviewQueueMessageV1`의 정확한 6개 필드와 `review-job-v1` 버전을 먼저 검증한 뒤 PostgreSQL Job을 claim한다. `idempotencyKey`가 `jobId`와 다르면 parser 또는 Object Storage 처리를 시작하지 않고 delivery를 거부한다.
 
 ---
 

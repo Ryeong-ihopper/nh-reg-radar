@@ -194,6 +194,16 @@ dt {
   margin: 0.5rem 0;
 }
 
+.state-warning {
+  border-left: 0.3rem solid #a16207;
+  background: #fffbeb;
+}
+
+.state-success {
+  border-left: 0.3rem solid #166534;
+  background: #f0fdf4;
+}
+
 .table-scroll {
   overflow-x: auto;
 }
@@ -387,6 +397,109 @@ td {
   background: #fff;
 }
 
+.review-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1.5rem 0;
+}
+
+.review-summary div,
+.progress-overview div {
+  padding: 0.8rem;
+  border: 1px solid #dbe7d8;
+  border-radius: 0.5rem;
+  background: #f9fcf8;
+}
+
+.review-summary dd {
+  margin: 0.35rem 0 0;
+}
+
+.review-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.review-form fieldset {
+  padding: 1rem;
+  border: 1px solid #a8b5a7;
+  border-radius: 0.5rem;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+}
+
+.checkbox-grid label,
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkbox-grid input,
+.inline-check input {
+  width: auto;
+  min-height: auto;
+}
+
+.progress-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1.2rem 0;
+}
+
+.progress-overview span {
+  display: block;
+  margin-top: 0.35rem;
+}
+
+progress {
+  width: 100%;
+  height: 1.2rem;
+}
+
+.review-steps {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0;
+  list-style: none;
+}
+
+.review-steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem 1rem;
+  padding: 0.9rem;
+  border-left: 0.3rem solid #9ca3af;
+  background: #f9fafb;
+}
+
+.review-steps li[data-status="RUNNING"],
+.review-steps li[data-status="RETRY_PENDING"] {
+  border-left-color: #a16207;
+  background: #fffbeb;
+}
+
+.review-steps li[data-status="COMPLETED"] {
+  border-left-color: #166534;
+  background: #f0fdf4;
+}
+
+.review-steps li[data-status="FAILED"] {
+  border-left-color: #b91c1c;
+  background: #fef2f2;
+}
+
+.review-steps small {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 767px) {
   .app-header,
   .page-heading,
@@ -410,6 +523,9 @@ td {
   .detail-grid,
   .form-grid,
   .filter-grid,
+  .review-summary,
+  .checkbox-grid,
+  .progress-overview,
   .management-panel .form-grid {
     grid-template-columns: 1fr;
   }

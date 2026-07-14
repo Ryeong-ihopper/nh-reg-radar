@@ -6,13 +6,18 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.6 |
+| 현행 버전 | v1.11 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.11 | 2026-07-14 | M4 품질 재처리의 보조 adapter 실행·결정적 후보 선택·전체 시도 추적·선택 산출물 단일 영속화 회귀 검증 보강 |
+| v1.10 | 2026-07-14 | M4 queue의 exact 6-field/version 계약과 교차 Job idempotency key 실행 전 거부 회귀 검증 보강 |
+| v1.9 | 2026-07-14 | M4 backend/worker Review API·idempotency·1/3/10 retry·dead-letter·stale recovery·selected output와 실제 PostgreSQL+Redis+MinIO artifact lifecycle 실행 증거 반영 |
+| v1.8 | 2026-07-14 | M4 생성 client 기반 S-004/S-005 요청·진행·retry/stale/final failure·OCR 확인 필요·재분석·권한·raw 비노출 frontend 실행 증거 반영 |
+| v1.7 | 2026-07-14 | G005 M4 TC-REV-001~014/TC-OCR-001~024 trace manifest, OpenAPI/0004 migration/NormalizedDocument·raw artifact synthetic fixture entry Gate 반영 |
 | v1.6 | 2026-07-14 | S-014 내부 기준 등록 필수 metadata의 정확한 multipart JSON과 `REFERENCE_METADATA_INVALID` 일반화 표시 통합 검증 반영 |
 | v1.5 | 2026-07-14 | S-014 생성 client와 관리자 route gate, CRUD/불변 version/이력/reindex/Chunk/Hybrid Search의 loading·empty·error·redaction component/integration 검증 반영 |
 | v1.4 | 2026-07-14 | G004-m3 실제 TC ID trace, Standards/Evidence/Reindex/Search 계약·migration·고정 score/vector fixture와 명시적 부분 장애 Gate 반영 |
@@ -30,7 +35,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.6 |
+| 문서 버전 | v1.11 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -235,9 +240,9 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-OCR-017 | HWP/HWPX rhwp Text IR contract | HWP/HWPX fixture 준비 | `HwpHwpxParserAdapter` contract test 실행 | `rhwp` 산출물이 `NormalizedDocument` v1 `textBlocks`, `textPath`, raw/normalized offset으로 변환됨 | `ocr_text_blocks` | P0 |
 | TC-OCR-018 | 복합 PDF opendataloader 우선 처리 | 표/다단 PDF fixture 준비 | `PdfParserAdapter` 실행 | `opendataloader-pdf`를 1차 엔진으로 사용하고 `layoutBlocks`, `tables`, coordinates를 반환 | `layout_blocks`, `ocr_text_blocks` | P1 |
 | TC-OCR-019 | 엔진 교체 시 업무 로직 비의존 | 동일 문서의 대체 엔진 NormalizedDocument fixture 준비 | ReviewPipeline 실행 | 엔진 raw output 변경 없이 `NormalizedDocument` fixture만으로 후속 검토가 동작 | `review_steps`, `review_items` | P1 |
-| TC-OCR-020 | Parser/OCR 기술 실패 retry | Parser/OCR timeout fixture 준비 | AI 검토 실행 | ADR-0059 기준 retry되고 품질 재처리로 오분류되지 않음 | `review_steps`, `review_jobs` | P0 |
-| TC-OCR-021 | 품질 미달 보조 엔진 재처리 | 구조 confidence `< 0.50` PDF fixture 준비 | Parser/OCR 실행 | ADR-0073 기준 보조 엔진 재처리 시도와 rerunReasonCode 기록 | `parser_artifacts`, `review_steps` | P1 |
-| TC-OCR-022 | 최종 채택 산출물만 후속 전달 | 1차/보조 엔진 NormalizedDocument fixture 준비 | ReviewPipeline 실행 | `isSelectedOutput=true` 산출물만 `ocr_text_blocks`, `layout_blocks`, 후속 검토에 반영 | `parser_artifacts`, `ocr_text_blocks`, `layout_blocks` | P0 |
+| TC-OCR-020 | Parser/OCR 기술 실패 retry | 품질 재처리 후보 PDF의 1차 Parser timeout fixture와 구성된 보조 adapter 준비 | AI 검토 실행 | 보조 adapter를 실행하지 않고 ADR-0059 기준 1/3/10 retry·dead-letter 경계로 전파되며 품질 재처리로 오분류되지 않음 | `review_steps`, `review_jobs` | P0 |
+| TC-OCR-021 | 품질 미달 보조 엔진 재처리 | 복합 PDF, 1차 confidence `0.49`, `TABLE_EXTRACTION_MISSING`, 구성된 `mineru` fixture 준비 | Parser/OCR 실행 | 1차와 보조 adapter를 각 1회 실행하고 두 시도의 engine, 순번, primary 여부, `rerunReasonCode`, confidence, raw artifact, 선택 여부를 기록 | `parser_artifacts`, `review_steps` | P1 |
+| TC-OCR-022 | 최종 채택 산출물만 후속 전달 | confidence·필수 필드·Text IR/Coordinate·warning·판정 문구 판독성이 다른 1차/보조 NormalizedDocument fixture 준비 | ReviewPipeline 실행 | ADR-0073 순서와 앞선 시도 우선 tie-break로 후보를 결정하고 정확히 하나의 `isSelectedOutput=true` 산출물만 `ocr_text_blocks`, `layout_blocks`, 후속 검토에 반영 | `parser_artifacts`, `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-023 | OCR 판독 불가 자동 retry 제외 | 판정 대상 문구 confidence `< 0.50` fixture 준비 | AI 검토 실행 | 자동 retry 없이 `OCR_UNREADABLE` 확인 필요/평가 제외 후보 기록 | `review_items`, `evaluations` | P1 |
 | TC-OCR-024 | VLM OCR 보조 재처리 제한 | 외부 AI 입력 불가 파일과 이미지 OCR 누락 fixture 준비 | 보조 재처리 판단 | VLM OCR을 실행하지 않고 확인 필요로 처리 | `review_steps`, `audit_logs` | P1 |
 | TC-LAY-001 | 제목/본문/유의사항 영역 분리 | 레이아웃 있는 광고 등록 | AI 검토 실행 | `layout_blocks`에 TITLE, BODY, NOTICE 저장 | `layout_blocks` | P1 |
@@ -545,7 +550,7 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-NFR-API-005 | M2 핵심 플로우 API 포함 범위 | OpenAPI path 목록과 FilePreview example/pattern 확인 | Auth/Common, 광고물 등록·목록·상세, authorized 파일 preview/content/download, redacted 감사 조회만 포함하고 previewPath는 queryless content descriptor이며 `pageNo`는 실제 content 요청에만 사용 | P0 |
 | TC-NFR-API-006 | M2 capability-local 범위 | OpenAPI metadata, paths, components 확인 | v0.2.0의 12 operation/schema가 trace manifest와 일치하고 Review/Parser/Search/Result/Report 등 M3+ 계약이 없음 | P0 |
 | TC-NFR-API-007 | OpenAPI 참조 및 example 검증 | 모든 local `$ref` 해석과 schema example validation 실행 | 끊어진 참조와 schema 불일치 example이 없음 | P0 |
-| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | M2 operation 12개를 보존한 M3 source contract 24개 operation에 누락·중복 `operationId`가 없음 | P0 |
+| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | M2/M3 operation을 보존한 M4 source contract 28개 operation에 누락·중복 `operationId`가 없음 | P0 |
 
 ## 19.5 화면 UI 및 반응형
 
@@ -586,6 +591,39 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | DB static | `python3 -m unittest tests.integration.test_m2_database_contract -v` | M2 owner table/column/grant, active refresh revoke index, seed 분리/guard 검증 통과 |
 | DB/Object Storage integration | 실제 PostgreSQL/MinIO backend integration test | clean upgrade, duplicate seed, private object 저장/조회, 타 부서 preview/download 403, DB/object rollback 및 secret/object-key 비노출 |
 | Browser | frontend test suite | unauth validation, cookie/Bearer 호출, loading/error redaction, login→multipart 등록→목록/상세, 타 부서 상세 403 검증 통과 |
+
+## 19.8 M4 계약·DB·fixture entry Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Goal trace | `governance/goal-manifests/G005-m4-parser-ocr-job.json` | 실제 `TC-REV-001..014`, `TC-OCR-001..024`가 executable node에 매핑되고 OpenAPI/DB/fixture SHA-256이 고정됨 |
+| Review/Job contract | `tests/api_contract/m4_contract.test.mjs` | 요청/이력/상태/재분석 operation, PostgreSQL 상태 필드, 최대 retry 3, minimal `ReviewQueueMessageV1` 잠금 |
+| Parser contract | `packages/parser-contracts/tests/test_contracts.py` | NormalizedDocument v1 round-trip, 0.80/0.79/0.49 confidence, coordinate/offset, 파일별 routing, VLM 제한 통과 |
+| Raw artifact contract | `packages/parser-contracts/tests/test_contracts.py` | checksum 불일치 거부, 일반 사용자 접근 거부, redacted audit, retention hold/승인 삭제 계약 통과 |
+| DB static | `tests/integration/test_m4_database_contract.py` | 0004가 0003을 상속하고 6개 owner table, active 중복, retry/heartbeat/dead-letter, selected artifact/coordinate/offset 제약을 포함 |
+| Runtime parity | `apps/backend/tests/test_backend_health.py::test_runtime_openapi_semantically_matches_static_contract` | handler 구현 전 projection을 포함한 runtime/static v0.4.0 operation/schema/status 의미 차이 0 |
+
+이 Gate는 external OCR/provider 성공을 주장하지 않는다. 실제 PostgreSQL+Redis+MinIO 상태 전이와 backend/worker 실행, frontend 생성 client/UI는 frozen boundary를 소비하는 후속 M4 delivery lane에서 별도 검증한다.
+
+## 19.9 M4 frontend delivery Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Generated client | `cd apps/frontend && npm run openapi:check` | OpenAPI v0.4.0 `requestAdvertisementReview`, `listAdvertisementReviews`, `getReviewStatus`, `rerunReview`와 Review schema 생성물이 clean diff를 유지 |
+| Request/progress UI | `apps/frontend/src/review-flow.test.tsx` | S-004 loading·요청 payload·성공 이동과 S-005 진행률·단계·수동 갱신·완료를 검증 |
+| Recovery/failure UI | `apps/frontend/src/review-flow.test.tsx` | `RETRY_PENDING`, `STALE`, `FAILED_FINAL`, `isRetryable` 기반 재분석과 immutable `newReviewId` 이동을 검증 |
+| Quality/permission/redaction | `apps/frontend/src/review-flow.test.tsx` | `CHECK_REQUIRED`/`OCR_UNREADABLE` 확인 필요, 타 부서 403, raw artifact/object key/presigned URL 비노출을 검증 |
+| Frontend quality | `cd apps/frontend && npm run lint && npm run typecheck && npm test && npm run build` | lint/typecheck/component·API test/build가 모두 통과 |
+
+## 19.10 M4 backend/worker runtime delivery Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Review API/runtime | `apps/backend/tests/test_m4_reviews.py` | frozen 요청/이력/상태/재분석 응답, 부서 scope, 활성 중복 409, immutable round와 식별자-only queue를 검증 |
+| Worker state machine | `apps/worker/tests/test_m4_jobs.py` | exact `review-job-v1` 6-field payload, 교차 Job idempotency key 실행 전 거부, duplicate delivery 무시, 합법 claim, 1/3/10분 세 번 retry 후 `FAILED_FINAL`/dead-letter, heartbeat stale recovery를 검증 |
+| Parser persistence/security | `apps/worker/tests/test_m4_jobs.py`, parser contract suite | 선택된 `NormalizedDocument`만 영속화하고 저신뢰도 확인 필요, raw/checksum, queue/log redaction을 검증 |
+| Actual tri-store | `tests/integration/test_m4_actual_postgres_redis_minio.py` | migration 0004가 적용된 실제 PostgreSQL, Redis 7, MinIO private buckets에서 enqueue→claim→artifact/block 저장→완료, restart recovery, 접근 거부/예외 감사, retention hold/승인 삭제를 synthetic fixture로 검증 |
+| Cleanup/namespace | 고유 Compose project + dev env example | 종료 후 M4 검증 컨테이너/network/volume/임시 env 잔여물이 0이고 parser bucket/queue가 환경 prefix로 격리됨 |
 
 ---
 

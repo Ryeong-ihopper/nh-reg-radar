@@ -38,7 +38,10 @@ export function AdvertisementDetailPage() {
           <div><h3>등록 파일</h3>{query.data.files.length === 0 ? <p>등록된 파일이 없습니다.</p> : <ul className="file-list">{query.data.files.map((file) => <li key={file.fileId}><FileActions accessToken={session?.accessToken ?? ""} file={file} /></li>)}</ul>}</div>
         </div>
       ) : null}
-      <Link to="/advertisements">목록으로</Link>
+      <div className="form-actions">
+        <Link to="/advertisements">목록으로</Link>
+        {query.data ? <Link className="button-link" to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>AI 검토 요청</Link> : null}
+      </div>
     </section>
   );
 }

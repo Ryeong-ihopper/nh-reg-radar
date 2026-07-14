@@ -8,13 +8,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.4 |
+| 현행 버전 | v1.5 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.5 | 2026-07-14 | OpenAPI v0.4.0 S-004/S-005 요청·진행·retry/stale/final failure·quality warning·재분석·권한/redaction client 흐름 동기화 |
 | v1.4 | 2026-07-14 | S-014 내부 기준 등록의 필수 metadata JSON, 상위 필드 정합성 및 `REFERENCE_METADATA_INVALID` 안전 표시 경계 반영 |
 | v1.3 | 2026-07-14 | S-014 생성 client 연동, 역할별 route gate, 직접 입력 등록·불변 version·Hybrid 503·Chunk redaction의 화면 상태를 실행 흐름과 동기화 |
 | v1.2 | 2026-07-14 | S-014 기준자료 단건/이력/reindex/chunk 계약 확정, 관리자 상태·오류·내부 인덱스 식별자 redaction 경계 반영 |
@@ -29,7 +30,7 @@
 | --- | --- |
 | 문서명 | 화면-API 매핑표 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.4 |
+| 문서 버전 | v1.5 |
 | 작성 목적 | 화면별 호출 API, 호출 시점, 요청값, 응답값, 화면 반영 항목을 정의 |
 | 기준 문서 | 화면설계서 v0.1, API 명세서 v0.1 |
 | API Base URL | `/api/v1` |
@@ -220,7 +221,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 광고명, 상품군, 광고유형, 파일 목록 | 광고물 기본정보 영역 |
 | 화면 진입 | 검토유형 코드 조회 | `/codes/review-types` | GET | 없음 | 검토유형 코드 목록 | 검토 항목 선택 영역 |
-| 분석 요청 클릭 | AI 검토 요청 | `/advertisements/{advertisementId}/reviews` | POST | `standardEffectiveDate`, `reviewTypes`, `includeSuggestion`, `includeOpinionDraft`, `requestMemo` | `reviewId`, `reviewStatus`, `requestedAt` | 요청 완료 메시지, S-005 이동 |
+| 분석 요청 클릭 | AI 검토 요청 | `/advertisements/{advertisementId}/reviews` | POST | `CreateReviewRequest`: `standardEffectiveDate`, `reviewTypes`, `includeSuggestion`, `includeOpinionDraft`, `requestMemo` | `ReviewAccepted`: `reviewId`, `jobId`, `reviewStatus`, `standardVersionIds`, `requestedAt` | 응답 `reviewId`로 S-005 이동 |
 | 이전 클릭 | 화면 이동 | - | - | - | - | S-002 이동 |
 
 ---
@@ -242,10 +243,11 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입 | 검토 진행 상태 조회 | `/reviews/{reviewId}/status` | GET | `reviewId` | `reviewStatus`, `currentStep`, `progressRate`, `steps` | 진행 단계 표시 |
-| 새로고침 클릭 | 상태 갱신 | `/reviews/{reviewId}/status` | GET | `reviewId` | 최신 진행 상태 | 진행률 및 단계 갱신 |
+| 화면 진입/비 terminal 자동 갱신 | 검토 진행 상태 조회 | `/reviews/{reviewId}/status` | GET | `reviewId` | `ReviewProgress`: `reviewStatus`, `jobStatus`, `currentStep`, `progressRate`, retry/실패 필드, `steps` | 진행률·단계와 running/retry pending/stale/final failure/quality warning 상태 표시 |
+| 새로고침 클릭 | 상태 갱신 | `/reviews/{reviewId}/status` | GET | `reviewId` | 최신 `ReviewProgress` | 진행률 및 단계 갱신. terminal 상태에서는 자동 갱신 중지 |
 | 결과 보기 클릭 | 검토 결과 요약 이동 | `/reviews/{reviewId}/summary` | GET | `reviewId` | 검토 요약 | S-006 이동 |
-| 재분석 클릭 | AI 재분석 요청 | `/reviews/{reviewId}/rerun` | POST | `reason`, `reviewTypes` | `newReviewId`, `reviewStatus` | 새 검토 진행 상태 표시 |
+| `isRetryable=true` 실패/stale에서 재분석 클릭 | AI 재분석 요청 | `/reviews/{reviewId}/rerun` | POST | `RerunReviewRequest`: `reason`, `reviewTypes` | `RerunReviewAccepted`: `newReviewId`, `previousReviewId`, `jobId`, `reviewStatus` | 이력을 덮어쓰지 않고 `newReviewId`의 S-005 표시 |
+| 타 부서·권한 부족 | 상태/재분석 거부 | 위 API | GET/POST | Bearer 인증, `reviewId` | 403 일반화 응답 | 전용 권한 없음 상태. raw artifact/object key/presigned URL 미표시 |
 
 ---
 

@@ -6,6 +6,7 @@ requires-python = "==3.12.*"
 members = [
     "nh-ad-backend",
     "nh-ad-compliance",
+    "nh-ad-parser-contracts",
     "nh-ad-worker",
 ]
 
@@ -267,8 +268,10 @@ source = { editable = "apps/backend" }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "nh-ad-parser-contracts" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
+    { name = "redis" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -277,8 +280,10 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = "==1.16.5" },
     { name = "fastapi", specifier = ">=0.116,<0.117" },
+    { name = "nh-ad-parser-contracts", editable = "packages/parser-contracts" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
+    { name = "redis", specifier = ">=6,<7" },
     { name = "sqlalchemy", specifier = "==2.0.43" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<0.36" },
 ]
@@ -289,6 +294,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "nh-ad-backend" },
+    { name = "nh-ad-parser-contracts" },
     { name = "nh-ad-worker" },
 ]
 
@@ -303,6 +309,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "nh-ad-backend", editable = "apps/backend" },
+    { name = "nh-ad-parser-contracts", editable = "packages/parser-contracts" },
     { name = "nh-ad-worker", editable = "apps/worker" },
 ]
 
@@ -315,21 +322,38 @@ dev = [
 ]
 
 [[package]]
+name = "nh-ad-parser-contracts"
+version = "0.1.0"
+source = { editable = "packages/parser-contracts" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.11,<3" }]
+
+[[package]]
 name = "nh-ad-worker"
 version = "0.1.0"
 source = { editable = "apps/worker" }
 dependencies = [
     { name = "fastapi" },
+    { name = "nh-ad-parser-contracts" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
     { name = "redis" },
+    { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116,<0.117" },
+    { name = "nh-ad-parser-contracts", editable = "packages/parser-contracts" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
     { name = "redis", specifier = ">=6,<7" },
+    { name = "sqlalchemy", specifier = "==2.0.43" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<0.36" },
 ]
 

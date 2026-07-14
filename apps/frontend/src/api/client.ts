@@ -27,6 +27,13 @@ export type StandardReindexInput = components["schemas"]["ReindexStandardRequest
 export type StandardReindexJob = components["schemas"]["StandardReindexJob"];
 export type EvidenceSearchResult = components["schemas"]["EvidenceSearchResult"];
 export type EvidenceChunkListResponse = components["schemas"]["EvidenceChunkPage"];
+export type ReviewType = components["schemas"]["ReviewType"];
+export type ReviewRequestInput = components["schemas"]["CreateReviewRequest"];
+export type ReviewAccepted = components["schemas"]["ReviewAccepted"];
+export type ReviewProgress = components["schemas"]["ReviewProgress"];
+export type ReviewHistory = components["schemas"]["ReviewHistory"];
+export type RerunReviewInput = components["schemas"]["RerunReviewRequest"];
+export type RerunReviewAccepted = components["schemas"]["RerunReviewAccepted"];
 
 export interface AdvertisementCreateInput {
   advertisementName: string;
@@ -79,6 +86,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   RAG_SEARCH_UNAVAILABLE: "검색 인프라를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   RAG_SEARCH_FAILED: "검색 인프라를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   REFERENCE_METADATA_INVALID: "기준 유형에 필요한 메타데이터를 확인해 주세요.",
+  REVIEW_ALREADY_RUNNING: "이미 진행 중인 검토가 있습니다.",
+  OCR_UNREADABLE: "문구를 판독하기 어려워 담당자 확인이 필요합니다.",
 };
 
 export class ApiError extends Error {
@@ -280,6 +289,32 @@ export const api = {
 
   getStandardReindexJob(accessToken: string, jobId: string): Promise<StandardReindexJob> {
     return request<StandardReindexJob>(`/standard-reindex-jobs/${encodeURIComponent(jobId)}`, accessToken);
+  },
+
+  listAdvertisementReviews(accessToken: string, advertisementId: string): Promise<ReviewHistory[]> {
+    return request<ReviewHistory[]>(`/advertisements/${encodeURIComponent(advertisementId)}/reviews`, accessToken);
+  },
+
+  requestAdvertisementReview(
+    accessToken: string,
+    advertisementId: string,
+    input: ReviewRequestInput,
+  ): Promise<ReviewAccepted> {
+    return request<ReviewAccepted>(`/advertisements/${encodeURIComponent(advertisementId)}/reviews`, accessToken, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  getReviewStatus(accessToken: string, reviewId: string): Promise<ReviewProgress> {
+    return request<ReviewProgress>(`/reviews/${encodeURIComponent(reviewId)}/status`, accessToken);
+  },
+
+  rerunReview(accessToken: string, reviewId: string, input: RerunReviewInput): Promise<RerunReviewAccepted> {
+    return request<RerunReviewAccepted>(`/reviews/${encodeURIComponent(reviewId)}/rerun`, accessToken, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
   },
 };
 

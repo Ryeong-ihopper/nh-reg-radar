@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.4 |
+| 현행 버전 | v1.5 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.5 | 2026-07-14 | M4 worker의 PostgreSQL 상태 원천, 환경별 parser-artifacts private bucket, 최소 Redis 전달과 실제 tri-store 검증·정리 기준 반영 |
 | v1.4 | 2026-07-14 | M1 제품 CI에 앱 독립 품질, Compose/health, DB bootstrap·최소권한, 자격증명 및 namespace 격리 Gate를 구체화 |
 | v1.3 | 2026-07-14 | ADR-0076에 따라 AI 도구 지침, Git hook, CI의 문서 거버넌스 책임을 분리하고 도구별 lifecycle hook을 PoC 필수 범위에서 제외 |
 | v1.2 | 2026-07-14 | ADR-0075에 따라 Claude/Codex Skills를 사용자 홈이 아닌 프로젝트 로컬 adapter로 설치하도록 변경 |
@@ -332,6 +333,8 @@ Parser/OCR 품질 미달 시 재처리와 보조 엔진 사용은 [ADR-0073: Par
 
 Parser/OCR raw artifact 저장, 보존, 접근 권한은 [ADR-0067: Parser/OCR Raw Artifact 저장 위치, 보존 기간 및 접근 정책](adr/ADR-0067-parser-ocr-raw-artifact-storage-retention-policy.md)을 따른다. raw artifact는 Object Storage `parser-artifacts` bucket에 저장하고 DB에는 metadata와 참조 ID만 저장한다. 일반 사용자 API는 raw artifact 원문이나 다운로드 URL을 노출하지 않는다.
 
+`parser-artifacts` bucket은 `AD_ORIGINALS_BUCKET`과 분리된 환경별 private namespace로 bootstrap하고 backend/worker runtime identity에 필요한 object 작업만 허용한다. 실제 PostgreSQL+Redis+MinIO 통합 검증은 synthetic fixture와 고유 Compose project를 사용하고 완료 후 컨테이너, network, volume, 임시 env를 모두 제거한다.
+
 ## 6.1 TDD 개발 원칙
 
 본 프로젝트는 TDD 또는 테스트 우선 개발을 지향한다.
@@ -466,6 +469,8 @@ Docker Compose 파일 구조와 실행 명령은 [ADR-0063: Docker Compose 공�
 | nginx | Reverse Proxy. 필요 시 사용 |
 
 AI 분석 비동기 작업은 [ADR-0035: Redis Queue 및 PostgreSQL Job 상태 테이블 병행](adr/ADR-0035-redis-queue-postgresql-job-state.md)을 따른다. Redis는 worker 작업 전달에 사용하고, 진행 상태와 이력의 원천은 PostgreSQL `review_jobs`, `review_steps`로 둔다.
+
+M4 Redis delivery queue/dead-letter 이름은 `REDIS_QUEUE_PREFIX` 아래에서 환경별로 분리한다. delivery payload는 frozen `ReviewQueueMessageV1` 식별자만 포함하며 원문, 정규화 본문, raw provider output, bucket/object key를 포함하지 않는다.
 
 Compose 파일 변경 시 다음 조합의 설정 검증을 수행한다.
 

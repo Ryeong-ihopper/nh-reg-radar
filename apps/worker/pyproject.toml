@@ -5,10 +5,16 @@ description = "Queue worker platform boundary for the NH advertisement complianc
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.116,<0.117",
+  "nh-ad-parser-contracts",
   "pydantic-settings>=2.10,<3",
+  "psycopg[binary]==3.2.10",
   "redis>=6,<7",
+  "SQLAlchemy==2.0.43",
   "uvicorn[standard]>=0.35,<0.36",
 ]
+
+[tool.uv.sources]
+nh-ad-parser-contracts = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
