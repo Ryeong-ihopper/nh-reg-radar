@@ -879,46 +879,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: "#/components/schemas/CreateAdvertisementRequest"
-  /advertisements/{advertisementId}/revisions:
-    post:
-      summary: Create Advertisement Revision
-      operationId: createAdvertisementRevision
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: advertisementId
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: ^ADV-[A-Za-z0-9-]+$
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: "#/components/schemas/CreateAdvertisementRevisionRequest"
-      responses:
-        "201":
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AdvertisementRevisionCreated"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
   /advertisements/{advertisementId}:
     get:
       summary: Get Advertisement
@@ -1701,23 +1661,6 @@ components:
         - files
         - createdAt
       title: AdvertisementCreated
-    AdvertisementRevisionCreated:
-      properties:
-        advertisementId:
-          type: string
-        revisionId:
-          type: string
-          pattern: ^REVISION-[A-Za-z0-9-]+$
-        reviewStatus:
-          type: string
-          const: REVISED
-      additionalProperties: false
-      type: object
-      required:
-        - advertisementId
-        - revisionId
-        - reviewStatus
-      title: AdvertisementRevisionCreated
     AdvertisementDetail:
       properties:
         advertisementId:
@@ -2361,20 +2304,6 @@ components:
         - departmentId
         - advertisementFile
       title: CreateAdvertisementRequest
-      type: object
-    CreateAdvertisementRevisionRequest:
-      additionalProperties: false
-      properties:
-        revisionMemo:
-          maxLength: 2000
-          type: string
-        revisedAdvertisementFile:
-          description: Revised jpg/jpeg/png/pdf/hwp/hwpx advertisement; maximum 50 MiB.
-          format: binary
-          type: string
-      required:
-        - revisedAdvertisementFile
-      title: CreateAdvertisementRevisionRequest
       type: object
     CreateStandardRequest:
       additionalProperties: false
