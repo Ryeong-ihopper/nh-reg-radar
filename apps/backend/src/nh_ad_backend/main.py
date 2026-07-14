@@ -202,7 +202,7 @@ def create_app(
             "Capability-specific paths and schemas are added only when their "
             "implementation slice begins."
         ),
-        version="0.7.0",
+        version="0.8.0",
         root_path="/api/v1",
         servers=[{"url": "/api/v1"}],
     )
