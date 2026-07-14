@@ -5,12 +5,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import zlib
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -38,18 +37,12 @@ from nh_ad_backend.validation import InMemoryValidationRepository, ValidationSer
 
 
 ROOT = Path(__file__).parents[2]
-FIXTURE_PATH = ROOT / "tests" / "fixtures" / "m8" / "provider-free-release-v1.json"
+FIXTURE_PATH = ROOT / "fixtures" / "m8" / "provider-free-release-v1.json"
 PASSWORD = "SecurePassword!42"
 JWT_SECRET = "m8-provider-free-jwt-secret-with-more-than-thirty-two-characters"
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
-
-
-def _png_with_payload(payload: bytes) -> bytes:
-    chunk = len(payload).to_bytes(4, "big") + b"tEXt" + payload
-    chunk += (zlib.crc32(b"tEXt" + payload) & 0xFFFFFFFF).to_bytes(4, "big")
-    return PNG[:33] + chunk + PNG[-12:]
 
 
 class FixedClock:
@@ -233,7 +226,7 @@ def _create_advertisement(harness: M8Harness, headers: dict[str, str]) -> dict[s
         files={"advertisementFile": ("synthetic.png", PNG, "image/png")},
     )
     assert response.status_code == 201, response.text
-    return cast(dict[str, Any], response.json())
+    return response.json()
 
 
 def _request_review(
@@ -245,7 +238,7 @@ def _request_review(
         json={"includeSuggestion": True, "includeOpinionDraft": True},
     )
     assert response.status_code == 202, response.text
-    return cast(dict[str, Any], response.json())
+    return response.json()
 
 
 def _complete_review(
@@ -573,7 +566,7 @@ def test_e2e_003_revision_comparison_rerun_and_independent_history(tmp_path: Pat
             files={
                 "revisedAdvertisementFile": (
                     "synthetic-revision.png",
-                    _png_with_payload(b"m8-revision"),
+                    PNG + b"m8-revision",
                     "image/png",
                 )
             },
