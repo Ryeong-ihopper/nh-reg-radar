@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-14 | Git `docs/` Markdown 93개 Notion 수동 게시 테스트의 대상 선별, 원본 commit 추적, 잠금 및 내용 완전성 검증 케이스 추가 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/Parser/OCR/RAG/평가 snapshot 테스트 기준 보강 |
 
 ---
@@ -24,7 +25,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.0 |
+| 문서 버전 | v1.1 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v0.2, DB 명세서 v0.1 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -534,6 +535,20 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-NFR-UI-003 | PC 기준 핵심 레이아웃 | 1280px 이상 viewport에서 핵심 화면 확인 | ADR-0060 기준 레이아웃 패턴과 주요 액션 영역이 유지됨 | P1 |
 | TC-NFR-UI-004 | Tablet/Mobile fallback | 768px, 375px viewport에서 핵심 화면 확인 | 텍스트 겹침, 버튼 잘림, 필수 상태 확인 불가가 없음 | P2 |
 | TC-NFR-UI-005 | Annotation 화면 반응형 제한 안내 | 모바일 viewport에서 S-007 진입 | 정밀 검토는 PC 사용 권장 안내 또는 제한된 fallback 표시 | P2 |
+
+## 19.6 Notion 문서 게시 수동 테스트
+
+이 절의 기대 개수 93개와 제외 개수 33개는 2026-07-14 테스트 대상 commit 기준이다. 운영 자동화 정책과 기존 페이지 갱신 방식은 별도 ADR 확정 전까지 테스트 범위에 포함하지 않는다.
+
+| TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
+| --- | --- | --- | --- | --- |
+| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 93개가 선택되고 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
+| TC-NFR-DOC-002 | 원본 추적 정보 | 게시된 임의 문서의 상단 안내와 링크 확인 | Git 원본 경로, 대상 commit SHA, commit 고정 GitHub 원문 링크가 존재하고 상대 Markdown 링크가 해당 commit 절대 링크로 변환됨 | P0 |
+| TC-NFR-DOC-003 | 실행별 격리 | 같은 대상 commit으로 수동 테스트를 두 번 실행 | 기존 페이지를 변경하지 않고 서로 다른 테스트 루트와 하위 페이지가 생성됨 | P1 |
+| TC-NFR-DOC-004 | 페이지 잠금 | 모든 문서와 테스트 루트 게시 완료 후 API 조회 | 문서 93개와 테스트 루트의 `is_locked`가 모두 `true`임 | P0 |
+| TC-NFR-DOC-005 | 게시 내용 완전성 | 게시 후 각 문서를 Markdown으로 재조회 | 모든 문서가 `truncated=false`이고 알 수 없는 block이 없으며 원본 경로와 commit marker를 포함함 | P0 |
+| TC-NFR-DOC-006 | 결과 추적 | GitHub Actions 완료 후 summary와 JSON artifact 확인 | 테스트 루트 URL, 대상 commit, 게시 성공 수 93개 및 페이지별 ID·URL·잠금 상태를 확인할 수 있음 | P1 |
+| TC-NFR-DOC-007 | Secret 비노출 | GitHub Actions 로그와 결과 artifact 점검 | `NOTION_API_TOKEN` 값이 로그, Markdown 페이지, JSON artifact에 포함되지 않음 | P0 |
 
 ---
 

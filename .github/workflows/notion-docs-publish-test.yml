@@ -1,0 +1,66 @@
+name: Notion Docs Publish Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PUBLISH_93_MD to create a new test document tree
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notion-docs-publish-test
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: inputs.confirmation == 'PUBLISH_93_MD'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
+      NOTION_PARENT_PAGE_ID: ${{ vars.NOTION_PARENT_PAGE_ID }}
+      NOTION_WORKSPACE_ID: ${{ vars.NOTION_WORKSPACE_ID }}
+      EXPECTED_MARKDOWN_COUNT: "93"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate configured scope
+        run: |
+          test -n "$NOTION_API_TOKEN"
+          test -n "$NOTION_PARENT_PAGE_ID"
+          test -n "$NOTION_WORKSPACE_ID"
+          bash tests/notion-publish-script-test.sh
+
+      - name: Install official Notion CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://ntn.dev | NTN_VERSION=v0.19.0 NTN_INSTALL_DIR="$HOME/.local/bin" bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Notion connection
+        run: ntn api v1/users/me | jq -e '.id and .name'
+
+      - name: Publish and verify Markdown documents
+        id: publish
+        run: scripts/publish-notion-docs-test.sh --publish
+
+      - name: Upload test result
+        if: always() && hashFiles('notion-publish-test-result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: notion-publish-test-result-${{ github.run_id }}
+          path: notion-publish-test-result.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report result
+        if: success()
+        run: |
+          echo "Published ${{ steps.publish.outputs.published_count }} Markdown documents"
+          echo "Root page: ${{ steps.publish.outputs.root_page_url }}"
