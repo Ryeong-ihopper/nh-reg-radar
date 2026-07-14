@@ -144,24 +144,32 @@ PY
 }
 
 run_g011_gate() {
-  local started elapsed g011_project
+  local started elapsed fresh_elapsed g011_project g011_log
   g011_project="${project}-g011"
+  g011_log="$backup_dir/g011-regression.log"
   started=$SECONDS
-  NH_RUN_G011_DOCKER_REGRESSION=1 \
-    NH_G011_COMPOSE_PROJECT="$g011_project" \
-    NH_G011_TIMEOUT_SECONDS=120 \
-    PYTHONPATH=. \
-    uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q
+  if ! timeout --signal=TERM "$timeout_seconds" \
+    env NH_RUN_G011_DOCKER_REGRESSION=1 \
+      NH_G011_COMPOSE_PROJECT="$g011_project" \
+      NH_G011_TIMEOUT_SECONDS=120 \
+      PYTHONPATH=. \
+      uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q -s \
+    | tee "$g011_log"; then
+    printf 'G011 full regression exceeded or failed within %ss\n' "$timeout_seconds" >&2
+    exit 1
+  fi
   elapsed=$((SECONDS - started))
-  if ((elapsed > 120)); then
-    printf 'G011 cold gate exceeded 120s: %ss\n' "$elapsed" >&2
+  fresh_elapsed="$(sed -n 's/^G011_FRESH_VOLUME_SECONDS=//p' "$g011_log" | tail -n 1)"
+  if [[ ! "$fresh_elapsed" =~ ^[0-9]+$ ]] || ((fresh_elapsed > 120)); then
+    printf 'G011 fresh-volume timing evidence missing or invalid: %s\n' "$fresh_elapsed" >&2
     exit 1
   fi
   if [[ -n "$(project_resources "$g011_project")" ]]; then
     printf 'G011 resources remain after its cleanup: %s\n' "$g011_project" >&2
     exit 1
   fi
-  printf 'G011_COLD_GATE_SECONDS=%s\n' "$elapsed"
+  printf 'G011_COLD_GATE_SECONDS=%s\n' "$fresh_elapsed"
+  printf 'G011_REGRESSION_SECONDS=%s\n' "$elapsed"
 }
 
 run_fresh_start() {
