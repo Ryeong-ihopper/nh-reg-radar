@@ -20,6 +20,18 @@ if grep -q 'NOTION_API_TOKEN' <<<"$job_environment"; then
   exit 1
 fi
 
+checkout_step="$(
+  awk '
+    /^      - name: Check out repository$/ { capture = 1 }
+    capture && /^      - name:/ && $0 !~ /Check out repository/ { exit }
+    capture { print }
+  ' "$workflow_path"
+)"
+if ! grep -q 'persist-credentials: false' <<<"$checkout_step"; then
+  echo "checkout credentials must not persist into the runtime installer step" >&2
+  exit 1
+fi
+
 dry_run_output="$(scripts/publish-notion-docs-test.sh --dry-run)"
 grep -q '^selected_markdown_count=93$' <<<"$dry_run_output"
 grep -q '^general_markdown_count=15$' <<<"$dry_run_output"
