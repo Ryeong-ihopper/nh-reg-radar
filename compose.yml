@@ -29,6 +29,21 @@ services:
     entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
     command:
       - |
+        if [[ -s "$$PGDATA/postmaster.pid" ]]; then
+          export PGPASSWORD="$$NH_DB_ADMIN_PASSWORD"
+          for attempt in $$(seq 1 30); do
+            if psql -h postgres -U admin -d "$$POSTGRES_DB" -Atqc \
+              "SELECT count(*) = 4 AND bool_and(rolcanlogin) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$$POSTGRES_USER' AND NOT rolcanlogin) FROM pg_roles WHERE rolname IN ('app', 'migration', 'readonly', 'admin')" \
+              | grep -qx t; then
+              printf '%s\n' 'active PostgreSQL volume detected; reused running postgres service without local server launch'
+              exit 0
+            fi
+            sleep 1
+          done
+          printf '%s\n' 'refusing to open an active PostgreSQL data directory because the running postgres service could not be verified' >&2
+          exit 1
+        fi
+
         docker-entrypoint.sh postgres &
         server_pid=$$!
         trap 'kill -TERM "$$server_pid" 2>/dev/null || true; wait "$$server_pid" 2>/dev/null || true' EXIT
