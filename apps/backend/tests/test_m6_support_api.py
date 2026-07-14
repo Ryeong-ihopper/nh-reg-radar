@@ -10,7 +10,7 @@ from nh_ad_backend.domain import CurrentUser
 from nh_ad_backend.main import create_app
 from nh_ad_backend.repository import InMemoryRepository
 from nh_ad_backend.settings import Settings
-from nh_ad_backend.support import SupportService
+from nh_ad_backend.support import InMemorySupportRepository, SupportService
 
 
 def actor(*roles: str) -> CurrentUser:
@@ -58,6 +58,74 @@ def test_support_service_retains_histories_snapshots_and_download_audit(
         "NEW_ISSUE",
     ]
     assert comparison["items"][1]["reanalysisReviewId"]
+
+
+def test_support_outputs_survive_service_restart_without_mutating_snapshots(
+    repository: InMemoryRepository,
+) -> None:
+    support_repository = InMemorySupportRepository()
+    first = SupportService(
+        repository=support_repository,
+        audit_sink=repository.add_audit_event,
+    )
+    decision = first.decide(
+        actor("COMPLIANCE_REVIEWER"),
+        "SUG-0001",
+        {"decisionStatus": "MODIFIED_AND_USED", "finalText": "조건 충족 시 혜택 제공"},
+        trace_id="req-decision",
+    )
+    draft = first.create_draft(
+        actor("COMPLIANCE_REVIEWER"),
+        "REV-0001",
+        {"includeReviewItemIds": ["ITEM-0001"]},
+        trace_id="req-draft",
+    )
+    updated = first.update_draft(
+        actor("COMPLIANCE_REVIEWER"),
+        draft["draftId"],
+        {"finalContent": "최종 심의 의견"},
+        trace_id="req-draft-update",
+    )
+    report = first.create_report(
+        actor("COMPLIANCE_REVIEWER"),
+        "REV-0001",
+        {"format": "HWPX", "includeSuggestions": True, "includeOpinionDraft": True},
+        trace_id="req-report",
+    )
+    comparison = first.create_comparison(
+        actor("COMPLIANCE_REVIEWER"),
+        "ADV-0001",
+        {"baseReviewId": "REV-0001", "revisionId": "REVISION-0001"},
+        trace_id="req-comparison",
+    )
+
+    restarted = SupportService(
+        repository=support_repository,
+        audit_sink=repository.add_audit_event,
+    )
+    assert restarted.list_suggestions(actor("COMPLIANCE_REVIEWER"), "REV-0001")[0][
+        "decisionStatus"
+    ] == decision["decisionStatus"]
+    assert restarted.drafts_for(actor("COMPLIANCE_REVIEWER"), "REV-0001") == [updated]
+    assert restarted.get_report(actor("COMPLIANCE_REVIEWER"), report["reportId"])[
+        "snapshotHash"
+    ] == report["snapshotHash"]
+    payload, report_format = restarted.download_report(
+        actor("COMPLIANCE_REVIEWER"), report["reportId"], trace_id="req-download"
+    )
+    assert payload and report_format == "HWPX"
+    assert restarted.get_comparison(
+        actor("COMPLIANCE_REVIEWER"), comparison["comparisonId"]
+    ) == comparison
+    assert support_repository.decisions[0]["finalText"] == "조건 충족 시 혜택 제공"
+    assert {event.action_type for event in repository.audit_events} >= {
+        "SUGGESTION_DECISION_CREATE",
+        "OPINION_DRAFT_CREATE",
+        "OPINION_DRAFT_UPDATE",
+        "REPORT_CREATE",
+        "REPORT_DOWNLOADED",
+        "COMPARISON_CREATE",
+    }
 
 
 def test_m6_support_routes_cover_all_mutating_and_lookup_flows(

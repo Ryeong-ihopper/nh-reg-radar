@@ -149,6 +149,60 @@ def test_file_error_statuses_and_duplicates(client: TestClient) -> None:
     assert duplicate_request.status_code == 409
 
 
+def test_revision_registration_stores_revision_file_and_preserves_scope_and_audit(
+    client: TestClient,
+    repository: InMemoryRepository,
+) -> None:
+    token_a, _ = login(client, "a@example.com")
+    advertisement_id = upload(client, token_a).json()["advertisementId"]
+
+    revised = client.post(
+        f"/api/v1/advertisements/{advertisement_id}/revisions",
+        headers={"Authorization": f"Bearer {token_a}", "x-request-id": "req-revision"},
+        data={"revisionMemo": "확정 표현 완화"},
+        files={
+            "revisedAdvertisementFile": (
+                "revised.png",
+                png_with_payload(1),
+                "image/png",
+            )
+        },
+    )
+
+    assert revised.status_code == 201, revised.text
+    assert revised.json() == {
+        "advertisementId": advertisement_id,
+        "revisionId": "REVISION-0003",
+        "reviewStatus": "REVISED",
+    }
+    revision = repository.get_revision(revised.json()["revisionId"])
+    assert revision is not None
+    assert revision.revision_no == 1
+    assert revision.revision_memo == "확정 표현 완화"
+    assert revision.file.revision_id == revision.revision_id
+    assert repository.get_advertisement(advertisement_id).review_status == "REVISED"  # type: ignore[union-attr]
+    assert any(
+        event.action_type == "ADVERTISEMENT_REVISION_CREATE"
+        and event.target_id == revised.json()["revisionId"]
+        and event.trace_id == "req-revision"
+        for event in repository.audit_events
+    )
+
+    token_b, _ = login(client, "b@example.com")
+    denied = client.post(
+        f"/api/v1/advertisements/{advertisement_id}/revisions",
+        headers={"Authorization": f"Bearer {token_b}", "x-request-id": "req-revision-denied"},
+        files={"revisedAdvertisementFile": ("denied.png", png_with_payload(2), "image/png")},
+    )
+    assert denied.status_code == 403
+    assert any(
+        event.action_type == "ADVERTISEMENT_REVISION_CREATE"
+        and event.result == "DENIED"
+        and event.trace_id == "req-revision-denied"
+        for event in repository.audit_events
+    )
+
+
 def test_size_boundary_and_filename_normalization() -> None:
     exact = png_with_payload(MAX_FILE_SIZE - 57)
     validated = validate_upload("../safe.png", "image/png", BytesIO(exact))
