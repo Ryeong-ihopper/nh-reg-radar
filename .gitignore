@@ -11,6 +11,15 @@
 __pycache__/
 *.py[cod]
 node_modules/
+.env
+.env.dev
+.env.prod
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
 
 # Temporary review inputs and migration kits
 temp/

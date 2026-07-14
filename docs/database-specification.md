@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-14 | M1 schema-only Alembic base, 일회성 bootstrap, 계정별 최소권한 및 runtime/migration DSN 분리 기준 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, schema/계정/Parser/OCR/RAG/평가 snapshot 기준 보강 |
 
 ---
@@ -24,7 +25,7 @@
 | 문서명 | DB 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.0 |
+| 문서 버전 | v1.1 |
 | 작성 목적 | API, 백엔드, AI 분석 모듈, RAG 검색, PoC 검증을 위한 데이터 구조 정의 |
 | 주요 DB | PostgreSQL |
 | 벡터 DB | Qdrant |
@@ -142,7 +143,7 @@ Schema 간 FK 참조는 허용한다. 예를 들어 `app.review_item_evidences`�
 
 ## 3.3 Migration 및 Seed 기준
 
-DB migration은 [ADR-0041: Alembic 기반 DB 마이그레이션 및 Seed 분리 정책](adr/ADR-0041-alembic-migration-and-seed-policy.md)을 따른다. 초기 migration은 schema 생성 후 테이블을 생성한다.
+DB migration은 [ADR-0041: Alembic 기반 DB 마이그레이션 및 Seed 분리 정책](adr/ADR-0041-alembic-migration-and-seed-policy.md)을 따른다. M1의 `0001_schema_only_base`는 아래 4개 schema와 `app.alembic_version`만 생성한다. 업무 테이블은 각 기능 구현 시 후속 revision으로 추가하며 seed를 revision에 포함하지 않는다.
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS app;
@@ -160,6 +161,7 @@ CREATE SCHEMA IF NOT EXISTS audit;
 | ORM model | schema명을 명시 |
 | SQL 작성 | `search_path` 의존보다 명시적 schema 사용 우선 |
 | DB 계정 | ADR-0046 기준 `app`, `migration`, `readonly`, `admin` 분리 |
+| 접속 정보 | API/Worker는 runtime DSN, Alembic은 migration DSN만 사용하며 상호 대체하지 않음 |
 | 본사업 전환 | schema별 세부 권한, RLS, 컬럼 암호화, 백업, 보관 정책 재검토 |
 
 Migration은 schema, table, column, index, FK, unique constraint, check constraint 등 DB 구조 변경만 담당한다. 공통 코드, 역할, dev 사용자, 샘플 기준자료 같은 seed data는 migration에 포함하지 않는다.
@@ -176,6 +178,8 @@ DB 계정 분리 정책은 [ADR-0046: PostgreSQL DB 계정 분리 정책](adr/AD
 | `admin` | 계정/권한 관리, 장애 대응, 복구, 예외적 수동 운영 | 앱 런타임 및 CI/CD 상시 사용 금지 |
 
 PoC에서는 4종 계정을 분리하되 schema별 세부 권한 분리까지 강제하지 않는다. 본사업 전환 또는 고객사 보안 요구 확정 시 schema별 권한, RLS, 컬럼 암호화, 백업/복구 권한을 별도 정책으로 구체화한다.
+
+Compose 초기화에서는 4종 운영 계정을 만들기 위한 별도의 일회성 bootstrap identity를 허용한다. 이 identity는 초기화 완료 전에 `NOLOGIN`으로 전환하고 비밀번호를 폐기한다. 장기 실행되는 PostgreSQL, API, Worker, Frontend 컨테이너에는 bootstrap/admin 자격증명을 주입하지 않으며, CI의 격리된 권한 probe도 같은 폐기와 재사용 거부를 검증해야 한다.
 
 ### Seed 관리 기준
 

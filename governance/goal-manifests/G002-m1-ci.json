@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "goal_id": "G002-m1-ci",
+  "capability": "M1 monorepo, infrastructure and product CI",
+  "trace": {
+    "requirements": ["NFR-006", "NFR-007"],
+    "functions": [],
+    "screens": [],
+    "api_operations": [],
+    "db_objects": []
+  },
+  "test_cases": [
+    {
+      "id": "TC-NFR-INFRA-001",
+      "external": "Product CI runs independent backend, worker and frontend quality/build commands"
+    },
+    {
+      "id": "TC-NFR-INFRA-002",
+      "external": "Product CI renders dev/prod Compose and runs the dev health smoke"
+    },
+    {
+      "id": "TC-NFR-INFRA-003",
+      "external": "Dedicated PostgreSQL CI job runs bootstrap twice, migration, seed boundary and schema probes"
+    },
+    {
+      "id": "TC-NFR-INFRA-004",
+      "nodes": [
+        "tests/ci/test_verify_m1_static.py::M1StaticVerificationTests::test_normal_ci_job_cannot_receive_privileged_credential"
+      ],
+      "external": "Dedicated PostgreSQL CI job runs migration/app/readonly denial probes"
+    },
+    {
+      "id": "TC-NFR-INFRA-005",
+      "nodes": [
+        "tests/ci/test_verify_m1_static.py::M1StaticVerificationTests::test_namespaces_require_distinct_values_for_every_resource_class"
+      ],
+      "external": "Compose CI compares rendered dev/prod namespace configuration"
+    }
+  ],
+  "changed_paths": [
+    "apps/backend",
+    "apps/frontend",
+    "apps/worker",
+    "compose.yml",
+    "compose.dev.yml",
+    "compose.prod.yml",
+    "infra/postgres",
+    ".github/workflows/ci.yml",
+    "scripts/ci/verify_m1_static.py",
+    "tests/ci/test_verify_m1_static.py",
+    "docs/project-rules.md",
+    "docs/test-cases.md",
+    "governance/goal-manifests/G002-m1-ci.json"
+  ],
+  "synchronized_documents": [
+    "docs/project-rules.md",
+    "docs/test-cases.md"
+  ]
+}

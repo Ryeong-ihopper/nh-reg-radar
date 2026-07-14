@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.4 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.4 | 2026-07-14 | M1 제품 CI에 앱 독립 품질, Compose/health, DB bootstrap·최소권한, 자격증명 및 namespace 격리 Gate를 구체화 |
 | v1.3 | 2026-07-14 | ADR-0076에 따라 AI 도구 지침, Git hook, CI의 문서 거버넌스 책임을 분리하고 도구별 lifecycle hook을 PoC 필수 범위에서 제외 |
 | v1.2 | 2026-07-14 | ADR-0075에 따라 Claude/Codex Skills를 사용자 홈이 아닌 프로젝트 로컬 adapter로 설치하도록 변경 |
 | v1.1 | 2026-07-13 | 영문 파일명, 문서 거버넌스 정책/템플릿, 변경 영향 검사, pre-commit/pre-push 및 CI 검증 기준 추가 |
@@ -558,6 +559,16 @@ PR 또는 main 브랜치 병합 전 다음 검증을 수행한다.
 ```
 
 PR 필수 Gate에는 문서 정합성, OpenAPI/Spectral/API contract, dev/prod Compose config 검증을 포함한다. 실제 OCR/RAG/LLM 또는 외부 AI API 호출 테스트는 PR 필수 Gate에서 제외하고 정기/수동 평가로 분리한다.
+
+M1 플랫폼 변경은 다음 CI 경계를 추가로 적용한다.
+
+| Gate | 실행 범위 | 자격증명 기준 |
+| --- | --- | --- |
+| 앱 독립 품질 | backend/worker Python lint·typecheck·test와 frontend clean install·lint·typecheck·test·build | bootstrap/admin 자격증명 주입 금지 |
+| Compose/namespace | dev/prod config, env example secret 검사, namespace 정적 비교, dev health smoke | example 값만 사용하고 실제 secret 저장 금지 |
+| DB bootstrap/권한 probe | 일회성 bootstrap 재실행, migration upgrade, seed 분리, 금지 권한 probe | 전용 Job에만 수명이 제한된 bootstrap credential 주입 후 폐기 |
+
+일반 제품 테스트 Job은 bootstrap/admin credential을 상속하지 않는다. Alembic은 migration identity만 사용하고 runtime app/worker는 migration DSN을 받지 않는다. 상세 자동 검증 항목은 `TC-NFR-INFRA-001`~`TC-NFR-INFRA-005`를 따른다.
 
 ---
 

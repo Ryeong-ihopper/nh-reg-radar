@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.2 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-07-14 | M1 앱 독립 검증, Compose smoke, DB bootstrap/Alembic 경계, 최소권한 및 dev/prod namespace 격리 CI 항목 반영 |
 | v1.1 | 2026-07-14 | M0 OpenAPI core skeleton, lockfile 기반 lint, 참조/example/operationId 계약 검증 항목 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/Parser/OCR/RAG/평가 snapshot 테스트 기준 보강 |
 
@@ -25,7 +26,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.2 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.1, DB 명세서 v0.1 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -52,7 +53,7 @@
 | 기준자료 | 기준자료 등록, 수정, 비활성화, 변경 이력 |
 | PoC 검증 | 검증 데이터셋 등록, 담당자 판단 등록, 성능평가 |
 | 운영/권한 | 사용자, 권한, 감사 로그 |
-| 비기능 | 권한, 오류 처리, 이력 저장, 감사 추적성 |
+| 비기능 | 권한, 오류 처리, 이력 저장, 감사 추적성, M1 플랫폼 및 CI |
 
 ---
 
@@ -538,6 +539,16 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-NFR-UI-003 | PC 기준 핵심 레이아웃 | 1280px 이상 viewport에서 핵심 화면 확인 | ADR-0060 기준 레이아웃 패턴과 주요 액션 영역이 유지됨 | P1 |
 | TC-NFR-UI-004 | Tablet/Mobile fallback | 768px, 375px viewport에서 핵심 화면 확인 | 텍스트 겹침, 버튼 잘림, 필수 상태 확인 불가가 없음 | P2 |
 | TC-NFR-UI-005 | Annotation 화면 반응형 제한 안내 | 모바일 viewport에서 S-007 진입 | 정밀 검토는 PC 사용 권장 안내 또는 제한된 fallback 표시 | P2 |
+
+## 19.6 M1 플랫폼 및 CI
+
+| TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
+| --- | --- | --- | --- | --- |
+| TC-NFR-INFRA-001 | 앱별 독립 품질 Gate | backend와 worker의 lint/typecheck/test를 각각 실행하고 frontend의 clean install/lint/typecheck/test/build를 실행 | 세 앱이 다른 앱의 런타임 기동 없이 독립 통과하고 capability 업무 로직이 포함되지 않음 | P0 |
+| TC-NFR-INFRA-002 | dev/prod Compose 및 dev health smoke | env example을 사용해 dev/prod `docker compose config`를 검증하고 dev stack의 앱·PostgreSQL·Redis·MinIO·Qdrant·OpenSearch health를 확인 | 두 config 오류가 없고 dev 필수 서비스가 healthy 또는 readiness 응답 성공 | P0 |
+| TC-NFR-INFRA-003 | DB bootstrap, migration 및 seed 경계 | bootstrap 전용 identity로 초기화를 두 번 실행하고 migration identity로 schema-only Alembic base를 clean/sequential upgrade한 뒤 seed를 별도 실행 | role/grant drift와 Alembic role 관리가 없고 `app`, `rag`, `validation`, `audit` schema 및 `app.alembic_version`만 base에 생성되며 seed가 revision에 포함되지 않음 | P0 |
+| TC-NFR-INFRA-004 | DB 최소권한 및 privileged credential 격리 | migration role 관리, app DDL, readonly write를 실제 DB에서 시도하고 workflow/config/image/artifact에서 bootstrap/admin 자격증명 주입을 검사 | 모든 금지 SQL이 거부되고 privileged 자격증명은 일회성 bootstrap/probe 경계 밖에 존재하지 않으며 runtime DSN과 migration DSN identity가 다름 | P0 |
+| TC-NFR-INFRA-005 | dev/prod namespace 격리 | env example과 rendered Compose에서 PostgreSQL DB, MinIO bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 비교하고 교차 환경 접근 probe 실행 | 모든 namespace 값이 환경별로 다르고 dev 자격증명으로 prod namespace 접근이 거부됨 | P0 |
 
 ---
 

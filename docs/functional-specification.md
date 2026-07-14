@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.2 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.3 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.3 | 2026-07-14 | M1 API/Worker 실행 경계, queue adapter readiness, 환경 격리 및 capability 미구현 범위 명시 |
 | v1.2 | 2026-07-13 | Notion v1.1 이후 ADR-0001~ADR-0074 검토 결과 반영, 파일/Parser/OCR/권한/평가/리포트 정책 정합화 |
 
 ---
@@ -26,8 +27,8 @@
 | 대상 시스템 | 멀티모달 RAG Engine 기반 금융상품 광고심의 자동화 에이전트 PoC |
 | 수요기업 | NH농협은행 |
 | 수행기업 | ㈜씨지인사이드 |
-| 문서 버전 | v1.2 |
-| 기준일 | 2026-07-13 |
+| 문서 버전 | v1.3 |
+| 기준일 | 2026-07-14 |
 | 작성일 | 2026-07-02 |
 | 작성 목적 | 요구사항 정의서를 기반으로 화면, 기능, 입력값, 처리규칙, 출력값, 예외처리, 권한, 수용기준을 정의 |
 
@@ -214,6 +215,23 @@
 | FAILED | 실패 | 일반 실패 상태. 화면에서는 가능하면 최종 실패와 구분해 표시 |
 | FAILED_FINAL | 최종 실패 | 재시도 한도 초과 또는 복구 불가 오류로 종료된 상태 |
 | CANCELED | 취소 | 사용자 또는 운영자 조치로 중단된 상태 |
+
+---
+
+## 4.3 M1 API/Worker 실행 경계
+
+M1은 이후 기능 구현이 의존할 실행 경계만 제공하며 F-001 이후의 업무 capability를 선행 구현하지 않는다.
+
+| 경계 | M1 기준 |
+| --- | --- |
+| Backend | 설정 로딩과 `/health`만 제공하고 runtime DSN만 주입받음 |
+| Worker | queue adapter interface와 `/health`, `/ready`만 제공하며 실제 분석 enqueue/consume은 후속 기능에서 구현 |
+| Queue readiness | Redis 연결 설정과 adapter 준비 상태를 별도 확인하며 DB 상태를 queue 상태의 원천으로 대체하지 않음 |
+| 상태 원천 | Job/Step의 업무 상태와 이력은 PostgreSQL을 원천으로 유지하고 Redis에는 최소 식별자만 전달 |
+| 환경 격리 | dev/prod의 DB, bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 서로 다르게 구성 |
+| 자격증명 | API/Worker에는 bootstrap/admin/migration 자격증명을 주입하지 않고 runtime identity만 사용 |
+
+M1 readiness 성공은 프로세스와 의존 경계가 준비되었음을 의미하며, 광고 분석 capability가 완료되었다는 의미가 아니다. 실제 enqueue, retry, heartbeat, `review_jobs`/`review_steps` 상태 전이는 F-002 구현과 해당 수용 테스트에서 활성화한다.
 
 ---
 

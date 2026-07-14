@@ -1,0 +1,229 @@
+name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}
+
+x-runtime-environment: &runtime-environment
+  APP_ENV: ${APP_ENV:?APP_ENV is required}
+  NH_DB_RUNTIME_URL: ${NH_DB_RUNTIME_URL:?NH_DB_RUNTIME_URL is required}
+  OBJECT_STORAGE_BUCKET_PREFIX: ${OBJECT_STORAGE_BUCKET_PREFIX:?OBJECT_STORAGE_BUCKET_PREFIX is required}
+  AD_ORIGINALS_BUCKET: ${AD_ORIGINALS_BUCKET:?AD_ORIGINALS_BUCKET is required}
+  REFERENCE_DOCUMENTS_BUCKET: ${REFERENCE_DOCUMENTS_BUCKET:?REFERENCE_DOCUMENTS_BUCKET is required}
+  REPORTS_BUCKET: ${REPORTS_BUCKET:?REPORTS_BUCKET is required}
+  QDRANT_COLLECTION: ${QDRANT_COLLECTION:?QDRANT_COLLECTION is required}
+  OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:?OPENSEARCH_INDEX is required}
+  REDIS_QUEUE_PREFIX: ${REDIS_QUEUE_PREFIX:?REDIS_QUEUE_PREFIX is required}
+  REDIS_CACHE_PREFIX: ${REDIS_CACHE_PREFIX:?REDIS_CACHE_PREFIX is required}
+
+services:
+  db-bootstrap:
+    image: postgres:16.9-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USER:?POSTGRES_BOOTSTRAP_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:?POSTGRES_BOOTSTRAP_PASSWORD is required}
+      NH_DB_APP_PASSWORD: ${NH_DB_APP_PASSWORD:?NH_DB_APP_PASSWORD is required}
+      NH_DB_MIGRATION_PASSWORD: ${NH_DB_MIGRATION_PASSWORD:?NH_DB_MIGRATION_PASSWORD is required}
+      NH_DB_READONLY_PASSWORD: ${NH_DB_READONLY_PASSWORD:?NH_DB_READONLY_PASSWORD is required}
+      NH_DB_ADMIN_PASSWORD: ${NH_DB_ADMIN_PASSWORD:?NH_DB_ADMIN_PASSWORD is required}
+      NH_DB_REVOKE_BOOTSTRAP_LOGIN: "true"
+    entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
+    command:
+      - |
+        docker-entrypoint.sh postgres &
+        server_pid=$$!
+        trap 'kill -TERM "$$server_pid" 2>/dev/null || true; wait "$$server_pid" 2>/dev/null || true' EXIT
+
+        until pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" \
+          >/dev/null 2>&1; do
+          sleep 1
+        done
+
+        export PGPASSWORD="$$POSTGRES_PASSWORD"
+        if psql -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Atqc 'SELECT 1' >/dev/null 2>&1; then
+          psql -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" \
+            --set=bootstrap_role="$$POSTGRES_USER" <<'SQL'
+        ALTER ROLE :"bootstrap_role" NOLOGIN PASSWORD NULL;
+        SQL
+        else
+          export PGPASSWORD="$$NH_DB_ADMIN_PASSWORD"
+          psql -h 127.0.0.1 -U admin -d "$$POSTGRES_DB" -Atqc \
+            "SELECT 1 FROM pg_roles WHERE rolname = '$$POSTGRES_USER' AND NOT rolcanlogin" \
+            | grep -qx 1
+        fi
+
+        kill -TERM "$$server_pid"
+        wait "$$server_pid"
+        trap - EXIT
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init/010-bootstrap-roles.sh:/docker-entrypoint-initdb.d/010-bootstrap-roles.sh:ro
+    networks: [application]
+
+  frontend:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/frontend:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      target: production
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks: [application]
+
+  backend:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/backend:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      target: production
+    environment:
+      <<: *runtime-environment
+      SERVICE_NAME: backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks: [application]
+
+  worker:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/worker:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+      target: production
+    environment:
+      <<: *runtime-environment
+      SERVICE_NAME: worker
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/ready', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks: [application]
+
+  postgres:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    depends_on:
+      db-bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [application]
+
+  redis:
+    image: redis:7.4.5-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [application]
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      OBJECT_STORAGE_BUCKET_PREFIX: ${OBJECT_STORAGE_BUCKET_PREFIX:?OBJECT_STORAGE_BUCKET_PREFIX is required}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [application]
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.0
+    environment:
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:?QDRANT_COLLECTION is required}
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [application]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.2
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}
+      OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:?OPENSEARCH_INDEX is required}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9200/_cluster/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks: [application]
+
+networks:
+  application:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-application
+
+volumes:
+  postgres_data:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-postgres-data
+  redis_data:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-redis-data
+  minio_data:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-minio-data
+  qdrant_data:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-qdrant-data
+  opensearch_data:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-opensearch-data
+  frontend_node_modules:
+    name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME is required}-frontend-node-modules

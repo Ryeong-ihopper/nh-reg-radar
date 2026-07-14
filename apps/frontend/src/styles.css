@@ -1,0 +1,87 @@
+:root {
+  color: #172019;
+  background: #f2f6f1;
+  font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+a {
+  color: #166534;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  color: #fff;
+  background: #14532d;
+}
+
+.app-header > div {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.app-header a {
+  color: #fff;
+}
+
+.brand-mark {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #14532d;
+  background: #fff;
+  font-weight: 800;
+}
+
+main {
+  width: min(68rem, calc(100% - 2rem));
+  margin: 3rem auto;
+}
+
+main section {
+  padding: 2.5rem;
+  border: 1px solid #dbe7d8;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 0.7rem 2rem rgb(20 83 45 / 8%);
+}
+
+.eyebrow {
+  margin-bottom: 0.4rem;
+  color: #4d7c0f;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.fatal-error {
+  padding: 2rem;
+  border-left: 0.4rem solid #b91c1c;
+  background: #fff;
+}

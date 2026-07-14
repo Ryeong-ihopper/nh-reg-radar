@@ -1,0 +1,20 @@
+[project]
+name = "nh-ad-backend"
+version = "0.1.0"
+description = "FastAPI boundary for the NH advertisement compliance PoC"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic==1.16.5",
+  "fastapi>=0.116,<0.117",
+  "pydantic-settings>=2.10,<3",
+  "psycopg[binary]==3.2.10",
+  "SQLAlchemy==2.0.43",
+  "uvicorn[standard]>=0.35,<0.36",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nh_ad_backend"]

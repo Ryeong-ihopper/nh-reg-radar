@@ -1,0 +1,45 @@
+[project]
+name = "nh-ad-compliance"
+version = "0.1.0"
+description = "NH advertisement compliance PoC monorepo"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "nh-ad-backend",
+  "nh-ad-worker",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<0.29",
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "ruff>=0.12,<0.13",
+]
+
+[tool.uv.workspace]
+members = ["apps/backend", "apps/worker"]
+
+[tool.uv.sources]
+nh-ad-backend = { workspace = true }
+nh-ad-worker = { workspace = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = [
+  "apps/backend/src",
+  "apps/worker/src",
+  "scripts/check_environment_isolation.py",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+markers = [
+  "external_ai: requires an external AI provider",
+  "slow: long-running test excluded from the PR gate",
+]

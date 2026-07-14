@@ -1,4 +1,4 @@
-name: M0 Contract and Traceability
+name: Product CI
 
 on:
   pull_request:
@@ -12,50 +12,272 @@ permissions:
   contents: read
 
 jobs:
-  m0-contract-and-traceability:
+  m1-product-quality:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/frontend/package-lock.json
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Install Python workspace
+        run: uv sync --all-packages --dev
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+      - name: Check Python lint and format
+        run: |
+          uv run ruff check .
+          uv run ruff format --check \
+            apps/backend apps/worker \
+            scripts/ci scripts/check_environment_isolation.py \
+            tests/ci tests/integration
+
+      - name: Check Python types
+        run: uv run mypy
+
+      - name: Run deterministic Python tests
+        run: uv run python -m pytest -m "not external_ai and not slow"
 
       - name: Install pinned OpenAPI tooling
         run: npm ci --ignore-scripts
 
-      - name: Run pinned OpenAPI checks twice without registry access
+      - name: Run OpenAPI contract checks offline
         env:
           NPM_CONFIG_OFFLINE: "true"
+        run: npm run openapi:check
+
+      - name: Install frontend dependencies
+        run: npm --prefix apps/frontend ci
+
+      - name: Check frontend lint, types, tests and build
         run: |
-          npm run openapi:check
-          npm run openapi:check
+          npm --prefix apps/frontend run lint
+          npm --prefix apps/frontend run typecheck
+          npm --prefix apps/frontend run test
+          npm --prefix apps/frontend run build
 
-      - name: Validate capability trace manifests
-        run: python3 scripts/validate_goal_manifest.py
-
-      - name: Check M0 Python quality
+      - name: Validate goal manifests and governance tests
         run: |
-          uvx ruff check scripts/compare_openapi_contract.py scripts/validate_goal_manifest.py tests/api_contract tests/governance/test_goal_manifest.py
-          uvx ruff format --check scripts/compare_openapi_contract.py scripts/validate_goal_manifest.py tests/api_contract tests/governance/test_goal_manifest.py
-          uvx basedpyright scripts/compare_openapi_contract.py scripts/validate_goal_manifest.py tests/api_contract tests/governance/test_goal_manifest.py
+          python3 scripts/validate_goal_manifest.py
+          python3 -m unittest discover -s tests/governance -v
 
-      - name: Run governance regression tests
-        run: python3 -m unittest discover -s tests/governance -v
+      - name: Check documentation and change policy
+        run: |
+          scripts/check-doc-consistency.sh
+          python3 -m scripts.doc_guard validate --scope all
 
-      - name: Check document links and contract examples
-        run: scripts/check-doc-consistency.sh
+  m1-compose-and-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Validate repository document governance
-        run: python3 -m scripts.doc_guard validate --scope all
+      - name: Verify namespace and privileged-credential boundaries
+        run: |
+          python3 scripts/check_environment_isolation.py
+          python3 scripts/ci/verify_m1_static.py
+
+      - name: Validate dev Compose config
+        run: |
+          docker compose -f compose.yml -f compose.dev.yml \
+            --env-file .env.dev.example config --quiet
+          docker compose -f compose.yml -f compose.dev.yml \
+            --env-file .env.dev.example config --format json > /tmp/m1-dev-compose.json
+
+      - name: Validate prod Compose config
+        run: |
+          docker compose -f compose.yml -f compose.prod.yml \
+            --env-file .env.prod.example config --quiet
+          docker compose -f compose.yml -f compose.prod.yml \
+            --env-file .env.prod.example config --format json > /tmp/m1-prod-compose.json
+
+      - name: Check rendered product-service credentials
+        run: >-
+          python3 scripts/ci/verify_m1_static.py
+          --compose-json /tmp/m1-dev-compose.json
+          --compose-json /tmp/m1-prod-compose.json
+
+      - name: Build app images independently
+        run: >-
+          docker compose -f compose.yml -f compose.dev.yml
+          --env-file .env.dev.example build backend worker frontend
+
+      - name: Check product image credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          compose=(docker compose -f compose.yml -f compose.dev.yml --env-file .env.dev.example)
+          "${compose[@]}" config --format json > /tmp/m1-built-compose.json
+          mapfile -t images < <(python3 - <<'PY'
+          import json
+
+          with open("/tmp/m1-built-compose.json", encoding="utf-8") as compose_file:
+              services = json.load(compose_file)["services"]
+
+          for service_name in ("backend", "worker", "frontend"):
+              print(services[service_name]["image"])
+          PY
+          )
+          ((${#images[@]} == 3))
+          (($(printf '%s\n' "${images[@]}" | sort -u | wc -l) == 3))
+          docker image inspect "${images[@]}" > /tmp/m1-app-images.json
+          python3 scripts/ci/verify_m1_static.py \
+            --image-inspect-json /tmp/m1-app-images.json
+          for image in "${images[@]}"; do
+            if docker history --no-trunc "$image" | grep -Eq \
+              '(BOOTSTRAP|ADMIN).*(DATABASE_URL|DSN|PASSWORD|SECRET)'; then
+              echo "privileged credential name found in image history: $image" >&2
+              exit 1
+            fi
+          done
+
+      - name: Run dev stack health smoke
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          project="nh-ad-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sed "s/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=${project}/" \
+            .env.dev.example > /tmp/m1-dev-smoke.env
+          compose=(docker compose -p "$project" -f compose.yml -f compose.dev.yml \
+            --env-file /tmp/m1-dev-smoke.env)
+
+          force_cleanup() {
+            mapfile -t containers < <(docker ps -aq \
+              --filter "label=com.docker.compose.project=${project}")
+            ((${#containers[@]} == 0)) || docker rm --force --volumes "${containers[@]}" || true
+
+            mapfile -t volumes < <(docker volume ls -q \
+              --filter "label=com.docker.compose.project=${project}")
+            ((${#volumes[@]} == 0)) || docker volume rm --force "${volumes[@]}" || true
+
+            mapfile -t networks < <(docker network ls -q \
+              --filter "label=com.docker.compose.project=${project}")
+            ((${#networks[@]} == 0)) || docker network rm "${networks[@]}" || true
+          }
+
+          cleanup() {
+            timeout 30s "${compose[@]}" logs --no-color > m1-dev-compose.log 2>&1 || true
+            if ! timeout 60s "${compose[@]}" down --volumes --remove-orphans; then
+              echo "Compose cleanup timed out; forcing project resource removal" >&2
+              force_cleanup
+            fi
+          }
+          trap cleanup EXIT
+          timeout 600s "${compose[@]}" up -d --build --wait --wait-timeout 240
+
+          bootstrap_id=$("${compose[@]}" ps -aq db-bootstrap)
+          test -n "$bootstrap_id"
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$bootstrap_id")" = "0"
+
+          for service in frontend backend worker postgres redis minio qdrant opensearch; do
+            container_id=$("${compose[@]}" ps -q "$service")
+            test -n "$container_id"
+            service_health=$(docker inspect --format \
+              '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+              "$container_id")
+            test "$service_health" = "healthy"
+
+            if docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+              "$container_id" | grep -Eq \
+              '(BOOTSTRAP|ADMIN).*(DATABASE_URL|DSN|PASSWORD|SECRET)'; then
+              echo "privileged credential found in long-running service: $service" >&2
+              exit 1
+            fi
+          done
+
+          curl --fail --show-error --silent http://127.0.0.1:8000/health
+          curl --fail --show-error --silent http://127.0.0.1:8001/ready
+          curl --fail --show-error --silent http://127.0.0.1:5173/
+
+          cleanup
+          trap - EXIT
+          force_cleanup
+          test -z "$(docker ps -aq --filter "label=com.docker.compose.project=${project}")"
+          test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")"
+          test -z "$(docker network ls -q --filter "label=com.docker.compose.project=${project}")"
+
+      - name: Upload dev smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-dev-compose-logs
+          path: m1-dev-compose.log
+          if-no-files-found: ignore
+
+  m1-db-bootstrap-privilege-probe:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-bootstrap-owner-only
+          POSTGRES_DB: nh_ad_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nh_ad_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+
+      - name: Install Python workspace
+        run: uv sync --all-packages --dev
+
+      - name: Run isolated bootstrap probe
+        shell: bash
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-bootstrap-owner-only
+          PGDATABASE: nh_ad_ci
+          NH_DB_APP_PASSWORD: ci-app-only
+          NH_DB_MIGRATION_PASSWORD: ci-migration-only
+          NH_DB_READONLY_PASSWORD: ci-readonly-only
+          NH_DB_ADMIN_PASSWORD: ci-admin-break-glass-only
+        run: bash scripts/db-bootstrap-privilege-probe.sh
+
+      - name: Run migration, seed and denial probes without bootstrap credentials
+        shell: bash
+        env:
+          NH_DB_MIGRATION_URL: postgresql+psycopg://migration:ci-migration-only@127.0.0.1:5432/nh_ad_ci
+          NH_DB_RUNTIME_URL: postgresql+psycopg://app:ci-app-only@127.0.0.1:5432/nh_ad_ci
+          NH_DB_READONLY_URL: postgresql+psycopg://readonly:ci-readonly-only@127.0.0.1:5432/nh_ad_ci
+        run: |
+          set -Eeuo pipefail
+          if env | grep -Eq '^(NH_DB_ADMIN_PASSWORD|PGPASSWORD)='; then
+            echo "privileged credential escaped the bootstrap step" >&2
+            exit 1
+          fi
+          uv run scripts/run-migrations.sh
+          NH_ENVIRONMENT=dev bash scripts/seed-common-data.sh
+          bash scripts/db-privilege-probe.sh
