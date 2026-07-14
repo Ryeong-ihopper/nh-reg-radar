@@ -249,6 +249,31 @@ M6_OPENAPI: dict[str, Any] = {
                     "compareTypes": {"type": "array", "items": {"type": "string"}},
                 },
             },
+            "AdvertisementRevisionRequest": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["revisedAdvertisementFile"],
+                "properties": {
+                    "revisionMemo": {"type": "string", "maxLength": 2000},
+                    "revisedAdvertisementFile": {"type": "string", "format": "binary"},
+                },
+            },
+            "AdvertisementRevision": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["advertisementId", "revisionId", "reviewStatus"],
+                "properties": {
+                    "advertisementId": {
+                        "type": "string",
+                        "pattern": "^ADV-[A-Za-z0-9-]+$",
+                    },
+                    "revisionId": {
+                        "type": "string",
+                        "pattern": "^REVISION-[A-Za-z0-9-]+$",
+                    },
+                    "reviewStatus": {"type": "string", "const": "REVISED"},
+                },
+            },
             "ComparisonItem": {
                 "type": "object",
                 "additionalProperties": False,
@@ -376,6 +401,41 @@ M6_OPENAPI: dict[str, Any] = {
                 "parameters": [{"$ref": "#/components/parameters/AdvertisementId"}],
                 "requestBody": _body("ComparisonRequest"),
                 "responses": _json_response("Comparison", "400", "401", "403", "404"),
+            }
+        },
+        "/advertisements/{advertisementId}/revisions": {
+            "post": {
+                "operationId": "createAdvertisementRevision",
+                "parameters": [{"$ref": "#/components/parameters/AdvertisementId"}],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AdvertisementRevisionRequest"
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "201": {
+                        "description": "Stored advertisement revision registered.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AdvertisementRevision"
+                                }
+                            }
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "413": {"$ref": "#/components/responses/RequestEntityTooLarge"},
+                    "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+                },
             }
         },
         "/comparisons/{comparisonId}": {
