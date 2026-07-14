@@ -116,6 +116,7 @@ async def parse_multipart(
         "expiredDate",
         "metadata",
         "content",
+        "revisionMemo",
     } | extra_fields
     allowed_files = {
         "advertisementFile",
@@ -123,6 +124,7 @@ async def parse_multipart(
         "termsFile",
         "additionalFiles",
         "sourceFile",
+        "revisedAdvertisementFile",
     } | extra_files
     if set(fields) - allowed_fields or set(files) - allowed_files:
         raise MultipartError(400, "BAD_REQUEST", "지원하지 않는 multipart 필드가 포함되었습니다.")
@@ -130,6 +132,7 @@ async def parse_multipart(
         "advertisementFile",
         "productDescriptionFile",
         "termsFile",
+        "revisedAdvertisementFile",
     ):
         if len(files.get(name, [])) > 1:
             raise MultipartError(400, "BAD_REQUEST", f"{name} 파일은 하나만 첨부할 수 있습니다.")
