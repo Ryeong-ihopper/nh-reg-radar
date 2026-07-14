@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.18 |
+| 현행 버전 | v1.19 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.19 | 2026-07-15 | M8 실제 PostgreSQL restart/concurrency, 수정본→비교→재검토 frontend, worker lease reconciliation과 G011 반복 bootstrap 증거 반영 |
 | v1.18 | 2026-07-15 | G008 M7 provider-free backend KPI/API/PostgreSQL runtime과 전체 backend 회귀 실행 증거를 기존 S-015/S-016 frontend 증거와 통합 반영 |
 | v1.17 | 2026-07-15 | M7 S-015/S-016 생성 client 화면의 데이터셋/판단 등록, stored KPI·평가 제외·분모 0 미적용, loading/empty/error/권한 회귀 실행 증거 반영 |
 | v1.16 | 2026-07-14 | G008 M7 정확히 5개 Validation operation, 0007 실제 PostgreSQL clean/M6 upgrade, synthetic KPI fixture/hash 및 TC-VAL/EVAL 개별 trace Gate 반영 |
@@ -403,6 +404,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-RPT-011 | 리포트 스냅샷 저장 | 검토 완료 | 리포트 생성 API 호출 | report_payload, snapshot_hash, snapshot_version 저장 | `reports` | P0 |
 | TC-RPT-012 | PDF 변환본 snapshot 정합성 | HWPX 리포트 생성 가능 | format=PDF 생성 | PDF report가 HWPX sourceReportId와 동일 snapshot_hash 참조 | `reports` | P0 |
 | TC-RPT-013 | PDF 변환 실패 분리 기록 | converter 실패 fixture | format=PDF 생성 | HWPX report는 CREATED, PDF report는 FAILED와 failureReason 저장 | `reports` | P1 |
+| TC-RPT-014 | 프로세스 재시작 후 불변 다운로드 | HWPX/PDF report 생성 후 repository와 app 재생성 | report 조회·download 재호출 | bytes가 저장 canonical payload에서 동일 복원되고 snapshot_hash/sourceReportId 불변 | `reports` | P0 |
 
 ---
 
@@ -417,6 +419,10 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-CMP-005 | 신규 리스크 판정 | 수정본에 새로운 위험 표현 추가 | 비교 실행 | NEW_ISSUE 생성 | `comparison_items` | P2 |
 | TC-CMP-006 | 비교 결과 조회 | comparisonId 존재 | 비교 결과 조회 API 호출 | summary 및 items 반환 | `comparisons`, `comparison_items` | P1 |
 | TC-CMP-007 | 잘못된 revisionId 비교 | 잘못된 ID 사용 | 비교 요청 API 호출 | 404 NOT_FOUND 반환 | - | P1 |
+| TC-CMP-008 | 다른 광고물 revision 거부 | 광고물 A와 B의 revision 존재 | A 비교에 B revision 사용 | 404 NOT_FOUND, 비교 row 미생성 | `advertisement_revisions`, `comparisons` | P0 |
+| TC-CMP-009 | 동시 revision 번호 직렬화 | 같은 광고물에 동시 업로드 | 2개 revision 병렬 생성 | row lock으로 중복 없이 연속 revision_no 저장 | `advertisement_revisions` | P0 |
+| TC-CMP-010 | 생성 client 수정 비교 흐름 | 기준 review와 수정 파일 존재 | 화면에서 등록·비교·재검토 제출 | 서버 반환 revisionId만 comparison에 전달하고 새 reviewId 표시 | OpenAPI/generated client | P0 |
+| TC-CMP-011 | 수정본 권한·감사 연속성 | 부서 scope/역할 fixture | 등록·비교·download와 scope 밖 접근 | 허용 호출은 actor/trace 감사, scope 밖 호출은 403 | `audit_logs` | P0 |
 
 ---
 
@@ -588,7 +594,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | --- | --- | --- | --- | --- |
 | TC-NFR-INFRA-001 | 앱별 독립 품질 Gate | backend와 worker의 lint/typecheck/test를 각각 실행하고 frontend의 clean install/lint/typecheck/test/build를 실행 | 세 앱이 다른 앱의 런타임 기동 없이 독립 통과하고 capability 업무 로직이 포함되지 않음 | P0 |
 | TC-NFR-INFRA-002 | dev/prod Compose 및 dev health smoke | env example을 사용해 dev/prod `docker compose config`를 검증하고 dev stack의 앱·PostgreSQL·Redis·MinIO·Qdrant·OpenSearch health를 확인 | 두 config 오류가 없고 dev 필수 서비스가 healthy 또는 readiness 응답 성공 | P0 |
-| TC-NFR-INFRA-003 | DB bootstrap, migration 및 seed 경계 | bootstrap 전용 identity로 초기화를 두 번 실행하고 migration identity로 M1 base→M2 owner revision을 clean/sequential upgrade한 뒤 common/dev seed를 각각 두 번 실행 | M1 base 무변경, M2 auth/common/advertisement/file/audit 테이블만 생성, runtime DML/readonly SELECT 권한, seed idempotency와 prod dev-seed 거부 확인 | P0 |
+| TC-NFR-INFRA-003 | DB bootstrap, migration 및 seed 경계 | bootstrap 전용 identity로 초기화를 두 번 실행하고 같은 volume의 `db-bootstrap`만 강제 재생성하며 migration/seed를 반복 실행 | active postmaster 검증 후 별도 launch 없이 종료, sentinel/data/PostgreSQL ID/role·DB·public schema ACL 불변, PANIC·invalid checkpoint·interrupted recovery·잔여물 0 | P0 |
 | TC-NFR-INFRA-004 | DB 최소권한 및 privileged credential 격리 | migration role 관리, app DDL, readonly write를 실제 DB에서 시도하고 workflow/config/image/artifact에서 bootstrap/admin 자격증명 주입을 검사 | 모든 금지 SQL이 거부되고 privileged 자격증명은 일회성 bootstrap/probe 경계 밖에 존재하지 않으며 runtime DSN과 migration DSN identity가 다름 | P0 |
 | TC-NFR-INFRA-005 | dev/prod namespace 격리 | env example과 rendered Compose에서 PostgreSQL DB, MinIO bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 비교하고 교차 환경 접근 probe 실행 | 모든 namespace 값이 환경별로 다르고 dev 자격증명으로 prod namespace 접근이 거부됨 | P0 |
 
@@ -696,6 +702,17 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | Static quality | `uv run ruff check .`, `uv run mypy` | lint 오류 0, canonical package type 오류 0 |
 
 | Cleanup/namespace | 고유 Compose project + dev env example | 종료 후 M4 검증 컨테이너/network/volume/임시 env 잔여물이 0이고 parser bucket/queue가 환경 prefix로 격리됨 |
+
+## 19.15 M8 릴리스 후보 통합 검증
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| 실제 PostgreSQL durability | `apps/backend/tests/test_m8_support_postgres.py` | 0001→0008 fresh migration, runtime role 접속, fresh repository/FastAPI app restart, report bytes/hash/source linkage, wrong-ad revision 거부, 동시 revision 번호 직렬화 통과 |
+| OpenAPI/generated client | `npm run openapi:check`, `npm --prefix apps/frontend run openapi:check` | v0.8.0 runtime/static 의미 일치, revision multipart operation 1개, 생성 TypeScript diff 0 |
+| Frontend E2E component | `apps/frontend/src/m6-support.test.tsx` | upload→returned revisionId→comparison→rerun 세 요청의 순서·payload·화면 ID 표시 통과 |
+| Worker lifecycle | `PYTHONPATH=. uv run pytest -q apps/worker/tests` | supervised shutdown/readiness, heartbeat, stale/due retry, publish lease recovery, 미구성 parser 최종 실패 포함 39 passed |
+| Worker live reconciliation | `M8_LIVE_DATABASE_URL=... M8_LIVE_REDIS_URL=... PYTHONPATH=. uv run pytest -q tests/integration/test_m8_worker_reconciliation.py -vv` | PostgreSQL 16.9·Redis 7에서 publish 실패 lease 보존/만료 후 6-field 재발행과 STALE recovery 1 passed |
+| 반복 Compose bootstrap | `NH_RUN_G011_DOCKER_REGRESSION=1 PYTHONPATH=. uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q` | same-volume bootstrap 재생성 3/3, 데이터·ACL·PostgreSQL identity 보존, 금지 recovery log/잔여물 0 |
 
 ---
 

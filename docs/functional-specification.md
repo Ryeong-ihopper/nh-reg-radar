@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.10 |
-| 기준일 | 2026-07-14 |
+| 현행 버전 | v1.11 |
+| 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.11 | 2026-07-15 | M8 수정본 등록→비교→재검토, restart-safe M6 산출물, worker lease 복구와 반복 Compose bootstrap 실행 경계 반영 |
 | v1.10 | 2026-07-14 | G006 M5 결정적 Rule→근거 선택→provider-independent structured 실행, 0005 영속화와 결과 조회 handler 경계 반영 |
 | v1.9 | 2026-07-14 | G006 M5 Rule→RAG→structured mock 결과·근거 상태·위험도 근거·Annotation entry gate 반영 |
 | v1.8 | 2026-07-14 | M4 정책 기반 보조 parser 실행, 결정적 후보 비교, 전체 시도 raw artifact 추적과 단일 선택 산출물 영속화 경계 보강 |
@@ -287,6 +288,16 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계의 Top-K를 0.70 이상 최대 3개로 선택하며, 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. structured 경계는 fixture callable만 허용하며 provider/model/credential/network adapter를 구성하지 않는다.
 
 backend의 summary/items/detail/annotations handler는 기존 Review 부서 scope를 재사용하고 위험도 우선 정렬, evidence 필터, frozen standard version, BOX/TEXT_HIGHLIGHT/LIST_ONLY 정보를 반환한다. frontend runtime은 같은 frozen 계약을 소비하는 별도 lane이며 backend 구현은 OpenAPI, migration 또는 기존 M0~M4 revision을 재작성하지 않는다.
+
+### M8 릴리스 후보 실행 경계
+
+M8 수정 비교 화면은 사용자가 임의 revision ID를 입력하지 않는다. 수정 광고 파일을 먼저 `/advertisements/{advertisementId}/revisions`에 등록하고 서버가 반환한 `revisionId`만 비교 요청에 전달한 뒤, 기준 검토를 새 회차로 재검토한다. Backend는 광고물 row lock 아래 revision 번호를 배정하여 같은 광고물의 동시 등록을 직렬화하고, 저장된 revision이 해당 광고물 소유가 아니면 비교를 거부한다.
+
+M6 추천 판단·Q&A·의견 초안·리포트·비교는 PostgreSQL 원천으로 재시작 후에도 유지한다. 리포트 다운로드 bytes는 process memory가 아니라 저장된 canonical `report_payload`에서 결정적으로 복원하며, `snapshot_hash`는 불변이고 PDF는 동일 snapshot의 HWPX source report를 참조한다. 생성·판단·다운로드·비교는 기존 부서 scope/역할 권한과 감사 추적을 유지한다.
+
+Worker runtime은 supervised `JobRunner` 시작/종료, truthful readiness, 처리 중 heartbeat, `PENDING`/`STALE`/기한 도래 `RETRY_PENDING` DB lease reconciliation을 수행한다. Redis publish 실패 시 DB lease를 보존하고 만료 후 정확한 6-field delivery를 재발행하며, parser adapter 미구성은 성공으로 가장하지 않고 `PARSER_ADAPTER_NOT_CONFIGURED` 최종 실패로 정리한다. 실제 PostgreSQL 16.9·Redis 7 회귀가 publish lease 복구와 stale RUNNING 복구를 검증한다.
+
+반복 Compose up에서 `db-bootstrap`은 활성 `$PGDATA/postmaster.pid`가 있으면 별도 postmaster를 시작하지 않고 이미 실행 중인 PostgreSQL과 NOLOGIN bootstrap/product-role 상태를 검증한 뒤 종료한다. 검증 실패는 fail-closed이며, 같은 volume에서 bootstrap 컨테이너만 재생성해도 데이터·role/ACL·PostgreSQL identity가 보존되고 PANIC/invalid checkpoint/interrupted recovery 흔적을 허용하지 않는다.
 
 ---
 
