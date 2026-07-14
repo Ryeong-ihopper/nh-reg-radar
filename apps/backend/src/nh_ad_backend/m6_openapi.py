@@ -27,6 +27,15 @@ def _json_response(schema: str, *errors: str) -> dict[str, Any]:
     return responses
 
 
+def _json_array_response(schema: str, *errors: str) -> dict[str, Any]:
+    responses = _json_response(schema, *errors)
+    responses["200"]["content"]["application/json"]["schema"] = {
+        "type": "array",
+        "items": {"$ref": f"#/components/schemas/{schema}"},
+    }
+    return responses
+
+
 def _body(schema: str) -> dict[str, Any]:
     return {
         "required": True,
@@ -318,7 +327,7 @@ M6_OPENAPI: dict[str, Any] = {
             "get": {
                 "operationId": "listReviewSuggestions",
                 "parameters": [{"$ref": "#/components/parameters/ReviewId"}],
-                "responses": _json_response("Suggestion", "400", "401", "403", "404"),
+                "responses": _json_array_response("Suggestion", "400", "401", "403", "404"),
             }
         },
         "/suggestions/{suggestionId}/decision": {
@@ -350,7 +359,7 @@ M6_OPENAPI: dict[str, Any] = {
             "get": {
                 "operationId": "listOpinionDrafts",
                 "parameters": [{"$ref": "#/components/parameters/ReviewId"}],
-                "responses": _json_response("OpinionDraft", "401", "403", "404"),
+                "responses": _json_array_response("OpinionDraft", "401", "403", "404"),
             },
         },
         "/opinion-drafts/{draftId}": {

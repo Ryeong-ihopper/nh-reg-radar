@@ -9,6 +9,7 @@ export type AdvertisementListResponse = components["schemas"]["AdvertisementPage
 export type AdvertisementFile = components["schemas"]["AdvertisementFile"];
 export type AdvertisementDetail = components["schemas"]["AdvertisementDetail"];
 export type AdvertisementCreateResponse = components["schemas"]["AdvertisementCreated"];
+export type AdvertisementRevisionCreateResponse = components["schemas"]["AdvertisementRevisionCreated"];
 export type FilePreview = components["schemas"]["FilePreview"];
 export type ProductGroup = components["schemas"]["ProductGroup"];
 export type AdvertisementType = components["schemas"]["AdvertisementType"];
@@ -75,6 +76,11 @@ export interface AdvertisementCreateInput {
   productDescriptionFile?: File;
   termsFile?: File;
   additionalFiles?: File[];
+}
+
+export interface AdvertisementRevisionCreateInput {
+  revisionMemo?: string;
+  revisedAdvertisementFile: File;
 }
 
 export interface StandardCreateInput {
@@ -266,6 +272,21 @@ export const api = {
     return request<AdvertisementCreateResponse>("/advertisements", accessToken, { method: "POST", body });
   },
 
+  createAdvertisementRevision(
+    accessToken: string,
+    advertisementId: string,
+    input: AdvertisementRevisionCreateInput,
+  ): Promise<AdvertisementRevisionCreateResponse> {
+    const body = new FormData();
+    body.set("revisedAdvertisementFile", input.revisedAdvertisementFile);
+    if (input.revisionMemo) body.set("revisionMemo", input.revisionMemo);
+    return request<AdvertisementRevisionCreateResponse>(
+      `/advertisements/${encodeURIComponent(advertisementId)}/revisions`,
+      accessToken,
+      { method: "POST", body },
+    );
+  },
+
   listStandards(accessToken: string, search: StandardSearch = {}): Promise<StandardListResponse> {
     return request<StandardListResponse>(`/standards${queryString(search)}`, accessToken);
   },
@@ -389,8 +410,8 @@ export const api = {
     });
   },
 
-  listReviewSuggestions(accessToken: string, reviewId: string): Promise<Suggestion> {
-    return request<Suggestion>(`/reviews/${encodeURIComponent(reviewId)}/suggestions`, accessToken);
+  listReviewSuggestions(accessToken: string, reviewId: string): Promise<Suggestion[]> {
+    return request<Suggestion[]>(`/reviews/${encodeURIComponent(reviewId)}/suggestions`, accessToken);
   },
 
   recordSuggestionDecision(accessToken: string, suggestionId: string, input: SuggestionDecisionInput): Promise<SuggestionDecision> {
@@ -404,8 +425,8 @@ export const api = {
     return request<QaAnswer>("/qa/questions", accessToken, { method: "POST", body: JSON.stringify(input) });
   },
 
-  listOpinionDrafts(accessToken: string, reviewId: string): Promise<OpinionDraft> {
-    return request<OpinionDraft>(`/reviews/${encodeURIComponent(reviewId)}/opinion-drafts`, accessToken);
+  listOpinionDrafts(accessToken: string, reviewId: string): Promise<OpinionDraft[]> {
+    return request<OpinionDraft[]>(`/reviews/${encodeURIComponent(reviewId)}/opinion-drafts`, accessToken);
   },
 
   createOpinionDraft(accessToken: string, reviewId: string, input: OpinionDraftInput = {}): Promise<OpinionDraft> {

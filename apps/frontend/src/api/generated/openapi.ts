@@ -399,6 +399,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/advertisements/{advertisementId}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Advertisement Revision */
+        post: operations["createAdvertisementRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/advertisements/{advertisementId}": {
         parameters: {
             query?: never;
@@ -747,6 +764,13 @@ export interface components {
              */
             createdAt: string;
         };
+        /** AdvertisementRevisionCreated */
+        AdvertisementRevisionCreated: {
+            advertisementId: string;
+            revisionId: string;
+            /** @constant */
+            reviewStatus: "REVISED";
+        };
         /** AdvertisementDetail */
         AdvertisementDetail: {
             /** Advertisementid */
@@ -1044,6 +1068,15 @@ export interface components {
             termsFile?: string;
             /** Additionalfiles */
             additionalFiles?: string[];
+        };
+        /** CreateAdvertisementRevisionRequest */
+        CreateAdvertisementRevisionRequest: {
+            revisionMemo?: string;
+            /**
+             * Format: binary
+             * @description Revised jpg/jpeg/png/pdf/hwp/hwpx advertisement; maximum 50 MiB.
+             */
+            revisedAdvertisementFile: string;
         };
         CreateStandardRequest: {
             advertisementType?: components["schemas"]["AdvertisementType"];
@@ -1941,6 +1974,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description Uploaded file exceeds the 50 MiB limit. */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
         /** @description Qdrant, OpenSearch, or index consistency is unavailable; no keyword-only or vector-only fallback is returned as normal evidence. */
         SearchUnavailable: {
             headers: {
@@ -1952,6 +1994,15 @@ export interface components {
         };
         /** @description Authentication failed without revealing account state. */
         Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Uploaded file extension, media type, or signature is unsupported. */
+        UnsupportedMediaType: {
             headers: {
                 [name: string]: unknown;
             };
@@ -2866,6 +2917,39 @@ export interface operations {
             };
         };
     };
+    createAdvertisementRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advertisementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["CreateAdvertisementRevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvertisementRevisionCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+        };
+    };
     getAdvertisement: {
         parameters: {
             query?: never;
@@ -3129,7 +3213,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Suggestion"];
+                    "application/json": components["schemas"]["Suggestion"][];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3264,7 +3348,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpinionDraft"];
+                    "application/json": components["schemas"]["OpinionDraft"][];
                 };
             };
             400: components["responses"]["BadRequest"];

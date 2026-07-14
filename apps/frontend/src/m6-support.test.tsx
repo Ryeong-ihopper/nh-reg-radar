@@ -20,8 +20,8 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input); calls.push({ url, init });
-    if (url.endsWith("/reviews/REV-M6/suggestions")) return response({ suggestionId: "SUG-1", reviewItemId: "ITEM-1", originalText: "국내 최고", suggestedText: "경쟁력 있는", suggestionReason: "근거 확인 필요", decisionStatus: "PENDING" });
-    if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response({ draftId: "OPN-1", reviewId: "REV-M6", draftContent: "초안", includedReviewItemIds: [], createdAt: "2026-07-14T10:00:00Z" });
+    if (url.endsWith("/reviews/REV-M6/suggestions")) return response([{ suggestionId: "SUG-1", reviewItemId: "ITEM-1", originalText: "국내 최고", suggestedText: "경쟁력 있는", suggestionReason: "근거 확인 필요", decisionStatus: "PENDING" }]);
+    if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response([{ draftId: "OPN-1", reviewId: "REV-M6", draftContent: "초안", includedReviewItemIds: [], createdAt: "2026-07-14T10:00:00Z" }]);
     if (url.endsWith("/suggestions/SUG-1/decision")) return response({ suggestionId: "SUG-1", decisionStatus: "MODIFIED_AND_USED", finalText: "수정 문구", updatedAt: "2026-07-14T10:01:00Z" });
     if (url.endsWith("/qa/questions")) return response({ qaId: "QA-1", answerSummary: "확인이 필요합니다", answerDetail: "기준 근거를 확인하세요.", evidences: [], suggestedPhrases: [], needsHumanReview: true });
     if (url.endsWith("/reviews/REV-M6/reports")) return response({ reportId: "RPT-1", reviewId: "REV-M6", sourceReportId: null, reportType: "FULL", format: "HWPX", reportStatus: "CREATED", snapshotHash: "sha256:test", snapshotVersion: "v1", createdAt: "2026-07-14T10:02:00Z" });
@@ -48,8 +48,8 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
 test("requires final text for a modified suggestion before mutating the contract", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/reviews/REV-M6/suggestions")) return response({ suggestionId: "SUG-1", reviewItemId: "ITEM-1", originalText: "국내 최고", suggestedText: "경쟁력 있는", decisionStatus: "PENDING" });
-    if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response({ draftId: "OPN-1", reviewId: "REV-M6", draftContent: "초안", includedReviewItemIds: [], createdAt: "2026-07-14T10:00:00Z" });
+    if (url.endsWith("/reviews/REV-M6/suggestions")) return response([{ suggestionId: "SUG-1", reviewItemId: "ITEM-1", originalText: "국내 최고", suggestedText: "경쟁력 있는", decisionStatus: "PENDING" }]);
+    if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response([{ draftId: "OPN-1", reviewId: "REV-M6", draftContent: "초안", includedReviewItemIds: [], createdAt: "2026-07-14T10:00:00Z" }]);
     throw new Error(`Unexpected request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
