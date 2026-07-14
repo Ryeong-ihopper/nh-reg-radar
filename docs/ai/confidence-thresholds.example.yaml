@@ -1,0 +1,32 @@
+confidence_policy_version: "confidence-thresholds-v1"
+description: "Default PoC thresholds for OCR, parser structure, and annotation location confidence."
+
+thresholds:
+  ocr_text:
+    readable_min: 0.80
+    review_required_min: 0.50
+    statuses:
+      readable: READABLE
+      low_confidence: LOW_CONFIDENCE
+      unreadable: UNREADABLE
+
+  parser_structure:
+    structured_min: 0.75
+    review_required_min: 0.50
+    statuses:
+      structured: STRUCTURED
+      partially_structured: PARTIALLY_STRUCTURED
+      unstructured: UNSTRUCTURED
+
+  annotation_location:
+    located_min: 0.80
+    review_required_min: 0.50
+    statuses:
+      located: LOCATED
+      low_confidence: LOW_CONFIDENCE
+      not_located: NOT_LOCATED
+
+evaluation:
+  ocr_unreadable_exclude_reason: OCR_UNREADABLE
+  exclude_only_when_decision_text_is_unreadable: true
+  low_annotation_location_is_not_kpi_exclusion: true

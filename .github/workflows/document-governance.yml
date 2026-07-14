@@ -1,0 +1,49 @@
+name: Document Governance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Check governance Python quality
+        run: |
+          uvx ruff check scripts/doc_guard.py scripts/doc_governance tests/governance
+          uvx ruff format --check scripts/doc_guard.py scripts/doc_governance tests/governance
+          uvx basedpyright --project governance/pyrightconfig.json
+
+      - name: Run governance unit tests
+        run: python3 -m unittest discover -s tests/governance -v
+
+      - name: Check document links and contract examples
+        run: scripts/check-doc-consistency.sh
+
+      - name: Validate document governance
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 -m scripts.doc_guard validate --scope diff --base-ref "origin/${{ github.base_ref }}"
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            python3 -m scripts.doc_guard validate --scope diff --base-ref "${{ github.event.before }}"
+          else
+            python3 -m scripts.doc_guard validate --scope all
+          fi

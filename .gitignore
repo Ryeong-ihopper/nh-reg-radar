@@ -1,2 +1,15 @@
-# Local OMX runtime state
+# Local agent runtime state
+.omo/
 .omx/
+
+# Generated project-local AI skill adapters
+.agents/skills/
+.claude/skills/
+
+# Local editor and Python runtime artifacts
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Temporary review inputs and migration kits
+temp/

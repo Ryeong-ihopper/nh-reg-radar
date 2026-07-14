@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+changed_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
+
+scripts/manage-skill-adapters.sh validate
+
+if printf '%s\n' "$changed_files" | grep -Eq '^(README\.md|AGENTS\.md|CLAUDE\.md|docs/|openapi/|governance/|skills/|tests/governance/|scripts/(setup-dev-tools\.sh|manage-skill-adapters\.sh|skill-adapters/|check-doc-consistency\.sh|doc_guard\.py|doc_governance/)|\.githooks/|\.spectral\.yaml|\.github/)'; then
+  python3 -m unittest discover -s tests/governance -v
+  scripts/check-doc-consistency.sh
+  python3 -m scripts.doc_guard validate --scope staged
+fi

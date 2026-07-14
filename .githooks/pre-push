@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+scripts/manage-skill-adapters.sh validate
+python3 -m unittest discover -s tests/governance -v
+scripts/check-doc-consistency.sh
+
+if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; then
+  python3 -m scripts.doc_guard validate --scope diff --base-ref "$upstream"
+elif git rev-parse --verify origin/main >/dev/null 2>&1; then
+  python3 -m scripts.doc_guard validate --scope diff --base-ref origin/main
+elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+  python3 -m scripts.doc_guard validate --scope diff --base-ref HEAD~1
+else
+  python3 -m scripts.doc_guard validate --scope all
+fi

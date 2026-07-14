@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "required_documents": [
+    "README.md",
+    "docs/requirements-definition.md",
+    "docs/functional-specification.md",
+    "docs/screen-specification.md",
+    "docs/screen-api-mapping.md",
+    "docs/api-specification.md",
+    "docs/api-contract-sync-policy.md",
+    "docs/database-specification.md",
+    "docs/test-cases.md",
+    "docs/project-rules.md",
+    "docs/adr-candidates.md",
+    "docs/development-schedule-and-notion-kanban.md",
+    "docs/reference-repositories.md",
+    "docs/poc-kpi-formulas.md",
+    "docs/poc-evaluation-exclusion-criteria.md",
+    "docs/risk-assessment-criteria.md"
+  ],
+  "metadata_patterns": [
+    "docs/*.md"
+  ],
+  "metadata_exclude": [],
+  "active_markdown_patterns": [
+    "docs/*.md",
+    "docs/adr/*.md"
+  ],
+  "document_filename_pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\\.md$",
+  "change_path_exclude": [
+    ".DS_Store",
+    "**/.DS_Store",
+    ".omo/**",
+    ".omx/**",
+    "temp/**",
+    "docs/광고예시/**",
+    "docs/규정 및 가이드라인/**",
+    "docs/계획서/**"
+  ],
+  "adr": {
+    "directory": "docs/adr",
+    "index": "docs/adr/README.md",
+    "required_section_groups": [
+      ["배경"],
+      ["결정"],
+      ["대안", "검토 대안"],
+      ["영향", "영향 범위"],
+      ["후속 조치", "후속 과제"]
+    ]
+  },
+  "traceability_rules": [
+    {
+      "source": "docs/requirements-definition.md",
+      "target": "docs/functional-specification.md",
+      "declaration_pattern": "^##\\s+((?:BR|UR|FR|DR|NFR|AC)-\\d{3})\\b",
+      "reference_pattern": "\\b(?:BR|UR|FR|DR|NFR|AC)-\\d{3}\\b"
+    }
+  ],
+  "change_rules": [
+    {
+      "name": "요구사항 변경 전파",
+      "match": ["docs/requirements-definition.md"],
+      "require_all_changed": ["docs/functional-specification.md", "docs/test-cases.md"],
+      "severity": "warning",
+      "message": "요구사항 변경은 기능명세와 테스트케이스 영향 검토가 필요합니다."
+    },
+    {
+      "name": "기능 변경 전파",
+      "match": ["docs/functional-specification.md"],
+      "require_all_changed": ["docs/test-cases.md"],
+      "require_any_changed": [
+        "docs/screen-specification.md",
+        "docs/screen-api-mapping.md",
+        "docs/api-specification.md",
+        "docs/database-specification.md"
+      ],
+      "severity": "warning",
+      "message": "기능 변경은 화면/API/DB 중 관련 명세와 테스트케이스 영향 검토가 필요합니다."
+    },
+    {
+      "name": "API 계약 변경",
+      "match": [
+        "apps/backend/api/**",
+        "apps/backend/**/api/**",
+        "apps/backend/routes/**",
+        "apps/backend/**/routes/**",
+        "openapi/**"
+      ],
+      "require_all_changed": ["docs/api-specification.md", "docs/test-cases.md"],
+      "severity": "error",
+      "message": "API 계약 변경에는 API 명세서와 테스트케이스 갱신이 필요합니다."
+    },
+    {
+      "name": "DB 구조 변경",
+      "match": [
+        "migrations/**",
+        "**/migrations/**",
+        "alembic/**",
+        "**/alembic/**",
+        "apps/backend/models/**",
+        "apps/backend/**/models/**"
+      ],
+      "require_all_changed": ["docs/database-specification.md", "docs/test-cases.md"],
+      "severity": "error",
+      "message": "DB 구조 변경에는 DB 명세서와 테스트케이스 갱신이 필요합니다."
+    },
+    {
+      "name": "화면 계약 변경",
+      "match": [
+        "apps/frontend/pages/**",
+        "apps/frontend/**/pages/**",
+        "apps/frontend/routes/**",
+        "apps/frontend/**/routes/**",
+        "apps/frontend/screens/**",
+        "apps/frontend/**/screens/**"
+      ],
+      "require_all_changed": [
+        "docs/screen-specification.md",
+        "docs/screen-api-mapping.md",
+        "docs/test-cases.md"
+      ],
+      "severity": "error",
+      "message": "화면 또는 사용자 흐름 변경에는 화면설계, 화면-API 매핑, 테스트케이스 갱신이 필요합니다."
+    },
+    {
+      "name": "AI/RAG 동작 변경",
+      "match": [
+        "apps/worker/**",
+        "rag/**",
+        "**/rag/**",
+        "prompts/**",
+        "**/prompts/**",
+        "retrieval/**",
+        "**/retrieval/**"
+      ],
+      "require_all_changed": ["docs/functional-specification.md", "docs/test-cases.md"],
+      "severity": "error",
+      "message": "AI/RAG 동작 변경에는 기능명세서와 테스트케이스 갱신이 필요합니다."
+    },
+    {
+      "name": "인프라 및 배포 변경",
+      "match": [
+        "infra/**",
+        "Dockerfile",
+        "**/Dockerfile",
+        "compose*.yml",
+        "compose*.yaml",
+        ".github/workflows/**"
+      ],
+      "require_all_changed": [
+        "docs/project-rules.md",
+        "docs/test-cases.md"
+      ],
+      "severity": "warning",
+      "message": "인프라 또는 배포 변경은 실행 절차와 검증 기준의 동기화가 필요합니다."
+    }
+  ],
+  "implementation_patterns": [
+    "scripts/doc_guard.py",
+    "scripts/doc_governance/**/*.py",
+    "apps/**/*.py",
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "packages/**/*.py",
+    "packages/**/*.ts",
+    "packages/**/*.tsx"
+  ],
+  "test_patterns": [
+    "tests/**",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.spec.tsx",
+    "**/*.test.tsx"
+  ]
+}
