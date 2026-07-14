@@ -143,6 +143,12 @@ class AdvertisementCreated(ContractModel):
     created_at: datetime = Field(alias="createdAt")
 
 
+class AdvertisementRevisionCreated(ContractModel):
+    advertisement_id: str = Field(alias="advertisementId")
+    revision_id: str = Field(alias="revisionId", pattern=r"^REVISION-[A-Za-z0-9-]+$")
+    review_status: Literal[ReviewStatus.REVISED] = Field(alias="reviewStatus")
+
+
 class AdvertisementDetail(AdvertisementSummary):
     channel_type: str | None = Field(None, alias="channelType")
     memo: str | None = None
@@ -535,6 +541,45 @@ def install_routes(
             "reviewStatus": advertisement.review_status,
             "files": [_file_response(file) for file in advertisement.files],
             "createdAt": advertisement.created_at,
+        }
+
+    @router.post(
+        "/advertisements/{advertisementId}/revisions",
+        status_code=201,
+        response_model=AdvertisementRevisionCreated,
+        operation_id="createAdvertisementRevision",
+        responses=error_models(400, 401, 403, 404, 409, 413, 415),
+    )
+    async def create_advertisement_revision(
+        advertisement_id: Annotated[
+            str, Path(alias="advertisementId", pattern=r"^ADV-[A-Za-z0-9-]+$")
+        ],
+        request: Request,
+        current: Actor,
+    ) -> dict[str, object]:
+        try:
+            form = await parse_multipart(
+                request,
+                extra_fields=frozenset({"revisionMemo"}),
+                extra_files=frozenset({"revisedAdvertisementFile"}),
+            )
+        except MultipartError as exc:
+            raise ServiceError(exc.status_code, exc.code, str(exc)) from exc
+        files = form.files.get("revisedAdvertisementFile", [])
+        if len(files) != 1:
+            raise ServiceError(400, "BAD_REQUEST", "수정 광고 파일을 첨부해 주세요.")
+        file = files[0]
+        revision = services.advertisements.create_revision(
+            current,
+            advertisement_id,
+            revision_memo=form.fields.get("revisionMemo"),
+            upload=(file.file_name, file.content_type, file.stream),
+            trace_id=request.state.trace_id,
+        )
+        return {
+            "advertisementId": revision.advertisement_id,
+            "revisionId": revision.revision_id,
+            "reviewStatus": ReviewStatus.REVISED,
         }
 
     @router.get(

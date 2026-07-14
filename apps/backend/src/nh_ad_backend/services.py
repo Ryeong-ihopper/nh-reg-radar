@@ -8,6 +8,7 @@ from typing import BinaryIO
 from nh_ad_backend.domain import (
     Advertisement,
     AdvertisementFile,
+    AdvertisementRevision,
     AuditEvent,
     CurrentUser,
     RefreshSession,
@@ -308,6 +309,82 @@ class AdvertisementService:
             if AuthorizationService.can_read_advertisement(actor, advertisement)
         ]
 
+    def create_revision(
+        self,
+        actor: CurrentUser,
+        advertisement_id: str,
+        *,
+        revision_memo: str | None,
+        upload: tuple[str, str | None, BinaryIO],
+        trace_id: str,
+    ) -> AdvertisementRevision:
+        advertisement = self.repository.get_advertisement(advertisement_id)
+        if advertisement is None:
+            raise ServiceError(404, "NOT_FOUND", "요청한 대상을 찾을 수 없습니다.")
+        if not AuthorizationService.can_read_advertisement(actor, advertisement):
+            self._audit(
+                actor,
+                "ADVERTISEMENT_REVISION_CREATE",
+                "DENIED",
+                "DEPARTMENT_SCOPE",
+                advertisement_id,
+                trace_id,
+            )
+            raise ServiceError(403, "FORBIDDEN", "접근 권한이 없습니다.")
+        file_name, mime_type, stream = upload
+        try:
+            validated = validate_upload(file_name, mime_type, stream)
+        except UploadValidationError as exc:
+            status_code = (
+                413
+                if exc.code == "FILE_SIZE_EXCEEDED"
+                else 415
+                if exc.code == "FILE_NOT_SUPPORTED"
+                else 400
+            )
+            raise ServiceError(status_code, exc.code, str(exc)) from exc
+        revision_id = self._identifier("REVISION")
+        storage_key = self.storage.put(validated.body)
+        revision = AdvertisementRevision(
+            revision_id=revision_id,
+            advertisement_id=advertisement_id,
+            revision_no=0,
+            base_review_id=advertisement.latest_review_id,
+            revision_memo=revision_memo.strip() if revision_memo else None,
+            created_at=self._now(),
+            created_by=actor.user_id,
+            file=AdvertisementFile(
+                file_id=self._identifier("FILE"),
+                file_type="ADVERTISEMENT",
+                original_file_name=validated.original_file_name,
+                storage_key=storage_key,
+                mime_type=validated.mime_type,
+                file_size=validated.size,
+                checksum=validated.checksum,
+                revision_id=revision_id,
+            ),
+        )
+        try:
+            self.repository.add_revision(revision)
+        except ValueError as exc:
+            self.storage.delete(storage_key)
+            if str(exc) == "DUPLICATE_FILE":
+                raise ServiceError(409, "CONFLICT", "동일한 파일이 이미 등록되어 있습니다.") from exc
+            raise
+        except Exception:
+            self.storage.delete(storage_key)
+            raise
+        self._audit(
+            actor,
+            "ADVERTISEMENT_REVISION_CREATE",
+            "SUCCESS",
+            None,
+            revision.revision_id,
+            trace_id,
+            {"revisionNo": str(revision.revision_no), "fileType": revision.file.file_type},
+        )
+        return revision
+
     def get(self, actor: CurrentUser, advertisement_id: str, trace_id: str) -> Advertisement:
         advertisement = self.repository.get_advertisement(advertisement_id)
         if advertisement is None:
@@ -376,7 +453,13 @@ class AdvertisementService:
                 actor_user_id=actor.user_id,
                 actor_department_id=actor.department_id,
                 actor_role=actor.roles[0] if actor.roles else None,
-                target_type="ADVERTISEMENT" if action.startswith("ADVERTISEMENT") else "FILE",
+                target_type=(
+                    "ADVERTISEMENT_REVISION"
+                    if action == "ADVERTISEMENT_REVISION_CREATE"
+                    else "ADVERTISEMENT"
+                    if action.startswith("ADVERTISEMENT")
+                    else "FILE"
+                ),
                 target_id=target_id,
                 trace_id=trace_id,
                 created_at=self._now(),

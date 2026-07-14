@@ -53,6 +53,19 @@ class AdvertisementFile:
     mime_type: str
     file_size: int
     checksum: str
+    revision_id: str | None = None
+
+
+@dataclass
+class AdvertisementRevision:
+    revision_id: str
+    advertisement_id: str
+    revision_no: int
+    base_review_id: str | None
+    revision_memo: str | None
+    created_at: datetime
+    created_by: str
+    file: AdvertisementFile
 
 
 @dataclass

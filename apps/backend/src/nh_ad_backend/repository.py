@@ -12,6 +12,7 @@ from sqlalchemy import Engine, bindparam, text
 from nh_ad_backend.domain import (
     Advertisement,
     AdvertisementFile,
+    AdvertisementRevision,
     AuditEvent,
     CurrentUser,
     RefreshSession,
@@ -32,6 +33,8 @@ class Repository(Protocol):
     ) -> None: ...
     def revoke_all_refresh_sessions(self, user_id: str, reason: str, now: datetime) -> None: ...
     def add_advertisement(self, advertisement: Advertisement) -> None: ...
+    def add_revision(self, revision: AdvertisementRevision) -> None: ...
+    def get_revision(self, revision_id: str) -> AdvertisementRevision | None: ...
     def get_advertisement(self, advertisement_id: str) -> Advertisement | None: ...
     def get_file(self, file_id: str) -> tuple[Advertisement, AdvertisementFile] | None: ...
     def list_advertisements(self, actor: CurrentUser) -> list[Advertisement]: ...
@@ -48,6 +51,7 @@ class InMemoryRepository:
         self.users = {user.user_id: user for user in users}
         self.refresh_sessions: dict[str, RefreshSession] = {}
         self.advertisements: dict[str, Advertisement] = {}
+        self.revisions: dict[str, AdvertisementRevision] = {}
         self.audit_events: list[AuditEvent] = []
 
     def get_user_by_email(self, email: str) -> User | None:
@@ -112,6 +116,32 @@ class InMemoryRepository:
         if advertisement is None:
             return None
         return advertisement
+
+    def add_revision(self, revision: AdvertisementRevision) -> None:
+        with self._lock:
+            advertisement = self.advertisements.get(revision.advertisement_id)
+            if advertisement is None:
+                raise ValueError("ADVERTISEMENT_NOT_FOUND")
+            if any(
+                file.checksum == revision.file.checksum
+                for value in self.advertisements.values()
+                for file in value.files
+            ):
+                raise ValueError("DUPLICATE_FILE")
+            revision.revision_no = 1 + max(
+                (
+                    value.revision_no
+                    for value in self.revisions.values()
+                    if value.advertisement_id == revision.advertisement_id
+                ),
+                default=0,
+            )
+            self.revisions[revision.revision_id] = revision
+            advertisement.files.append(revision.file)
+            advertisement.review_status = "REVISED"
+
+    def get_revision(self, revision_id: str) -> AdvertisementRevision | None:
+        return self.revisions.get(revision_id)
 
     def get_file(self, file_id: str) -> tuple[Advertisement, AdvertisementFile] | None:
         for advertisement in self.advertisements.values():
@@ -346,6 +376,109 @@ class PostgresRepository:
                     },
                 )
 
+    def add_revision(self, revision: AdvertisementRevision) -> None:
+        with self._engine.begin() as connection:
+            if connection.execute(
+                text(
+                    "SELECT 1 FROM app.advertisement_files "
+                    "WHERE checksum_sha256=:checksum LIMIT 1"
+                ),
+                {"checksum": revision.file.checksum},
+            ).first():
+                raise ValueError("DUPLICATE_FILE")
+            revision.revision_no = int(
+                connection.execute(
+                    text(
+                        "SELECT COALESCE(MAX(revision_no),0)+1 "
+                        "FROM app.advertisement_revisions "
+                        "WHERE advertisement_id=:advertisement_id"
+                    ),
+                    {"advertisement_id": revision.advertisement_id},
+                ).scalar_one()
+            )
+            connection.execute(
+                text("""
+                    INSERT INTO app.advertisement_revisions
+                    (revision_id,advertisement_id,revision_no,base_review_id,revision_memo,
+                     created_at,created_by)
+                    VALUES (:revision_id,:advertisement_id,:revision_no,:base_review_id,
+                            :revision_memo,:created_at,:created_by)
+                """),
+                {
+                    "revision_id": revision.revision_id,
+                    "advertisement_id": revision.advertisement_id,
+                    "revision_no": revision.revision_no,
+                    "base_review_id": revision.base_review_id,
+                    "revision_memo": revision.revision_memo,
+                    "created_at": revision.created_at,
+                    "created_by": revision.created_by,
+                },
+            )
+            connection.execute(
+                text("""
+                    INSERT INTO app.advertisement_files
+                    (file_id,advertisement_id,revision_id,file_type,original_file_name,
+                     storage_provider,bucket,object_key,mime_type,file_size,checksum_sha256,
+                     preview_status,created_at,created_by)
+                    VALUES (:file_id,:advertisement_id,:revision_id,:file_type,:original_file_name,
+                            :storage_provider,:bucket,:storage_key,:mime_type,:file_size,:checksum,
+                            'AVAILABLE',:created_at,:created_by)
+                """),
+                {
+                    **revision.file.__dict__,
+                    "advertisement_id": revision.advertisement_id,
+                    "created_at": revision.created_at,
+                    "created_by": revision.created_by,
+                    "storage_provider": self._storage_provider,
+                    "bucket": self._bucket,
+                },
+            )
+            connection.execute(
+                text(
+                    "UPDATE app.advertisements "
+                    "SET review_status='REVISED',updated_at=:created_at "
+                    "WHERE advertisement_id=:advertisement_id"
+                ),
+                {
+                    "created_at": revision.created_at,
+                    "advertisement_id": revision.advertisement_id,
+                },
+            )
+
+    def get_revision(self, revision_id: str) -> AdvertisementRevision | None:
+        with self._engine.connect() as connection:
+            row = connection.execute(
+                text("""
+                    SELECT r.*,f.file_id,f.file_type,f.original_file_name,f.object_key,
+                           f.mime_type,f.file_size,f.checksum_sha256
+                      FROM app.advertisement_revisions r
+                      JOIN app.advertisement_files f ON f.revision_id=r.revision_id
+                     WHERE r.revision_id=:revision_id
+                """),
+                {"revision_id": revision_id},
+            ).mappings().first()
+        if row is None:
+            return None
+        return AdvertisementRevision(
+            revision_id=row["revision_id"],
+            advertisement_id=row["advertisement_id"],
+            revision_no=row["revision_no"],
+            base_review_id=row["base_review_id"],
+            revision_memo=row["revision_memo"],
+            created_at=row["created_at"],
+            created_by=row["created_by"],
+            file=AdvertisementFile(
+                file_id=row["file_id"],
+                file_type=row["file_type"],
+                original_file_name=row["original_file_name"],
+                storage_key=row["object_key"],
+                mime_type=row["mime_type"],
+                file_size=row["file_size"],
+                checksum=row["checksum_sha256"] or "",
+                revision_id=row["revision_id"],
+            ),
+        )
+
     @staticmethod
     def _to_advertisement(
         row: object, files: list[AdvertisementFile] | None = None
@@ -388,6 +521,7 @@ class PostgresRepository:
                 mime_type=row["mime_type"],
                 file_size=row["file_size"],
                 checksum=row["checksum_sha256"] or "",
+                revision_id=row["revision_id"],
             )
             for row in rows
         ]
