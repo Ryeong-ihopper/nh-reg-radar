@@ -467,17 +467,17 @@ class PostgresSupportRepository:
                     "created_by": comparison["_createdBy"],
                 },
             )
-            for index, item in enumerate(comparison["items"], 1):
+            for item in comparison["items"]:
                 connection.execute(
                     text("""
                         INSERT INTO app.comparison_items
                         (comparison_item_id,comparison_id,review_item_id,original_text,revised_text,
-                         resolution_status,comment,reanalysis_review_id,sequence_no)
+                         resolution_status,comment,reanalysis_review_id,created_at)
                         VALUES (:item_id,:comparison_id,:review_item_id,:original_text,:revised_text,
-                                :status,:comment,:reanalysis_review_id,:sequence_no)
+                                :status,:comment,:reanalysis_review_id,:created_at)
                     """),
                     {
-                        "item_id": uuid4(),
+                        "item_id": str(uuid4()),
                         "comparison_id": comparison["comparisonId"],
                         "review_item_id": item["reviewItemId"],
                         "original_text": item["originalText"],
@@ -485,7 +485,7 @@ class PostgresSupportRepository:
                         "status": item["resolutionStatus"],
                         "comment": item["comment"],
                         "reanalysis_review_id": item["reanalysisReviewId"],
-                        "sequence_no": index,
+                        "created_at": comparison["_createdAt"],
                     },
                 )
 
@@ -500,7 +500,7 @@ class PostgresSupportRepository:
             items = connection.execute(
                 text(
                     "SELECT * FROM app.comparison_items WHERE comparison_id=:comparison_id "
-                    "ORDER BY sequence_no"
+                    "ORDER BY created_at,comparison_item_id"
                 ),
                 {"comparison_id": comparison_id},
             ).mappings().all()
@@ -572,7 +572,7 @@ class SupportService:
 
     @staticmethod
     def _draft_response(draft: dict[str, Any]) -> dict[str, Any]:
-        return {
+        response = {
             key: deepcopy(draft.get(key))
             for key in (
                 "draftId",
@@ -584,10 +584,13 @@ class SupportService:
                 "updatedAt",
             )
         }
+        response["createdAt"] = _iso(draft.get("createdAt"))
+        response["updatedAt"] = _iso(draft.get("updatedAt"))
+        return response
 
     @staticmethod
     def _report_response(report: dict[str, Any]) -> dict[str, Any]:
-        return {
+        response = {
             key: deepcopy(report.get(key))
             for key in (
                 "reportId",
@@ -604,6 +607,8 @@ class SupportService:
                 "createdAt",
             )
         }
+        response["createdAt"] = _iso(report.get("createdAt"))
+        return response
 
     @staticmethod
     def _comparison_response(comparison: dict[str, Any]) -> dict[str, Any]:
@@ -695,7 +700,7 @@ class SupportService:
         question = body.get("question")
         if not isinstance(question, str) or not question.strip():
             raise ServiceError(400, "BAD_REQUEST", "질문을 입력해 주세요.")
-        answer = {
+        answer: dict[str, Any] = {
             "qaId": self.repository.next_identifier("QA"),
             "answerSummary": "확인 가능한 근거가 부족할 수 있습니다.",
             "answerDetail": "자동 확정 답변이 아니며 담당자 확인이 필요합니다.",
@@ -925,7 +930,7 @@ class SupportService:
                 raise ServiceError(400, "BAD_REQUEST", "광고물에 속한 기준 검토를 선택해 주세요.")
         items = [
             {
-                "reviewItemId": "ITEM-RESOLVED",
+                "reviewItemId": None,
                 "originalText": "기존 지적 사항",
                 "revisedText": "수정 완료 문구",
                 "resolutionStatus": "RESOLVED",
@@ -933,20 +938,20 @@ class SupportService:
                 "reanalysisReviewId": None,
             },
             {
-                "reviewItemId": "ITEM-UNRESOLVED",
+                "reviewItemId": None,
                 "originalText": "근거가 불명확한 표현",
                 "revisedText": "근거가 불명확한 표현",
                 "resolutionStatus": "UNRESOLVED",
                 "comment": "추가 수정이 필요합니다.",
-                "reanalysisReviewId": "REV-REANALYSIS-0001",
+                "reanalysisReviewId": body["baseReviewId"],
             },
             {
-                "reviewItemId": "ITEM-NEW",
+                "reviewItemId": None,
                 "originalText": None,
                 "revisedText": "새로운 표현",
                 "resolutionStatus": "NEW_ISSUE",
                 "comment": "수정본에서 새 위험이 발견되었습니다.",
-                "reanalysisReviewId": "REV-REANALYSIS-0001",
+                "reanalysisReviewId": body["baseReviewId"],
             },
         ]
         result = {
