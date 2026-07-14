@@ -5,9 +5,11 @@ from threading import Event
 from time import monotonic, sleep
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
 from nh_ad_parser_contracts import DocumentInput
 from nh_ad_worker.jobs import InMemoryJobRepository, QueueMessage, WorkerJob
+import nh_ad_worker.main as worker_main
 from nh_ad_worker.main import create_app
 from nh_ad_worker.runtime import JobRunner
 from nh_ad_worker.settings import Settings
@@ -149,7 +151,7 @@ def test_lifespan_supervises_runner_and_shutdown_closes_it() -> None:
     assert runner.closed
 
 
-def test_dead_or_unconfigured_consumer_never_reports_ready() -> None:
+def test_dead_or_missing_infrastructure_consumer_never_reports_ready() -> None:
     dead = LifecycleRunner(exit_immediately=True)
     dead_app = create_app(
         Settings(app_env="test"),
@@ -170,9 +172,30 @@ def test_dead_or_unconfigured_consumer_never_reports_ready() -> None:
             "consumer": "not_ready",
         }
 
-    unconfigured_app = create_app(Settings(app_env="test"), StubReadiness())
-    with TestClient(unconfigured_app) as client:
+    missing_infrastructure_app = create_app(Settings(app_env="test"), StubReadiness())
+    with TestClient(missing_infrastructure_app) as client:
         assert client.get("/health").status_code == 200
         response = client.get("/ready")
         assert response.status_code == 503
         assert response.json()["consumer"] == "not_ready"
+
+
+def test_default_production_factory_reports_ready_when_composed_consumer_is_live(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    runner = LifecycleRunner()
+    monkeypatch.setattr(worker_main, "compose_job_runner", lambda _settings, _router: runner)
+    app = create_app(Settings(app_env="test"), StubReadiness())
+
+    with TestClient(app) as client:
+        assert runner.started.wait(1)
+        response = client.get("/ready")
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ready",
+            "queue": "ready",
+            "consumer": "ready",
+        }
+
+    assert runner.stopped.is_set()
+    assert runner.closed

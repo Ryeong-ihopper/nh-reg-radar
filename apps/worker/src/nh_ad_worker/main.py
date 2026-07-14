@@ -113,16 +113,16 @@ def compose_job_runner(settings: Settings, router: ParserRouter) -> JobRunner:
     return JobRunner(queue, processor, repository)
 
 
-def unconfigured_production_runner(_: Settings) -> Runner:
-    """Fail closed until the manual external-engine lane supplies real adapters."""
+def production_runner(settings: Settings) -> Runner:
+    """Start infrastructure consumption without pretending a provider is configured."""
 
-    raise RunnerConfigurationError("PARSER_ADAPTER_NOT_CONFIGURED")
+    return compose_job_runner(settings, ParserRouter())
 
 
 def create_app(
     settings: Settings | None = None,
     queue_readiness: QueueReadiness | None = None,
-    runner_factory: RunnerFactory | None = unconfigured_production_runner,
+    runner_factory: RunnerFactory | None = production_runner,
 ) -> FastAPI:
     """Create probes around a supervised, dependency-injected job consumer."""
 

@@ -212,6 +212,46 @@ def test_active_processing_refreshes_heartbeat_until_completion() -> None:
     assert job.heartbeat_at == clock.value
 
 
+def test_unconfigured_parser_fails_claimed_job_without_leaving_it_running() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M4-NO-ADAPTER", fixture.review_id, source)
+    repository = InMemoryJobRepository([job])
+    dead_letters = InMemoryDeadLetterSink()
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter(),
+        ArtifactStore(
+            InMemoryArtifactStorage(),
+            InMemoryArtifactMetadataRepository(),
+            bucket="parser-artifacts",
+        ),
+        dead_letters,
+        worker_id="worker-no-adapter",
+        now=Clock(),
+    )
+
+    assert processor.process(message(job)) == "FAILED_FINAL"
+    assert job.status == "FAILED_FINAL"
+    assert job.review_status == "REVIEW_FAILED"
+    assert job.failed_reason_code == "PARSER_ADAPTER_NOT_CONFIGURED"
+    assert job.locked_by is None
+    assert dead_letters.messages == [
+        {
+            "messageVersion": "review-job-v1",
+            "jobId": job.job_id,
+            "reviewId": job.review_id,
+            "reasonCode": "PARSER_ADAPTER_NOT_CONFIGURED",
+        }
+    ]
+
+
 def test_queue_contract_rejects_raw_or_object_storage_fields() -> None:
     fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
     _processor, job, _repository, _clock, _dead_letters = setup(FixtureAdapter(fixture))

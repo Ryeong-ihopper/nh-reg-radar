@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from nh_ad_parser_contracts import (
+    AdapterNotConfigured,
     ArtifactMetadata,
     ArtifactStore,
     DocumentInput,
@@ -336,6 +337,18 @@ class ParserJobProcessor:
                     "jobId": message.job_id,
                     "reviewId": message.review_id,
                     "reasonCode": type(exc).__name__.upper(),
+                }
+            )
+            return "FAILED_FINAL"
+        except AdapterNotConfigured:
+            reason_code = "PARSER_ADAPTER_NOT_CONFIGURED"
+            self.repository.fail_final(job.job_id, now=now, reason_code=reason_code)
+            self.dead_letters.publish(
+                {
+                    "messageVersion": message.message_version,
+                    "jobId": message.job_id,
+                    "reviewId": message.review_id,
+                    "reasonCode": reason_code,
                 }
             )
             return "FAILED_FINAL"
