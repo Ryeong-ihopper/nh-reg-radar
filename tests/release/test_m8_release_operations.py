@@ -45,9 +45,7 @@ class FailingPublishQueue:
 
 
 class RecoveryRepository:
-    def recover_stale(
-        self, *, now: datetime, stale_before: datetime
-    ) -> list[QueueMessage]:
+    def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]:
         del now, stale_before
         return [
             QueueMessage(
@@ -100,9 +98,7 @@ def test_backend_health_security_headers_and_trace_are_release_safe(tmp_path: Pa
     assert health.status_code == 200
     assert health.json() == {"status": "ok", "service": "backend", "environment": "prod"}
     assert health.headers["x-request-id"] == "req-m8-health"
-    assert health.headers["strict-transport-security"] == (
-        "max-age=31536000; includeSubDomains"
-    )
+    assert health.headers["strict-transport-security"] == ("max-age=31536000; includeSubDomains")
     assert health.headers["content-security-policy"] == (
         "default-src 'self'; frame-ancestors 'none'"
     )
