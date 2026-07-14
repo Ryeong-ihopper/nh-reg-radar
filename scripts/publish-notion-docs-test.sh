@@ -7,8 +7,10 @@ cd "$ROOT"
 MODE="${1:---publish}"
 REPOSITORY="${GITHUB_REPOSITORY:-bhjeon-cginside/nh-ad-compliance}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
-SYNCED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-93}"
+EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-15}"
+EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-78}"
+EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 REQUEST_INTERVAL_SECONDS="${NOTION_REQUEST_INTERVAL_SECONDS:-0.4}"
 
 require_command() {
@@ -24,26 +26,91 @@ list_markdown_files() {
   git ls-files -- 'docs/*.md' 'docs/**/*.md' | LC_ALL=C sort
 }
 
+list_general_files() {
+  printf '%s\n' \
+    docs/requirements-definition.md \
+    docs/functional-specification.md \
+    docs/screen-specification.md \
+    docs/screen-api-mapping.md \
+    docs/api-specification.md \
+    docs/api-contract-sync-policy.md \
+    docs/database-specification.md \
+    docs/test-cases.md \
+    docs/project-rules.md \
+    docs/adr-candidates.md \
+    docs/development-schedule-and-notion-kanban.md \
+    docs/reference-repositories.md \
+    docs/poc-kpi-formulas.md \
+    docs/poc-evaluation-exclusion-criteria.md \
+    docs/risk-assessment-criteria.md
+}
+
+list_adr_files() {
+  printf '%s\n' docs/adr/README.md docs/adr/decision-questions.md
+  git ls-files -- 'docs/adr/ADR-*.md' | LC_ALL=C sort
+}
+
 count_non_markdown_files() {
   git ls-files docs | awk '!/\.md$/ { count += 1 } END { print count + 0 }'
+}
+
+source_title() {
+  sed -n '1s/^# //p' "$1"
+}
+
+adr_order() {
+  local source_path="$1"
+
+  case "$source_path" in
+    docs/adr/README.md) printf '00\n' ;;
+    docs/adr/decision-questions.md) printf '01\n' ;;
+    *) basename "$source_path" | sed -E 's/^(ADR-[0-9]{4}).*/\1/' ;;
+  esac
+}
+
+display_title() {
+  local section="$1"
+  local order="$2"
+  local source_path="$3"
+  local title
+
+  title="$(source_title "$source_path")"
+  if [ "$section" = "general" ] || [ "$order" = "00" ] || [ "$order" = "01" ]; then
+    printf '%s. %s\n' "$order" "$title"
+  else
+    printf '%s\n' "$title"
+  fi
+}
+
+print_manifest() {
+  local source_path
+  local order=0
+  local order_label
+
+  while IFS= read -r source_path; do
+    order=$((order + 1))
+    order_label="$(printf '%02d' "$order")"
+    printf 'general\t%s\t%s\t%s\n' \
+      "$order_label" "$source_path" "$(display_title general "$order_label" "$source_path")"
+  done < <(list_general_files)
+
+  while IFS= read -r source_path; do
+    order_label="$(adr_order "$source_path")"
+    printf 'adr\t%s\t%s\t%s\n' \
+      "$order_label" "$source_path" "$(display_title adr "$order_label" "$source_path")"
+  done < <(list_adr_files)
 }
 
 render_markdown() {
   local source_path="$1"
   local source_dir
-  local source_url
 
   source_dir="$(dirname "$source_path")"
-  source_url="https://github.com/$REPOSITORY/blob/$COMMIT_SHA/$source_path"
 
-  SOURCE_PATH="$source_path" \
-    SOURCE_DIR="$source_dir" \
-    SOURCE_URL="$source_url" \
+  SOURCE_DIR="$source_dir" \
     REPOSITORY="$REPOSITORY" \
     COMMIT_SHA="$COMMIT_SHA" \
-    SYNCED_AT="$SYNCED_AT" \
     perl -0777 -pe '
-      s{\A(# [^\n]+\n)}{$1 . "\n> Git `main`의 `$ENV{SOURCE_PATH}`에서 자동 배포된 열람용 문서입니다. 변경 요청은 Notion 페이지 댓글로 남기고, 원문 변경은 Git PR로 반영합니다.\n>\n> 원본: $ENV{SOURCE_URL}  \n> 커밋: `$ENV{COMMIT_SHA}`  \n> 동기화: $ENV{SYNCED_AT}\n\n"}e;
       s{\]\((?!https?://|mailto:|#)([^)#]+\.md)(#[^)]+)?\)}{
         my $link = $1;
         my $anchor = defined($2) ? $2 : "";
@@ -56,12 +123,31 @@ render_markdown() {
 
 validate_selection() {
   local selected_count
+  local general_count
+  local adr_count
   local source_path
   local title
 
   selected_count="$(list_markdown_files | wc -l | tr -d ' ')"
+  general_count="$(list_general_files | wc -l | tr -d ' ')"
+  adr_count="$(list_adr_files | wc -l | tr -d ' ')"
+
   if [ "$selected_count" -ne "$EXPECTED_MARKDOWN_COUNT" ]; then
     echo "expected $EXPECTED_MARKDOWN_COUNT Markdown files, found $selected_count" >&2
+    exit 1
+  fi
+  if [ "$general_count" -ne "$EXPECTED_GENERAL_COUNT" ]; then
+    echo "expected $EXPECTED_GENERAL_COUNT general documents, found $general_count" >&2
+    exit 1
+  fi
+  if [ "$adr_count" -ne "$EXPECTED_ADR_COUNT" ]; then
+    echo "expected $EXPECTED_ADR_COUNT ADR documents, found $adr_count" >&2
+    exit 1
+  fi
+  if ! diff -u \
+    <(list_markdown_files) \
+    <(printf '%s\n' "$(list_general_files)" "$(list_adr_files)" | LC_ALL=C sort) >/dev/null; then
+    echo "publication manifest does not cover the tracked Markdown set" >&2
     exit 1
   fi
 
@@ -77,6 +163,8 @@ validate_selection() {
   done < <(list_markdown_files)
 
   printf 'selected_markdown_count=%s\n' "$selected_count"
+  printf 'general_markdown_count=%s\n' "$general_count"
+  printf 'adr_markdown_count=%s\n' "$adr_count"
   printf 'excluded_non_markdown_count=%s\n' "$(count_non_markdown_files)"
 }
 
@@ -105,47 +193,102 @@ set_page_title() {
   throttle
 }
 
-append_root_index() {
-  local root_page_id="$1"
-  local result_jsonl="$2"
-  local selected_count="$3"
-  local expected_block_count=$((selected_count + 2))
+append_divider() {
+  local parent_page_id="$1"
 
-  jq -s --arg commit_sha "$COMMIT_SHA" \
-    '{children:
-      ([
-        {object:"block",type:"heading_2",heading_2:{rich_text:[{type:"text",text:{content:"게시 문서"}}]}},
-        {object:"block",type:"paragraph",paragraph:{rich_text:[{type:"text",text:{content:("게시 및 검증 완료: " + (length | tostring) + "개, commit " + $commit_sha)}}]}}
-      ] + map(
-        {object:"block",type:"bulleted_list_item",bulleted_list_item:{rich_text:[
-          {type:"text",text:{content:.source_path,link:{url:.page_url}}}
-        ]}}
-      ))}' \
-    "$result_jsonl" \
-    | ntn api "v1/blocks/$root_page_id/children" -X PATCH --data @- \
-    | jq -e --argjson expected "$expected_block_count" \
-      '(.results | length) == $expected' >/dev/null
+  jq -n '{children:[{object:"block",type:"divider",divider:{}}]}' \
+    | ntn api "v1/blocks/$parent_page_id/children" -X PATCH --data @- \
+    | jq -e '.results | length == 1 and .[0].type == "divider"' >/dev/null
   throttle
 }
 
-publish_documents() {
-  local result_jsonl
-  local root_markdown
-  local temp_dir
-  local root_response
-  local root_page_id
-  local root_page_url
-  local source_path
-  local title
+validate_empty_parent() {
+  local parent_page_id="$1"
+  local page_response
+  local children_response
+
+  page_response="$(ntn api "v1/pages/$parent_page_id" </dev/null)"
+  jq -e --arg title "$EXPECTED_PARENT_TITLE" \
+    '(.properties.title.title[0].plain_text // "") == $title and .in_trash == false' \
+    <<<"$page_response" >/dev/null
+
+  children_response="$(ntn api "v1/blocks/$parent_page_id/children" page_size==100 </dev/null)"
+  jq -e '.has_more == false and (.results | length) == 0' <<<"$children_response" >/dev/null
+  jq -er '.url' <<<"$page_response"
+}
+
+create_container_page() {
+  local parent_page_id="$1"
+  local title="$2"
+  local response
+
+  response="$(printf '# %s\n' "$title" | ntn pages create --parent "page:$parent_page_id" --json)"
+  set_page_title "$(jq -er '.id' <<<"$response")" "$title"
+  printf '%s\n' "$response"
+}
+
+publish_document() {
+  local section="$1"
+  local order="$2"
+  local source_path="$3"
+  local title="$4"
+  local parent_page_id="$5"
+  local result_jsonl="$6"
   local page_response
   local page_id
   local page_url
   local verification
+  local content_probe
   local source_hash
-  local index=0
-  local selected_count
-  local test_label
-  local root_title
+
+  echo "publishing [$section/$order] $source_path"
+  page_response="$(render_markdown "$source_path" \
+    | ntn pages create --parent "page:$parent_page_id" --json)"
+  page_id="$(jq -er '.id' <<<"$page_response")"
+  page_url="$(jq -er '.url' <<<"$page_response")"
+  throttle
+
+  set_page_title "$page_id" "$title"
+  lock_page "$page_id"
+  verification="$(ntn pages get "$page_id" --json)"
+  throttle
+
+  content_probe="$(awk 'NR > 1 && NF {print; exit}' "$source_path")"
+  jq -e \
+    --arg title "$title" \
+    --arg content_probe "$content_probe" \
+    '.page.is_locked == true
+      and .page.properties.title.title[0].plain_text == $title
+      and .markdown.truncated == false
+      and (.markdown.unknown_block_ids | length == 0)
+      and (.markdown.markdown | contains($content_probe))' \
+    <<<"$verification" >/dev/null
+
+  source_hash="$(shasum -a 256 "$source_path" | awk '{print $1}')"
+  jq -cn \
+    --arg section "$section" \
+    --arg order "$order" \
+    --arg source_path "$source_path" \
+    --arg display_title "$title" \
+    --arg source_sha256 "$source_hash" \
+    --arg page_id "$page_id" \
+    --arg page_url "$page_url" \
+    '{section:$section,order:$order,source_path:$source_path,display_title:$display_title,source_sha256:$source_sha256,page_id:$page_id,page_url:$page_url,is_locked:true}' \
+    >>"$result_jsonl"
+}
+
+publish_documents() {
+  local temp_dir
+  local result_jsonl
+  local root_page_url
+  local adr_response
+  local adr_page_id
+  local adr_page_url
+  local section
+  local order
+  local source_path
+  local title
+  local published_count
 
   require_command jq
   require_command ntn
@@ -155,90 +298,61 @@ publish_documents() {
   : "${NOTION_API_TOKEN:?NOTION_API_TOKEN is required}"
   : "${NOTION_PARENT_PAGE_ID:?NOTION_PARENT_PAGE_ID is required}"
 
-  selected_count="$(list_markdown_files | wc -l | tr -d ' ')"
-  test_label="${GITHUB_RUN_ID:-local}-$(printf '%.8s' "$COMMIT_SHA")"
-  root_title="Git Docs Sync Test $test_label"
+  root_page_url="$(validate_empty_parent "$NOTION_PARENT_PAGE_ID")"
   temp_dir="$(mktemp -d)"
   result_jsonl="$temp_dir/results.jsonl"
-  root_markdown="$temp_dir/root.md"
   trap "rm -rf '$temp_dir'" EXIT
 
-  printf '# Git Docs Sync Test %s\n\n' "$test_label" >"$root_markdown"
-  printf 'Git `docs/**/*.md` 단방향 게시 테스트입니다.\n\n' >>"$root_markdown"
-  printf -- '- 대상 커밋: `%s`\n- Markdown: %s개\n- 제외: HWP/PDF/PNG/YAML 등 비 Markdown 파일\n' \
-    "$COMMIT_SHA" "$selected_count" >>"$root_markdown"
+  while IFS=$'\t' read -r section order source_path title; do
+    publish_document "$section" "$order" "$source_path" "$title" \
+      "$NOTION_PARENT_PAGE_ID" "$result_jsonl"
+  done < <(print_manifest | awk -F '\t' '$1 == "general"')
 
-  root_response="$(ntn pages create --parent "page:$NOTION_PARENT_PAGE_ID" --json <"$root_markdown")"
-  root_page_id="$(jq -er '.id' <<<"$root_response")"
-  root_page_url="$(jq -er '.url' <<<"$root_response")"
+  append_divider "$NOTION_PARENT_PAGE_ID"
+  adr_response="$(create_container_page "$NOTION_PARENT_PAGE_ID" '16. ADR')"
+  adr_page_id="$(jq -er '.id' <<<"$adr_response")"
+  adr_page_url="$(jq -er '.url' <<<"$adr_response")"
   throttle
 
-  while IFS= read -r source_path; do
-    index=$((index + 1))
-    echo "[$index/$selected_count] publishing $source_path"
+  while IFS=$'\t' read -r section order source_path title; do
+    publish_document "$section" "$order" "$source_path" "$title" \
+      "$adr_page_id" "$result_jsonl"
+  done < <(print_manifest | awk -F '\t' '$1 == "adr"')
 
-    page_response="$(render_markdown "$source_path" \
-      | ntn pages create --parent "page:$root_page_id" --json)"
-    page_id="$(jq -er '.id' <<<"$page_response")"
-    page_url="$(jq -er '.url' <<<"$page_response")"
-    title="$(sed -n '1s/^# //p' "$source_path")"
-    throttle
-
-    set_page_title "$page_id" "$title"
-    lock_page "$page_id"
-    verification="$(ntn pages get "$page_id" --json)"
-    throttle
-
-    jq -e \
-      --arg source_path "$source_path" \
-      --arg commit_sha "$COMMIT_SHA" \
-      --arg title "$title" \
-      '.page.is_locked == true
-        and .page.properties.title.title[0].plain_text == $title
-        and .markdown.truncated == false
-        and (.markdown.unknown_block_ids | length == 0)
-        and (.markdown.markdown | contains($source_path))
-        and (.markdown.markdown | contains($commit_sha))' \
-      <<<"$verification" >/dev/null
-
-    source_hash="$(shasum -a 256 "$source_path" | awk '{print $1}')"
-    jq -cn \
-      --arg source_path "$source_path" \
-      --arg source_title "$title" \
-      --arg source_sha256 "$source_hash" \
-      --arg page_id "$page_id" \
-      --arg page_url "$page_url" \
-      '{source_path:$source_path,source_title:$source_title,source_sha256:$source_sha256,page_id:$page_id,page_url:$page_url,is_locked:true}' \
-      >>"$result_jsonl"
-  done < <(list_markdown_files)
-
-  append_root_index "$root_page_id" "$result_jsonl" "$selected_count"
-  set_page_title "$root_page_id" "$root_title"
-  lock_page "$root_page_id"
+  lock_page "$adr_page_id"
+  lock_page "$NOTION_PARENT_PAGE_ID"
 
   jq -s \
-    --arg root_page_id "$root_page_id" \
+    --arg root_page_id "$NOTION_PARENT_PAGE_ID" \
     --arg root_page_url "$root_page_url" \
+    --arg adr_page_id "$adr_page_id" \
+    --arg adr_page_url "$adr_page_url" \
     --arg commit_sha "$COMMIT_SHA" \
-    '{root_page_id:$root_page_id,root_page_url:$root_page_url,commit_sha:$commit_sha,published_count:length,pages:.}' \
+    --argjson general_count "$EXPECTED_GENERAL_COUNT" \
+    --argjson adr_count "$EXPECTED_ADR_COUNT" \
+    '{root_page_id:$root_page_id,root_page_url:$root_page_url,adr_page_id:$adr_page_id,adr_page_url:$adr_page_url,commit_sha:$commit_sha,published_count:length,general_count:$general_count,adr_count:$adr_count,pages:.}' \
     "$result_jsonl" >notion-publish-test-result.json
 
+  published_count="$(jq -r '.published_count' notion-publish-test-result.json)"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
     printf 'root_page_url=%s\n' "$root_page_url" >>"$GITHUB_OUTPUT"
-    printf 'published_count=%s\n' "$selected_count" >>"$GITHUB_OUTPUT"
+    printf 'adr_page_url=%s\n' "$adr_page_url" >>"$GITHUB_OUTPUT"
+    printf 'published_count=%s\n' "$published_count" >>"$GITHUB_OUTPUT"
   fi
 
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
-      printf '## Notion 문서 게시 테스트\n\n'
-      printf -- '- 루트 페이지: [%s](%s)\n' "$test_label" "$root_page_url"
-      printf -- '- 게시 및 검증: %s개\n' "$selected_count"
+      printf '## Notion 개발 문서 게시 테스트\n\n'
+      printf -- '- 개발 문서: [%s](%s)\n' "$EXPECTED_PARENT_TITLE" "$root_page_url"
+      printf -- '- 일반 문서: %s개\n' "$EXPECTED_GENERAL_COUNT"
+      printf -- '- ADR 문서: %s개\n' "$EXPECTED_ADR_COUNT"
       printf -- '- 제외: 비 Markdown 파일 %s개\n' "$(count_non_markdown_files)"
     } >>"$GITHUB_STEP_SUMMARY"
   fi
 
   printf 'root_page_url=%s\n' "$root_page_url"
-  printf 'published_count=%s\n' "$selected_count"
+  printf 'adr_page_url=%s\n' "$adr_page_url"
+  printf 'published_count=%s\n' "$published_count"
 
   rm -rf "$temp_dir"
   trap - EXIT
@@ -249,6 +363,10 @@ require_command git
 case "$MODE" in
   --dry-run)
     validate_selection
+    ;;
+  --manifest)
+    validate_selection >/dev/null
+    print_manifest
     ;;
   --render)
     if [ "$#" -ne 2 ] || [ ! -f "$2" ]; then
@@ -262,7 +380,7 @@ case "$MODE" in
     publish_documents
     ;;
   *)
-    echo "usage: $0 [--dry-run | --render <docs/file.md> | --publish]" >&2
+    echo "usage: $0 [--dry-run | --manifest | --render <docs/file.md> | --publish]" >&2
     exit 1
     ;;
 esac

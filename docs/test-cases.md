@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.2 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-07-14 | Notion 게시 테스트를 번호형 일반 문서 15개와 하단 ADR 계층 78개 구조로 변경하고 본문 배포 안내 및 중복 목록 미생성 검증 추가 |
 | v1.1 | 2026-07-14 | Git `docs/` Markdown 93개 Notion 수동 게시 테스트의 대상 선별, 원본 commit 추적, 잠금 및 내용 완전성 검증 케이스 추가 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/Parser/OCR/RAG/평가 snapshot 테스트 기준 보강 |
 
@@ -25,7 +26,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.2 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v0.2, DB 명세서 v0.1 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -543,12 +544,13 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
 | TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 93개가 선택되고 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
-| TC-NFR-DOC-002 | 원본 추적 정보 | 게시된 임의 문서의 상단 안내와 링크 확인 | Git 원본 경로, 대상 commit SHA, commit 고정 GitHub 원문 링크가 존재하고 상대 Markdown 링크가 해당 commit 절대 링크로 변환됨 | P0 |
-| TC-NFR-DOC-003 | 실행별 격리 | 같은 대상 commit으로 수동 테스트를 두 번 실행 | 기존 페이지를 변경하지 않고 서로 다른 테스트 루트와 하위 페이지가 생성됨 | P1 |
-| TC-NFR-DOC-004 | 페이지 잠금 | 모든 문서와 테스트 루트 게시 완료 후 API 조회 | 문서 93개와 테스트 루트의 `is_locked`가 모두 `true`임 | P0 |
-| TC-NFR-DOC-005 | 게시 내용 완전성 | 게시 후 각 문서를 Markdown으로 재조회 | 모든 문서가 `truncated=false`이고 알 수 없는 block이 없으며 원본 경로와 commit marker를 포함함 | P0 |
-| TC-NFR-DOC-006 | 결과 추적 | GitHub Actions 완료 후 summary와 JSON artifact 확인 | 테스트 루트 URL, 대상 commit, 게시 성공 수 93개 및 페이지별 ID·URL·잠금 상태를 확인할 수 있음 | P1 |
+| TC-NFR-DOC-002 | 대상 페이지 사전조건 | 하위 block이 있거나 제목이 다른 부모 페이지로 게시 실행 | 제목이 `개발 문서`이고 비어 있는 페이지가 아니면 게시 전 실패함 | P0 |
+| TC-NFR-DOC-003 | 번호와 ADR 계층 | 게시 후 `개발 문서`와 `16. ADR` 하위 block 조회 | 일반 문서 15개가 `01`~`15` 순서로 표시되고 구분선 다음 마지막 `16. ADR` 아래에 ADR 문서 78개가 표시됨 | P0 |
+| TC-NFR-DOC-004 | 문서 본문과 링크 | 게시된 임의 문서의 본문과 링크 확인 | Git 문서 내용만 표시되고 배포 안내·별도 목록이 없으며 상대 Markdown 링크는 대상 commit GitHub 절대 링크로 변환됨 | P0 |
+| TC-NFR-DOC-005 | 페이지 잠금 | 게시 완료 후 전체 페이지 API 조회 | 문서 93개, `16. ADR`, `개발 문서`의 `is_locked`가 모두 `true`임 | P0 |
+| TC-NFR-DOC-006 | 게시 내용 완전성 | 게시 후 각 문서를 Markdown으로 재조회 | 모든 문서의 번호형 제목과 본문 대표 구문이 일치하고 `truncated=false`, 알 수 없는 block 0건임 | P0 |
 | TC-NFR-DOC-007 | Secret 비노출 | GitHub Actions 로그와 결과 artifact 점검 | `NOTION_API_TOKEN` 값이 로그, Markdown 페이지, JSON artifact에 포함되지 않음 | P0 |
+| TC-NFR-DOC-008 | 결과 추적 | GitHub Actions 완료 후 summary와 JSON artifact 확인 | 대상 commit, 일반/ADR 게시 수, 원본 경로·SHA-256, page ID/URL, 잠금 상태를 확인할 수 있음 | P1 |
 
 ---
 
