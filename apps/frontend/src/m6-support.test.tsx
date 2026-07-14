@@ -83,7 +83,8 @@ test("registers an uploaded revision before comparison and reanalysis", async ()
   fireEvent.change(screen.getByLabelText("수정 메모"), { target: { value: "확정 표현 완화" } });
   const file = new File(["png"], "revised.png", { type: "image/png" });
   fireEvent.change(screen.getByLabelText("수정 광고 파일"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "수정본 등록 후 비교·재검토" }));
+  const submit = screen.getByRole("button", { name: "수정본 등록 후 비교·재검토" });
+  fireEvent.submit(submit.closest("form") as HTMLFormElement);
 
   expect(await screen.findByText("REVISION-M6-2")).toBeInTheDocument();
   expect(screen.getByText("REV-M6-2")).toBeInTheDocument();
