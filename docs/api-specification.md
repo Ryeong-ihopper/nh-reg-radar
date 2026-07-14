@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.10 |
+| 현행 버전 | v1.11 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.11 | 2026-07-15 | M8 OpenAPI v0.8.0 수정본 multipart 등록, 생성 client 비교·재검토 연계와 restart-safe M6 runtime 계약 반영 |
 | v1.10 | 2026-07-15 | G008 M7 provider-free Validation backend의 정확히 5개 runtime route, 권한·감사, 불변 snapshot/hash 및 저장 KPI 응답 실행 증거 반영 |
 | v1.9 | 2026-07-14 | G008 M7 Validation OpenAPI v0.7.0의 정확히 5개 operation, DB 원천 version, 불변 평가 snapshot과 저장 KPI 응답 계약 잠금 반영 |
 | v1.8 | 2026-07-14 | G007 M6 support output OpenAPI v0.6.0의 문구 추천·근거 고정 Q&A·의견 초안·불변 HWPX/PDF snapshot·수정 비교 계약 잠금 반영 |
@@ -2637,6 +2638,12 @@ M7 원천 계약은 `openapi/openapi.yaml` v0.7.0이며 Validation 영역에 정
 `nh_ad_backend.validation`과 `nh_ad_backend.validation_api`가 위 5개 operation만 runtime에 설치한다. 데이터셋·담당자 판단·평가 생성은 준법감시자, 기준 관리자 또는 관리자 권한으로 제한하고 생성 감사 로그를 남긴다. 평가 생성은 현재 DB 원천과 `LATEST_COMPLETED` 검토 결과를 canonical UTF-8 JSON snapshot으로 고정해 SHA-256을 계산하며, 이후 같은 `evaluationId` 조회는 현재 정답지가 아니라 저장 snapshot과 KPI row를 반환한다.
 
 실행 증거는 `apps/backend/tests/test_m7_validation_api.py`의 권한·감사·version·불변성 검증과 `apps/backend/tests/test_m7_kpi.py`의 분자/분모·1/0.5/0·제외·분모 0 검증으로 유지한다. runtime/static OpenAPI parity와 정확히 5개 operation 경계는 `apps/backend/tests/test_backend_health.py` 및 `tests/api_contract/m7_contract.test.mjs`가 잠근다.
+
+## 17.12 M8 수정본·지원 산출물 runtime
+
+OpenAPI v0.8.0은 기존 M0~M7 operation을 보존하고 `POST /api/v1/advertisements/{advertisementId}/revisions`를 실행 계약에 추가한다. 요청은 `multipart/form-data`의 필수 `revisedAdvertisementFile`과 선택 `revisionMemo`이며, 201 응답의 `AdvertisementRevision.revisionId`는 이후 `ComparisonRequest.revisionId`에 사용한다. 생성 TypeScript client와 S-013 화면은 수정본 등록→비교→`POST /reviews/{baseReviewId}/rerun` 순서를 보장한다.
+
+지원 산출물 API는 PostgreSQL repository를 사용하며 fresh repository/FastAPI app 재시작 후에도 동일 report/comparison을 조회·다운로드한다. 다운로드 payload는 저장 canonical snapshot에서 복원되고 `snapshotHash` 및 PDF `sourceReportId` linkage가 바뀌지 않는다. 비교 생성은 base review와 revision 모두 요청 광고물에 속하는지 확인하며, scope 밖 접근과 역할 제한은 403, 존재하지 않거나 다른 광고물의 revision은 404로 처리한다. 모든 mutation과 다운로드는 기존 trace ID와 actor/department/role 감사 경계를 유지한다.
 
 ---
 

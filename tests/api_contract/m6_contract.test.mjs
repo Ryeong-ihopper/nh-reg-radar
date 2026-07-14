@@ -56,8 +56,6 @@ test('TC-RPT-001..013 and TC-CMP-001..007: snapshots and structural comparison o
   assert.equal(fixture.networkAllowed, false);
   assert.equal(fixture.provider, null);
   assert.deepEqual(fixture.comparison.statuses, ['RESOLVED', 'UNRESOLVED', 'NEW_ISSUE']);
-  assert.equal(document.paths['/advertisements/{advertisementId}/revisions'].post.operationId, 'createAdvertisementRevision');
-  assert.equal(document.paths['/advertisements/{advertisementId}/revisions'].post.responses['201'].content['application/json'].schema.$ref, '#/components/schemas/AdvertisementRevisionCreated');
 });
 
 test('TC-CMP-008..011: a stored multipart revision is registered before comparison', async () => {

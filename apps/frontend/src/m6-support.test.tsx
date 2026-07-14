@@ -83,14 +83,15 @@ test("registers an uploaded revision before comparison and reanalysis", async ()
   fireEvent.change(screen.getByLabelText("수정 메모"), { target: { value: "확정 표현 완화" } });
   const file = new File(["png"], "revised.png", { type: "image/png" });
   fireEvent.change(screen.getByLabelText("수정 광고 파일"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "수정본 등록 후 비교·재검토" }));
+  const submit = screen.getByRole("button", { name: "수정본 등록 후 비교·재검토" });
+  fireEvent.submit(submit.closest("form") as HTMLFormElement);
 
   expect(await screen.findByText("REVISION-M6-2")).toBeInTheDocument();
   expect(screen.getByText("REV-M6-2")).toBeInTheDocument();
-  expect(calls.map((call) => call.url)).toEqual([
-    expect.stringEndingWith("/advertisements/ADV-M6/revisions"),
-    expect.stringEndingWith("/advertisements/ADV-M6/comparisons"),
-    expect.stringEndingWith("/reviews/REV-M6/rerun"),
+  expect(calls.map((call) => new URL(call.url, "http://test").pathname)).toEqual([
+    "/api/v1/advertisements/ADV-M6/revisions",
+    "/api/v1/advertisements/ADV-M6/comparisons",
+    "/api/v1/reviews/REV-M6/rerun",
   ]);
   const revisionBody = calls[0]?.init?.body;
   expect(revisionBody).toBeInstanceOf(FormData);

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.10 |
+| 현행 버전 | v1.11 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.11 | 2026-07-15 | M8 revision 동시 번호 직렬화, M6 PostgreSQL restart roundtrip과 additive 0008 runtime/readonly 권한 반영 |
 | v1.10 | 2026-07-15 | G008 M7 PostgreSQL runtime repository의 version 증가, 원자 평가 저장, canonical snapshot/hash 및 기존 평가 불변 조회 실행 증거 반영 |
 | v1.9 | 2026-07-14 | G008 M7 additive 0007 migration의 validation DB 원천 version, 승인 제외, immutable snapshot/hash 및 4개 KPI 저장 제약 반영 |
 | v1.8 | 2026-07-14 | G007 M6 additive 0006 migration의 추천 판단 이력, fixed-reference Q&A, 의견 초안, immutable report snapshot 및 수정 비교/re-analysis 제약 반영 |
@@ -280,6 +281,12 @@ M5 worker는 선택된 `NormalizedDocument`와 raw artifact metadata가 먼저 �
 | Scope exclusion | backend/frontend 실행, 외부 provider, network, credential은 M7 entry gate 범위가 아님 |
 
 M7 backend runtime은 `PostgresValidationRepository`를 통해 데이터셋·판단 version 증가와 평가·4개 KPI row 저장을 transaction 단위로 수행한다. 평가 조회는 현재 데이터셋/판단 row를 재계산하지 않고 `evaluations`의 snapshot과 `evaluation_metrics` 저장값을 반환한다. 실제 PostgreSQL roundtrip은 `apps/backend/tests/test_m7_postgres_repository.py`가 검증하고, clean 0001→0007 및 기존 0006→0007 upgrade는 `tests/integration/test_m7_database_contract.py`가 계속 잠근다.
+
+### M8 runtime privilege revision과 durability
+
+`0008_m8_support_privileges`는 `0007_m7_validation_kpi`를 상속하는 additive 권한 revision이며 0001~0007 schema를 수정하지 않는다. `app.suggestions`, `app.suggestion_decisions`, `app.opinion_drafts`, `app.reports`, `app.comparisons`, `app.comparison_items`와 `rag.qa_sessions`, `rag.qa_messages`, `rag.qa_message_evidences`에 runtime `app` CRUD와 `readonly` SELECT만 부여한다. QA 테이블은 `rag` schema 소유이므로 `app.*`로 잘못 qualification하지 않는다.
+
+`PostgresRepository.add_revision`은 대상 `advertisements` row를 `FOR UPDATE`로 잠그고 checksum 중복을 거부한 뒤 `MAX(revision_no)+1`을 배정한다. 따라서 같은 광고물의 동시 등록도 양의 연속 revision 번호를 가지며 revision/file/advertisement `REVISED` 상태가 한 transaction에 저장된다. `PostgresSupportRepository`는 M6 owner tables를 그대로 사용하고 report canonical payload, immutable hash, HWPX/PDF source linkage, comparison item을 재시작 이후에도 복원한다.
 
 ---
 

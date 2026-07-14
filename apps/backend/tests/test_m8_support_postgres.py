@@ -41,18 +41,10 @@ PNG = base64.b64decode(
 )
 
 
-def png_variant(label: str) -> bytes:
-    """Add a valid ancillary chunk so each synthetic upload has a distinct checksum."""
-
-    chunk_type = b"tEXt"
-    chunk_data = f"fixture\0{label}".encode()
-    chunk = (
-        len(chunk_data).to_bytes(4, "big")
-        + chunk_type
-        + chunk_data
-        + (zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF).to_bytes(4, "big")
-    )
-    return PNG[:-12] + chunk + PNG[-12:]
+def png_with_payload(payload: bytes) -> bytes:
+    chunk = len(payload).to_bytes(4, "big") + b"tEXt" + payload
+    chunk += (zlib.crc32(b"tEXt" + payload) & 0xFFFFFFFF).to_bytes(4, "big")
+    return PNG[:33] + chunk + PNG[-12:]
 
 
 def run(*command: str, env: dict[str, str] | None = None) -> None:
@@ -125,7 +117,9 @@ def postgres_url() -> Iterator[str]:
                 f"CREATE ROLE {role} {role_options}",
             )
         env = os.environ.copy()
-        env["NH_DB_MIGRATION_URL"] = raw_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        env["NH_DB_MIGRATION_URL"] = raw_url.replace(
+            "postgresql://", "postgresql+psycopg://", 1
+        )
         run(
             sys.executable,
             "-m",
@@ -227,7 +221,11 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         actor,
         advertisement.advertisement_id,
         revision_memo="확정 표현 완화",
-        upload=("revised.png", "image/png", __import__("io").BytesIO(png_variant("revision"))),
+        upload=(
+            "revised.png",
+            "image/png",
+            __import__("io").BytesIO(png_with_payload(b"revision")),
+        ),
         trace_id="req-m8-revision",
     )
     with engine.begin() as connection:
@@ -300,13 +298,12 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         advertisements=advertisements,
         now=lambda: now,
     )
-    assert (
-        restarted.list_suggestions(actor, review.review.review_id)[0]["decisionStatus"]
-        == "REJECTED"
-    )
-    assert (
-        restarted.drafts_for(actor, review.review.review_id)[0]["finalContent"] == "최종 검토 의견"
-    )
+    assert restarted.list_suggestions(actor, review.review.review_id)[0][
+        "decisionStatus"
+    ] == "REJECTED"
+    assert restarted.drafts_for(actor, review.review.review_id)[0][
+        "finalContent"
+    ] == "최종 검토 의견"
     stored_pdf = restarted.get_report(actor, pdf["reportId"])
     source = restarted.get_report(actor, stored_pdf["sourceReportId"])
     assert source["snapshotHash"] == stored_pdf["snapshotHash"] == pdf["snapshotHash"]
@@ -319,17 +316,11 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
     assert report_format == "PDF"
     assert f"sha256:{hashlib.sha256(canonical).hexdigest()}" == stored_pdf["snapshotHash"]
     assert restarted.get_comparison(actor, comparison["comparisonId"]) == comparison
-    assert (
-        base_repository.get_revision(revision.revision_id).advertisement_id
-        == advertisement.advertisement_id
-    )  # type: ignore[union-attr]
+    assert base_repository.get_revision(revision.revision_id).advertisement_id == advertisement.advertisement_id  # type: ignore[union-attr]
     with engine.connect() as connection:
-        assert (
-            connection.execute(
-                text("SELECT COUNT(*) FROM app.suggestion_decisions WHERE suggestion_id='SUG-M8'")
-            ).scalar_one()
-            == 2
-        )
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM app.suggestion_decisions WHERE suggestion_id='SUG-M8'")
+        ).scalar_one() == 2
         assert connection.execute(text("SELECT COUNT(*) FROM app.reports")).scalar_one() == 2
         assert connection.execute(text("SELECT COUNT(*) FROM app.comparisons")).scalar_one() == 1
 
@@ -430,7 +421,7 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
                 "ADVERTISEMENT",
                 "other.png",
                 "image/png",
-                __import__("io").BytesIO(png_variant("other")),
+                __import__("io").BytesIO(png_with_payload(b"other")),
             ),
         ),
         trace_id="req-m8-other",
@@ -442,7 +433,7 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         upload=(
             "other-revised.png",
             "image/png",
-            __import__("io").BytesIO(png_variant("other-revision")),
+            __import__("io").BytesIO(png_with_payload(b"other-revision")),
         ),
         trace_id="req-m8-other-revision",
     )
