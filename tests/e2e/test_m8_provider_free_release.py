@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -233,7 +233,7 @@ def _create_advertisement(harness: M8Harness, headers: dict[str, str]) -> dict[s
         files={"advertisementFile": ("synthetic.png", PNG, "image/png")},
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return cast(dict[str, Any], response.json())
 
 
 def _request_review(
@@ -245,7 +245,7 @@ def _request_review(
         json={"includeSuggestion": True, "includeOpinionDraft": True},
     )
     assert response.status_code == 202, response.text
-    return response.json()
+    return cast(dict[str, Any], response.json())
 
 
 def _complete_review(
