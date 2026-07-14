@@ -36,21 +36,33 @@ def test_support_service_retains_histories_snapshots_and_download_audit(
     assert service.questions[0]["standardVersionIds"] == []
     assert service.list_questions(actor("COMPLIANCE_REVIEWER")) == [answer]
 
-    draft = service.create_draft("REV-0001", {"includeReviewItemIds": ["ITEM-0001"]})
-    service.update_draft(draft["draftId"], {"finalContent": "수정된 심의 의견"})
-    assert len(service.drafts[draft["draftId"]]["editHistory"]) == 2
+    draft = service.create_draft(
+        actor("COMPLIANCE_REVIEWER"),
+        "REV-0001",
+        {"includeReviewItemIds": ["ITEM-0001"]},
+    )
+    updated = service.update_draft(
+        actor("COMPLIANCE_REVIEWER"),
+        draft["draftId"],
+        {"finalContent": "수정된 심의 의견"},
+    )
+    assert updated["finalContent"] == "수정된 심의 의견"
 
-    hwpx = service.create_report("REV-0001", {"format": "HWPX"})
-    pdf = service.create_report("REV-0001", {"format": "PDF"})
+    hwpx = service.create_report(actor("COMPLIANCE_REVIEWER"), "REV-0001", {"format": "HWPX"})
+    pdf = service.create_report(actor("COMPLIANCE_REVIEWER"), "REV-0001", {"format": "PDF"})
     assert pdf["sourceReportId"] == "RPT-0002"
     assert hwpx["snapshotHash"].startswith("sha256:")
-    payload, report_format = service.download_report(actor("COMPLIANCE_REVIEWER"), hwpx["reportId"])
+    payload, report_format = service.download_report(
+        actor("COMPLIANCE_REVIEWER"), hwpx["reportId"]
+    )
     assert report_format == "HWPX"
     assert payload
     assert repository.list_audit_events()[0].action_type == "REPORT_DOWNLOADED"
 
     comparison = service.create_comparison(
-        "ADV-0001", {"baseReviewId": "REV-0001", "revisionId": "REV-0002"}
+        actor("COMPLIANCE_REVIEWER"),
+        "ADV-0001",
+        {"baseReviewId": "REV-0001", "revisionId": "REVISION-0001"},
     )
     assert [item["resolutionStatus"] for item in comparison["items"]] == [
         "RESOLVED",

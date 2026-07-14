@@ -47,7 +47,12 @@ from nh_ad_backend.standards import (
 )
 from nh_ad_backend.standards_postgres import PostgresStandardRepository
 from nh_ad_backend.storage import ObjectStorage, PrivateFileStorage
-from nh_ad_backend.support import SupportService
+from nh_ad_backend.support import (
+    InMemorySupportRepository,
+    PostgresSupportRepository,
+    SupportRepository,
+    SupportService,
+)
 from nh_ad_backend.validation import (
     InMemoryValidationRepository,
     PostgresValidationRepository,
@@ -100,6 +105,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         )
         result_repository: ResultRepository = PostgresResultRepository(engine)
         validation_repository: ValidationRepository = PostgresValidationRepository(engine)
+        support_repository: SupportRepository = PostgresSupportRepository(engine)
         review_queue: ReviewQueue = RedisReviewQueue(settings.redis_url, settings.review_queue_name)
         keyword_search: SearchBackend = OpenSearchBackend(
             settings.opensearch_endpoint,
@@ -129,6 +135,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         review_repository = InMemoryReviewRepository()
         result_repository = InMemoryResultRepository()
         validation_repository = InMemoryValidationRepository()
+        support_repository = InMemorySupportRepository()
         review_queue = InMemoryReviewQueue()
         keyword_search = InMemorySearchBackend("OPENSEARCH")
         vector_search = InMemorySearchBackend("QDRANT")
@@ -166,7 +173,12 @@ def build_services(settings: Settings) -> ApplicationServices:
         ),
         reviews=reviews,
         results=results,
-        support=SupportService(audit_sink=repository.add_audit_event),
+        support=SupportService(
+            support_repository,
+            audit_sink=repository.add_audit_event,
+            reviews=reviews,
+            advertisements=advertisements,
+        ),
         validation=ValidationService(
             validation_repository,
             reviews=reviews,
