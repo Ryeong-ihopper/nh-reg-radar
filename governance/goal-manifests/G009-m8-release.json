@@ -194,7 +194,7 @@
   "release_evidence": {
     "scope": "B1 E2E/release evidence only",
     "baseline_ancestor": "6827998",
-    "recorded_at": "2026-07-15T01:00:00Z",
+    "recorded_at": "2026-07-14T23:07:29Z",
     "revision_mode": "worker commit recorded by team integration history",
     "ac16_evidence": [
       "AC16.1",
@@ -214,7 +214,10 @@
       "B2 recovery/Compose proof",
       "B3 operations/security proof",
       "B4 independent verdict"
-    ]
+    ],
+    "recorded_at_kind": "verification_time_utc",
+    "fixture_clock": "2026-07-15T01:00:00Z",
+    "fixture_clock_kind": "synthetic_deterministic_time"
   },
   "test_cases": [
     {
