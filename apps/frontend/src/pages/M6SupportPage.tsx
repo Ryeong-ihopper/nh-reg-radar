@@ -151,7 +151,7 @@ export function ComparisonPage() {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const revisedAdvertisementFile = data.get("revisedAdvertisementFile");
-    if (!(revisedAdvertisementFile instanceof File) || revisedAdvertisementFile.size === 0) return;
+    if (typeof revisedAdvertisementFile === "string" || !revisedAdvertisementFile || revisedAdvertisementFile.size === 0) return;
     const revisionMemo = String(data.get("revisionMemo") ?? "").trim();
     createComparison.mutate({
       baseReviewId: String(data.get("baseReviewId")),
