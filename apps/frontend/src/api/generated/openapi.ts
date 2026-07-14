@@ -3280,7 +3280,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpinionDraft"];
+                    "application/json": components["schemas"]["OpinionDraft"][];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -3309,7 +3309,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpinionDraft"][];
+                    "application/json": components["schemas"]["OpinionDraft"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -1243,9 +1243,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/OpinionDraft"
+                $ref: "#/components/schemas/OpinionDraft"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1266,7 +1264,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OpinionDraft"
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpinionDraft"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
