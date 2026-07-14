@@ -24,7 +24,9 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertLess(fresh, restart)
         self.assertIn("NH_RUN_G011_DOCKER_REGRESSION=1", text)
         self.assertIn("G011_COLD_GATE_SECONDS", text)
+        self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
         self.assertIn("PROD_COLD_START_SECONDS", text)
+        self.assertLess(text.index("up -d --wait postgres"), text.index("up -d --wait\n"))
         self.assertIn("--fresh-project", text)
         self.assertIn("--with-restart-and-outages", text)
 

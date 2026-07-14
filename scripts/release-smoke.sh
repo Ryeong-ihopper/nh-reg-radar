@@ -153,20 +153,34 @@ run_g011_gate() {
 }
 
 run_fresh_start() {
-  local started elapsed
+  local started postgres_elapsed elapsed
   if [[ -n "$(project_resources "$project")" ]]; then
     printf 'fresh release project already has Docker resources: %s\n' "$project" >&2
     exit 1
   fi
   "${compose[@]}" config --quiet
   "${compose[@]}" build frontend backend worker
+
+  # A fresh PostgreSQL volume owns the one-time bootstrap critical path. Start
+  # it before memory-heavy search services so the proven 120-second G011 bound
+  # is meaningful rather than being distorted by concurrent image cold starts.
+  started=$SECONDS
+  timeout 120 "${compose[@]}" up -d --wait postgres
+  postgres_elapsed=$((SECONDS - started))
+  if ((postgres_elapsed > 120)); then
+    printf 'G011 fresh-volume bootstrap exceeded 120s: %ss\n' "$postgres_elapsed" >&2
+    exit 1
+  fi
+  wait_for_service_health postgres
+  printf 'G011_FRESH_VOLUME_SECONDS=%s\n' "$postgres_elapsed"
+
   started=$SECONDS
   timeout "$timeout_seconds" "${compose[@]}" up -d --wait
   elapsed=$((SECONDS - started))
   for service in frontend backend worker postgres redis minio qdrant opensearch; do
     wait_for_service_health "$service"
   done
-  printf 'PROD_COLD_START_SECONDS=%s\n' "$elapsed"
+  printf 'PROD_COLD_START_SECONDS=%s\n' "$((postgres_elapsed + elapsed))"
 }
 
 run_restart_and_outages() {
