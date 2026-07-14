@@ -8,19 +8,29 @@ import socket
 import subprocess
 import sys
 import time
+import zlib
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 
+from nh_ad_backend.api import ApplicationServices
 from nh_ad_backend.domain import CurrentUser
+from nh_ad_backend.main import create_app
 from nh_ad_backend.repository import PostgresRepository
 from nh_ad_backend.reviews import InMemoryReviewQueue, PostgresReviewRepository, ReviewService
-from nh_ad_backend.services import AdvertisementService, ServiceError
+from nh_ad_backend.search import HybridSearch, InMemorySearchBackend
+from nh_ad_backend.security import TokenService, hash_password
+from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
+from nh_ad_backend.settings import Settings
+from nh_ad_backend.standards import InMemoryStandardRepository, StandardService
 from nh_ad_backend.storage import PrivateFileStorage
 from nh_ad_backend.support import PostgresSupportRepository, SupportService
 
@@ -29,6 +39,12 @@ ROOT = Path(__file__).parents[3]
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+
+def png_with_payload(payload: bytes) -> bytes:
+    chunk = len(payload).to_bytes(4, "big") + b"tEXt" + payload
+    chunk += (zlib.crc32(b"tEXt" + payload) & 0xFFFFFFFF).to_bytes(4, "big")
+    return PNG[:33] + chunk + PNG[-12:]
 
 
 def run(*command: str, env: dict[str, str] | None = None) -> None:
@@ -127,6 +143,7 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
     now = datetime(2026, 7, 15, 1, 0, tzinfo=UTC)
     engine = create_engine(postgres_url, pool_pre_ping=True)
     with engine.begin() as connection:
+        password_hash = hash_password("SecurePassword!42", salt=b"0123456789abcdef")
         connection.execute(
             text(
                 "INSERT INTO app.departments (department_id,department_name) "
@@ -142,9 +159,11 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         connection.execute(
             text("""
                 INSERT INTO app.users
-                (user_id,auth_provider,user_name,email,department_id,user_status)
-                VALUES ('m8-user','LOCAL','M8 담당','m8@example.com','DPT-M8','ACTIVE')
-            """)
+                (user_id,auth_provider,user_name,email,password_hash,department_id,user_status)
+                VALUES ('m8-user','LOCAL','M8 담당','m8@example.com',:password_hash,
+                        'DPT-M8','ACTIVE')
+            """),
+            {"password_hash": password_hash},
         )
         connection.execute(
             text(
@@ -201,7 +220,11 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         actor,
         advertisement.advertisement_id,
         revision_memo="확정 표현 완화",
-        upload=("revised.png", "image/png", __import__("io").BytesIO(PNG + b"revision")),
+        upload=(
+            "revised.png",
+            "image/png",
+            __import__("io").BytesIO(png_with_payload(b"revision")),
+        ),
         trace_id="req-m8-revision",
     )
     with engine.begin() as connection:
@@ -300,6 +323,90 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         assert connection.execute(text("SELECT COUNT(*) FROM app.reports")).scalar_one() == 2
         assert connection.execute(text("SELECT COUNT(*) FROM app.comparisons")).scalar_one() == 1
 
+    def fresh_services() -> ApplicationServices:
+        fresh_repository = PostgresRepository(
+            engine, storage_provider="local", bucket="test"
+        )
+        fresh_advertisements = AdvertisementService(
+            fresh_repository, PrivateFileStorage(tmp_path / "objects")
+        )
+        fresh_reviews = ReviewService(
+            PostgresReviewRepository(engine), fresh_advertisements, InMemoryReviewQueue()
+        )
+        return ApplicationServices(
+            repository=fresh_repository,
+            auth=AuthService(
+                fresh_repository,
+                TokenService("m8-test-jwt-secret-with-more-than-thirty-two-characters"),
+            ),
+            advertisements=fresh_advertisements,
+            standards=StandardService(
+                InMemoryStandardRepository(),
+                HybridSearch(
+                    keyword=InMemorySearchBackend("OPENSEARCH"),
+                    vector=InMemorySearchBackend("QDRANT"),
+                ),
+            ),
+            reviews=fresh_reviews,
+            support=SupportService(
+                PostgresSupportRepository(engine),
+                audit_sink=fresh_repository.add_audit_event,
+                reviews=fresh_reviews,
+                advertisements=fresh_advertisements,
+            ),
+        )
+
+    settings = Settings(
+        app_env="test",
+        jwt_secret=SecretStr(
+            "m8-test-jwt-secret-with-more-than-thirty-two-characters"
+        ),
+        cors_allowed_origins="http://localhost:5173",
+        refresh_cookie_secure=False,
+    )
+    with TestClient(create_app(settings, fresh_services())) as first_app:
+        token = first_app.post(
+            "/api/v1/auth/login",
+            json={"email": "m8@example.com", "password": "SecurePassword!42"},
+        ).json()["accessToken"]
+        headers = {"Authorization": f"Bearer {token}"}
+        assert first_app.get(
+            f"/api/v1/reports/{pdf['reportId']}", headers=headers
+        ).json()["snapshotHash"] == pdf["snapshotHash"]
+    with TestClient(create_app(settings, fresh_services())) as restarted_app:
+        token = restarted_app.post(
+            "/api/v1/auth/login",
+            json={"email": "m8@example.com", "password": "SecurePassword!42"},
+        ).json()["accessToken"]
+        headers = {"Authorization": f"Bearer {token}"}
+        downloaded = restarted_app.get(
+            f"/api/v1/reports/{pdf['reportId']}/download", headers=headers
+        )
+        assert downloaded.status_code == 200 and downloaded.content == payload
+        assert restarted_app.get(
+            f"/api/v1/comparisons/{comparison['comparisonId']}", headers=headers
+        ).json() == comparison
+
+    def concurrent_revision(index: int) -> int:
+        stored = advertisements.create_revision(
+            actor,
+            advertisement.advertisement_id,
+            revision_memo=f"동시 수정 {index}",
+            upload=(
+                f"concurrent-{index}.png",
+                "image/png",
+                __import__("io").BytesIO(
+                    png_with_payload(f"concurrent-{index}".encode())
+                ),
+            ),
+            trace_id=f"req-m8-concurrent-{index}",
+        )
+        return stored.revision_no
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        revision_numbers = list(executor.map(concurrent_revision, (1, 2)))
+    assert sorted(revision_numbers) == [2, 3]
+
     second_advertisement = advertisements.create(
         actor,
         advertisement_name="M8 other",
@@ -308,14 +415,25 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         department_id="DPT-M8",
         channel_type=None,
         memo=None,
-        uploads=(("ADVERTISEMENT", "other.png", "image/png", __import__("io").BytesIO(PNG + b"other")),),
+        uploads=(
+            (
+                "ADVERTISEMENT",
+                "other.png",
+                "image/png",
+                __import__("io").BytesIO(png_with_payload(b"other")),
+            ),
+        ),
         trace_id="req-m8-other",
     )
     second_revision = advertisements.create_revision(
         actor,
         second_advertisement.advertisement_id,
         revision_memo=None,
-        upload=("other-revised.png", "image/png", __import__("io").BytesIO(PNG + b"other-revision")),
+        upload=(
+            "other-revised.png",
+            "image/png",
+            __import__("io").BytesIO(png_with_payload(b"other-revision")),
+        ),
         trace_id="req-m8-other-revision",
     )
     with pytest.raises(ServiceError) as raised:
