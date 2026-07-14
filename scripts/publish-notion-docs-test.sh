@@ -87,8 +87,21 @@ throttle() {
 lock_page() {
   local page_id="$1"
 
-  ntn api "v1/pages/$page_id" -X PATCH is_locked:=true \
+  jq -n '{is_locked:true}' \
+    | ntn api "v1/pages/$page_id" -X PATCH --data @- \
     | jq -e '.is_locked == true' >/dev/null
+  throttle
+}
+
+set_page_title() {
+  local page_id="$1"
+  local title="$2"
+
+  jq -n --arg title "$title" \
+    '{properties:{title:{type:"title",title:[{type:"text",text:{content:$title}}]}}}' \
+    | ntn api "v1/pages/$page_id" -X PATCH --data @- \
+    | jq -e --arg title "$title" \
+      '.properties.title.title[0].plain_text == $title' >/dev/null
   throttle
 }
 
@@ -100,6 +113,7 @@ publish_documents() {
   local root_page_id
   local root_page_url
   local source_path
+  local title
   local page_response
   local page_id
   local page_url
@@ -108,6 +122,7 @@ publish_documents() {
   local index=0
   local selected_count
   local test_label
+  local root_title
 
   require_command jq
   require_command ntn
@@ -119,6 +134,7 @@ publish_documents() {
 
   selected_count="$(list_markdown_files | wc -l | tr -d ' ')"
   test_label="${GITHUB_RUN_ID:-local}-$(printf '%.8s' "$COMMIT_SHA")"
+  root_title="Git Docs Sync Test $test_label"
   temp_dir="$(mktemp -d)"
   result_jsonl="$temp_dir/results.jsonl"
   root_markdown="$temp_dir/root.md"
@@ -142,8 +158,10 @@ publish_documents() {
       | ntn pages create --parent "page:$root_page_id" --json)"
     page_id="$(jq -er '.id' <<<"$page_response")"
     page_url="$(jq -er '.url' <<<"$page_response")"
+    title="$(sed -n '1s/^# //p' "$source_path")"
     throttle
 
+    set_page_title "$page_id" "$title"
     lock_page "$page_id"
     verification="$(ntn pages get "$page_id" --json)"
     throttle
@@ -151,7 +169,9 @@ publish_documents() {
     jq -e \
       --arg source_path "$source_path" \
       --arg commit_sha "$COMMIT_SHA" \
+      --arg title "$title" \
       '.page.is_locked == true
+        and .page.properties.title.title[0].plain_text == $title
         and .markdown.truncated == false
         and (.markdown.unknown_block_ids | length == 0)
         and (.markdown.markdown | contains($source_path))
@@ -161,10 +181,11 @@ publish_documents() {
     source_hash="$(shasum -a 256 "$source_path" | awk '{print $1}')"
     jq -cn \
       --arg source_path "$source_path" \
+      --arg source_title "$title" \
       --arg source_sha256 "$source_hash" \
       --arg page_id "$page_id" \
       --arg page_url "$page_url" \
-      '{source_path:$source_path,source_sha256:$source_sha256,page_id:$page_id,page_url:$page_url,is_locked:true}' \
+      '{source_path:$source_path,source_title:$source_title,source_sha256:$source_sha256,page_id:$page_id,page_url:$page_url,is_locked:true}' \
       >>"$result_jsonl"
   done < <(list_markdown_files)
 
@@ -178,6 +199,7 @@ publish_documents() {
 
   ntn pages edit "$root_page_id" --json <"$root_markdown" >/dev/null
   throttle
+  set_page_title "$root_page_id" "$root_title"
   lock_page "$root_page_id"
 
   jq -s \
