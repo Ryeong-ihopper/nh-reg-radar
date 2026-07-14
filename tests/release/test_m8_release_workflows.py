@@ -44,7 +44,7 @@ def test_external_engine_workflow_is_manual_sanitized_and_non_blocking() -> None
     assert "pull_request:" not in workflow
     assert "push:" not in workflow
     assert "environment: external-ai-manual" in workflow
-    assert "pytest -m external_ai" in workflow
+    assert "python -m pytest -m external_ai" in workflow
     assert "external-ai-evidence.json" in workflow
     assert 'environment_mode": "manual_external_ai"' in workflow
     assert "provider_label" in workflow
@@ -52,6 +52,9 @@ def test_external_engine_workflow_is_manual_sanitized_and_non_blocking() -> None
     assert "config_fingerprint" in workflow
     assert "dataset_id" in workflow
     assert "steps.metadata.outcome == 'success'" in workflow
+    assert '"passed": max(' in workflow
+    assert '"failed": counts["failures"] + counts["errors"]' in workflow
+    assert '"skipped": counts["skipped"]' in workflow
 
     evidence_block = workflow.split("Create sanitized evidence", maxsplit=1)[1]
     evidence_block = evidence_block.split("Upload sanitized evidence", maxsplit=1)[0]

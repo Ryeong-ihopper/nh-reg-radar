@@ -719,6 +719,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 | 검증 범위 | 실행/증거 | 기대 결과 |
 | --- | --- | --- |
+| Provider-free E2E 4종 | `uv run pytest tests/e2e -q`, `governance/goal-manifests/G009-m8-release.json` | E2E-001~004가 4 passed/0 failed/0 skipped이고 AC16.1~16.4 및 실제 25개 TC node에 연결됨. manifest SHA-256 `db7d44419f3e0c90319d2422de5406a934891eca2c341f772a083365cbae148a`, executable SHA-256 `c457aea1564854695f314b945331b81a5d0336c43d2c691a5be7ddaaef76d302`, fixture SHA-256 `b7467261128143d46328b8f0fe81f783ee7bce78d102d35d2d5002be46e74b3a` |
 | Provider-free release workflow | `.github/workflows/release-readiness.yml`, `tests/release/test_m8_release_workflows.py` | PR/push Gate가 secret 또는 실제 provider 호출 없이 G009 manifest, E2E/release, lint/type/OpenAPI/frontend/docs/governance를 결정적으로 실행하고 `external_ai`를 제외함 |
 | Recovery 선행 안전 Gate | `.github/workflows/release-readiness.yml` | 수동 recovery smoke가 `NH_RUN_G011_DOCKER_REGRESSION=1`인 `test_compose_bootstrap_repeat_up.py`를 먼저 통과한 후에만 `scripts/release-smoke.sh`를 실행함 |
 | 외부 엔진 수동 증거 | `.github/workflows/external-ai-evaluation.yml`, `tests/release/test_m8_release_workflows.py` | `workflow_dispatch`와 승인 environment에서만 `external_ai` marker를 실행하고 provider/engine/model/config SHA-256/dataset ID/revision/time/count만 sanitized JSON으로 보존하며 provider-free Gate와 분리됨 |

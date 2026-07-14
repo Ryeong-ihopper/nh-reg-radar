@@ -80,7 +80,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          uv run pytest -m external_ai -q \
+          uv run python -m pytest -m external_ai -q \
             --junitxml=/tmp/external-ai-junit.xml \
             >/dev/null 2>&1
           exit_code=$?
@@ -116,6 +116,18 @@ jobs:
                       counts[key] = int(suite.attrib.get(key, 0))
 
           exit_code = int(os.environ.get("EXIT_CODE") or 1)
+          summary = {
+              "total": counts["tests"],
+              "passed": max(
+                  counts["tests"]
+                  - counts["failures"]
+                  - counts["errors"]
+                  - counts["skipped"],
+                  0,
+              ),
+              "failed": counts["failures"] + counts["errors"],
+              "skipped": counts["skipped"],
+          }
           evidence = {
               "schema_version": 1,
               "environment_mode": "manual_external_ai",
@@ -130,7 +142,7 @@ jobs:
               "dataset_id": os.environ["DATASET_ID"],
               "result": "passed" if exit_code == 0 else "failed",
               "exit_code": exit_code,
-              "summary": counts,
+              "summary": summary,
           }
           Path("external-ai-evidence.json").write_text(
               json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
