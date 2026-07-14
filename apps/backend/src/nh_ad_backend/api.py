@@ -549,6 +549,27 @@ def install_routes(
         response_model=AdvertisementRevisionCreated,
         operation_id="createAdvertisementRevision",
         responses=error_models(400, 401, 403, 404, 409, 413, 415),
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "revisionMemo": {"type": "string", "maxLength": 2000},
+                                "revisedAdvertisementFile": {
+                                    "type": "string",
+                                    "format": "binary",
+                                },
+                            },
+                            "required": ["revisedAdvertisementFile"],
+                        }
+                    }
+                },
+            }
+        },
     )
     async def create_advertisement_revision(
         advertisement_id: Annotated[
