@@ -28,9 +28,52 @@ query_postgres() {
     --username admin --dbname "$database" --command "$sql"
 }
 
-role_snapshot() {
+security_snapshot() {
   query_postgres nh_ad_dev \
-    "SELECT rolname || ':' || rolcanlogin || ':' || rolsuper || ':' || rolcreatedb || ':' || rolcreaterole FROM pg_roles WHERE rolname IN ('app','migration','readonly','admin','nh_bootstrap') ORDER BY rolname;"
+    "SELECT 'role:' || rolname || ':' || rolcanlogin || ':' || rolsuper || ':' || rolcreatedb || ':' || rolcreaterole
+     FROM pg_roles
+     WHERE rolname IN ('app','migration','readonly','admin','nh_bootstrap')
+     ORDER BY rolname;
+
+     WITH principals(role_name) AS (
+       VALUES ('app'), ('migration'), ('readonly'), ('admin')
+     ), privileges(privilege_name) AS (
+       VALUES ('CONNECT'), ('CREATE'), ('TEMPORARY')
+     )
+     SELECT 'database-effective:' || role_name || ':' || privilege_name || ':' ||
+            has_database_privilege(role_name, current_database(), privilege_name)
+     FROM principals CROSS JOIN privileges
+     ORDER BY role_name, privilege_name;
+
+     WITH principals(role_name) AS (
+       VALUES ('app'), ('migration'), ('readonly'), ('admin')
+     ), privileges(privilege_name) AS (
+       VALUES ('CREATE'), ('USAGE')
+     )
+     SELECT 'schema-effective:' || role_name || ':' || privilege_name || ':' ||
+            has_schema_privilege(role_name, 'public', privilege_name)
+     FROM principals CROSS JOIN privileges
+     ORDER BY role_name, privilege_name;
+
+     SELECT 'database-acl:' || pg_get_userbyid(acl.grantor) || ':' ||
+            CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END || ':' ||
+            acl.privilege_type || ':' || acl.is_grantable
+     FROM pg_database AS database
+     CROSS JOIN LATERAL aclexplode(
+       COALESCE(database.datacl, acldefault('d', database.datdba))
+     ) AS acl
+     WHERE database.datname = current_database()
+     ORDER BY acl.grantor, acl.grantee, acl.privilege_type;
+
+     SELECT 'schema-acl:' || pg_get_userbyid(acl.grantor) || ':' ||
+            CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END || ':' ||
+            acl.privilege_type || ':' || acl.is_grantable
+     FROM pg_namespace AS namespace
+     CROSS JOIN LATERAL aclexplode(
+       COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
+     ) AS acl
+     WHERE namespace.nspname = 'public'
+     ORDER BY acl.grantor, acl.grantee, acl.privilege_type;"
 }
 
 printf 'G011 fresh-volume bootstrap: project=%s\n' "$project"
@@ -42,9 +85,9 @@ query_postgres g011_repeat_guard \
   "CREATE TABLE g011_repeat_guard (id integer PRIMARY KEY, payload text NOT NULL); INSERT INTO g011_repeat_guard VALUES (1, 'repeat_guard_payload');" \
   >/dev/null
 
-fresh_roles="$(role_snapshot)"
+fresh_security="$(security_snapshot)"
 fresh_payload="$(query_postgres g011_repeat_guard "SELECT id || ':' || payload FROM g011_repeat_guard ORDER BY id;")"
-fresh_checksum="$(printf '%s\n%s\n' "$fresh_roles" "$fresh_payload" | sha256sum | cut -d' ' -f1)"
+fresh_checksum="$(printf '%s\n%s\n' "$fresh_security" "$fresh_payload" | sha256sum | cut -d' ' -f1)"
 fresh_bootstrap_id="$("${compose[@]}" ps -aq db-bootstrap)"
 fresh_postgres_id="$("${compose[@]}" ps -q postgres)"
 
@@ -80,12 +123,12 @@ if grep -Eiq \
   exit 1
 fi
 
-repeat_roles="$(role_snapshot)"
+repeat_security="$(security_snapshot)"
 repeat_payload="$(query_postgres g011_repeat_guard "SELECT id || ':' || payload FROM g011_repeat_guard ORDER BY id;")"
-repeat_checksum="$(printf '%s\n%s\n' "$repeat_roles" "$repeat_payload" | sha256sum | cut -d' ' -f1)"
+repeat_checksum="$(printf '%s\n%s\n' "$repeat_security" "$repeat_payload" | sha256sum | cut -d' ' -f1)"
 
-if [[ "$fresh_roles" != "$repeat_roles" ]]; then
-  printf '%s\n' 'role or privilege identity drift detected after repeat up' >&2
+if [[ "$fresh_security" != "$repeat_security" ]]; then
+  printf '%s\n' 'role, effective grant, or catalog ACL drift detected after repeat up' >&2
   exit 1
 fi
 if [[ "$fresh_payload" != "1:repeat_guard_payload" || "$repeat_payload" != "$fresh_payload" ]]; then

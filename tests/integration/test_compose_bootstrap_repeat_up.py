@@ -39,6 +39,11 @@ class DatabaseBootstrapRepeatUpTests(unittest.TestCase):
         self.assertIn('"$postgres_id" != "$fresh_postgres_id"', text)
         self.assertIn("CREATE TABLE g011_repeat_guard", text)
         self.assertIn("repeat_guard_payload", text)
+        self.assertIn("database-effective:", text)
+        self.assertIn("schema-effective:", text)
+        self.assertIn("database-acl:", text)
+        self.assertIn("schema-acl:", text)
+        self.assertIn('"$fresh_security" != "$repeat_security"', text)
         self.assertIn("PANIC|invalid checkpoint|database system was interrupted", text)
         self.assertIn("down --volumes --remove-orphans", text)
 
