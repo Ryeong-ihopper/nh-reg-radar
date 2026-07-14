@@ -1,7 +1,9 @@
 # Worker
 
-Queue-worker platform boundary. M1 exposes liveness (`/health`) and Redis-backed readiness
-(`/ready`) without capability business logic; job consumption starts in M4.
+Queue-worker platform boundary. Liveness (`/health`) remains process-local. Readiness (`/ready`)
+requires both Redis and a live consumer. The FastAPI lifespan supervises a dependency-injected
+`JobRunner`; production starts the infrastructure consumer with no synthetic provider. Until the
+external-engine lane supplies real adapters, claimed jobs fail closed with an explicit reason.
 
 ```bash
 uv run --package nh-ad-worker uvicorn nh_ad_worker.main:app --app-dir apps/worker/src --port 8001

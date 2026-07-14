@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -60,6 +61,28 @@ class TransientAdapter:
 
     def parse(self, _input: DocumentInput) -> NormalizedDocument:
         raise TransientParserError("provider timeout")
+
+
+class HeartbeatRepository(InMemoryJobRepository):
+    def __init__(self, jobs: list[WorkerJob], heartbeat_seen: Event) -> None:
+        super().__init__(jobs)
+        self.heartbeat_seen = heartbeat_seen
+        self.heartbeat_calls = 0
+
+    def heartbeat(self, job_id: str, *, worker_id: str, now: datetime) -> None:
+        super().heartbeat(job_id, worker_id=worker_id, now=now)
+        self.heartbeat_calls += 1
+        self.heartbeat_seen.set()
+
+
+class HeartbeatBlockingAdapter(FixtureAdapter):
+    def __init__(self, document: NormalizedDocument, heartbeat_seen: Event) -> None:
+        super().__init__(document)
+        self.heartbeat_seen = heartbeat_seen
+
+    def parse(self, document: DocumentInput) -> NormalizedDocument:
+        assert self.heartbeat_seen.wait(1), "processor did not refresh its active-job heartbeat"
+        return super().parse(document)
 
 
 def setup(
@@ -155,6 +178,78 @@ def test_stale_recovery_and_queue_payload_redaction() -> None:
     assert "raw" not in redacted_log(message(job)).casefold()
     assert "object" not in redacted_log(message(job)).casefold()
     assert processor.process(message(job)) == "COMPLETED"
+
+
+def test_active_processing_refreshes_heartbeat_until_completion() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M4-HEARTBEAT", fixture.review_id, source)
+    heartbeat_seen = Event()
+    repository = HeartbeatRepository([job], heartbeat_seen)
+    clock = Clock()
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter({"paddleocr": HeartbeatBlockingAdapter(fixture, heartbeat_seen)}),
+        ArtifactStore(
+            InMemoryArtifactStorage(),
+            InMemoryArtifactMetadataRepository(),
+            bucket="parser-artifacts",
+        ),
+        InMemoryDeadLetterSink(),
+        worker_id="worker-heartbeat",
+        now=clock,
+        heartbeat_interval_seconds=0.01,
+    )
+
+    assert processor.process(message(job)) == "COMPLETED"
+    assert repository.heartbeat_calls >= 1
+    assert job.heartbeat_at == clock.value
+
+
+def test_unconfigured_parser_fails_claimed_job_without_leaving_it_running() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M4-NO-ADAPTER", fixture.review_id, source)
+    repository = InMemoryJobRepository([job])
+    dead_letters = InMemoryDeadLetterSink()
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter(),
+        ArtifactStore(
+            InMemoryArtifactStorage(),
+            InMemoryArtifactMetadataRepository(),
+            bucket="parser-artifacts",
+        ),
+        dead_letters,
+        worker_id="worker-no-adapter",
+        now=Clock(),
+    )
+
+    assert processor.process(message(job)) == "FAILED_FINAL"
+    assert job.status == "FAILED_FINAL"
+    assert job.review_status == "REVIEW_FAILED"
+    assert job.failed_reason_code == "PARSER_ADAPTER_NOT_CONFIGURED"
+    assert job.locked_by is None
+    assert dead_letters.messages == [
+        {
+            "messageVersion": "review-job-v1",
+            "jobId": job.job_id,
+            "reviewId": job.review_id,
+            "reasonCode": "PARSER_ADAPTER_NOT_CONFIGURED",
+        }
+    ]
 
 
 def test_queue_contract_rejects_raw_or_object_storage_fields() -> None:
