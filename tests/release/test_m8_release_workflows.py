@@ -23,6 +23,8 @@ def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
     assert "npm --prefix apps/frontend run test" in workflow
     assert "npm --prefix apps/frontend run build" in workflow
     assert "npm run frontend:check" not in workflow
+    assert "uv run mypy\n" in workflow
+    assert "uv run mypy ." not in workflow
     assert "secrets." not in workflow
     assert "EXTERNAL_AI_API_KEY" not in workflow
     assert "pytest -m external_ai" not in workflow

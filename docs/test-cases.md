@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.19 |
+| 현행 버전 | v1.20 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.20 | 2026-07-15 | M8 provider-free 릴리스 workflow와 sanitized `external_ai` 수동 workflow 분리, backend/worker 보안·감사·readiness·recovery redaction Gate 반영 |
 | v1.19 | 2026-07-15 | M8 실제 PostgreSQL restart/concurrency, 수정본→비교→재검토 frontend, worker lease reconciliation과 G011 반복 bootstrap 증거 반영 |
 | v1.18 | 2026-07-15 | G008 M7 provider-free backend KPI/API/PostgreSQL runtime과 전체 backend 회귀 실행 증거를 기존 S-015/S-016 frontend 증거와 통합 반영 |
 | v1.17 | 2026-07-15 | M7 S-015/S-016 생성 client 화면의 데이터셋/판단 등록, stored KPI·평가 제외·분모 0 미적용, loading/empty/error/권한 회귀 실행 증거 반영 |
@@ -43,7 +44,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.16 |
+| 문서 버전 | v1.20 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -713,6 +714,19 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | Worker lifecycle | `PYTHONPATH=. uv run pytest -q apps/worker/tests` | supervised shutdown/readiness, heartbeat, stale/due retry, publish lease recovery, 미구성 parser 최종 실패 포함 39 passed |
 | Worker live reconciliation | `M8_LIVE_DATABASE_URL=... M8_LIVE_REDIS_URL=... PYTHONPATH=. uv run pytest -q tests/integration/test_m8_worker_reconciliation.py -vv` | PostgreSQL 16.9·Redis 7에서 publish 실패 lease 보존/만료 후 6-field 재발행과 STALE recovery 1 passed |
 | 반복 Compose bootstrap | `NH_RUN_G011_DOCKER_REGRESSION=1 PYTHONPATH=. uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q` | same-volume bootstrap 재생성 3/3, 데이터·ACL·PostgreSQL identity 보존, 금지 recovery log/잔여물 0 |
+
+## 19.16 M8 운영·보안·외부 엔진 분리 Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| Provider-free release workflow | `.github/workflows/release-readiness.yml`, `tests/release/test_m8_release_workflows.py` | PR/push Gate가 secret 또는 실제 provider 호출 없이 G009 manifest, E2E/release, lint/type/OpenAPI/frontend/docs/governance를 결정적으로 실행하고 `external_ai`를 제외함 |
+| Recovery 선행 안전 Gate | `.github/workflows/release-readiness.yml` | 수동 recovery smoke가 `NH_RUN_G011_DOCKER_REGRESSION=1`인 `test_compose_bootstrap_repeat_up.py`를 먼저 통과한 후에만 `scripts/release-smoke.sh`를 실행함 |
+| 외부 엔진 수동 증거 | `.github/workflows/external-ai-evaluation.yml`, `tests/release/test_m8_release_workflows.py` | `workflow_dispatch`와 승인 environment에서만 `external_ai` marker를 실행하고 provider/engine/model/config SHA-256/dataset ID/revision/time/count만 sanitized JSON으로 보존하며 provider-free Gate와 분리됨 |
+| Backend 보안·trace | `tests/release/test_m8_release_operations.py` | `TC-COM-009`, `TC-NFR-SEC-009`, `TC-NFR-SEC-010` 기준 request ID, CSP/HSTS/nosniff/frame 보호, 민감 응답 `no-store`, token 비노출이 재현됨 |
+| 감사 redaction | `tests/release/test_m8_release_operations.py` | `TC-AUD-007`, `TC-NFR-SEC-004` 기준 로그인 audit가 actor/action/result/trace만 보존하고 비밀번호/token/email/name/IP 원문을 저장하지 않음 |
+| Worker readiness·recovery log | `tests/release/test_m8_release_operations.py` | queue 장애 시 health와 readiness를 분리해 503 `not_ready`를 반환하고 recovery 오류 log는 job/review ID를 구조화 필드로 남기되 token/object key/presigned URL/원문을 포함하지 않음 |
+
+이 Gate의 외부 엔진 workflow는 실제 엔진 성공을 provider-free 완료 조건으로 주장하지 않는다. 수동 실행 결과는 `supplementary_only=true`로 기록하며 secret, 고객 원문, raw test log는 artifact에서 제외한다.
 
 ---
 
