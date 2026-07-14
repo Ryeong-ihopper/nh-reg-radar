@@ -120,8 +120,43 @@ export function ComparisonPage() {
   const { advertisementId = "" } = useParams();
   const { session } = useAuth();
   const token = session?.accessToken ?? "";
-  const [comparison, setComparison] = useState<Awaited<ReturnType<typeof api.createAdvertisementComparison>> | null>(null);
-  const createComparison = useMutation({ mutationFn: ({ baseReviewId, revisionId }: { baseReviewId: string; revisionId: string }) => api.createAdvertisementComparison(token, advertisementId, { baseReviewId, revisionId }), onSuccess: setComparison });
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); createComparison.mutate({ baseReviewId: String(data.get("baseReviewId")), revisionId: String(data.get("revisionId")) }); }
-  return <section aria-labelledby="comparison-heading"><p className="eyebrow">수정 전후 비교</p><h2 id="comparison-heading">수정본 재검토 비교</h2><form onSubmit={submit}><label>기준 검토 ID<input name="baseReviewId" required /></label><label>수정본 ID<input name="revisionId" required /></label><button type="submit" disabled={createComparison.isPending}>{createComparison.isPending ? "비교 중..." : "비교 실행"}</button></form>{createComparison.isError ? <ErrorState error={createComparison.error} /> : null}{comparison ? <article className="result-detail"><p>해결 {comparison.resolvedIssueCount} · 미해결 {comparison.unresolvedIssueCount} · 신규 {comparison.newIssueCount}</p><ul>{comparison.items?.map((item, index) => <li key={`${item.reviewItemId}-${index}`}><strong>{item.resolutionStatus}</strong> {item.originalText} → {item.revisedText}{item.reanalysisReviewId ? ` (재분석 ${item.reanalysisReviewId})` : ""}</li>)}</ul></article> : null}<Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>광고물 상세로</Link></section>;
+  const [result, setResult] = useState<{
+    revisionId: string;
+    comparison: Awaited<ReturnType<typeof api.createAdvertisementComparison>>;
+    newReviewId: string;
+  } | null>(null);
+  const createComparison = useMutation({
+    mutationFn: async ({ baseReviewId, revisionMemo, revisedAdvertisementFile }: {
+      baseReviewId: string;
+      revisionMemo?: string;
+      revisedAdvertisementFile: File;
+    }) => {
+      const revision = await api.createAdvertisementRevision(token, advertisementId, {
+        revisionMemo,
+        revisedAdvertisementFile,
+      });
+      const comparison = await api.createAdvertisementComparison(token, advertisementId, {
+        baseReviewId,
+        revisionId: revision.revisionId,
+      });
+      const rerun = await api.rerunReview(token, baseReviewId, {
+        reason: `수정본 ${revision.revisionId} 등록 후 재검토`,
+      });
+      return { revisionId: revision.revisionId, comparison, newReviewId: rerun.newReviewId };
+    },
+    onSuccess: setResult,
+  });
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const revisedAdvertisementFile = data.get("revisedAdvertisementFile");
+    if (!(revisedAdvertisementFile instanceof File) || revisedAdvertisementFile.size === 0) return;
+    const revisionMemo = String(data.get("revisionMemo") ?? "").trim();
+    createComparison.mutate({
+      baseReviewId: String(data.get("baseReviewId")),
+      revisionMemo: revisionMemo || undefined,
+      revisedAdvertisementFile,
+    });
+  }
+  return <section aria-labelledby="comparison-heading"><p className="eyebrow">수정 전후 비교</p><h2 id="comparison-heading">수정본 재검토 비교</h2><form onSubmit={submit}><label>기준 검토 ID<input name="baseReviewId" required /></label><label>수정 메모<textarea name="revisionMemo" /></label><label>수정 광고 파일<input name="revisedAdvertisementFile" type="file" accept="image/png,image/jpeg,application/pdf" required /></label><button type="submit" disabled={createComparison.isPending}>{createComparison.isPending ? "등록·비교·재검토 중..." : "수정본 등록 후 비교·재검토"}</button></form>{createComparison.isError ? <ErrorState error={createComparison.error} /> : null}{result ? <article className="result-detail"><p>수정본 ID: <code>{result.revisionId}</code> · 재검토 ID: <code>{result.newReviewId}</code></p><p>해결 {result.comparison.resolvedIssueCount} · 미해결 {result.comparison.unresolvedIssueCount} · 신규 {result.comparison.newIssueCount}</p><ul>{result.comparison.items?.map((item, index) => <li key={`${item.reviewItemId}-${index}`}><strong>{item.resolutionStatus}</strong> {item.originalText} → {item.revisedText}{item.reanalysisReviewId ? ` (재분석 ${item.reanalysisReviewId})` : ""}</li>)}</ul></article> : null}<Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>광고물 상세로</Link></section>;
 }
