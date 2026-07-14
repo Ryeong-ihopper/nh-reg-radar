@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.14 |
+| 현행 버전 | v1.15 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.15 | 2026-07-14 | G007 M6 contract/0006 migration synthetic fixture trace gate와 TC-SUG/QA/OPN/RPT/CMP 및 history 불변조건 검증 반영 |
 | v1.14 | 2026-07-14 | G006 M5 backend/worker Rule→RAG→structured 실행·영속화·조회·실패 보존 회귀 증거 반영 |
 | v1.13 | 2026-07-14 | M5 S-006~S-008 결과/Annotation 생성 client component 및 광고물→분석 완료→결과→Annotation 결정적 통합 실행 Gate 반영 |
 | v1.12 | 2026-07-14 | G006 M5 OpenAPI/0005 migration/Rule·검색·structured output·Annotation synthetic fixture trace Gate 반영 |
@@ -541,6 +542,10 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-NFR-HIS-003 | 추천 문구 판단 이력 보존 | 채택 후 수정 후 사용으로 변경 | `suggestion_decisions` 이력 추가, `suggestions.decision_status` 최신 상태 반영 | P1 |
 | TC-NFR-HIS-004 | 리포트 생성 이력 보존 | 리포트 여러 번 생성 | report 이력 각각 저장 | P1 |
 | TC-NFR-HIS-005 | 과거 검토 기준 버전 유지 | 기준자료 개정 후 과거 review 조회 | 기존 review의 standardVersionIds 변경 없음 | P0 |
+
+G007 M6 entry gate는 위 TC-SUG, TC-QA, TC-OPN, TC-RPT, TC-CMP 및 TC-NFR-HIS-003~004를
+`m6_contract.test.mjs`와 `test_m6_database_contract.py`에 고정하고, provider-free synthetic
+fixture의 SHA-256을 goal manifest에서 검증한다.
 
 ## 19.4 API 계약
 

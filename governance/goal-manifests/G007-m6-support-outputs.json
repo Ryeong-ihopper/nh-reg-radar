@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "goal_id": "G007-m6-support-outputs",
+  "capability": "M6 deterministic reviewer support outputs entry gate",
+  "trace": {
+    "requirements": ["FR-013", "FR-014", "FR-015", "FR-016", "FR-017", "AC-014"],
+    "functions": ["F-014", "F-015", "F-016", "F-017", "F-018"],
+    "screens": ["S-009", "S-010", "S-011", "S-012", "S-013"],
+    "api_operations": [
+      "GET /api/v1/reviews/{reviewId}/suggestions",
+      "PATCH /api/v1/suggestions/{suggestionId}/decision",
+      "POST /api/v1/qa/questions",
+      "GET /api/v1/qa/questions",
+      "POST /api/v1/reviews/{reviewId}/opinion-drafts",
+      "GET /api/v1/reviews/{reviewId}/opinion-drafts",
+      "PATCH /api/v1/opinion-drafts/{draftId}",
+      "POST /api/v1/reviews/{reviewId}/reports",
+      "GET /api/v1/reports/{reportId}",
+      "GET /api/v1/reports/{reportId}/download",
+      "POST /api/v1/advertisements/{advertisementId}/comparisons",
+      "GET /api/v1/comparisons/{comparisonId}"
+    ],
+    "db_objects": [
+      "app.suggestions", "app.suggestion_decisions", "rag.qa_sessions", "rag.qa_messages",
+      "rag.qa_message_evidences", "app.opinion_drafts", "app.reports", "app.comparisons",
+      "app.comparison_items"
+    ]
+  },
+  "openapi": {
+    "version": "0.6.0",
+    "source_sha256": "ab0311b4d075d79ee65648e3a35212b0ee6bd0f0e5dfbd1e56a3d7fe61ee29e5",
+    "operation_ids": [
+      "listReviewSuggestions", "recordSuggestionDecision", "askComplianceQuestion",
+      "listComplianceQuestions", "createOpinionDraft", "listOpinionDrafts", "updateOpinionDraft",
+      "createReviewReport", "getReviewReport", "downloadReviewReport",
+      "createAdvertisementComparison", "getAdvertisementComparison"
+    ],
+    "schemas": [
+      "SuggestionDecisionStatus", "Suggestion", "SuggestionDecisionRequest", "SuggestionDecision",
+      "QaQuestionRequest", "QaEvidence", "QaAnswer", "OpinionDraftRequest", "OpinionDraftUpdateRequest",
+      "OpinionDraft", "ReportRequest", "Report", "ReportFormat", "ReportStatus", "ComparisonRequest",
+      "Comparison", "ComparisonItem", "ResolutionStatus"
+    ]
+  },
+  "generated_client": {
+    "path": "apps/frontend/src/api/generated/openapi.ts",
+    "sha256": "9077dbaa41ff35703d3089382a5f608bcbf05de0a5aa798a6f17f56d5b5ca1e7"
+  },
+  "migration": {
+    "revision": "0006_m6_support_outputs",
+    "down_revision": "0005_m5_review_results",
+    "path": "apps/backend/migrations/versions/0006_m6_support_outputs.py",
+    "owned_tables": [
+      "app.suggestions", "app.suggestion_decisions", "rag.qa_sessions", "rag.qa_messages",
+      "rag.qa_message_evidences", "app.opinion_drafts", "app.reports", "app.comparisons",
+      "app.comparison_items"
+    ]
+  },
+  "fixtures": [{
+    "path": "tests/fixtures/m6/support-outputs-v1.json",
+    "sha256": "3a960aa06f46364ffe85321eb244aa9dd736f5da19a406cfa60a47637fafe81f",
+    "kind": "synthetic",
+    "contains_customer_data": false
+  }],
+  "test_cases": [
+    {"id": "TC-SUG-001..008", "nodes": ["tests/api_contract/m6_contract.test.mjs::suggestions"]},
+    {"id": "TC-QA-001..006", "nodes": ["tests/api_contract/m6_contract.test.mjs::question and fixed references"]},
+    {"id": "TC-OPN-001..006", "nodes": ["tests/api_contract/m6_contract.test.mjs::editable draft boundary"]},
+    {"id": "TC-RPT-001..013", "nodes": ["tests/api_contract/m6_contract.test.mjs::immutable report snapshots"]},
+    {"id": "TC-CMP-001..007", "nodes": ["tests/api_contract/m6_contract.test.mjs::structural comparison outcomes"]},
+    {"id": "TC-NFR-HIS-003..004", "nodes": ["tests/integration/test_m6_database_contract.py"]}
+  ],
+  "changed_paths": [
+    "openapi/openapi.yaml", "apps/backend/src/nh_ad_backend/m6_openapi.py",
+    "apps/backend/src/nh_ad_backend/openapi_runtime.py", "apps/backend/migrations/versions/0006_m6_support_outputs.py",
+    "apps/frontend/src/api/generated/openapi.ts", "tests/fixtures/m6/support-outputs-v1.json",
+    "tests/api_contract/m6_contract.test.mjs", "tests/integration/test_m6_database_contract.py",
+    "governance/goal-manifests/G007-m6-support-outputs.json", "docs/api-specification.md",
+    "docs/database-specification.md", "docs/test-cases.md"
+  ],
+  "synchronized_documents": ["docs/api-specification.md", "docs/database-specification.md", "docs/test-cases.md"]
+}

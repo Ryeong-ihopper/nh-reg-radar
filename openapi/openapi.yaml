@@ -1,681 +1,378 @@
 openapi: 3.1.0
 info:
   title: NH Advertisement Compliance API
-  description: >-
-    Source contract for the advertisement-compliance PoC. This revision is bounded through M5 authentication, advertisement input, immutable standards/search, asynchronous Review/Job/Parser, and evidence-backed result/Annotation contracts.
-  version: 0.5.0
+  description: Source contract for the advertisement-compliance PoC. Capability-specific paths and
+    schemas are added only when their implementation slice begins.
+  version: 0.6.0
 servers:
   - url: /api/v1
-tags:
-  - name: Auth
-  - name: Common
-  - name: Advertisements
-  - name: Files
-  - name: Audit
-  - name: Standards
-  - name: Evidence
-  - name: Search Operations
-  - name: Reviews
-  - name: Review Results
-  - name: Annotations
-security:
-  - BearerAuth: []
 paths:
-  /auth/login:
-    post:
-      tags: [ Auth ]
-      operationId: login
-      description: Authenticates a local PoC user and starts a rotating refresh session.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LoginRequest'
-      responses:
-        '200':
-          description: Access token issued and refreshToken cookie set.
-          headers:
-            Set-Cookie:
-              description: HttpOnly refresh token cookie; Secure outside local development.
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthTokenResponse'
-              example:
-                accessToken: synthetic.jwt.value
-                tokenType: Bearer
-                expiresIn: 1800
-                user:
-                  userId: USR-SYNTH-PRODUCT
-                  userName: Synthetic Product User
-                  departmentId: DPT-SYNTH-PRODUCT
-                  departmentName: Synthetic Product Team
-                  roles: [ PRODUCT_DEPARTMENT_USER ]
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-  /auth/refresh:
-    post:
-      tags: [ Auth ]
-      operationId: refreshAccessToken
-      description: Rotates a valid refresh session after browser-origin validation.
-      security:
-        - RefreshCookie: []
-      parameters:
-        - $ref: '#/components/parameters/Origin'
-      responses:
-        '200':
-          description: Rotated refresh session and new access token.
-          headers:
-            Set-Cookie:
-              description: Rotated HttpOnly refresh token cookie.
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccessTokenResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-  /auth/logout:
-    post:
-      tags: [ Auth ]
-      operationId: logout
-      description: Revokes the current refresh session after browser-origin validation.
-      security:
-        - RefreshCookie: []
-      parameters:
-        - $ref: '#/components/parameters/Origin'
-      responses:
-        '204':
-          description: Refresh session revoked and cookie cleared.
-          headers:
-            Set-Cookie:
-              description: Expired refresh token cookie.
-              schema:
-                type: string
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-  /users/me:
-    get:
-      tags: [ Auth ]
-      operationId: getCurrentUser
-      description: Resolves the authenticated user, roles, and department scope.
-      responses:
-        '200':
-          description: Current authenticated user context.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserContext'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-  /codes/{codeGroup}:
-    get:
-      tags: [ Common ]
-      operationId: listCommonCodes
-      description: Lists enabled M2 master codes for a supported code group.
-      parameters:
-        - name: codeGroup
-          in: path
-          required: true
-          schema:
-            $ref: '#/components/schemas/CodeGroup'
-      responses:
-        '200':
-          description: Enabled common codes in display order.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CommonCode'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /advertisements:
-    get:
-      tags: [ Advertisements ]
-      operationId: listAdvertisements
-      description: Results are filtered to the caller's role and department scope.
-      parameters:
-        - $ref: '#/components/parameters/Keyword'
-        - $ref: '#/components/parameters/ProductGroupQuery'
-        - $ref: '#/components/parameters/AdvertisementTypeQuery'
-        - $ref: '#/components/parameters/ReviewStatusQuery'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
-      responses:
-        '200':
-          description: Scope-filtered advertisement page.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdvertisementPage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    post:
-      tags: [ Advertisements ]
-      operationId: createAdvertisement
-      description: Validates and stores one advertisement with its allowed attachments.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/CreateAdvertisementRequest'
-      responses:
-        '201':
-          description: Advertisement and file metadata created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdvertisementCreated'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '413':
-          $ref: '#/components/responses/PayloadTooLarge'
-        '415':
-          $ref: '#/components/responses/UnsupportedMediaType'
-  /advertisements/{advertisementId}:
-    get:
-      tags: [ Advertisements ]
-      operationId: getAdvertisement
-      description: Out-of-scope access is denied and recorded without sensitive content.
-      parameters:
-        - $ref: '#/components/parameters/AdvertisementId'
-      responses:
-        '200':
-          description: Advertisement detail visible to the caller.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdvertisementDetail'
-              example:
-                advertisementId: ADV-SYNTH-0001
-                advertisementName: Synthetic mobile banner
-                productGroup: SAVINGS
-                advertisementType: MOBILE_BANNER
-                departmentId: DPT-SYNTH-PRODUCT
-                registeredBy: USR-SYNTH-PRODUCT
-                registeredAt: '2026-07-14T06:00:00Z'
-                reviewStatus: UPLOADED
-                channelType: MOBILE_APP
-                memo: Synthetic fixture only
-                files:
-                  - fileId: FILE-SYNTH-0001
-                    fileType: ADVERTISEMENT
-                    fileName: synthetic-advertisement.png
-                    mimeType: image/png
-                    fileSize: 68
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /files/{fileId}/preview:
-    get:
-      tags: [ Files ]
-      operationId: getFilePreview
-      description: >-
-        Returns a backend-proxy preview route after authorization. Storage keys and presigned URLs are never returned.
-      parameters:
-        - $ref: '#/components/parameters/FileId'
-        - name: pageNo
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-      responses:
-        '200':
-          description: Authorized preview descriptor.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FilePreview'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /files/{fileId}/download:
-    get:
-      tags: [ Files ]
-      operationId: downloadFile
-      description: Streams an authorized file through the backend proxy.
-      parameters:
-        - $ref: '#/components/parameters/FileId'
-      responses:
-        '200':
-          description: Authorized file stream.
-          headers:
-            Content-Disposition:
-              schema:
-                type: string
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /files/{fileId}/preview/content:
-    get:
-      tags: [ Files ]
-      operationId: getFilePreviewContent
-      description: Streams one authorized rendered preview page through the backend proxy.
-      parameters:
-        - $ref: '#/components/parameters/FileId'
-        - name: pageNo
-          in: query
-          required: true
-          schema:
-            type: integer
-            minimum: 1
-      responses:
-        '200':
-          description: Authorized rendered preview page.
-          content:
-            image/png:
-              schema:
-                type: string
-                format: binary
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /admin/audit-logs:
-    get:
-      tags: [ Audit ]
-      operationId: listAuditLogs
-      description: Returns redacted audit metadata to SYSTEM_ADMIN only.
-      parameters:
-        - name: userId
-          in: query
-          schema:
-            type: string
-        - name: actionType
-          in: query
-          schema:
-            type: string
-        - name: fromDate
-          in: query
-          schema:
-            type: string
-            format: date
-        - name: toDate
-          in: query
-          schema:
-            type: string
-            format: date
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
-      responses:
-        '200':
-          description: Redacted audit log page.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuditLogPage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
   /standards:
     get:
-      tags: [ Standards ]
-      operationId: listStandards
       description: Lists standards for standard managers and system administrators.
+      operationId: listStandards
       parameters:
-        - $ref: '#/components/parameters/Keyword'
-        - name: evidenceType
-          in: query
+        - $ref: "#/components/parameters/Keyword"
+        - in: query
+          name: evidenceType
           schema:
-            $ref: '#/components/schemas/EvidenceType'
-        - $ref: '#/components/parameters/ProductGroupQuery'
-        - $ref: '#/components/parameters/AdvertisementTypeQuery'
-        - name: ruleType
-          in: query
+            $ref: "#/components/schemas/EvidenceType"
+        - $ref: "#/components/parameters/ProductGroupQuery"
+        - $ref: "#/components/parameters/AdvertisementTypeQuery"
+        - in: query
+          name: ruleType
           schema:
-            $ref: '#/components/schemas/RuleType'
-        - name: activeOnly
-          in: query
+            $ref: "#/components/schemas/RuleType"
+        - in: query
+          name: activeOnly
           schema:
-            type: boolean
             default: true
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
+            type: boolean
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
       responses:
-        '200':
-          description: Scope-authorized standards page.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardPage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: "#/components/schemas/StandardPage"
+          description: Scope-authorized standards page.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      tags:
+        - Standards
+      security:
+        - BearerAuth: []
     post:
-      tags: [ Standards ]
-      operationId: createStandard
       description: Creates a standard and immutable version 1.0 from directly entered text.
+      operationId: createStandard
       requestBody:
-        required: true
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/CreateStandardRequest'
+              $ref: "#/components/schemas/CreateStandardRequest"
+        required: true
       responses:
-        '201':
-          description: Standard, immutable version, and evidence created.
+        "201":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardCreated'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
+                $ref: "#/components/schemas/StandardCreated"
+          description: Standard, immutable version, and evidence created.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+      tags:
+        - Standards
+      security:
+        - BearerAuth: []
   /standards/{standardId}:
     get:
-      tags: [ Standards ]
-      operationId: getStandard
       description: Returns the standard master with its current immutable version.
+      operationId: getStandard
       parameters:
-        - $ref: '#/components/parameters/StandardId'
+        - $ref: "#/components/parameters/StandardId"
       responses:
-        '200':
-          description: Current standard master and immutable version.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/StandardDetail"
+          description: Current standard master and immutable version.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      tags:
+        - Standards
+      security:
+        - BearerAuth: []
     patch:
-      tags: [ Standards ]
-      operationId: updateStandard
       description: Appends a new immutable standard version; it never overwrites history.
+      operationId: updateStandard
       parameters:
-        - $ref: '#/components/parameters/StandardId'
+        - $ref: "#/components/parameters/StandardId"
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateStandardRequest'
+              $ref: "#/components/schemas/UpdateStandardRequest"
+        required: true
       responses:
-        '200':
-          description: Newly created immutable version.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
+                $ref: "#/components/schemas/StandardDetail"
+          description: Newly created immutable version.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+      tags:
+        - Standards
+      security:
+        - BearerAuth: []
   /standards/{standardId}/deactivate:
     patch:
-      tags: [ Standards ]
-      operationId: deactivateStandard
       description: Soft-deactivates a standard and excludes its chunks from search.
+      operationId: deactivateStandard
       parameters:
-        - $ref: '#/components/parameters/StandardId'
+        - $ref: "#/components/parameters/StandardId"
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeactivateStandardRequest'
+              $ref: "#/components/schemas/DeactivateStandardRequest"
+        required: true
       responses:
-        '200':
-          description: Deactivated standard.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/StandardDetail"
+          description: Deactivated standard.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      tags:
+        - Standards
+      security:
+        - BearerAuth: []
   /standards/{standardId}/histories:
     get:
-      tags: [ Standards ]
-      operationId: listStandardHistories
       description: Lists immutable versions in descending effective/version order.
+      operationId: listStandardHistories
       parameters:
-        - $ref: '#/components/parameters/StandardId'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
+        - $ref: "#/components/parameters/StandardId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
       responses:
-        '200':
-          description: Immutable version history.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardHistoryPage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/StandardHistoryPage"
+          description: Immutable version history.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      tags:
+        - Standards
+      security:
+        - BearerAuth: []
   /evidences/search:
     get:
-      tags: [ Evidence ]
+      description: Searches only active, basis-date-valid chunks. Hybrid mode requires both Qdrant and
+        OpenSearch; a backend failure is never converted to a keyword-only or vector-only success.
       operationId: searchEvidences
-      description: >-
-        Searches only active, basis-date-valid chunks. Hybrid mode requires both Qdrant and OpenSearch; a backend failure is never converted to a keyword-only or vector-only success.
       parameters:
-        - name: keyword
-          in: query
+        - in: query
+          name: keyword
           required: true
           schema:
-            type: string
-            minLength: 1
             maxLength: 300
-        - name: evidenceType
-          in: query
-          schema:
-            $ref: '#/components/schemas/EvidenceType'
-        - $ref: '#/components/parameters/ProductGroupQuery'
-        - $ref: '#/components/parameters/AdvertisementTypeQuery'
-        - name: ruleType
-          in: query
-          schema:
-            $ref: '#/components/schemas/RuleType'
-        - name: effectiveDate
-          in: query
-          schema:
+            minLength: 1
             type: string
+        - in: query
+          name: evidenceType
+          schema:
+            $ref: "#/components/schemas/EvidenceType"
+        - $ref: "#/components/parameters/ProductGroupQuery"
+        - $ref: "#/components/parameters/AdvertisementTypeQuery"
+        - in: query
+          name: ruleType
+          schema:
+            $ref: "#/components/schemas/RuleType"
+        - in: query
+          name: effectiveDate
+          schema:
             format: date
-        - name: searchMode
-          in: query
+            type: string
+        - in: query
+          name: searchMode
           schema:
-            $ref: '#/components/schemas/SearchMode'
-        - name: limit
-          in: query
+            $ref: "#/components/schemas/SearchMode"
+        - in: query
+          name: limit
           schema:
-            type: integer
-            minimum: 1
-            maximum: 20
             default: 20
+            maximum: 20
+            minimum: 1
+            type: integer
       responses:
-        '200':
-          description: Deterministically ranked evidence chunks.
+        "200":
           content:
             application/json:
               schema:
-                type: array
-                maxItems: 20
                 items:
-                  $ref: '#/components/schemas/EvidenceSearchResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '503':
-          $ref: '#/components/responses/SearchUnavailable'
+                  $ref: "#/components/schemas/EvidenceSearchResult"
+                maxItems: 20
+                type: array
+          description: Deterministically ranked evidence chunks.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
+      tags:
+        - Evidence
+      security:
+        - BearerAuth: []
   /evidences/{evidenceId}:
     get:
-      tags: [ Evidence ]
-      operationId: getEvidence
       description: Returns evidence bound to one immutable standard version.
+      operationId: getEvidence
       parameters:
-        - $ref: '#/components/parameters/EvidenceId'
+        - $ref: "#/components/parameters/EvidenceId"
       responses:
-        '200':
-          description: Evidence detail for the selected immutable standard version.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EvidenceDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/EvidenceDetail"
+          description: Evidence detail for the selected immutable standard version.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      tags:
+        - Evidence
+      security:
+        - BearerAuth: []
   /standards/{standardId}/versions/{standardVersionId}/reindex:
     post:
-      tags: [ Search Operations ]
-      operationId: requestStandardReindex
       description: Queues an idempotent deterministic-ID reindex for directly entered text.
+      operationId: requestStandardReindex
       parameters:
-        - $ref: '#/components/parameters/StandardId'
-        - $ref: '#/components/parameters/StandardVersionId'
+        - $ref: "#/components/parameters/StandardId"
+        - $ref: "#/components/parameters/StandardVersionId"
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReindexStandardRequest'
+              $ref: "#/components/schemas/ReindexStandardRequest"
+        required: true
       responses:
-        '202':
-          description: Reindex job accepted.
+        "202":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardReindexJob'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '503':
-          $ref: '#/components/responses/SearchUnavailable'
+                $ref: "#/components/schemas/StandardReindexJob"
+          description: Reindex job accepted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
+      tags:
+        - Search Operations
+      security:
+        - BearerAuth: []
   /standard-reindex-jobs/{jobId}:
     get:
-      tags: [ Search Operations ]
-      operationId: getStandardReindexJob
       description: Returns independent Qdrant and OpenSearch processing states.
+      operationId: getStandardReindexJob
       parameters:
-        - $ref: '#/components/parameters/ReindexJobId'
+        - $ref: "#/components/parameters/ReindexJobId"
       responses:
-        '200':
-          description: Reindex status including independent backend results.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StandardReindexJob'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/SearchUnavailable'
+                $ref: "#/components/schemas/StandardReindexJob"
+          description: Reindex status including independent backend results.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
+      tags:
+        - Search Operations
+      security:
+        - BearerAuth: []
   /evidences/{evidenceId}/chunks:
     get:
-      tags: [ Search Operations ]
-      operationId: listEvidenceChunks
       description: Administrator-only chunk inspection without internal index identifiers.
+      operationId: listEvidenceChunks
       parameters:
-        - $ref: '#/components/parameters/EvidenceId'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
+        - $ref: "#/components/parameters/EvidenceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
       responses:
-        '200':
-          description: Redacted evidence chunk page.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EvidenceChunkPage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/EvidenceChunkPage"
+          description: Redacted evidence chunk page.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      tags:
+        - Search Operations
+      security:
+        - BearerAuth: []
   /evidence-chunks/{evidenceChunkId}:
     get:
-      tags: [ Search Operations ]
-      operationId: getEvidenceChunk
       description: Administrator-only redacted chunk detail.
+      operationId: getEvidenceChunk
       parameters:
-        - $ref: '#/components/parameters/EvidenceChunkId'
+        - $ref: "#/components/parameters/EvidenceChunkId"
       responses:
-        '200':
-          description: Redacted evidence chunk detail.
+        "200":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EvidenceChunk'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/EvidenceChunk"
+          description: Redacted evidence chunk detail.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      tags:
+        - Search Operations
+      security:
+        - BearerAuth: []
   /advertisements/{advertisementId}/reviews:
     post:
       tags:
@@ -707,6 +404,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+      security:
+        - BearerAuth: []
     get:
       tags:
         - Reviews
@@ -729,6 +428,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/status:
     get:
       tags:
@@ -750,6 +451,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/rerun:
     post:
       tags:
@@ -781,1130 +484,1033 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/summary:
     get:
       tags:
-      - Review Results
+        - Review Results
       operationId: getReviewSummary
       description: Returns the immutable standard-version snapshot and risk summary.
       parameters:
-      - $ref: '#/components/parameters/ReviewId'
+        - $ref: "#/components/parameters/ReviewId"
       responses:
-        '200':
+        "200":
           description: Scoped review result returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReviewSummary'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/ReviewSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/items:
     get:
       tags:
-      - Review Results
+        - Review Results
       operationId: listReviewItems
-      description: Lists scoped result items without hiding evidence insufficiency or
-        search failure.
+      description: Lists scoped result items without hiding evidence insufficiency or search failure.
       parameters:
-      - $ref: '#/components/parameters/ReviewId'
-      - $ref: '#/components/parameters/ReviewTypeQuery'
-      - $ref: '#/components/parameters/RiskLevelQuery'
-      - $ref: '#/components/parameters/ResultStatusQuery'
-      - $ref: '#/components/parameters/EvidenceRequiredQuery'
-      - $ref: '#/components/parameters/Page'
-      - $ref: '#/components/parameters/Size'
+        - $ref: "#/components/parameters/ReviewId"
+        - $ref: "#/components/parameters/ReviewTypeQuery"
+        - $ref: "#/components/parameters/RiskLevelQuery"
+        - $ref: "#/components/parameters/ResultStatusQuery"
+        - $ref: "#/components/parameters/EvidenceRequiredQuery"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
       responses:
-        '200':
+        "200":
           description: Scoped review result returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReviewItemPage'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/ReviewItemPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/items/{reviewItemId}:
     get:
       tags:
-      - Review Results
+        - Review Results
       operationId: getReviewItem
-      description: Returns risk rationale, frozen evidence versions, and optional display
-        location.
+      description: Returns risk rationale, frozen evidence versions, and optional display location.
       parameters:
-      - $ref: '#/components/parameters/ReviewId'
-      - $ref: '#/components/parameters/ReviewItemId'
+        - $ref: "#/components/parameters/ReviewId"
+        - $ref: "#/components/parameters/ReviewItemId"
       responses:
-        '200':
+        "200":
           description: Scoped review result returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReviewItemDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: "#/components/schemas/ReviewItemDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/annotations:
     get:
       tags:
-      - Annotations
+        - Annotations
       operationId: listReviewAnnotations
       description: Returns BOX, TEXT_HIGHLIGHT, or list fallback annotations.
       parameters:
-      - $ref: '#/components/parameters/ReviewId'
-      - $ref: '#/components/parameters/PageNoQuery'
-      - $ref: '#/components/parameters/ReviewTypeQuery'
-      - $ref: '#/components/parameters/RiskLevelQuery'
+        - $ref: "#/components/parameters/ReviewId"
+        - $ref: "#/components/parameters/PageNoQuery"
+        - $ref: "#/components/parameters/ReviewTypeQuery"
+        - $ref: "#/components/parameters/RiskLevelQuery"
       responses:
-        '200':
+        "200":
           description: Scoped review result returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnnotationCollection'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    RefreshCookie:
-      type: apiKey
-      in: cookie
-      name: refreshToken
-  parameters:
-    Origin:
-      name: Origin
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uri
-    AdvertisementId:
-      in: path
-      name: advertisementId
-      required: true
-      schema:
-        type: string
-        pattern: ^ADV-[A-Za-z0-9-]+$
-    FileId:
-      name: fileId
-      in: path
-      required: true
-      schema:
-        type: string
-        pattern: '^FILE-[A-Za-z0-9-]+$'
-    StandardId:
-      name: standardId
-      in: path
-      required: true
-      schema:
-        type: string
-        pattern: '^STD-[A-Za-z0-9-]+$'
-    StandardVersionId:
-      name: standardVersionId
-      in: path
-      required: true
-      schema:
-        type: string
-        pattern: '^STDVER-[A-Za-z0-9-]+$'
-    EvidenceId:
-      name: evidenceId
-      in: path
-      required: true
-      schema:
-        type: string
-        pattern: '^EVD-[A-Za-z0-9-]+$'
-    EvidenceChunkId:
-      name: evidenceChunkId
-      in: path
-      required: true
-      schema:
-        type: string
-        pattern: '^ECH-[A-Za-z0-9-]+$'
-    ReindexJobId:
-      name: jobId
-      in: path
-      required: true
-      schema:
-        type: string
-        pattern: '^SRJ-[A-Za-z0-9-]+$'
-    Keyword:
-      name: keyword
-      in: query
-      schema:
-        type: string
-        maxLength: 300
-    ProductGroupQuery:
-      name: productGroup
-      in: query
-      schema:
-        $ref: '#/components/schemas/ProductGroup'
-    AdvertisementTypeQuery:
-      name: advertisementType
-      in: query
-      schema:
-        $ref: '#/components/schemas/AdvertisementType'
-    ReviewStatusQuery:
-      name: reviewStatus
-      in: query
-      schema:
-        $ref: '#/components/schemas/ReviewStatus'
-    Page:
-      name: page
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-        default: 1
-    Size:
-      name: size
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 20
-    ReviewId:
-      in: path
-      name: reviewId
-      required: true
-      schema:
-        type: string
-        pattern: ^REV-[A-Za-z0-9-]+$
-    ReviewItemId:
-      in: path
-      name: reviewItemId
-      required: true
-      schema:
-        type: string
-        pattern: ^ITEM-[A-Za-z0-9-]+$
-    ReviewTypeQuery:
-      in: query
-      name: reviewType
-      schema:
-        $ref: '#/components/schemas/ReviewType'
-    RiskLevelQuery:
-      in: query
-      name: riskLevel
-      schema:
-        $ref: '#/components/schemas/RiskLevel'
-    ResultStatusQuery:
-      in: query
-      name: resultStatus
-      schema:
-        $ref: '#/components/schemas/ReviewResultStatus'
-    EvidenceRequiredQuery:
-      in: query
-      name: evidenceRequired
-      schema:
-        type: boolean
-    PageNoQuery:
-      in: query
-      name: pageNo
-      schema:
-        type: integer
-        minimum: 1
-  responses:
-    BadRequest:
-      description: Request validation or file integrity failed.
-      content:
-        application/json:
+                $ref: "#/components/schemas/AnnotationCollection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /auth/login:
+    post:
+      summary: Login
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          description: Successful Response
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too Many Requests
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/refresh:
+    post:
+      summary: Refresh
+      operationId: refreshAccessToken
+      security:
+        - RefreshCookie: []
+      parameters:
+        - name: Origin
+          in: header
+          required: true
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    Unauthorized:
-      description: Authentication failed without revealing account state.
-      content:
-        application/json:
+            type: string
+            format: uri
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenResponse"
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+  /auth/logout:
+    post:
+      summary: Logout
+      operationId: logout
+      security:
+        - RefreshCookie: []
+      parameters:
+        - name: Origin
+          in: header
+          required: true
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    Forbidden:
-      description: Authenticated caller is outside the permitted role or resource scope.
-      content:
-        application/json:
+            type: string
+            format: uri
+      responses:
+        "204":
+          description: Successful Response
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+  /users/me:
+    get:
+      summary: Get Me
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserContext"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - BearerAuth: []
+  /codes/{codeGroup}:
+    get:
+      summary: List Codes
+      operationId: listCommonCodes
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codeGroup
+          in: path
+          required: true
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    NotFound:
-      description: Resource not found.
-      content:
-        application/json:
+            $ref: "#/components/schemas/CodeGroup"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CommonCode"
+                title: Response Listcommoncodes
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Not Found
+  /advertisements:
+    get:
+      summary: List Advertisements
+      operationId: listAdvertisements
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: keyword
+          in: query
+          required: false
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    Conflict:
-      description: Duplicate or conflicting request.
-      content:
-        application/json:
+            anyOf:
+              - type: string
+                maxLength: 300
+              - type: "null"
+            title: Keyword
+        - name: productGroup
+          in: query
+          required: false
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    PayloadTooLarge:
-      description: A file exceeded the 50 MiB limit.
-      content:
-        application/json:
+            anyOf:
+              - $ref: "#/components/schemas/ProductGroup"
+              - type: "null"
+            title: Productgroup
+        - name: advertisementType
+          in: query
+          required: false
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    UnsupportedMediaType:
-      description: File extension or MIME type is not allowed.
-      content:
-        application/json:
+            anyOf:
+              - $ref: "#/components/schemas/AdvertisementType"
+              - type: "null"
+            title: Advertisementtype
+        - name: reviewStatus
+          in: query
+          required: false
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    RateLimited:
-      description: Login IP rate limit exceeded.
-      headers:
-        Retry-After:
+            anyOf:
+              - $ref: "#/components/schemas/ReviewStatus"
+              - type: "null"
+            title: Reviewstatus
+        - name: page
+          in: query
+          required: false
           schema:
             type: integer
             minimum: 1
-      content:
-        application/json:
+            default: 1
+            title: Page
+        - name: size
+          in: query
+          required: false
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    SearchUnavailable:
-      description: >-
-        Qdrant, OpenSearch, or index consistency is unavailable; no keyword-only or vector-only fallback is returned as normal evidence.
-      content:
-        application/json:
+            type: integer
+            maximum: 100
+            minimum: 1
+            default: 20
+            title: Size
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvertisementPage"
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+    post:
+      summary: Create Advertisement
+      operationId: createAdvertisement
+      security:
+        - BearerAuth: []
+      responses:
+        "201":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvertisementCreated"
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Conflict
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Request Entity Too Large
+        "415":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unsupported Media Type
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateAdvertisementRequest"
+  /advertisements/{advertisementId}:
+    get:
+      summary: Get Advertisement
+      operationId: getAdvertisement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: advertisementId
+          in: path
+          required: true
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            type: string
+            pattern: ^ADV-[A-Za-z0-9-]+$
+            title: Advertisementid
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvertisementDetail"
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Not Found
+  /files/{fileId}/preview:
+    get:
+      summary: Get File Preview
+      operationId: getFilePreview
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^FILE-[A-Za-z0-9-]+$
+            title: Fileid
+        - name: pageNo
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+            title: Pageno
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilePreview"
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Not Found
+  /files/{fileId}/preview/content:
+    get:
+      summary: Get File Preview Content
+      operationId: getFilePreviewContent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^FILE-[A-Za-z0-9-]+$
+            title: Fileid
+        - name: pageNo
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            title: Pageno
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Not Found
+  /files/{fileId}/download:
+    get:
+      summary: Download File
+      operationId: downloadFile
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^FILE-[A-Za-z0-9-]+$
+            title: Fileid
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Not Found
+  /admin/audit-logs:
+    get:
+      summary: List Audit Logs
+      operationId: listAuditLogs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Userid
+        - name: actionType
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Actiontype
+        - name: fromDate
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: date
+              - type: "null"
+            title: Fromdate
+        - name: toDate
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: date
+              - type: "null"
+            title: Todate
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+            title: Page
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            maximum: 100
+            minimum: 1
+            default: 20
+            title: Size
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogPage"
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Forbidden
+  /reviews/{reviewId}/suggestions:
+    get:
+      operationId: listReviewSuggestions
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Suggestion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /suggestions/{suggestionId}/decision:
+    patch:
+      operationId: recordSuggestionDecision
+      parameters:
+        - $ref: "#/components/parameters/SuggestionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestionDecisionRequest"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestionDecision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /qa/questions:
+    post:
+      operationId: askComplianceQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QaQuestionRequest"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaAnswer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
+      security:
+        - BearerAuth: []
+    get:
+      operationId: listComplianceQuestions
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaAnswer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+      security:
+        - BearerAuth: []
+  /reviews/{reviewId}/opinion-drafts:
+    post:
+      operationId: createOpinionDraft
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpinionDraftRequest"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpinionDraft"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+    get:
+      operationId: listOpinionDrafts
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpinionDraft"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /opinion-drafts/{draftId}:
+    patch:
+      operationId: updateOpinionDraft
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpinionDraftUpdateRequest"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpinionDraft"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /reviews/{reviewId}/reports:
+    post:
+      operationId: createReviewReport
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportRequest"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+      security:
+        - BearerAuth: []
+  /reports/{reportId}:
+    get:
+      operationId: getReviewReport
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /reports/{reportId}/download:
+    get:
+      operationId: downloadReviewReport
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: Authorized immutable report snapshot.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /advertisements/{advertisementId}/comparisons:
+    post:
+      operationId: createAdvertisementComparison
+      parameters:
+        - $ref: "#/components/parameters/AdvertisementId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComparisonRequest"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comparison"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+  /comparisons/{comparisonId}:
+    get:
+      operationId: getAdvertisementComparison
+      parameters:
+        - $ref: "#/components/parameters/ComparisonId"
+      responses:
+        "200":
+          description: Scoped support output returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comparison"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
+components:
   schemas:
-    RiskLevel:
-      type: string
-      enum:
-      - HIGH
-      - MEDIUM
-      - LOW
-      - CHECK_REQUIRED
-    ReviewResultStatus:
-      type: string
-      enum:
-      - APPROPRIATE
-      - NEEDS_REVISION
-      - NEEDS_CONFIRMATION
-    EvidenceStatus:
-      type: string
-      enum:
-      - CONNECTED
-      - NOT_REQUIRED
-      - INSUFFICIENT
-      - SEARCH_UNAVAILABLE
-    ReviewEngineType:
-      type: string
-      enum:
-      - RULE
-      - RAG
-      - MULTIMODAL
-      - LLM
-    StructuredOutputStatus:
-      type: string
-      enum:
-      - NOT_RUN
-      - VALID
-      - INVALID_SCHEMA
-    AnnotationDisplayMode:
-      type: string
-      enum:
-      - BOX
-      - TEXT_HIGHLIGHT
-      - LIST_ONLY
-      - UNAVAILABLE
-    AnnotationStatus:
-      type: string
-      enum:
-      - LOCATED
-      - PARTIALLY_LOCATED
-      - NOT_LOCATED
-      - LOW_CONFIDENCE
-      - DOCUMENT_LEVEL_ISSUE
-    RiskRuleScore:
-      type: object
-      additionalProperties: false
-      required:
-      - matched
-      - ruleIds
-      - severity
-      properties:
-        matched:
-          type: boolean
-        ruleIds:
-          type: array
-          items:
-            type: string
-        severity:
-          oneOf:
-          - $ref: '#/components/schemas/RiskLevel'
-          - type: 'null'
-    RiskRagScore:
-      type: object
-      additionalProperties: false
-      required:
-      - topRelevanceScore
-      - evidenceCount
-      - evidenceSufficient
-      - status
-      - failureCode
-      properties:
-        topRelevanceScore:
-          type:
-          - number
-          - 'null'
-          minimum: 0
-          maximum: 1
-        evidenceCount:
-          type: integer
-          minimum: 0
-          maximum: 5
-        evidenceSufficient:
-          type: boolean
-        status:
-          $ref: '#/components/schemas/EvidenceStatus'
-        failureCode:
-          oneOf:
-          - type: string
-            enum:
-            - RAG_SEARCH_UNAVAILABLE
-            - RAG_SEARCH_FAILED
-          - type: 'null'
-    RiskLlmScore:
-      type: object
-      additionalProperties: false
-      required:
-      - schemaVersion
-      - status
-      - decision
-      - confidence
-      properties:
-        schemaVersion:
-          const: review-structured-output-v1
-          type: string
-        status:
-          $ref: '#/components/schemas/StructuredOutputStatus'
-        decision:
-          type:
-          - string
-          - 'null'
-        confidence:
-          type:
-          - number
-          - 'null'
-          minimum: 0
-          maximum: 1
-    RiskParserScore:
-      type: object
-      additionalProperties: false
-      required:
-      - confidenceStatus
-      properties:
-        confidenceStatus:
-          $ref: '#/components/schemas/ConfidenceStatus'
-    RiskFinalScore:
-      type: object
-      additionalProperties: false
-      required:
-      - riskLevel
-      - decisionRule
-      properties:
-        riskLevel:
-          $ref: '#/components/schemas/RiskLevel'
-        decisionRule:
-          type: string
-          minLength: 1
-    RiskScoreDetail:
-      type: object
-      additionalProperties: false
-      required:
-      - rule
-      - rag
-      - llm
-      - parser
-      - final
-      properties:
-        rule:
-          $ref: '#/components/schemas/RiskRuleScore'
-        rag:
-          $ref: '#/components/schemas/RiskRagScore'
-        llm:
-          $ref: '#/components/schemas/RiskLlmScore'
-        parser:
-          $ref: '#/components/schemas/RiskParserScore'
-        final:
-          $ref: '#/components/schemas/RiskFinalScore'
-    RiskRationale:
-      type: object
-      additionalProperties: false
-      required:
-      - riskLevel
-      - policyVersion
-      - reasonCodes
-      - scoreDetail
-      properties:
-        riskLevel:
-          $ref: '#/components/schemas/RiskLevel'
-        policyVersion:
-          type: string
-          minLength: 1
-        reasonCodes:
-          type: array
-          items:
-            type: string
-            minLength: 1
-          minItems: 1
-          uniqueItems: true
-        scoreDetail:
-          $ref: '#/components/schemas/RiskScoreDetail'
-    ReviewTypeSummary:
-      type: object
-      additionalProperties: false
-      required:
-      - reviewType
-      - totalCount
-      - needsRevisionCount
-      - needsConfirmationCount
-      properties:
-        reviewType:
-          $ref: '#/components/schemas/ReviewType'
-        totalCount:
-          type: integer
-          minimum: 0
-        needsRevisionCount:
-          type: integer
-          minimum: 0
-        needsConfirmationCount:
-          type: integer
-          minimum: 0
-    TopRisk:
-      type: object
-      additionalProperties: false
-      required:
-      - reviewItemId
-      - riskLevel
-      - riskPolicyVersion
-      - riskReasonCodes
-      - targetText
-      - reason
-      - evidenceStatus
-      properties:
-        reviewItemId:
-          type: string
-        riskLevel:
-          $ref: '#/components/schemas/RiskLevel'
-        riskPolicyVersion:
-          type: string
-        riskReasonCodes:
-          type: array
-          items:
-            type: string
-        targetText:
-          type: string
-        reason:
-          type: string
-        evidenceStatus:
-          $ref: '#/components/schemas/EvidenceStatus'
-    ReviewSummary:
-      type: object
-      additionalProperties: false
-      required:
-      - reviewId
-      - advertisementId
-      - standardEffectiveDate
-      - standardVersionIds
-      - overallRiskLevel
-      - totalItemCount
-      - needsRevisionCount
-      - needsConfirmationCount
-      - reviewTypeSummary
-      - topRisks
-      - completedAt
-      properties:
-        reviewId:
-          type: string
-        advertisementId:
-          type: string
-        standardEffectiveDate:
-          type: string
-          format: date
-        standardVersionIds:
-          type: array
-          items:
-            type: string
-        overallRiskLevel:
-          $ref: '#/components/schemas/RiskLevel'
-        totalItemCount:
-          type: integer
-          minimum: 0
-        needsRevisionCount:
-          type: integer
-          minimum: 0
-        needsConfirmationCount:
-          type: integer
-          minimum: 0
-        reviewTypeSummary:
-          type: array
-          items:
-            $ref: '#/components/schemas/ReviewTypeSummary'
-        topRisks:
-          type: array
-          items:
-            $ref: '#/components/schemas/TopRisk'
-        completedAt:
-          type: string
-          format: date-time
-    ReviewItemSummary:
-      type: object
-      additionalProperties: false
-      required:
-      - reviewItemId
-      - reviewType
-      - targetText
-      - resultStatus
-      - riskLevel
-      - riskPolicyVersion
-      - riskReasonCodes
-      - reason
-      - evidenceStatus
-      - evidenceFailureCode
-      - evidenceCount
-      - pageNo
-      - hasAnnotation
-      - sourceEngine
-      - sourceVersion
-      properties:
-        reviewItemId:
-          type: string
-        reviewType:
-          $ref: '#/components/schemas/ReviewType'
-        targetText:
-          type: string
-        resultStatus:
-          $ref: '#/components/schemas/ReviewResultStatus'
-        riskLevel:
-          $ref: '#/components/schemas/RiskLevel'
-        riskPolicyVersion:
-          type: string
-        riskReasonCodes:
-          type: array
-          items:
-            type: string
-        reason:
-          type: string
-        evidenceStatus:
-          $ref: '#/components/schemas/EvidenceStatus'
-        evidenceFailureCode:
-          oneOf:
-          - type: string
-            enum:
-            - RAG_SEARCH_UNAVAILABLE
-            - RAG_SEARCH_FAILED
-          - type: 'null'
-        evidenceCount:
-          type: integer
-          minimum: 0
-          maximum: 5
-        pageNo:
-          type:
-          - integer
-          - 'null'
-          minimum: 1
-        hasAnnotation:
-          type: boolean
-        sourceEngine:
-          $ref: '#/components/schemas/ReviewEngineType'
-        sourceVersion:
-          type: string
-          minLength: 1
-    ReviewItemPage:
-      type: object
-      additionalProperties: false
-      required:
-      - contents
-      - page
-      - size
-      - totalElements
-      - totalPages
-      properties:
-        contents:
-          type: array
-          items:
-            $ref: '#/components/schemas/ReviewItemSummary'
-        page:
-          type: integer
-          minimum: 1
-        size:
-          type: integer
-          minimum: 1
-          maximum: 100
-        totalElements:
-          type: integer
-          minimum: 0
-        totalPages:
-          type: integer
-          minimum: 0
-    ReviewItemEvidence:
-      type: object
-      additionalProperties: false
-      required:
-      - evidenceId
-      - evidenceChunkId
-      - standardVersionId
-      - evidenceType
-      - title
-      - matchedText
-      - rankNo
-      - relevanceScore
-      - matchSource
-      properties:
-        evidenceId:
-          type: string
-        evidenceChunkId:
-          type:
-          - string
-          - 'null'
-        standardVersionId:
-          type: string
-        evidenceType:
-          $ref: '#/components/schemas/EvidenceType'
-        title:
-          type: string
-        articleNo:
-          type:
-          - string
-          - 'null'
-        matchedText:
-          type: string
-        rankNo:
-          type: integer
-          minimum: 1
-          maximum: 5
-        relevanceScore:
-          type: number
-          minimum: 0
-          maximum: 1
-        matchSource:
-          type: string
-          enum:
-          - KEYWORD
-          - VECTOR
-          - HYBRID
-          - RULE_METADATA
-    Annotation:
-      type: object
-      additionalProperties: false
-      required:
-      - annotationId
-      - reviewItemId
-      - reviewType
-      - riskLevel
-      - targetText
-      - annotationDisplayMode
-      - annotationStatus
-      - locationConfidence
-      - confidencePolicyVersion
-      - displayReason
-      - pageNo
-      - coordinate
-      - textBlockId
-      - textPath
-      - rawStartOffset
-      - rawEndOffset
-      - normalizedStartOffset
-      - normalizedEndOffset
-      - matchedText
-      properties:
-        annotationId:
-          type: string
-        reviewItemId:
-          type: string
-        reviewType:
-          $ref: '#/components/schemas/ReviewType'
-        riskLevel:
-          $ref: '#/components/schemas/RiskLevel'
-        targetText:
-          type: string
-        annotationDisplayMode:
-          $ref: '#/components/schemas/AnnotationDisplayMode'
-        annotationStatus:
-          $ref: '#/components/schemas/AnnotationStatus'
-        locationConfidence:
-          type:
-          - number
-          - 'null'
-          minimum: 0
-          maximum: 1
-        confidencePolicyVersion:
-          type: string
-        displayReason:
-          type: string
-        pageNo:
-          type:
-          - integer
-          - 'null'
-          minimum: 1
-        coordinate:
-          oneOf:
-          - $ref: '#/components/schemas/Coordinate'
-          - type: 'null'
-        textBlockId:
-          type:
-          - string
-          - 'null'
-        textPath:
-          type:
-          - string
-          - 'null'
-        rawStartOffset:
-          type:
-          - integer
-          - 'null'
-          minimum: 0
-        rawEndOffset:
-          type:
-          - integer
-          - 'null'
-          minimum: 0
-        normalizedStartOffset:
-          type:
-          - integer
-          - 'null'
-          minimum: 0
-        normalizedEndOffset:
-          type:
-          - integer
-          - 'null'
-          minimum: 0
-        matchedText:
-          type:
-          - string
-          - 'null'
-    AnnotationCollection:
-      type: object
-      additionalProperties: false
-      required:
-      - reviewId
-      - fileId
-      - fileType
-      - pageNo
-      - annotations
-      properties:
-        reviewId:
-          type: string
-        fileId:
-          type: string
-        fileType:
-          type: string
-        pageNo:
-          type:
-          - integer
-          - 'null'
-          minimum: 1
-        annotations:
-          type: array
-          items:
-            $ref: '#/components/schemas/Annotation'
-    ReviewItemDetail:
-      allOf:
-      - $ref: '#/components/schemas/ReviewItemSummary'
-      - type: object
-        additionalProperties: false
-        required:
-        - riskRationale
-        - evidences
-        - recommendation
-        - annotation
-        properties:
-          riskRationale:
-            $ref: '#/components/schemas/RiskRationale'
-          evidences:
-            type: array
-            maxItems: 3
-            items:
-              $ref: '#/components/schemas/ReviewItemEvidence'
-          recommendation:
-            type:
-            - string
-            - 'null'
-          annotation:
-            oneOf:
-            - $ref: '#/components/schemas/Annotation'
-            - type: 'null'
-    ErrorResponse:
-      type: object
-      additionalProperties: false
-      required: [ code, message, traceId, timestamp ]
-      properties:
-        code:
-          type: string
-          minLength: 1
-        message:
-          type: string
-          minLength: 1
-        details:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        traceId:
-          type: string
-          minLength: 1
-        timestamp:
-          type: string
-          format: date-time
-      example:
-        code: FILE_NOT_SUPPORTED
-        message: 지원하지 않는 파일 형식입니다.
-        details:
-          - field: advertisementFile
-            reason: jpg, jpeg, png, pdf, hwp, hwpx 파일만 업로드할 수 있습니다.
-        traceId: req-example-000001
-        timestamp: '2026-07-14T06:00:00Z'
-    LoginRequest:
-      type: object
-      additionalProperties: false
-      required: [ email, password ]
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 255
-        password:
-          type: string
-          minLength: 10
-          maxLength: 256
-          writeOnly: true
     AccessTokenResponse:
-      type: object
-      additionalProperties: false
-      required: [ accessToken, tokenType, expiresIn ]
       properties:
         accessToken:
           type: string
           minLength: 1
+          title: Accesstoken
         tokenType:
           type: string
           const: Bearer
+          title: Tokentype
         expiresIn:
           type: integer
           const: 1800
-    AuthTokenResponse:
-      type: object
+          title: Expiresin
       additionalProperties: false
-      required: [ accessToken, tokenType, expiresIn, user ]
-      properties:
-        accessToken:
-          type: string
-          minLength: 1
-        tokenType:
-          type: string
-          const: Bearer
-        expiresIn:
-          type: integer
-          const: 1800
-        user:
-          $ref: '#/components/schemas/UserContext'
-    UserContext:
       type: object
-      additionalProperties: false
-      required: [ userId, userName, departmentId, departmentName, roles ]
-      properties:
-        userId:
-          type: string
-        userName:
-          type: string
-        departmentId:
-          type: string
-        departmentName:
-          type: string
-        roles:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/Role'
-    Role:
-      type: string
-      enum: [ PRODUCT_DEPARTMENT_USER, COMPLIANCE_REVIEWER, STANDARD_MANAGER, SYSTEM_ADMIN ]
-    CodeGroup:
-      type: string
-      enum: [ product-groups, advertisement-types, review-statuses ]
-    CommonCode:
-      type: object
-      additionalProperties: false
-      required: [ code, name, sortOrder, enabled ]
-      properties:
-        code:
-          type: string
-        name:
-          type: string
-        sortOrder:
-          type: integer
-        enabled:
-          type: boolean
-    ProductGroup:
-      type: string
-      enum: [ DEPOSIT, SAVINGS, DEMAND_DEPOSIT, EVENT ]
-    AdvertisementType:
-      type: string
-      enum: [ BRANCH_FLYER, NOTICE, MOBILE_BANNER, WEB_BANNER, EVENT_PAGE, PUSH, SMS, ALIMTALK ]
-    ReviewStatus:
-      type: string
-      enum: [ UPLOADED, REVISED ]
-    FileType:
-      type: string
-      enum: [ ADVERTISEMENT, PRODUCT_DESCRIPTION, TERMS, ADDITIONAL ]
-    AdvertisementFile:
-      type: object
-      additionalProperties: false
-      required: [ fileId, fileType, fileName, mimeType, fileSize ]
-      properties:
-        fileId:
-          type: string
-        fileType:
-          $ref: '#/components/schemas/FileType'
-        fileName:
-          type: string
-        mimeType:
-          type: string
-        fileSize:
-          type: integer
-          minimum: 0
-          maximum: 52428800
-    AdvertisementSummary:
-      type: object
-      additionalProperties: false
       required:
-        - advertisementId
-        - advertisementName
-        - productGroup
-        - advertisementType
-        - departmentId
-        - registeredBy
-        - registeredAt
-        - reviewStatus
-      properties:
-        advertisementId:
-          type: string
-        advertisementName:
-          type: string
-        productGroup:
-          $ref: '#/components/schemas/ProductGroup'
-        advertisementType:
-          $ref: '#/components/schemas/AdvertisementType'
-        departmentId:
-          type: string
-        registeredBy:
-          type: string
-        registeredAt:
-          type: string
-          format: date-time
-        reviewStatus:
-          $ref: '#/components/schemas/ReviewStatus'
-    AdvertisementPage:
-      type: object
-      additionalProperties: false
-      required: [ contents, page, size, totalElements, totalPages ]
-      properties:
-        contents:
-          type: array
-          items:
-            $ref: '#/components/schemas/AdvertisementSummary'
-        page:
-          type: integer
-          minimum: 1
-        size:
-          type: integer
-          minimum: 1
-        totalElements:
-          type: integer
-          minimum: 0
-        totalPages:
-          type: integer
-          minimum: 0
-    CreateAdvertisementRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - advertisementName
-        - productGroup
-        - advertisementType
-        - departmentId
-        - advertisementFile
-      properties:
-        advertisementName:
-          type: string
-          minLength: 1
-          maxLength: 300
-        productGroup:
-          $ref: '#/components/schemas/ProductGroup'
-        advertisementType:
-          $ref: '#/components/schemas/AdvertisementType'
-        channelType:
-          type: string
-          maxLength: 50
-        departmentId:
-          type: string
-          maxLength: 50
-        memo:
-          type: string
-          maxLength: 2000
-        advertisementFile:
-          type: string
-          format: binary
-          description: jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
-        productDescriptionFile:
-          type: string
-          format: binary
-        termsFile:
-          type: string
-          format: binary
-        additionalFiles:
-          type: array
-          maxItems: 10
-          items:
-            type: string
-            format: binary
+        - accessToken
+        - tokenType
+        - expiresIn
+      title: AccessTokenResponse
     AdvertisementCreated:
-      type: object
-      additionalProperties: false
-      required: [ advertisementId, advertisementName, reviewStatus, files, createdAt ]
       properties:
         advertisementId:
           type: string
+          title: Advertisementid
         advertisementName:
           type: string
+          title: Advertisementname
         reviewStatus:
-          $ref: '#/components/schemas/ReviewStatus'
+          $ref: "#/components/schemas/ReviewStatus"
         files:
+          items:
+            $ref: "#/components/schemas/AdvertisementFile"
           type: array
           minItems: 1
-          items:
-            $ref: '#/components/schemas/AdvertisementFile'
+          title: Files
         createdAt:
           type: string
           format: date-time
-    AdvertisementDetail:
-      type: object
+          title: Createdat
       additionalProperties: false
+      type: object
+      required:
+        - advertisementId
+        - advertisementName
+        - reviewStatus
+        - files
+        - createdAt
+      title: AdvertisementCreated
+    AdvertisementDetail:
+      properties:
+        advertisementId:
+          type: string
+          title: Advertisementid
+        advertisementName:
+          type: string
+          title: Advertisementname
+        productGroup:
+          $ref: "#/components/schemas/ProductGroup"
+        advertisementType:
+          $ref: "#/components/schemas/AdvertisementType"
+        departmentId:
+          type: string
+          title: Departmentid
+        registeredBy:
+          type: string
+          title: Registeredby
+        registeredAt:
+          type: string
+          format: date-time
+          title: Registeredat
+        reviewStatus:
+          $ref: "#/components/schemas/ReviewStatus"
+        channelType:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Channeltype
+        memo:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Memo
+        files:
+          items:
+            $ref: "#/components/schemas/AdvertisementFile"
+          type: array
+          title: Files
+      additionalProperties: false
+      type: object
       required:
         - advertisementId
         - advertisementName
@@ -1915,737 +1521,258 @@ components:
         - registeredAt
         - reviewStatus
         - files
-      properties:
-        advertisementId:
-          type: string
-        advertisementName:
-          type: string
-        productGroup:
-          $ref: '#/components/schemas/ProductGroup'
-        advertisementType:
-          $ref: '#/components/schemas/AdvertisementType'
-        departmentId:
-          type: string
-        registeredBy:
-          type: string
-        registeredAt:
-          type: string
-          format: date-time
-        reviewStatus:
-          $ref: '#/components/schemas/ReviewStatus'
-        channelType:
-          type: [ string, 'null' ]
-        memo:
-          type: [ string, 'null' ]
-        files:
-          type: array
-          items:
-            $ref: '#/components/schemas/AdvertisementFile'
-    FilePreview:
-      type: object
-      additionalProperties: false
-      required: [ fileId, pageNo, totalPages, previewPath ]
+      title: AdvertisementDetail
+    AdvertisementFile:
       properties:
         fileId:
           type: string
-        pageNo:
+          title: Fileid
+        fileType:
+          $ref: "#/components/schemas/FileType"
+        fileName:
+          type: string
+          title: Filename
+        mimeType:
+          type: string
+          title: Mimetype
+        fileSize:
+          type: integer
+          maximum: 52428800
+          minimum: 0
+          title: Filesize
+      additionalProperties: false
+      type: object
+      required:
+        - fileId
+        - fileType
+        - fileName
+        - mimeType
+        - fileSize
+      title: AdvertisementFile
+    AdvertisementPage:
+      properties:
+        contents:
+          items:
+            $ref: "#/components/schemas/AdvertisementSummary"
+          type: array
+          title: Contents
+        page:
           type: integer
           minimum: 1
+          title: Page
+        size:
+          type: integer
+          minimum: 1
+          title: Size
+        totalElements:
+          type: integer
+          minimum: 0
+          title: Totalelements
         totalPages:
           type: integer
-          minimum: 1
-        previewPath:
-          type: string
-          pattern: '^/api/v1/files/[^/]+/preview/content$'
-        width:
-          type: [ integer, 'null' ]
-          minimum: 1
-        height:
-          type: [ integer, 'null' ]
-          minimum: 1
-    AuditLogSummary:
-      type: object
+          minimum: 0
+          title: Totalpages
       additionalProperties: false
-      required: [ auditLogId, actionType, targetType, result, traceId, createdAt ]
+      type: object
+      required:
+        - contents
+        - page
+        - size
+        - totalElements
+        - totalPages
+      title: AdvertisementPage
+    AdvertisementSummary:
+      properties:
+        advertisementId:
+          type: string
+          title: Advertisementid
+        advertisementName:
+          type: string
+          title: Advertisementname
+        productGroup:
+          $ref: "#/components/schemas/ProductGroup"
+        advertisementType:
+          $ref: "#/components/schemas/AdvertisementType"
+        departmentId:
+          type: string
+          title: Departmentid
+        registeredBy:
+          type: string
+          title: Registeredby
+        registeredAt:
+          type: string
+          format: date-time
+          title: Registeredat
+        reviewStatus:
+          $ref: "#/components/schemas/ReviewStatus"
+      additionalProperties: false
+      type: object
+      required:
+        - advertisementId
+        - advertisementName
+        - productGroup
+        - advertisementType
+        - departmentId
+        - registeredBy
+        - registeredAt
+        - reviewStatus
+      title: AdvertisementSummary
+    AdvertisementType:
+      enum:
+        - BRANCH_FLYER
+        - NOTICE
+        - MOBILE_BANNER
+        - WEB_BANNER
+        - EVENT_PAGE
+        - PUSH
+        - SMS
+        - ALIMTALK
+      type: string
+    AuditLogPage:
+      properties:
+        contents:
+          items:
+            $ref: "#/components/schemas/AuditLogSummary"
+          type: array
+          title: Contents
+        page:
+          type: integer
+          minimum: 1
+          title: Page
+        size:
+          type: integer
+          minimum: 1
+          title: Size
+        totalElements:
+          type: integer
+          minimum: 0
+          title: Totalelements
+        totalPages:
+          type: integer
+          minimum: 0
+          title: Totalpages
+      additionalProperties: false
+      type: object
+      required:
+        - contents
+        - page
+        - size
+        - totalElements
+        - totalPages
+      title: AuditLogPage
+    AuditLogSummary:
       properties:
         auditLogId:
           type: string
           format: uuid
+          title: Auditlogid
         actorId:
-          type: [ string, 'null' ]
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Actorid
         actorDepartmentId:
-          type: [ string, 'null' ]
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Actordepartmentid
         actorRole:
-          oneOf:
-            - $ref: '#/components/schemas/Role'
-            - type: 'null'
+          anyOf:
+            - $ref: "#/components/schemas/Role"
+            - type: "null"
         actionType:
           type: string
+          title: Actiontype
         targetType:
           type: string
+          title: Targettype
         targetId:
-          type: [ string, 'null' ]
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Targetid
         result:
           type: string
-          enum: [ SUCCESS, FAILURE, DENIED ]
+          enum:
+            - SUCCESS
+            - FAILURE
+            - DENIED
+          title: Result
         reasonCode:
-          type: [ string, 'null' ]
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Reasoncode
         traceId:
           type: string
+          title: Traceid
         createdAt:
           type: string
           format: date-time
-    AuditLogPage:
-      type: object
+          title: Createdat
       additionalProperties: false
-      required: [ contents, page, size, totalElements, totalPages ]
-      properties:
-        contents:
-          type: array
-          items:
-            $ref: '#/components/schemas/AuditLogSummary'
-        page:
-          type: integer
-          minimum: 1
-        size:
-          type: integer
-          minimum: 1
-        totalElements:
-          type: integer
-          minimum: 0
-        totalPages:
-          type: integer
-          minimum: 0
-    EvidenceType:
-      type: string
-      enum:
-        - LAW
-        - REGULATION
-        - INTERNAL_STANDARD
-        - GUIDELINE
-        - MANUAL
-        - REVIEW_CASE
-        - TEMPLATE
-        - PRODUCT_STANDARD
-    RuleType:
-      type: string
-      enum: [ REQUIRED, PROHIBITED, RECOMMENDED, REFERENCE ]
-    Importance:
-      type: string
-      enum: [ HIGH, MEDIUM, LOW ]
-    SearchMode:
-      type: string
-      enum: [ KEYWORD, VECTOR, HYBRID ]
-      default: HYBRID
-    IndexStatus:
-      type: string
-      enum: [ PENDING, INDEXING, ACTIVE, FAILED, EXCLUDED, DELETED ]
-    ReindexScope:
-      type: string
-      enum: [ INDEX_ONLY, CHUNK_AND_INDEX, KEYWORD_ONLY, VECTOR_ONLY ]
-    ReindexJobStatus:
-      type: string
-      enum: [ QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED ]
-    SearchBackend:
-      type: string
-      enum: [ QDRANT, OPENSEARCH ]
-    StandardSummary:
       type: object
-      additionalProperties: false
       required:
-        - standardId
-        - title
-        - evidenceType
-        - ruleType
-        - currentVersion
-        - isActive
+        - auditLogId
+        - actionType
+        - targetType
+        - result
+        - traceId
         - createdAt
+      title: AuditLogSummary
+    AuthTokenResponse:
       properties:
-        standardId:
+        accessToken:
           type: string
-        title:
+          minLength: 1
+          title: Accesstoken
+        tokenType:
           type: string
-        evidenceType:
-          $ref: '#/components/schemas/EvidenceType'
-        productGroup:
-          oneOf:
-            - $ref: '#/components/schemas/ProductGroup'
-            - type: 'null'
-        advertisementType:
-          oneOf:
-            - $ref: '#/components/schemas/AdvertisementType'
-            - type: 'null'
-        ruleType:
-          $ref: '#/components/schemas/RuleType'
-        importance:
-          oneOf:
-            - $ref: '#/components/schemas/Importance'
-            - type: 'null'
-        effectiveDate:
-          type: [ string, 'null' ]
-          format: date
-        expiredDate:
-          type: [ string, 'null' ]
-          format: date
-        currentVersion:
-          type: string
-        isActive:
-          type: boolean
-        createdAt:
-          type: string
-          format: date-time
-    StandardPage:
-      type: object
-      additionalProperties: false
-      required: [ contents, page, size, totalElements, totalPages ]
-      properties:
-        contents:
-          type: array
-          items:
-            $ref: '#/components/schemas/StandardSummary'
-        page:
+          const: Bearer
+          title: Tokentype
+        expiresIn:
           type: integer
-          minimum: 1
-        size:
-          type: integer
-          minimum: 1
-        totalElements:
-          type: integer
-          minimum: 0
-        totalPages:
-          type: integer
-          minimum: 0
-    CreateStandardRequest:
-      type: object
+          const: 1800
+          title: Expiresin
+        user:
+          $ref: "#/components/schemas/UserContext"
       additionalProperties: false
-      required: [ title, evidenceType, ruleType, metadata, content ]
-      properties:
-        title:
-          type: string
-          minLength: 1
-          maxLength: 500
-        evidenceType:
-          $ref: '#/components/schemas/EvidenceType'
-        productGroup:
-          $ref: '#/components/schemas/ProductGroup'
-        advertisementType:
-          $ref: '#/components/schemas/AdvertisementType'
-        ruleType:
-          $ref: '#/components/schemas/RuleType'
-        importance:
-          $ref: '#/components/schemas/Importance'
-        effectiveDate:
-          type: string
-          format: date
-        expiredDate:
-          type: string
-          format: date
-        metadata:
-          type: object
-          additionalProperties: true
-          description: Evidence-type-required metadata defined by ADR-0050.
-        content:
-          type: string
-          minLength: 1
-          maxLength: 1000000
-          description: Directly entered reference body; M3 does not parse an attachment.
-        sourceFile:
-          type: string
-          format: binary
-          description: Optional archival original; its content is outside the M3 parser boundary.
-    UpdateStandardRequest:
       type: object
-      additionalProperties: false
-      required: [ content, metadata, changeReason ]
-      properties:
-        title:
-          type: string
-          minLength: 1
-          maxLength: 500
-        content:
-          type: string
-          minLength: 1
-          maxLength: 1000000
-        effectiveDate:
-          type: [ string, 'null' ]
-          format: date
-        expiredDate:
-          type: [ string, 'null' ]
-          format: date
-        metadata:
-          type: object
-          additionalProperties: true
-        changeReason:
-          type: string
-          minLength: 1
-          maxLength: 2000
-    StandardCreated:
-      type: object
-      additionalProperties: false
       required:
-        - standardId
-        - evidenceId
-        - standardVersionId
-        - version
-        - isActive
-      properties:
-        standardId:
-          type: string
-        evidenceId:
-          type: string
-        standardVersionId:
-          type: string
-        version:
-          type: string
-        isActive:
-          type: boolean
-    StandardDetail:
-      type: object
-      additionalProperties: false
-      required:
-        - standardId
-        - evidenceId
-        - standardVersionId
-        - version
-        - title
-        - evidenceType
-        - ruleType
-        - metadata
-        - content
-        - isActive
-        - createdAt
-        - createdBy
-      properties:
-        standardId:
-          type: string
-        evidenceId:
-          type: string
-        standardVersionId:
-          type: string
-        version:
-          type: string
-        title:
-          type: string
-        evidenceType:
-          $ref: '#/components/schemas/EvidenceType'
-        productGroup:
-          oneOf:
-            - $ref: '#/components/schemas/ProductGroup'
-            - type: 'null'
-        advertisementType:
-          oneOf:
-            - $ref: '#/components/schemas/AdvertisementType'
-            - type: 'null'
-        ruleType:
-          $ref: '#/components/schemas/RuleType'
-        importance:
-          oneOf:
-            - $ref: '#/components/schemas/Importance'
-            - type: 'null'
-        effectiveDate:
-          type: [ string, 'null' ]
-          format: date
-        expiredDate:
-          type: [ string, 'null' ]
-          format: date
-        metadata:
-          type: object
-          additionalProperties: true
-        content:
-          type: string
-        changeReason:
-          type: [ string, 'null' ]
-        isActive:
-          type: boolean
-        createdAt:
-          type: string
-          format: date-time
-        createdBy:
-          type: string
-    StandardHistoryPage:
-      type: object
-      additionalProperties: false
-      required: [ contents, page, size, totalElements, totalPages ]
-      properties:
-        contents:
-          type: array
-          items:
-            $ref: '#/components/schemas/StandardDetail'
-        page:
-          type: integer
-          minimum: 1
-        size:
-          type: integer
-          minimum: 1
-        totalElements:
-          type: integer
-          minimum: 0
-        totalPages:
-          type: integer
-          minimum: 0
-    DeactivateStandardRequest:
-      type: object
-      additionalProperties: false
-      required: [ reason ]
-      properties:
-        reason:
-          type: string
-          minLength: 1
-          maxLength: 2000
-    EvidenceSearchResult:
-      type: object
-      additionalProperties: false
-      required:
-        - evidenceId
-        - evidenceChunkId
-        - standardVersionId
-        - evidenceType
-        - title
-        - ruleType
-        - contentSummary
-        - version
-        - rankNo
-        - relevanceScore
-        - matchSource
-      properties:
-        evidenceId:
-          type: string
-        evidenceChunkId:
-          type: string
-        standardVersionId:
-          type: string
-        evidenceType:
-          $ref: '#/components/schemas/EvidenceType'
-        title:
-          type: string
-        articleNo:
-          type: [ string, 'null' ]
-        ruleType:
-          $ref: '#/components/schemas/RuleType'
-        productGroup:
-          oneOf:
-            - $ref: '#/components/schemas/ProductGroup'
-            - type: 'null'
-        advertisementType:
-          oneOf:
-            - $ref: '#/components/schemas/AdvertisementType'
-            - type: 'null'
-        contentSummary:
-          type: string
-        effectiveDate:
-          type: [ string, 'null' ]
-          format: date
-        version:
-          type: string
-        rankNo:
-          type: integer
-          minimum: 1
-          maximum: 20
-        relevanceScore:
-          type: number
-          minimum: 0
-          maximum: 1
-        matchSource:
-          $ref: '#/components/schemas/SearchMode'
-        highlights:
-          type: object
-          additionalProperties:
-            type: array
-            items:
-              type: string
-    EvidenceDetail:
-      type: object
-      additionalProperties: false
-      required:
-        - evidenceId
-        - standardId
-        - standardVersionId
-        - evidenceType
-        - title
-        - content
-        - ruleType
-        - version
-        - isActive
-      properties:
-        evidenceId:
-          type: string
-        standardId:
-          type: string
-        standardVersionId:
-          type: string
-        evidenceType:
-          $ref: '#/components/schemas/EvidenceType'
-        title:
-          type: string
-        articleNo:
-          type: [ string, 'null' ]
-        content:
-          type: string
-        contentSummary:
-          type: [ string, 'null' ]
-        productGroup:
-          oneOf:
-            - $ref: '#/components/schemas/ProductGroup'
-            - type: 'null'
-        advertisementType:
-          oneOf:
-            - $ref: '#/components/schemas/AdvertisementType'
-            - type: 'null'
-        ruleType:
-          $ref: '#/components/schemas/RuleType'
-        importance:
-          oneOf:
-            - $ref: '#/components/schemas/Importance'
-            - type: 'null'
-        effectiveDate:
-          type: [ string, 'null' ]
-          format: date
-        expiredDate:
-          type: [ string, 'null' ]
-          format: date
-        version:
-          type: string
-        isActive:
-          type: boolean
-    ReindexStandardRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - reindexScope
-        - reason
-        - chunkingPolicyVersion
-        - searchSchemaVersion
-        - targetIndexes
-      properties:
-        reindexScope:
-          $ref: '#/components/schemas/ReindexScope'
-        reason:
-          type: string
-          minLength: 1
-          maxLength: 2000
-        parserRuleVersion:
-          type: [ string, 'null' ]
-          maxLength: 100
-        chunkingPolicyVersion:
-          type: string
-          minLength: 1
-          maxLength: 100
-        embeddingModel:
-          type: [ string, 'null' ]
-          maxLength: 100
-          description: Reproducibility label; M3 makes no provider network call.
-        searchSchemaVersion:
-          type: string
-          minLength: 1
-          maxLength: 100
-        opensearchAnalyzerVersion:
-          type: [ string, 'null' ]
-          maxLength: 100
-        synonymVersion:
-          type: [ string, 'null' ]
-          maxLength: 100
-        targetIndexes:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/SearchBackend'
-    StandardReindexJob:
-      type: object
-      additionalProperties: false
-      required:
-        - jobId
-        - standardId
-        - standardVersionId
-        - reindexScope
-        - jobStatus
-        - targetIndexes
-        - createdChunkCount
-        - indexedChunkCount
-        - requestedBy
-        - requestedAt
-      properties:
-        jobId:
-          type: string
-        standardId:
-          type: string
-        standardVersionId:
-          type: string
-        reindexScope:
-          $ref: '#/components/schemas/ReindexScope'
-        jobStatus:
-          $ref: '#/components/schemas/ReindexJobStatus'
-        targetIndexes:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/SearchBackend'
-        parserRuleVersion:
-          type: [ string, 'null' ]
-        chunkingPolicyVersion:
-          type: [ string, 'null' ]
-        embeddingModel:
-          type: [ string, 'null' ]
-        searchSchemaVersion:
-          type: [ string, 'null' ]
-        opensearchAnalyzerVersion:
-          type: [ string, 'null' ]
-        synonymVersion:
-          type: [ string, 'null' ]
-        createdChunkCount:
-          type: integer
-          minimum: 0
-        indexedChunkCount:
-          type: integer
-          minimum: 0
-        qdrantStatus:
-          oneOf:
-            - $ref: '#/components/schemas/IndexStatus'
-            - type: 'null'
-        opensearchStatus:
-          oneOf:
-            - $ref: '#/components/schemas/IndexStatus'
-            - type: 'null'
-        failedReasonCode:
-          type: [ string, 'null' ]
-        failedReasonMessage:
-          type: [ string, 'null' ]
-        requestedBy:
-          type: string
-        requestedAt:
-          type: string
-          format: date-time
-        startedAt:
-          type: [ string, 'null' ]
-          format: date-time
-        completedAt:
-          type: [ string, 'null' ]
-          format: date-time
-    EvidenceChunk:
-      type: object
-      additionalProperties: false
-      required:
-        - evidenceChunkId
-        - evidenceId
-        - standardId
-        - standardVersionId
-        - chunkNo
-        - chunkText
-        - chunkingPolicyVersion
-        - searchSchemaVersion
-        - qdrantIndexStatus
-        - opensearchIndexStatus
-        - createdAt
-      properties:
-        evidenceChunkId:
-          type: string
-        evidenceId:
-          type: string
-        standardId:
-          type: string
-        standardVersionId:
-          type: string
-        chunkNo:
-          type: integer
-          minimum: 1
-        chunkText:
-          type: string
-        tokenCount:
-          type: [ integer, 'null' ]
-          minimum: 0
-        sectionPath:
-          type: [ string, 'null' ]
-        articleNo:
-          type: [ string, 'null' ]
-        pageNo:
-          type: [ integer, 'null' ]
-          minimum: 1
-        sourceSpan:
-          type: [ object, 'null' ]
-          additionalProperties: true
-        structureConfidence:
-          type: [ number, 'null' ]
-          minimum: 0
-          maximum: 1
-        parserRuleVersion:
-          type: [ string, 'null' ]
-        chunkingPolicyVersion:
-          type: string
-        embeddingModel:
-          type: [ string, 'null' ]
-        searchSchemaVersion:
-          type: string
-        opensearchAnalyzerVersion:
-          type: [ string, 'null' ]
-        synonymVersion:
-          type: [ string, 'null' ]
-        opensearchHighlights:
-          type: object
-          additionalProperties:
-            type: array
-            items:
-              type: string
-        qdrantIndexStatus:
-          $ref: '#/components/schemas/IndexStatus'
-        qdrantIndexErrorCode:
-          type: [ string, 'null' ]
-        opensearchIndexStatus:
-          $ref: '#/components/schemas/IndexStatus'
-        opensearchIndexErrorCode:
-          type: [ string, 'null' ]
-        createdAt:
-          type: string
-          format: date-time
-    EvidenceChunkPage:
-      type: object
-      additionalProperties: false
-      required: [ contents, page, size, totalElements, totalPages ]
-      properties:
-        contents:
-          type: array
-          items:
-            $ref: '#/components/schemas/EvidenceChunk'
-        page:
-          type: integer
-          minimum: 1
-        size:
-          type: integer
-          minimum: 1
-        totalElements:
-          type: integer
-          minimum: 0
-        totalPages:
-          type: integer
-          minimum: 0
-    AIReviewStatus:
+        - accessToken
+        - tokenType
+        - expiresIn
+        - user
+      title: AuthTokenResponse
+    CodeGroup:
       type: string
       enum:
-        - ANALYSIS_REQUESTED
-        - ANALYZING
-        - CHECK_REQUIRED
-        - REVIEW_COMPLETED
-        - REVIEW_FAILED
-    ReviewJobStatus:
-      type: string
-      enum:
-        - PENDING
-        - RUNNING
-        - RETRY_PENDING
-        - STALE
-        - COMPLETED
-        - FAILED
-        - FAILED_FINAL
-        - CANCELED
-    ReviewType:
-      type: string
-      enum:
-        - REQUIRED_PHRASE
-        - INTEREST_RATE
-        - MISLEADING_EXPRESSION
-        - PRODUCT_CONSISTENCY
-        - VISIBILITY
-        - OCR_QUALITY
+        - product-groups
+        - advertisement-types
+        - review-statuses
+      title: CodeGroup
+    CommonCode:
+      properties:
+        code:
+          type: string
+          title: Code
+        name:
+          type: string
+          title: Name
+        sortOrder:
+          type: integer
+          title: Sortorder
+        enabled:
+          type: boolean
+          title: Enabled
+      additionalProperties: false
+      type: object
+      required:
+        - code
+        - name
+        - sortOrder
+        - enabled
+      title: CommonCode
     CreateReviewRequest:
       type: object
       additionalProperties: false
@@ -2674,163 +1801,172 @@ components:
             - string
             - "null"
           maxLength: 2000
-    ReviewAccepted:
-      type: object
+    DeactivateStandardRequest:
       additionalProperties: false
-      required:
-        - reviewId
-        - advertisementId
-        - reviewStatus
-        - jobId
-        - standardEffectiveDate
-        - standardVersionIds
-        - requestedAt
       properties:
-        reviewId:
+        reason:
+          maxLength: 2000
+          minLength: 1
           type: string
-        advertisementId:
+      required:
+        - reason
+      type: object
+    ErrorResponse:
+      additionalProperties: false
+      example:
+        code: FILE_NOT_SUPPORTED
+        details:
+          - field: advertisementFile
+            reason: jpg, jpeg, png, pdf, hwp, hwpx 파일만 업로드할 수 있습니다.
+        message: 지원하지 않는 파일 형식입니다.
+        timestamp: 2026-07-14T06:00:00Z
+        traceId: req-example-000001
+      properties:
+        code:
+          minLength: 1
           type: string
-        reviewStatus:
-          const: ANALYSIS_REQUESTED
-          type: string
-        jobId:
-          type: string
-        standardEffectiveDate:
-          type: string
-          format: date
-        standardVersionIds:
-          type: array
+        details:
           items:
-            type: string
-        requestedAt:
-          type: string
-          format: date-time
-    ReviewStepStatus:
-      type: object
-      additionalProperties: false
-      required:
-        - stepCode
-        - stepName
-        - status
-        - timeoutAt
-      properties:
-        stepCode:
-          type: string
-        stepName:
-          type: string
-        status:
-          type: string
-          enum:
-            - PENDING
-            - RUNNING
-            - RETRY_PENDING
-            - COMPLETED
-            - FAILED
-            - SKIPPED
-        timeoutAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        failedReasonCode:
-          type:
-            - string
-            - "null"
-    ReviewProgress:
-      type: object
-      additionalProperties: false
-      required:
-        - reviewId
-        - advertisementId
-        - reviewStatus
-        - jobId
-        - jobStatus
-        - progressRate
-        - retryCount
-        - maxRetries
-        - isRetryable
-        - timeoutAt
-        - steps
-        - updatedAt
-      properties:
-        reviewId:
-          type: string
-        advertisementId:
-          type: string
-        reviewStatus:
-          $ref: "#/components/schemas/AIReviewStatus"
-        jobId:
-          type: string
-        jobStatus:
-          $ref: "#/components/schemas/ReviewJobStatus"
-        currentStep:
-          type:
-            - string
-            - "null"
-        progressRate:
-          type: number
-          minimum: 0
-          maximum: 100
-        retryCount:
-          type: integer
-          minimum: 0
-          maximum: 3
-        maxRetries:
-          const: 3
-          type: integer
-        nextRetryAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        isRetryable:
-          type: boolean
-        failedReasonCode:
-          type:
-            - string
-            - "null"
-        failedReason:
-          type:
-            - string
-            - "null"
-        timeoutAt:
-          type: string
-          format: date-time
-        steps:
+            additionalProperties: true
+            type: object
           type: array
-          items:
-            $ref: "#/components/schemas/ReviewStepStatus"
-        updatedAt:
+        message:
+          minLength: 1
           type: string
+        timestamp:
           format: date-time
-    ReviewHistory:
-      type: object
-      additionalProperties: false
-      required:
-        - reviewId
-        - reviewRound
-        - reviewStatus
-        - requestedAt
-      properties:
-        reviewId:
           type: string
-        reviewRound:
+        traceId:
+          minLength: 1
+          type: string
+      required:
+        - code
+        - message
+        - traceId
+        - timestamp
+      type: object
+    FilePreview:
+      properties:
+        fileId:
+          type: string
+          title: Fileid
+        pageNo:
           type: integer
           minimum: 1
-        reviewStatus:
-          $ref: "#/components/schemas/AIReviewStatus"
-        overallRiskLevel:
-          type:
-            - string
-            - "null"
-        requestedAt:
+          title: Pageno
+        totalPages:
+          type: integer
+          minimum: 1
+          title: Totalpages
+        previewPath:
           type: string
-          format: date-time
-        completedAt:
+          pattern: ^/api/v1/files/[^/]+/preview/content$
+          title: Previewpath
+        width:
+          anyOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+          title: Width
+        height:
+          anyOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+          title: Height
+      additionalProperties: false
+      type: object
+      required:
+        - fileId
+        - pageNo
+        - totalPages
+        - previewPath
+      title: FilePreview
+    FileType:
+      type: string
+      enum:
+        - ADVERTISEMENT
+        - PRODUCT_DESCRIPTION
+        - TERMS
+        - ADDITIONAL
+      title: FileType
+    LoginRequest:
+      properties:
+        email:
+          type: string
+          maxLength: 255
+          format: email
+          title: Email
+        password:
+          type: string
+          maxLength: 256
+          minLength: 10
+          title: Password
+          writeOnly: true
+      additionalProperties: false
+      type: object
+      required:
+        - email
+        - password
+      title: LoginRequest
+    ProductGroup:
+      enum:
+        - DEPOSIT
+        - SAVINGS
+        - DEMAND_DEPOSIT
+        - EVENT
+      type: string
+    ReindexStandardRequest:
+      additionalProperties: false
+      properties:
+        chunkingPolicyVersion:
+          maxLength: 100
+          minLength: 1
+          type: string
+        embeddingModel:
+          description: Reproducibility label; M3 makes no provider network call.
+          maxLength: 100
           type:
             - string
             - "null"
-          format: date-time
+        opensearchAnalyzerVersion:
+          maxLength: 100
+          type:
+            - string
+            - "null"
+        parserRuleVersion:
+          maxLength: 100
+          type:
+            - string
+            - "null"
+        reason:
+          maxLength: 2000
+          minLength: 1
+          type: string
+        reindexScope:
+          $ref: "#/components/schemas/ReindexScope"
+        searchSchemaVersion:
+          maxLength: 100
+          minLength: 1
+          type: string
+        synonymVersion:
+          maxLength: 100
+          type:
+            - string
+            - "null"
+        targetIndexes:
+          items:
+            $ref: "#/components/schemas/SearchBackend"
+          minItems: 1
+          type: array
+          uniqueItems: true
+      required:
+        - reindexScope
+        - reason
+        - chunkingPolicyVersion
+        - searchSchemaVersion
+        - targetIndexes
+      type: object
     RerunReviewRequest:
       type: object
       additionalProperties: false
@@ -2849,52 +1985,772 @@ components:
             $ref: "#/components/schemas/ReviewType"
           minItems: 1
           uniqueItems: true
-    RerunReviewAccepted:
-      type: object
+    ReviewStatus:
+      type: string
+      enum:
+        - UPLOADED
+        - REVISED
+      title: ReviewStatus
+    Role:
+      type: string
+      enum:
+        - PRODUCT_DEPARTMENT_USER
+        - COMPLIANCE_REVIEWER
+        - STANDARD_MANAGER
+        - SYSTEM_ADMIN
+      title: Role
+    UpdateStandardRequest:
       additionalProperties: false
-      required:
-        - newReviewId
-        - previousReviewId
-        - reviewStatus
-        - jobId
       properties:
-        newReviewId:
+        changeReason:
+          maxLength: 2000
+          minLength: 1
           type: string
-        previousReviewId:
+        content:
+          maxLength: 1000000
+          minLength: 1
           type: string
-        reviewStatus:
-          const: ANALYSIS_REQUESTED
+        effectiveDate:
+          format: date
+          type:
+            - string
+            - "null"
+        expiredDate:
+          format: date
+          type:
+            - string
+            - "null"
+        metadata:
+          additionalProperties: true
+          type: object
+        title:
+          maxLength: 500
+          minLength: 1
           type: string
+      required:
+        - content
+        - metadata
+        - changeReason
+      type: object
+    UserContext:
+      properties:
+        userId:
+          type: string
+          title: Userid
+        userName:
+          type: string
+          title: Username
+        departmentId:
+          type: string
+          title: Departmentid
+        departmentName:
+          type: string
+          title: Departmentname
+        roles:
+          items:
+            $ref: "#/components/schemas/Role"
+          type: array
+          minItems: 1
+          uniqueItems: true
+          title: Roles
+      additionalProperties: false
+      type: object
+      required:
+        - userId
+        - userName
+        - departmentId
+        - departmentName
+        - roles
+      title: UserContext
+    CreateAdvertisementRequest:
+      additionalProperties: false
+      properties:
+        advertisementName:
+          maxLength: 300
+          minLength: 1
+          title: Advertisementname
+          type: string
+        productGroup:
+          $ref: "#/components/schemas/ProductGroup"
+        advertisementType:
+          $ref: "#/components/schemas/AdvertisementType"
+        departmentId:
+          maxLength: 50
+          title: Departmentid
+          type: string
+        channelType:
+          maxLength: 50
+          type: string
+          title: Channeltype
+        memo:
+          maxLength: 2000
+          type: string
+          title: Memo
+        advertisementFile:
+          description: jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
+          format: binary
+          title: Advertisementfile
+          type: string
+        productDescriptionFile:
+          format: binary
+          type: string
+          title: Productdescriptionfile
+        termsFile:
+          format: binary
+          type: string
+          title: Termsfile
+        additionalFiles:
+          items:
+            format: binary
+            type: string
+          maxItems: 10
+          type: array
+          title: Additionalfiles
+      required:
+        - advertisementName
+        - productGroup
+        - advertisementType
+        - departmentId
+        - advertisementFile
+      title: CreateAdvertisementRequest
+      type: object
+    CreateStandardRequest:
+      additionalProperties: false
+      properties:
+        advertisementType:
+          $ref: "#/components/schemas/AdvertisementType"
+        content:
+          description: Directly entered reference body; M3 does not parse an attachment.
+          maxLength: 1000000
+          minLength: 1
+          type: string
+        effectiveDate:
+          format: date
+          type: string
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        expiredDate:
+          format: date
+          type: string
+        importance:
+          $ref: "#/components/schemas/Importance"
+        metadata:
+          additionalProperties: true
+          description: Evidence-type-required metadata defined by ADR-0050.
+          type: object
+        productGroup:
+          $ref: "#/components/schemas/ProductGroup"
+        ruleType:
+          $ref: "#/components/schemas/RuleType"
+        sourceFile:
+          description: Optional archival original; its content is outside the M3 parser boundary.
+          format: binary
+          type: string
+        title:
+          maxLength: 500
+          minLength: 1
+          type: string
+      required:
+        - title
+        - evidenceType
+        - ruleType
+        - metadata
+        - content
+      type: object
+    EvidenceChunk:
+      additionalProperties: false
+      properties:
+        articleNo:
+          type:
+            - string
+            - "null"
+        chunkNo:
+          minimum: 1
+          type: integer
+        chunkText:
+          type: string
+        chunkingPolicyVersion:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        embeddingModel:
+          type:
+            - string
+            - "null"
+        evidenceChunkId:
+          type: string
+        evidenceId:
+          type: string
+        opensearchAnalyzerVersion:
+          type:
+            - string
+            - "null"
+        opensearchHighlights:
+          additionalProperties:
+            items:
+              type: string
+            type: array
+          type: object
+        opensearchIndexErrorCode:
+          type:
+            - string
+            - "null"
+        opensearchIndexStatus:
+          $ref: "#/components/schemas/IndexStatus"
+        pageNo:
+          minimum: 1
+          type:
+            - integer
+            - "null"
+        parserRuleVersion:
+          type:
+            - string
+            - "null"
+        qdrantIndexErrorCode:
+          type:
+            - string
+            - "null"
+        qdrantIndexStatus:
+          $ref: "#/components/schemas/IndexStatus"
+        searchSchemaVersion:
+          type: string
+        sectionPath:
+          type:
+            - string
+            - "null"
+        sourceSpan:
+          additionalProperties: true
+          type:
+            - object
+            - "null"
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        structureConfidence:
+          maximum: 1
+          minimum: 0
+          type:
+            - number
+            - "null"
+        synonymVersion:
+          type:
+            - string
+            - "null"
+        tokenCount:
+          minimum: 0
+          type:
+            - integer
+            - "null"
+      required:
+        - evidenceChunkId
+        - evidenceId
+        - standardId
+        - standardVersionId
+        - chunkNo
+        - chunkText
+        - chunkingPolicyVersion
+        - searchSchemaVersion
+        - qdrantIndexStatus
+        - opensearchIndexStatus
+        - createdAt
+      type: object
+    EvidenceChunkPage:
+      additionalProperties: false
+      properties:
+        contents:
+          items:
+            $ref: "#/components/schemas/EvidenceChunk"
+          type: array
+        page:
+          minimum: 1
+          type: integer
+        size:
+          minimum: 1
+          type: integer
+        totalElements:
+          minimum: 0
+          type: integer
+        totalPages:
+          minimum: 0
+          type: integer
+      required:
+        - contents
+        - page
+        - size
+        - totalElements
+        - totalPages
+      type: object
+    EvidenceDetail:
+      additionalProperties: false
+      properties:
+        advertisementType:
+          oneOf:
+            - $ref: "#/components/schemas/AdvertisementType"
+            - type: "null"
+        articleNo:
+          type:
+            - string
+            - "null"
+        content:
+          type: string
+        contentSummary:
+          type:
+            - string
+            - "null"
+        effectiveDate:
+          format: date
+          type:
+            - string
+            - "null"
+        evidenceId:
+          type: string
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        expiredDate:
+          format: date
+          type:
+            - string
+            - "null"
+        importance:
+          oneOf:
+            - $ref: "#/components/schemas/Importance"
+            - type: "null"
+        isActive:
+          type: boolean
+        productGroup:
+          oneOf:
+            - $ref: "#/components/schemas/ProductGroup"
+            - type: "null"
+        ruleType:
+          $ref: "#/components/schemas/RuleType"
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+      required:
+        - evidenceId
+        - standardId
+        - standardVersionId
+        - evidenceType
+        - title
+        - content
+        - ruleType
+        - version
+        - isActive
+      type: object
+    EvidenceSearchResult:
+      additionalProperties: false
+      properties:
+        advertisementType:
+          oneOf:
+            - $ref: "#/components/schemas/AdvertisementType"
+            - type: "null"
+        articleNo:
+          type:
+            - string
+            - "null"
+        contentSummary:
+          type: string
+        effectiveDate:
+          format: date
+          type:
+            - string
+            - "null"
+        evidenceChunkId:
+          type: string
+        evidenceId:
+          type: string
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        highlights:
+          additionalProperties:
+            items:
+              type: string
+            type: array
+          type: object
+        matchSource:
+          $ref: "#/components/schemas/SearchMode"
+        productGroup:
+          oneOf:
+            - $ref: "#/components/schemas/ProductGroup"
+            - type: "null"
+        rankNo:
+          maximum: 20
+          minimum: 1
+          type: integer
+        relevanceScore:
+          maximum: 1
+          minimum: 0
+          type: number
+        ruleType:
+          $ref: "#/components/schemas/RuleType"
+        standardVersionId:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+      required:
+        - evidenceId
+        - evidenceChunkId
+        - standardVersionId
+        - evidenceType
+        - title
+        - ruleType
+        - contentSummary
+        - version
+        - rankNo
+        - relevanceScore
+        - matchSource
+      type: object
+    EvidenceType:
+      enum:
+        - LAW
+        - REGULATION
+        - INTERNAL_STANDARD
+        - GUIDELINE
+        - MANUAL
+        - REVIEW_CASE
+        - TEMPLATE
+        - PRODUCT_STANDARD
+      type: string
+    Importance:
+      enum:
+        - HIGH
+        - MEDIUM
+        - LOW
+      type: string
+    IndexStatus:
+      enum:
+        - PENDING
+        - INDEXING
+        - ACTIVE
+        - FAILED
+        - EXCLUDED
+        - DELETED
+      type: string
+    ReindexJobStatus:
+      enum:
+        - QUEUED
+        - RUNNING
+        - SUCCEEDED
+        - FAILED
+        - CANCELED
+      type: string
+    ReindexScope:
+      enum:
+        - INDEX_ONLY
+        - CHUNK_AND_INDEX
+        - KEYWORD_ONLY
+        - VECTOR_ONLY
+      type: string
+    RuleType:
+      enum:
+        - REQUIRED
+        - PROHIBITED
+        - RECOMMENDED
+        - REFERENCE
+      type: string
+    SearchBackend:
+      enum:
+        - QDRANT
+        - OPENSEARCH
+      type: string
+    SearchMode:
+      default: HYBRID
+      enum:
+        - KEYWORD
+        - VECTOR
+        - HYBRID
+      type: string
+    StandardCreated:
+      additionalProperties: false
+      properties:
+        evidenceId:
+          type: string
+        isActive:
+          type: boolean
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        version:
+          type: string
+      required:
+        - standardId
+        - evidenceId
+        - standardVersionId
+        - version
+        - isActive
+      type: object
+    StandardDetail:
+      additionalProperties: false
+      properties:
+        advertisementType:
+          oneOf:
+            - $ref: "#/components/schemas/AdvertisementType"
+            - type: "null"
+        changeReason:
+          type:
+            - string
+            - "null"
+        content:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        createdBy:
+          type: string
+        effectiveDate:
+          format: date
+          type:
+            - string
+            - "null"
+        evidenceId:
+          type: string
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        expiredDate:
+          format: date
+          type:
+            - string
+            - "null"
+        importance:
+          oneOf:
+            - $ref: "#/components/schemas/Importance"
+            - type: "null"
+        isActive:
+          type: boolean
+        metadata:
+          additionalProperties: true
+          type: object
+        productGroup:
+          oneOf:
+            - $ref: "#/components/schemas/ProductGroup"
+            - type: "null"
+        ruleType:
+          $ref: "#/components/schemas/RuleType"
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+      required:
+        - standardId
+        - evidenceId
+        - standardVersionId
+        - version
+        - title
+        - evidenceType
+        - ruleType
+        - metadata
+        - content
+        - isActive
+        - createdAt
+        - createdBy
+      type: object
+    StandardHistoryPage:
+      additionalProperties: false
+      properties:
+        contents:
+          items:
+            $ref: "#/components/schemas/StandardDetail"
+          type: array
+        page:
+          minimum: 1
+          type: integer
+        size:
+          minimum: 1
+          type: integer
+        totalElements:
+          minimum: 0
+          type: integer
+        totalPages:
+          minimum: 0
+          type: integer
+      required:
+        - contents
+        - page
+        - size
+        - totalElements
+        - totalPages
+      type: object
+    StandardPage:
+      additionalProperties: false
+      properties:
+        contents:
+          items:
+            $ref: "#/components/schemas/StandardSummary"
+          type: array
+        page:
+          minimum: 1
+          type: integer
+        size:
+          minimum: 1
+          type: integer
+        totalElements:
+          minimum: 0
+          type: integer
+        totalPages:
+          minimum: 0
+          type: integer
+      required:
+        - contents
+        - page
+        - size
+        - totalElements
+        - totalPages
+      type: object
+    StandardReindexJob:
+      additionalProperties: false
+      properties:
+        chunkingPolicyVersion:
+          type:
+            - string
+            - "null"
+        completedAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        createdChunkCount:
+          minimum: 0
+          type: integer
+        embeddingModel:
+          type:
+            - string
+            - "null"
+        failedReasonCode:
+          type:
+            - string
+            - "null"
+        failedReasonMessage:
+          type:
+            - string
+            - "null"
+        indexedChunkCount:
+          minimum: 0
+          type: integer
         jobId:
           type: string
-    ReviewQueueMessageV1:
-      type: object
-      additionalProperties: false
+        jobStatus:
+          $ref: "#/components/schemas/ReindexJobStatus"
+        opensearchAnalyzerVersion:
+          type:
+            - string
+            - "null"
+        opensearchStatus:
+          oneOf:
+            - $ref: "#/components/schemas/IndexStatus"
+            - type: "null"
+        parserRuleVersion:
+          type:
+            - string
+            - "null"
+        qdrantStatus:
+          oneOf:
+            - $ref: "#/components/schemas/IndexStatus"
+            - type: "null"
+        reindexScope:
+          $ref: "#/components/schemas/ReindexScope"
+        requestedAt:
+          format: date-time
+          type: string
+        requestedBy:
+          type: string
+        searchSchemaVersion:
+          type:
+            - string
+            - "null"
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        startedAt:
+          format: date-time
+          type:
+            - string
+            - "null"
+        synonymVersion:
+          type:
+            - string
+            - "null"
+        targetIndexes:
+          items:
+            $ref: "#/components/schemas/SearchBackend"
+          minItems: 1
+          type: array
+          uniqueItems: true
       required:
-        - messageVersion
         - jobId
-        - reviewId
-        - jobType
-        - correlationId
-        - idempotencyKey
+        - standardId
+        - standardVersionId
+        - reindexScope
+        - jobStatus
+        - targetIndexes
+        - createdChunkCount
+        - indexedChunkCount
+        - requestedBy
+        - requestedAt
+      type: object
+    StandardSummary:
+      additionalProperties: false
       properties:
-        messageVersion:
-          const: review-job-v1
+        advertisementType:
+          oneOf:
+            - $ref: "#/components/schemas/AdvertisementType"
+            - type: "null"
+        createdAt:
+          format: date-time
           type: string
-        jobId:
+        currentVersion:
           type: string
-        reviewId:
+        effectiveDate:
+          format: date
+          type:
+            - string
+            - "null"
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        expiredDate:
+          format: date
+          type:
+            - string
+            - "null"
+        importance:
+          oneOf:
+            - $ref: "#/components/schemas/Importance"
+            - type: "null"
+        isActive:
+          type: boolean
+        productGroup:
+          oneOf:
+            - $ref: "#/components/schemas/ProductGroup"
+            - type: "null"
+        ruleType:
+          $ref: "#/components/schemas/RuleType"
+        standardId:
           type: string
-        jobType:
+        title:
           type: string
-          enum:
-            - REVIEW_ANALYSIS
-            - RE_REVIEW
-        correlationId:
-          type: string
-        idempotencyKey:
-          type: string
-      description: Redis delivery payload. Raw files, OCR text, and provider output are forbidden.
+      required:
+        - standardId
+        - title
+        - evidenceType
+        - ruleType
+        - currentVersion
+        - isActive
+        - createdAt
+      type: object
     Confidence:
       additionalProperties: false
       properties:
@@ -3036,95 +2892,6 @@ components:
         - layoutType
         - confidenceScore
       title: LayoutBlock
-      type: object
-    NormalizedDocument:
-      additionalProperties: false
-      properties:
-        documentId:
-          minLength: 1
-          title: Documentid
-          type: string
-        sourceFileId:
-          minLength: 1
-          title: Sourcefileid
-          type: string
-        reviewId:
-          minLength: 1
-          title: Reviewid
-          type: string
-        sourceFileType:
-          minLength: 1
-          title: Sourcefiletype
-          type: string
-        parserName:
-          minLength: 1
-          title: Parsername
-          type: string
-        parserVersion:
-          minLength: 1
-          title: Parserversion
-          type: string
-        parserRuleVersion:
-          minLength: 1
-          title: Parserruleversion
-          type: string
-        irVersion:
-          pattern: ^normalized-document-v1$
-          title: Irversion
-          type: string
-        pages:
-          items:
-            $ref: "#/components/schemas/Page"
-          title: Pages
-          type: array
-        textBlocks:
-          items:
-            $ref: "#/components/schemas/TextBlock"
-          title: Textblocks
-          type: array
-        layoutBlocks:
-          items:
-            $ref: "#/components/schemas/LayoutBlock"
-          title: Layoutblocks
-          type: array
-        tables:
-          items:
-            $ref: "#/components/schemas/Table"
-          title: Tables
-          type: array
-        warnings:
-          items:
-            $ref: "#/components/schemas/Warning"
-          title: Warnings
-          type: array
-        confidence:
-          $ref: "#/components/schemas/Confidence"
-        rawArtifactRef:
-          minLength: 1
-          title: Rawartifactref
-          type: string
-        createdAt:
-          format: date-time
-          title: Createdat
-          type: string
-      required:
-        - documentId
-        - sourceFileId
-        - reviewId
-        - sourceFileType
-        - parserName
-        - parserVersion
-        - parserRuleVersion
-        - irVersion
-        - pages
-        - textBlocks
-        - layoutBlocks
-        - tables
-        - warnings
-        - confidence
-        - rawArtifactRef
-        - createdAt
-      title: NormalizedDocument
       type: object
     Page:
       additionalProperties: false
@@ -3297,3 +3064,1428 @@ components:
         - requiresReview
       title: Warning
       type: object
+    NormalizedDocument:
+      additionalProperties: false
+      properties:
+        documentId:
+          minLength: 1
+          title: Documentid
+          type: string
+        sourceFileId:
+          minLength: 1
+          title: Sourcefileid
+          type: string
+        reviewId:
+          minLength: 1
+          title: Reviewid
+          type: string
+        sourceFileType:
+          minLength: 1
+          title: Sourcefiletype
+          type: string
+        parserName:
+          minLength: 1
+          title: Parsername
+          type: string
+        parserVersion:
+          minLength: 1
+          title: Parserversion
+          type: string
+        parserRuleVersion:
+          minLength: 1
+          title: Parserruleversion
+          type: string
+        irVersion:
+          pattern: ^normalized-document-v1$
+          title: Irversion
+          type: string
+        pages:
+          items:
+            $ref: "#/components/schemas/Page"
+          title: Pages
+          type: array
+        textBlocks:
+          items:
+            $ref: "#/components/schemas/TextBlock"
+          title: Textblocks
+          type: array
+        layoutBlocks:
+          items:
+            $ref: "#/components/schemas/LayoutBlock"
+          title: Layoutblocks
+          type: array
+        tables:
+          items:
+            $ref: "#/components/schemas/Table"
+          title: Tables
+          type: array
+        warnings:
+          items:
+            $ref: "#/components/schemas/Warning"
+          title: Warnings
+          type: array
+        confidence:
+          $ref: "#/components/schemas/Confidence"
+        rawArtifactRef:
+          minLength: 1
+          title: Rawartifactref
+          type: string
+        createdAt:
+          format: date-time
+          title: Createdat
+          type: string
+      required:
+        - documentId
+        - sourceFileId
+        - reviewId
+        - sourceFileType
+        - parserName
+        - parserVersion
+        - parserRuleVersion
+        - irVersion
+        - pages
+        - textBlocks
+        - layoutBlocks
+        - tables
+        - warnings
+        - confidence
+        - rawArtifactRef
+        - createdAt
+      title: NormalizedDocument
+      type: object
+    AIReviewStatus:
+      type: string
+      enum:
+        - ANALYSIS_REQUESTED
+        - ANALYZING
+        - CHECK_REQUIRED
+        - REVIEW_COMPLETED
+        - REVIEW_FAILED
+    ReviewJobStatus:
+      type: string
+      enum:
+        - PENDING
+        - RUNNING
+        - RETRY_PENDING
+        - STALE
+        - COMPLETED
+        - FAILED
+        - FAILED_FINAL
+        - CANCELED
+    ReviewType:
+      type: string
+      enum:
+        - REQUIRED_PHRASE
+        - INTEREST_RATE
+        - MISLEADING_EXPRESSION
+        - PRODUCT_CONSISTENCY
+        - VISIBILITY
+        - OCR_QUALITY
+    ReviewAccepted:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - advertisementId
+        - reviewStatus
+        - jobId
+        - standardEffectiveDate
+        - standardVersionIds
+        - requestedAt
+      properties:
+        reviewId:
+          type: string
+        advertisementId:
+          type: string
+        reviewStatus:
+          const: ANALYSIS_REQUESTED
+          type: string
+        jobId:
+          type: string
+        standardEffectiveDate:
+          type: string
+          format: date
+        standardVersionIds:
+          type: array
+          items:
+            type: string
+        requestedAt:
+          type: string
+          format: date-time
+    ReviewStepStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - stepCode
+        - stepName
+        - status
+        - timeoutAt
+      properties:
+        stepCode:
+          type: string
+        stepName:
+          type: string
+        status:
+          type: string
+          enum:
+            - PENDING
+            - RUNNING
+            - RETRY_PENDING
+            - COMPLETED
+            - FAILED
+            - SKIPPED
+        timeoutAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        failedReasonCode:
+          type:
+            - string
+            - "null"
+    ReviewProgress:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - advertisementId
+        - reviewStatus
+        - jobId
+        - jobStatus
+        - progressRate
+        - retryCount
+        - maxRetries
+        - isRetryable
+        - timeoutAt
+        - steps
+        - updatedAt
+      properties:
+        reviewId:
+          type: string
+        advertisementId:
+          type: string
+        reviewStatus:
+          $ref: "#/components/schemas/AIReviewStatus"
+        jobId:
+          type: string
+        jobStatus:
+          $ref: "#/components/schemas/ReviewJobStatus"
+        currentStep:
+          type:
+            - string
+            - "null"
+        progressRate:
+          type: number
+          minimum: 0
+          maximum: 100
+        retryCount:
+          type: integer
+          minimum: 0
+          maximum: 3
+        maxRetries:
+          const: 3
+          type: integer
+        nextRetryAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        isRetryable:
+          type: boolean
+        failedReasonCode:
+          type:
+            - string
+            - "null"
+        failedReason:
+          type:
+            - string
+            - "null"
+        timeoutAt:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewStepStatus"
+        updatedAt:
+          type: string
+          format: date-time
+    ReviewHistory:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - reviewRound
+        - reviewStatus
+        - requestedAt
+      properties:
+        reviewId:
+          type: string
+        reviewRound:
+          type: integer
+          minimum: 1
+        reviewStatus:
+          $ref: "#/components/schemas/AIReviewStatus"
+        overallRiskLevel:
+          type:
+            - string
+            - "null"
+        requestedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    RerunReviewAccepted:
+      type: object
+      additionalProperties: false
+      required:
+        - newReviewId
+        - previousReviewId
+        - reviewStatus
+        - jobId
+      properties:
+        newReviewId:
+          type: string
+        previousReviewId:
+          type: string
+        reviewStatus:
+          const: ANALYSIS_REQUESTED
+          type: string
+        jobId:
+          type: string
+    ReviewQueueMessageV1:
+      type: object
+      additionalProperties: false
+      required:
+        - messageVersion
+        - jobId
+        - reviewId
+        - jobType
+        - correlationId
+        - idempotencyKey
+      properties:
+        messageVersion:
+          const: review-job-v1
+          type: string
+        jobId:
+          type: string
+        reviewId:
+          type: string
+        jobType:
+          type: string
+          enum:
+            - REVIEW_ANALYSIS
+            - RE_REVIEW
+        correlationId:
+          type: string
+        idempotencyKey:
+          type: string
+      description: Redis delivery payload. Raw files, OCR text, and provider output are forbidden.
+    RiskLevel:
+      type: string
+      enum:
+        - HIGH
+        - MEDIUM
+        - LOW
+        - CHECK_REQUIRED
+    ReviewResultStatus:
+      type: string
+      enum:
+        - APPROPRIATE
+        - NEEDS_REVISION
+        - NEEDS_CONFIRMATION
+    EvidenceStatus:
+      type: string
+      enum:
+        - CONNECTED
+        - NOT_REQUIRED
+        - INSUFFICIENT
+        - SEARCH_UNAVAILABLE
+    ReviewEngineType:
+      type: string
+      enum:
+        - RULE
+        - RAG
+        - MULTIMODAL
+        - LLM
+    StructuredOutputStatus:
+      type: string
+      enum:
+        - NOT_RUN
+        - VALID
+        - INVALID_SCHEMA
+    AnnotationDisplayMode:
+      type: string
+      enum:
+        - BOX
+        - TEXT_HIGHLIGHT
+        - LIST_ONLY
+        - UNAVAILABLE
+    AnnotationStatus:
+      type: string
+      enum:
+        - LOCATED
+        - PARTIALLY_LOCATED
+        - NOT_LOCATED
+        - LOW_CONFIDENCE
+        - DOCUMENT_LEVEL_ISSUE
+    RiskRuleScore:
+      type: object
+      additionalProperties: false
+      required:
+        - matched
+        - ruleIds
+        - severity
+      properties:
+        matched:
+          type: boolean
+        ruleIds:
+          type: array
+          items:
+            type: string
+        severity:
+          oneOf:
+            - $ref: "#/components/schemas/RiskLevel"
+            - type: "null"
+    RiskRagScore:
+      type: object
+      additionalProperties: false
+      required:
+        - topRelevanceScore
+        - evidenceCount
+        - evidenceSufficient
+        - status
+        - failureCode
+      properties:
+        topRelevanceScore:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 1
+        evidenceCount:
+          type: integer
+          minimum: 0
+          maximum: 5
+        evidenceSufficient:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/EvidenceStatus"
+        failureCode:
+          oneOf:
+            - type: string
+              enum:
+                - RAG_SEARCH_UNAVAILABLE
+                - RAG_SEARCH_FAILED
+            - type: "null"
+    RiskLlmScore:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - status
+        - decision
+        - confidence
+      properties:
+        schemaVersion:
+          const: review-structured-output-v1
+          type: string
+        status:
+          $ref: "#/components/schemas/StructuredOutputStatus"
+        decision:
+          type:
+            - string
+            - "null"
+        confidence:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 1
+    RiskParserScore:
+      type: object
+      additionalProperties: false
+      required:
+        - confidenceStatus
+      properties:
+        confidenceStatus:
+          $ref: "#/components/schemas/ConfidenceStatus"
+    RiskFinalScore:
+      type: object
+      additionalProperties: false
+      required:
+        - riskLevel
+        - decisionRule
+      properties:
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        decisionRule:
+          type: string
+          minLength: 1
+    RiskScoreDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - rule
+        - rag
+        - llm
+        - parser
+        - final
+      properties:
+        rule:
+          $ref: "#/components/schemas/RiskRuleScore"
+        rag:
+          $ref: "#/components/schemas/RiskRagScore"
+        llm:
+          $ref: "#/components/schemas/RiskLlmScore"
+        parser:
+          $ref: "#/components/schemas/RiskParserScore"
+        final:
+          $ref: "#/components/schemas/RiskFinalScore"
+    RiskRationale:
+      type: object
+      additionalProperties: false
+      required:
+        - riskLevel
+        - policyVersion
+        - reasonCodes
+        - scoreDetail
+      properties:
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        policyVersion:
+          type: string
+          minLength: 1
+        reasonCodes:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          uniqueItems: true
+        scoreDetail:
+          $ref: "#/components/schemas/RiskScoreDetail"
+    ReviewTypeSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewType
+        - totalCount
+        - needsRevisionCount
+        - needsConfirmationCount
+      properties:
+        reviewType:
+          $ref: "#/components/schemas/ReviewType"
+        totalCount:
+          type: integer
+          minimum: 0
+        needsRevisionCount:
+          type: integer
+          minimum: 0
+        needsConfirmationCount:
+          type: integer
+          minimum: 0
+    TopRisk:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewItemId
+        - riskLevel
+        - riskPolicyVersion
+        - riskReasonCodes
+        - targetText
+        - reason
+        - evidenceStatus
+      properties:
+        reviewItemId:
+          type: string
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        riskPolicyVersion:
+          type: string
+        riskReasonCodes:
+          type: array
+          items:
+            type: string
+        targetText:
+          type: string
+        reason:
+          type: string
+        evidenceStatus:
+          $ref: "#/components/schemas/EvidenceStatus"
+    ReviewSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - advertisementId
+        - standardEffectiveDate
+        - standardVersionIds
+        - overallRiskLevel
+        - totalItemCount
+        - needsRevisionCount
+        - needsConfirmationCount
+        - reviewTypeSummary
+        - topRisks
+        - completedAt
+      properties:
+        reviewId:
+          type: string
+        advertisementId:
+          type: string
+        standardEffectiveDate:
+          type: string
+          format: date
+        standardVersionIds:
+          type: array
+          items:
+            type: string
+        overallRiskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        totalItemCount:
+          type: integer
+          minimum: 0
+        needsRevisionCount:
+          type: integer
+          minimum: 0
+        needsConfirmationCount:
+          type: integer
+          minimum: 0
+        reviewTypeSummary:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewTypeSummary"
+        topRisks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopRisk"
+        completedAt:
+          type: string
+          format: date-time
+    ReviewItemSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewItemId
+        - reviewType
+        - targetText
+        - resultStatus
+        - riskLevel
+        - riskPolicyVersion
+        - riskReasonCodes
+        - reason
+        - evidenceStatus
+        - evidenceFailureCode
+        - evidenceCount
+        - pageNo
+        - hasAnnotation
+        - sourceEngine
+        - sourceVersion
+      properties:
+        reviewItemId:
+          type: string
+        reviewType:
+          $ref: "#/components/schemas/ReviewType"
+        targetText:
+          type: string
+        resultStatus:
+          $ref: "#/components/schemas/ReviewResultStatus"
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        riskPolicyVersion:
+          type: string
+        riskReasonCodes:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+        evidenceStatus:
+          $ref: "#/components/schemas/EvidenceStatus"
+        evidenceFailureCode:
+          oneOf:
+            - type: string
+              enum:
+                - RAG_SEARCH_UNAVAILABLE
+                - RAG_SEARCH_FAILED
+            - type: "null"
+        evidenceCount:
+          type: integer
+          minimum: 0
+          maximum: 5
+        pageNo:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+        hasAnnotation:
+          type: boolean
+        sourceEngine:
+          $ref: "#/components/schemas/ReviewEngineType"
+        sourceVersion:
+          type: string
+          minLength: 1
+    ReviewItemPage:
+      type: object
+      additionalProperties: false
+      required:
+        - contents
+        - page
+        - size
+        - totalElements
+        - totalPages
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewItemSummary"
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    ReviewItemEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - evidenceId
+        - evidenceChunkId
+        - standardVersionId
+        - evidenceType
+        - title
+        - matchedText
+        - rankNo
+        - relevanceScore
+        - matchSource
+      properties:
+        evidenceId:
+          type: string
+        evidenceChunkId:
+          type:
+            - string
+            - "null"
+        standardVersionId:
+          type: string
+        evidenceType:
+          $ref: "#/components/schemas/EvidenceType"
+        title:
+          type: string
+        articleNo:
+          type:
+            - string
+            - "null"
+        matchedText:
+          type: string
+        rankNo:
+          type: integer
+          minimum: 1
+          maximum: 5
+        relevanceScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        matchSource:
+          type: string
+          enum:
+            - KEYWORD
+            - VECTOR
+            - HYBRID
+            - RULE_METADATA
+    Annotation:
+      type: object
+      additionalProperties: false
+      required:
+        - annotationId
+        - reviewItemId
+        - reviewType
+        - riskLevel
+        - targetText
+        - annotationDisplayMode
+        - annotationStatus
+        - locationConfidence
+        - confidencePolicyVersion
+        - displayReason
+        - pageNo
+        - coordinate
+        - textBlockId
+        - textPath
+        - rawStartOffset
+        - rawEndOffset
+        - normalizedStartOffset
+        - normalizedEndOffset
+        - matchedText
+      properties:
+        annotationId:
+          type: string
+        reviewItemId:
+          type: string
+        reviewType:
+          $ref: "#/components/schemas/ReviewType"
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        targetText:
+          type: string
+        annotationDisplayMode:
+          $ref: "#/components/schemas/AnnotationDisplayMode"
+        annotationStatus:
+          $ref: "#/components/schemas/AnnotationStatus"
+        locationConfidence:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 1
+        confidencePolicyVersion:
+          type: string
+        displayReason:
+          type: string
+        pageNo:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+        coordinate:
+          oneOf:
+            - $ref: "#/components/schemas/Coordinate"
+            - type: "null"
+        textBlockId:
+          type:
+            - string
+            - "null"
+        textPath:
+          type:
+            - string
+            - "null"
+        rawStartOffset:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        rawEndOffset:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        normalizedStartOffset:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        normalizedEndOffset:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        matchedText:
+          type:
+            - string
+            - "null"
+    AnnotationCollection:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewId
+        - fileId
+        - fileType
+        - pageNo
+        - annotations
+      properties:
+        reviewId:
+          type: string
+        fileId:
+          type: string
+        fileType:
+          type: string
+        pageNo:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Annotation"
+    ReviewItemDetail:
+      allOf:
+        - $ref: "#/components/schemas/ReviewItemSummary"
+        - type: object
+          additionalProperties: false
+          required:
+            - riskRationale
+            - evidences
+            - recommendation
+            - annotation
+          properties:
+            riskRationale:
+              $ref: "#/components/schemas/RiskRationale"
+            evidences:
+              type: array
+              maxItems: 3
+              items:
+                $ref: "#/components/schemas/ReviewItemEvidence"
+            recommendation:
+              type:
+                - string
+                - "null"
+            annotation:
+              oneOf:
+                - $ref: "#/components/schemas/Annotation"
+                - type: "null"
+    SuggestionDecisionStatus:
+      type: string
+      enum:
+        - PENDING
+        - ACCEPTED
+        - REJECTED
+        - MODIFIED_AND_USED
+    ReportFormat:
+      type: string
+      enum:
+        - HWPX
+        - PDF
+    ReportStatus:
+      type: string
+      enum:
+        - CREATED
+        - FAILED
+    ResolutionStatus:
+      type: string
+      enum:
+        - RESOLVED
+        - UNRESOLVED
+        - NEW_ISSUE
+        - CHECK_REQUIRED
+    Suggestion:
+      type: object
+      additionalProperties: false
+      required:
+        - suggestionId
+        - reviewItemId
+        - originalText
+        - suggestedText
+        - decisionStatus
+      properties:
+        suggestionId:
+          type: string
+        reviewItemId:
+          type: string
+        originalText:
+          type: string
+        suggestedText:
+          type: string
+        suggestionReason:
+          type:
+            - string
+            - "null"
+        evidenceIds:
+          type: array
+          items:
+            type: string
+        decisionStatus:
+          $ref: "#/components/schemas/SuggestionDecisionStatus"
+    SuggestionDecisionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - decisionStatus
+      properties:
+        decisionStatus:
+          type: string
+          enum:
+            - ACCEPTED
+            - REJECTED
+            - MODIFIED_AND_USED
+        finalText:
+          type:
+            - string
+            - "null"
+        comment:
+          type:
+            - string
+            - "null"
+    SuggestionDecision:
+      type: object
+      additionalProperties: false
+      required:
+        - suggestionId
+        - decisionStatus
+        - finalText
+        - updatedAt
+      properties:
+        suggestionId:
+          type: string
+        decisionStatus:
+          $ref: "#/components/schemas/SuggestionDecisionStatus"
+        finalText:
+          type:
+            - string
+            - "null"
+        updatedAt:
+          type: string
+          format: date-time
+    QaQuestionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        productGroup:
+          type:
+            - string
+            - "null"
+        advertisementType:
+          type:
+            - string
+            - "null"
+        standardEffectiveDate:
+          type:
+            - string
+            - "null"
+          format: date
+    QaEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - evidenceId
+        - standardVersionId
+        - title
+        - matchedText
+      properties:
+        evidenceId:
+          type: string
+        standardVersionId:
+          type: string
+        title:
+          type: string
+        articleNo:
+          type:
+            - string
+            - "null"
+        matchedText:
+          type: string
+    QaAnswer:
+      type: object
+      additionalProperties: false
+      required:
+        - qaId
+        - answerSummary
+        - answerDetail
+        - evidences
+        - suggestedPhrases
+        - needsHumanReview
+      properties:
+        qaId:
+          type: string
+        answerSummary:
+          type: string
+        answerDetail:
+          type: string
+        evidences:
+          type: array
+          items:
+            $ref: "#/components/schemas/QaEvidence"
+        suggestedPhrases:
+          type: array
+          items:
+            type: string
+        needsHumanReview:
+          type: boolean
+    OpinionDraftRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        includeReviewItemIds:
+          type: array
+          items:
+            type: string
+        templateType:
+          type: string
+        additionalInstruction:
+          type:
+            - string
+            - "null"
+    OpinionDraftUpdateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - finalContent
+      properties:
+        finalContent:
+          type: string
+          minLength: 1
+    OpinionDraft:
+      type: object
+      additionalProperties: false
+      required:
+        - draftId
+        - reviewId
+        - draftContent
+        - includedReviewItemIds
+        - createdAt
+      properties:
+        draftId:
+          type: string
+        reviewId:
+          type: string
+        draftContent:
+          type: string
+        finalContent:
+          type:
+            - string
+            - "null"
+        includedReviewItemIds:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    ReportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reportType:
+          type: string
+          enum:
+            - FULL
+            - SELECTED
+        format:
+          $ref: "#/components/schemas/ReportFormat"
+        includeAnnotations:
+          type: boolean
+        includeSuggestions:
+          type: boolean
+        includeOpinionDraft:
+          type: boolean
+        includeEvidenceDetails:
+          type: boolean
+    Report:
+      type: object
+      additionalProperties: false
+      required:
+        - reportId
+        - reviewId
+        - sourceReportId
+        - reportType
+        - format
+        - reportStatus
+        - snapshotHash
+        - snapshotVersion
+        - createdAt
+      properties:
+        reportId:
+          type: string
+        reviewId:
+          type: string
+        sourceReportId:
+          type:
+            - string
+            - "null"
+        reportType:
+          type: string
+        format:
+          $ref: "#/components/schemas/ReportFormat"
+        reportStatus:
+          $ref: "#/components/schemas/ReportStatus"
+        snapshotHash:
+          type: string
+          pattern: ^sha256:[a-f0-9]{64}$
+        snapshotVersion:
+          type: string
+        rendererVersion:
+          type:
+            - string
+            - "null"
+        converterVersion:
+          type:
+            - string
+            - "null"
+        downloadUrl:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+          format: date-time
+    ComparisonRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - baseReviewId
+        - revisionId
+      properties:
+        baseReviewId:
+          type: string
+        revisionId:
+          type: string
+        compareTypes:
+          type: array
+          items:
+            type: string
+    ComparisonItem:
+      type: object
+      additionalProperties: false
+      required:
+        - resolutionStatus
+      properties:
+        reviewItemId:
+          type:
+            - string
+            - "null"
+        originalText:
+          type:
+            - string
+            - "null"
+        revisedText:
+          type:
+            - string
+            - "null"
+        resolutionStatus:
+          $ref: "#/components/schemas/ResolutionStatus"
+        comment:
+          type:
+            - string
+            - "null"
+        reanalysisReviewId:
+          type:
+            - string
+            - "null"
+    Comparison:
+      type: object
+      additionalProperties: false
+      required:
+        - comparisonId
+        - advertisementId
+        - comparisonStatus
+        - resolvedIssueCount
+        - unresolvedIssueCount
+        - newIssueCount
+      properties:
+        comparisonId:
+          type: string
+        advertisementId:
+          type: string
+        comparisonStatus:
+          type: string
+        resolvedIssueCount:
+          type: integer
+          minimum: 0
+        unresolvedIssueCount:
+          type: integer
+          minimum: 0
+        newIssueCount:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComparisonItem"
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    RefreshCookie:
+      type: apiKey
+      in: cookie
+      name: refreshToken
+  parameters:
+    AdvertisementTypeQuery:
+      in: query
+      name: advertisementType
+      schema:
+        $ref: "#/components/schemas/AdvertisementType"
+    EvidenceChunkId:
+      in: path
+      name: evidenceChunkId
+      required: true
+      schema:
+        pattern: ^ECH-[A-Za-z0-9-]+$
+        type: string
+    EvidenceId:
+      in: path
+      name: evidenceId
+      required: true
+      schema:
+        pattern: ^EVD-[A-Za-z0-9-]+$
+        type: string
+    Keyword:
+      in: query
+      name: keyword
+      schema:
+        maxLength: 300
+        type: string
+    Page:
+      in: query
+      name: page
+      schema:
+        default: 1
+        minimum: 1
+        type: integer
+    ProductGroupQuery:
+      in: query
+      name: productGroup
+      schema:
+        $ref: "#/components/schemas/ProductGroup"
+    ReindexJobId:
+      in: path
+      name: jobId
+      required: true
+      schema:
+        pattern: ^SRJ-[A-Za-z0-9-]+$
+        type: string
+    Size:
+      in: query
+      name: size
+      schema:
+        default: 20
+        maximum: 100
+        minimum: 1
+        type: integer
+    StandardId:
+      in: path
+      name: standardId
+      required: true
+      schema:
+        pattern: ^STD-[A-Za-z0-9-]+$
+        type: string
+    StandardVersionId:
+      in: path
+      name: standardVersionId
+      required: true
+      schema:
+        pattern: ^STDVER-[A-Za-z0-9-]+$
+        type: string
+    AdvertisementId:
+      in: path
+      name: advertisementId
+      required: true
+      schema:
+        type: string
+        pattern: ^ADV-[A-Za-z0-9-]+$
+    ReviewId:
+      in: path
+      name: reviewId
+      required: true
+      schema:
+        type: string
+        pattern: ^REV-[A-Za-z0-9-]+$
+    ReviewItemId:
+      in: path
+      name: reviewItemId
+      required: true
+      schema:
+        type: string
+        pattern: ^ITEM-[A-Za-z0-9-]+$
+    ReviewTypeQuery:
+      in: query
+      name: reviewType
+      schema:
+        $ref: "#/components/schemas/ReviewType"
+    RiskLevelQuery:
+      in: query
+      name: riskLevel
+      schema:
+        $ref: "#/components/schemas/RiskLevel"
+    ResultStatusQuery:
+      in: query
+      name: resultStatus
+      schema:
+        $ref: "#/components/schemas/ReviewResultStatus"
+    EvidenceRequiredQuery:
+      in: query
+      name: evidenceRequired
+      schema:
+        type: boolean
+    PageNoQuery:
+      in: query
+      name: pageNo
+      schema:
+        type: integer
+        minimum: 1
+    SuggestionId:
+      in: path
+      name: suggestionId
+      required: true
+      schema:
+        type: string
+        pattern: ^SUG-[A-Za-z0-9-]+$
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      schema:
+        type: string
+        pattern: ^DRAFT-[A-Za-z0-9-]+$
+    ReportId:
+      in: path
+      name: reportId
+      required: true
+      schema:
+        type: string
+        pattern: ^RPT-[A-Za-z0-9-]+$
+    ComparisonId:
+      in: path
+      name: comparisonId
+      required: true
+      schema:
+        type: string
+        pattern: ^CMP-[A-Za-z0-9-]+$
+  responses:
+    BadRequest:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+      description: Request validation or file integrity failed.
+    Conflict:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+      description: Duplicate or conflicting request.
+    Forbidden:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+      description: Authenticated caller is outside the permitted role or resource scope.
+    NotFound:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+      description: Resource not found.
+    SearchUnavailable:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+      description: Qdrant, OpenSearch, or index consistency is unavailable; no keyword-only or vector-only
+        fallback is returned as normal evidence.
+    Unauthorized:
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+      description: Authentication failed without revealing account state.

@@ -4,194 +4,6 @@
  */
 
 export interface paths {
-    "/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Authenticates a local PoC user and starts a rotating refresh session. */
-        post: operations["login"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/auth/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Rotates a valid refresh session after browser-origin validation. */
-        post: operations["refreshAccessToken"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description Revokes the current refresh session after browser-origin validation. */
-        post: operations["logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/users/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Resolves the authenticated user, roles, and department scope. */
-        get: operations["getCurrentUser"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/codes/{codeGroup}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Lists enabled M2 master codes for a supported code group. */
-        get: operations["listCommonCodes"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/advertisements": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Results are filtered to the caller's role and department scope. */
-        get: operations["listAdvertisements"];
-        put?: never;
-        /** @description Validates and stores one advertisement with its allowed attachments. */
-        post: operations["createAdvertisement"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/advertisements/{advertisementId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Out-of-scope access is denied and recorded without sensitive content. */
-        get: operations["getAdvertisement"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/files/{fileId}/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Returns a backend-proxy preview route after authorization. Storage keys and presigned URLs are never returned. */
-        get: operations["getFilePreview"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/files/{fileId}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Streams an authorized file through the backend proxy. */
-        get: operations["downloadFile"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/files/{fileId}/preview/content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Streams one authorized rendered preview page through the backend proxy. */
-        get: operations["getFilePreviewContent"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/audit-logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Returns redacted audit metadata to SYSTEM_ADMIN only. */
-        get: operations["listAuditLogs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/standards": {
         parameters: {
             query?: never;
@@ -484,10 +296,1143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refreshAccessToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/codes/{codeGroup}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Codes */
+        get: operations["listCommonCodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advertisements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Advertisements */
+        get: operations["listAdvertisements"];
+        put?: never;
+        /** Create Advertisement */
+        post: operations["createAdvertisement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advertisements/{advertisementId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Advertisement */
+        get: operations["getAdvertisement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/{fileId}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get File Preview */
+        get: operations["getFilePreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/{fileId}/preview/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get File Preview Content */
+        get: operations["getFilePreviewContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/{fileId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download File */
+        get: operations["downloadFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit Logs */
+        get: operations["listAuditLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listReviewSuggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/suggestions/{suggestionId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["recordSuggestionDecision"];
+        trace?: never;
+    };
+    "/qa/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listComplianceQuestions"];
+        put?: never;
+        post: operations["askComplianceQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/{reviewId}/opinion-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listOpinionDrafts"];
+        put?: never;
+        post: operations["createOpinionDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/opinion-drafts/{draftId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateOpinionDraft"];
+        trace?: never;
+    };
+    "/reviews/{reviewId}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createReviewReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getReviewReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{reportId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["downloadReviewReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/advertisements/{advertisementId}/comparisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createAdvertisementComparison"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comparisons/{comparisonId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAdvertisementComparison"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccessTokenResponse */
+        AccessTokenResponse: {
+            /** Accesstoken */
+            accessToken: string;
+            /**
+             * Tokentype
+             * @constant
+             */
+            tokenType: "Bearer";
+            /**
+             * Expiresin
+             * @constant
+             */
+            expiresIn: 1800;
+        };
+        /** AdvertisementCreated */
+        AdvertisementCreated: {
+            /** Advertisementid */
+            advertisementId: string;
+            /** Advertisementname */
+            advertisementName: string;
+            reviewStatus: components["schemas"]["ReviewStatus"];
+            /** Files */
+            files: components["schemas"]["AdvertisementFile"][];
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /** AdvertisementDetail */
+        AdvertisementDetail: {
+            /** Advertisementid */
+            advertisementId: string;
+            /** Advertisementname */
+            advertisementName: string;
+            productGroup: components["schemas"]["ProductGroup"];
+            advertisementType: components["schemas"]["AdvertisementType"];
+            /** Departmentid */
+            departmentId: string;
+            /** Registeredby */
+            registeredBy: string;
+            /**
+             * Registeredat
+             * Format: date-time
+             */
+            registeredAt: string;
+            reviewStatus: components["schemas"]["ReviewStatus"];
+            /** Channeltype */
+            channelType?: string | null;
+            /** Memo */
+            memo?: string | null;
+            /** Files */
+            files: components["schemas"]["AdvertisementFile"][];
+        };
+        /** AdvertisementFile */
+        AdvertisementFile: {
+            /** Fileid */
+            fileId: string;
+            fileType: components["schemas"]["FileType"];
+            /** Filename */
+            fileName: string;
+            /** Mimetype */
+            mimeType: string;
+            /** Filesize */
+            fileSize: number;
+        };
+        /** AdvertisementPage */
+        AdvertisementPage: {
+            /** Contents */
+            contents: components["schemas"]["AdvertisementSummary"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Totalelements */
+            totalElements: number;
+            /** Totalpages */
+            totalPages: number;
+        };
+        /** AdvertisementSummary */
+        AdvertisementSummary: {
+            /** Advertisementid */
+            advertisementId: string;
+            /** Advertisementname */
+            advertisementName: string;
+            productGroup: components["schemas"]["ProductGroup"];
+            advertisementType: components["schemas"]["AdvertisementType"];
+            /** Departmentid */
+            departmentId: string;
+            /** Registeredby */
+            registeredBy: string;
+            /**
+             * Registeredat
+             * Format: date-time
+             */
+            registeredAt: string;
+            reviewStatus: components["schemas"]["ReviewStatus"];
+        };
+        /** @enum {string} */
+        AdvertisementType: "BRANCH_FLYER" | "NOTICE" | "MOBILE_BANNER" | "WEB_BANNER" | "EVENT_PAGE" | "PUSH" | "SMS" | "ALIMTALK";
+        /** AuditLogPage */
+        AuditLogPage: {
+            /** Contents */
+            contents: components["schemas"]["AuditLogSummary"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Totalelements */
+            totalElements: number;
+            /** Totalpages */
+            totalPages: number;
+        };
+        /** AuditLogSummary */
+        AuditLogSummary: {
+            /**
+             * Auditlogid
+             * Format: uuid
+             */
+            auditLogId: string;
+            /** Actorid */
+            actorId?: string | null;
+            /** Actordepartmentid */
+            actorDepartmentId?: string | null;
+            actorRole?: components["schemas"]["Role"] | null;
+            /** Actiontype */
+            actionType: string;
+            /** Targettype */
+            targetType: string;
+            /** Targetid */
+            targetId?: string | null;
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "SUCCESS" | "FAILURE" | "DENIED";
+            /** Reasoncode */
+            reasonCode?: string | null;
+            /** Traceid */
+            traceId: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /** AuthTokenResponse */
+        AuthTokenResponse: {
+            /** Accesstoken */
+            accessToken: string;
+            /**
+             * Tokentype
+             * @constant
+             */
+            tokenType: "Bearer";
+            /**
+             * Expiresin
+             * @constant
+             */
+            expiresIn: 1800;
+            user: components["schemas"]["UserContext"];
+        };
+        /**
+         * CodeGroup
+         * @enum {string}
+         */
+        CodeGroup: "product-groups" | "advertisement-types" | "review-statuses";
+        /** CommonCode */
+        CommonCode: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Sortorder */
+            sortOrder: number;
+            /** Enabled */
+            enabled: boolean;
+        };
+        CreateReviewRequest: {
+            /** Format: date */
+            standardEffectiveDate?: string | null;
+            reviewTypes?: components["schemas"]["ReviewType"][] | null;
+            /** @default true */
+            includeSuggestion: boolean;
+            /** @default false */
+            includeOpinionDraft: boolean;
+            requestMemo?: string | null;
+        };
+        DeactivateStandardRequest: {
+            reason: string;
+        };
+        /** @example {
+         *       "code": "FILE_NOT_SUPPORTED",
+         *       "details": [
+         *         {
+         *           "field": "advertisementFile",
+         *           "reason": "jpg, jpeg, png, pdf, hwp, hwpx 파일만 업로드할 수 있습니다."
+         *         }
+         *       ],
+         *       "message": "지원하지 않는 파일 형식입니다.",
+         *       "timestamp": "2026-07-14T06:00:00Z",
+         *       "traceId": "req-example-000001"
+         *     } */
+        ErrorResponse: {
+            code: string;
+            details?: {
+                [key: string]: unknown;
+            }[];
+            message: string;
+            /** Format: date-time */
+            timestamp: string;
+            traceId: string;
+        };
+        /** FilePreview */
+        FilePreview: {
+            /** Fileid */
+            fileId: string;
+            /** Pageno */
+            pageNo: number;
+            /** Totalpages */
+            totalPages: number;
+            /** Previewpath */
+            previewPath: string;
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+        };
+        /**
+         * FileType
+         * @enum {string}
+         */
+        FileType: "ADVERTISEMENT" | "PRODUCT_DESCRIPTION" | "TERMS" | "ADDITIONAL";
+        /** LoginRequest */
+        LoginRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /** @enum {string} */
+        ProductGroup: "DEPOSIT" | "SAVINGS" | "DEMAND_DEPOSIT" | "EVENT";
+        ReindexStandardRequest: {
+            chunkingPolicyVersion: string;
+            /** @description Reproducibility label; M3 makes no provider network call. */
+            embeddingModel?: string | null;
+            opensearchAnalyzerVersion?: string | null;
+            parserRuleVersion?: string | null;
+            reason: string;
+            reindexScope: components["schemas"]["ReindexScope"];
+            searchSchemaVersion: string;
+            synonymVersion?: string | null;
+            targetIndexes: components["schemas"]["SearchBackend"][];
+        };
+        RerunReviewRequest: {
+            reason: string;
+            reviewTypes?: components["schemas"]["ReviewType"][] | null;
+        };
+        /**
+         * ReviewStatus
+         * @enum {string}
+         */
+        ReviewStatus: "UPLOADED" | "REVISED";
+        /**
+         * Role
+         * @enum {string}
+         */
+        Role: "PRODUCT_DEPARTMENT_USER" | "COMPLIANCE_REVIEWER" | "STANDARD_MANAGER" | "SYSTEM_ADMIN";
+        UpdateStandardRequest: {
+            changeReason: string;
+            content: string;
+            /** Format: date */
+            effectiveDate?: string | null;
+            /** Format: date */
+            expiredDate?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            title?: string;
+        };
+        /** UserContext */
+        UserContext: {
+            /** Userid */
+            userId: string;
+            /** Username */
+            userName: string;
+            /** Departmentid */
+            departmentId: string;
+            /** Departmentname */
+            departmentName: string;
+            /** Roles */
+            roles: components["schemas"]["Role"][];
+        };
+        /** CreateAdvertisementRequest */
+        CreateAdvertisementRequest: {
+            /** Advertisementname */
+            advertisementName: string;
+            productGroup: components["schemas"]["ProductGroup"];
+            advertisementType: components["schemas"]["AdvertisementType"];
+            /** Departmentid */
+            departmentId: string;
+            /** Channeltype */
+            channelType?: string;
+            /** Memo */
+            memo?: string;
+            /**
+             * Advertisementfile
+             * Format: binary
+             * @description jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
+             */
+            advertisementFile: string;
+            /**
+             * Productdescriptionfile
+             * Format: binary
+             */
+            productDescriptionFile?: string;
+            /**
+             * Termsfile
+             * Format: binary
+             */
+            termsFile?: string;
+            /** Additionalfiles */
+            additionalFiles?: string[];
+        };
+        CreateStandardRequest: {
+            advertisementType?: components["schemas"]["AdvertisementType"];
+            /** @description Directly entered reference body; M3 does not parse an attachment. */
+            content: string;
+            /** Format: date */
+            effectiveDate?: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            /** Format: date */
+            expiredDate?: string;
+            importance?: components["schemas"]["Importance"];
+            /** @description Evidence-type-required metadata defined by ADR-0050. */
+            metadata: {
+                [key: string]: unknown;
+            };
+            productGroup?: components["schemas"]["ProductGroup"];
+            ruleType: components["schemas"]["RuleType"];
+            /**
+             * Format: binary
+             * @description Optional archival original; its content is outside the M3 parser boundary.
+             */
+            sourceFile?: string;
+            title: string;
+        };
+        EvidenceChunk: {
+            articleNo?: string | null;
+            chunkNo: number;
+            chunkText: string;
+            chunkingPolicyVersion: string;
+            /** Format: date-time */
+            createdAt: string;
+            embeddingModel?: string | null;
+            evidenceChunkId: string;
+            evidenceId: string;
+            opensearchAnalyzerVersion?: string | null;
+            opensearchHighlights?: {
+                [key: string]: string[];
+            };
+            opensearchIndexErrorCode?: string | null;
+            opensearchIndexStatus: components["schemas"]["IndexStatus"];
+            pageNo?: number | null;
+            parserRuleVersion?: string | null;
+            qdrantIndexErrorCode?: string | null;
+            qdrantIndexStatus: components["schemas"]["IndexStatus"];
+            searchSchemaVersion: string;
+            sectionPath?: string | null;
+            sourceSpan?: {
+                [key: string]: unknown;
+            } | null;
+            standardId: string;
+            standardVersionId: string;
+            structureConfidence?: number | null;
+            synonymVersion?: string | null;
+            tokenCount?: number | null;
+        };
+        EvidenceChunkPage: {
+            contents: components["schemas"]["EvidenceChunk"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        EvidenceDetail: {
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            articleNo?: string | null;
+            content: string;
+            contentSummary?: string | null;
+            /** Format: date */
+            effectiveDate?: string | null;
+            evidenceId: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            /** Format: date */
+            expiredDate?: string | null;
+            importance?: components["schemas"]["Importance"] | null;
+            isActive: boolean;
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            ruleType: components["schemas"]["RuleType"];
+            standardId: string;
+            standardVersionId: string;
+            title: string;
+            version: string;
+        };
+        EvidenceSearchResult: {
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            articleNo?: string | null;
+            contentSummary: string;
+            /** Format: date */
+            effectiveDate?: string | null;
+            evidenceChunkId: string;
+            evidenceId: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            highlights?: {
+                [key: string]: string[];
+            };
+            matchSource: components["schemas"]["SearchMode"];
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            rankNo: number;
+            relevanceScore: number;
+            ruleType: components["schemas"]["RuleType"];
+            standardVersionId: string;
+            title: string;
+            version: string;
+        };
+        /** @enum {string} */
+        EvidenceType: "LAW" | "REGULATION" | "INTERNAL_STANDARD" | "GUIDELINE" | "MANUAL" | "REVIEW_CASE" | "TEMPLATE" | "PRODUCT_STANDARD";
+        /** @enum {string} */
+        Importance: "HIGH" | "MEDIUM" | "LOW";
+        /** @enum {string} */
+        IndexStatus: "PENDING" | "INDEXING" | "ACTIVE" | "FAILED" | "EXCLUDED" | "DELETED";
+        /** @enum {string} */
+        ReindexJobStatus: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+        /** @enum {string} */
+        ReindexScope: "INDEX_ONLY" | "CHUNK_AND_INDEX" | "KEYWORD_ONLY" | "VECTOR_ONLY";
+        /** @enum {string} */
+        RuleType: "REQUIRED" | "PROHIBITED" | "RECOMMENDED" | "REFERENCE";
+        /** @enum {string} */
+        SearchBackend: "QDRANT" | "OPENSEARCH";
+        /**
+         * @default HYBRID
+         * @enum {string}
+         */
+        SearchMode: "KEYWORD" | "VECTOR" | "HYBRID";
+        StandardCreated: {
+            evidenceId: string;
+            isActive: boolean;
+            standardId: string;
+            standardVersionId: string;
+            version: string;
+        };
+        StandardDetail: {
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            changeReason?: string | null;
+            content: string;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            /** Format: date */
+            effectiveDate?: string | null;
+            evidenceId: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            /** Format: date */
+            expiredDate?: string | null;
+            importance?: components["schemas"]["Importance"] | null;
+            isActive: boolean;
+            metadata: {
+                [key: string]: unknown;
+            };
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            ruleType: components["schemas"]["RuleType"];
+            standardId: string;
+            standardVersionId: string;
+            title: string;
+            version: string;
+        };
+        StandardHistoryPage: {
+            contents: components["schemas"]["StandardDetail"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        StandardPage: {
+            contents: components["schemas"]["StandardSummary"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        StandardReindexJob: {
+            chunkingPolicyVersion?: string | null;
+            /** Format: date-time */
+            completedAt?: string | null;
+            createdChunkCount: number;
+            embeddingModel?: string | null;
+            failedReasonCode?: string | null;
+            failedReasonMessage?: string | null;
+            indexedChunkCount: number;
+            jobId: string;
+            jobStatus: components["schemas"]["ReindexJobStatus"];
+            opensearchAnalyzerVersion?: string | null;
+            opensearchStatus?: components["schemas"]["IndexStatus"] | null;
+            parserRuleVersion?: string | null;
+            qdrantStatus?: components["schemas"]["IndexStatus"] | null;
+            reindexScope: components["schemas"]["ReindexScope"];
+            /** Format: date-time */
+            requestedAt: string;
+            requestedBy: string;
+            searchSchemaVersion?: string | null;
+            standardId: string;
+            standardVersionId: string;
+            /** Format: date-time */
+            startedAt?: string | null;
+            synonymVersion?: string | null;
+            targetIndexes: components["schemas"]["SearchBackend"][];
+        };
+        StandardSummary: {
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            currentVersion: string;
+            /** Format: date */
+            effectiveDate?: string | null;
+            evidenceType: components["schemas"]["EvidenceType"];
+            /** Format: date */
+            expiredDate?: string | null;
+            importance?: components["schemas"]["Importance"] | null;
+            isActive: boolean;
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            ruleType: components["schemas"]["RuleType"];
+            standardId: string;
+            title: string;
+        };
+        /** Confidence */
+        Confidence: {
+            /** Score */
+            score: number;
+            status: components["schemas"]["ConfidenceStatus"];
+            /** Policyversion */
+            policyVersion: string;
+        };
+        /**
+         * ConfidenceStatus
+         * @enum {string}
+         */
+        ConfidenceStatus: "READABLE" | "LOW_CONFIDENCE" | "UNREADABLE";
+        /** Coordinate */
+        Coordinate: {
+            /** Sourcewidth */
+            sourceWidth: number;
+            /** Sourceheight */
+            sourceHeight: number;
+            /** Sourceunit */
+            sourceUnit: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Normalizedx */
+            normalizedX: number;
+            /** Normalizedy */
+            normalizedY: number;
+            /** Normalizedwidth */
+            normalizedWidth: number;
+            /** Normalizedheight */
+            normalizedHeight: number;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /** Coordinateconfidence */
+            coordinateConfidence: number;
+        };
+        /** LayoutBlock */
+        LayoutBlock: {
+            /** Layoutblockid */
+            layoutBlockId: string;
+            /** Fileid */
+            fileId: string;
+            /** Pageno */
+            pageNo?: number | null;
+            /** Layouttype */
+            layoutType: string;
+            coordinate?: components["schemas"]["Coordinate"];
+            /** Relatedtextblockids */
+            relatedTextBlockIds?: string[];
+            /** Confidencescore */
+            confidenceScore: number;
+        };
+        /** Page */
+        Page: {
+            /** Pageno */
+            pageNo: number;
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** Table */
+        Table: {
+            /** Tableid */
+            tableId: string;
+            /** Pageno */
+            pageNo?: number | null;
+            /** Textpath */
+            textPath?: string | null;
+            coordinate?: components["schemas"]["Coordinate"];
+            /** Cells */
+            cells: string[][];
+        };
+        /** TextBlock */
+        TextBlock: {
+            /** Textblockid */
+            textBlockId: string;
+            /** Fileid */
+            fileId: string;
+            /** Pageno */
+            pageNo?: number | null;
+            /** Textpath */
+            textPath?: string | null;
+            /** Textblocktype */
+            textBlockType: string;
+            /** Rawtext */
+            rawText: string;
+            /** Normalizedtext */
+            normalizedText: string;
+            /** Rawstartoffset */
+            rawStartOffset?: number | null;
+            /** Rawendoffset */
+            rawEndOffset?: number | null;
+            /** Normalizedstartoffset */
+            normalizedStartOffset?: number | null;
+            /** Normalizedendoffset */
+            normalizedEndOffset?: number | null;
+            /** Parsername */
+            parserName: string;
+            /** Parserversion */
+            parserVersion: string;
+            /** Parserruleversion */
+            parserRuleVersion: string;
+            /** Irversion */
+            irVersion: string;
+            /** Confidencescore */
+            confidenceScore: number;
+            confidenceStatus: components["schemas"]["ConfidenceStatus"];
+            /** Confidencepolicyversion */
+            confidencePolicyVersion: string;
+            coordinate?: components["schemas"]["Coordinate"];
+        };
+        /** Warning */
+        Warning: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Requiresreview */
+            requiresReview: boolean;
+        };
+        /** NormalizedDocument */
+        NormalizedDocument: {
+            /** Documentid */
+            documentId: string;
+            /** Sourcefileid */
+            sourceFileId: string;
+            /** Reviewid */
+            reviewId: string;
+            /** Sourcefiletype */
+            sourceFileType: string;
+            /** Parsername */
+            parserName: string;
+            /** Parserversion */
+            parserVersion: string;
+            /** Parserruleversion */
+            parserRuleVersion: string;
+            /** Irversion */
+            irVersion: string;
+            /** Pages */
+            pages: components["schemas"]["Page"][];
+            /** Textblocks */
+            textBlocks: components["schemas"]["TextBlock"][];
+            /** Layoutblocks */
+            layoutBlocks: components["schemas"]["LayoutBlock"][];
+            /** Tables */
+            tables: components["schemas"]["Table"][];
+            /** Warnings */
+            warnings: components["schemas"]["Warning"][];
+            confidence: components["schemas"]["Confidence"];
+            /** Rawartifactref */
+            rawArtifactRef: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /** @enum {string} */
+        AIReviewStatus: "ANALYSIS_REQUESTED" | "ANALYZING" | "CHECK_REQUIRED" | "REVIEW_COMPLETED" | "REVIEW_FAILED";
+        /** @enum {string} */
+        ReviewJobStatus: "PENDING" | "RUNNING" | "RETRY_PENDING" | "STALE" | "COMPLETED" | "FAILED" | "FAILED_FINAL" | "CANCELED";
+        /** @enum {string} */
+        ReviewType: "REQUIRED_PHRASE" | "INTEREST_RATE" | "MISLEADING_EXPRESSION" | "PRODUCT_CONSISTENCY" | "VISIBILITY" | "OCR_QUALITY";
+        ReviewAccepted: {
+            reviewId: string;
+            advertisementId: string;
+            /** @constant */
+            reviewStatus: "ANALYSIS_REQUESTED";
+            jobId: string;
+            /** Format: date */
+            standardEffectiveDate: string;
+            standardVersionIds: string[];
+            /** Format: date-time */
+            requestedAt: string;
+        };
+        ReviewStepStatus: {
+            stepCode: string;
+            stepName: string;
+            /** @enum {string} */
+            status: "PENDING" | "RUNNING" | "RETRY_PENDING" | "COMPLETED" | "FAILED" | "SKIPPED";
+            /** Format: date-time */
+            timeoutAt: string | null;
+            failedReasonCode?: string | null;
+        };
+        ReviewProgress: {
+            reviewId: string;
+            advertisementId: string;
+            reviewStatus: components["schemas"]["AIReviewStatus"];
+            jobId: string;
+            jobStatus: components["schemas"]["ReviewJobStatus"];
+            currentStep?: string | null;
+            progressRate: number;
+            retryCount: number;
+            /** @constant */
+            maxRetries: 3;
+            /** Format: date-time */
+            nextRetryAt?: string | null;
+            isRetryable: boolean;
+            failedReasonCode?: string | null;
+            failedReason?: string | null;
+            /** Format: date-time */
+            timeoutAt: string;
+            steps: components["schemas"]["ReviewStepStatus"][];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ReviewHistory: {
+            reviewId: string;
+            reviewRound: number;
+            reviewStatus: components["schemas"]["AIReviewStatus"];
+            overallRiskLevel?: string | null;
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            completedAt?: string | null;
+        };
+        RerunReviewAccepted: {
+            newReviewId: string;
+            previousReviewId: string;
+            /** @constant */
+            reviewStatus: "ANALYSIS_REQUESTED";
+            jobId: string;
+        };
+        /** @description Redis delivery payload. Raw files, OCR text, and provider output are forbidden. */
+        ReviewQueueMessageV1: {
+            /** @constant */
+            messageVersion: "review-job-v1";
+            jobId: string;
+            reviewId: string;
+            /** @enum {string} */
+            jobType: "REVIEW_ANALYSIS" | "RE_REVIEW";
+            correlationId: string;
+            idempotencyKey: string;
+        };
         /** @enum {string} */
         RiskLevel: "HIGH" | "MEDIUM" | "LOW" | "CHECK_REQUIRED";
         /** @enum {string} */
@@ -642,666 +1587,122 @@ export interface components {
             recommendation: string | null;
             annotation: components["schemas"]["Annotation"] | null;
         };
-        /** @example {
-         *       "code": "FILE_NOT_SUPPORTED",
-         *       "message": "지원하지 않는 파일 형식입니다.",
-         *       "details": [
-         *         {
-         *           "field": "advertisementFile",
-         *           "reason": "jpg, jpeg, png, pdf, hwp, hwpx 파일만 업로드할 수 있습니다."
-         *         }
-         *       ],
-         *       "traceId": "req-example-000001",
-         *       "timestamp": "2026-07-14T06:00:00Z"
-         *     } */
-        ErrorResponse: {
-            code: string;
-            message: string;
-            details?: {
-                [key: string]: unknown;
-            }[];
-            traceId: string;
-            /** Format: date-time */
-            timestamp: string;
-        };
-        LoginRequest: {
-            /** Format: email */
-            email: string;
-            password: string;
-        };
-        AccessTokenResponse: {
-            accessToken: string;
-            /** @constant */
-            tokenType: "Bearer";
-            /** @constant */
-            expiresIn: 1800;
-        };
-        AuthTokenResponse: {
-            accessToken: string;
-            /** @constant */
-            tokenType: "Bearer";
-            /** @constant */
-            expiresIn: 1800;
-            user: components["schemas"]["UserContext"];
-        };
-        UserContext: {
-            userId: string;
-            userName: string;
-            departmentId: string;
-            departmentName: string;
-            roles: components["schemas"]["Role"][];
-        };
         /** @enum {string} */
-        Role: "PRODUCT_DEPARTMENT_USER" | "COMPLIANCE_REVIEWER" | "STANDARD_MANAGER" | "SYSTEM_ADMIN";
+        SuggestionDecisionStatus: "PENDING" | "ACCEPTED" | "REJECTED" | "MODIFIED_AND_USED";
         /** @enum {string} */
-        CodeGroup: "product-groups" | "advertisement-types" | "review-statuses";
-        CommonCode: {
-            code: string;
-            name: string;
-            sortOrder: number;
-            enabled: boolean;
-        };
+        ReportFormat: "HWPX" | "PDF";
         /** @enum {string} */
-        ProductGroup: "DEPOSIT" | "SAVINGS" | "DEMAND_DEPOSIT" | "EVENT";
+        ReportStatus: "CREATED" | "FAILED";
         /** @enum {string} */
-        AdvertisementType: "BRANCH_FLYER" | "NOTICE" | "MOBILE_BANNER" | "WEB_BANNER" | "EVENT_PAGE" | "PUSH" | "SMS" | "ALIMTALK";
-        /** @enum {string} */
-        ReviewStatus: "UPLOADED" | "REVISED";
-        /** @enum {string} */
-        FileType: "ADVERTISEMENT" | "PRODUCT_DESCRIPTION" | "TERMS" | "ADDITIONAL";
-        AdvertisementFile: {
-            fileId: string;
-            fileType: components["schemas"]["FileType"];
-            fileName: string;
-            mimeType: string;
-            fileSize: number;
+        ResolutionStatus: "RESOLVED" | "UNRESOLVED" | "NEW_ISSUE" | "CHECK_REQUIRED";
+        Suggestion: {
+            suggestionId: string;
+            reviewItemId: string;
+            originalText: string;
+            suggestedText: string;
+            suggestionReason?: string | null;
+            evidenceIds?: string[];
+            decisionStatus: components["schemas"]["SuggestionDecisionStatus"];
         };
-        AdvertisementSummary: {
-            advertisementId: string;
-            advertisementName: string;
-            productGroup: components["schemas"]["ProductGroup"];
-            advertisementType: components["schemas"]["AdvertisementType"];
-            departmentId: string;
-            registeredBy: string;
-            /** Format: date-time */
-            registeredAt: string;
-            reviewStatus: components["schemas"]["ReviewStatus"];
-        };
-        AdvertisementPage: {
-            contents: components["schemas"]["AdvertisementSummary"][];
-            page: number;
-            size: number;
-            totalElements: number;
-            totalPages: number;
-        };
-        CreateAdvertisementRequest: {
-            advertisementName: string;
-            productGroup: components["schemas"]["ProductGroup"];
-            advertisementType: components["schemas"]["AdvertisementType"];
-            channelType?: string;
-            departmentId: string;
-            memo?: string;
-            /**
-             * Format: binary
-             * @description jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
-             */
-            advertisementFile: string;
-            /** Format: binary */
-            productDescriptionFile?: string;
-            /** Format: binary */
-            termsFile?: string;
-            additionalFiles?: string[];
-        };
-        AdvertisementCreated: {
-            advertisementId: string;
-            advertisementName: string;
-            reviewStatus: components["schemas"]["ReviewStatus"];
-            files: components["schemas"]["AdvertisementFile"][];
-            /** Format: date-time */
-            createdAt: string;
-        };
-        AdvertisementDetail: {
-            advertisementId: string;
-            advertisementName: string;
-            productGroup: components["schemas"]["ProductGroup"];
-            advertisementType: components["schemas"]["AdvertisementType"];
-            departmentId: string;
-            registeredBy: string;
-            /** Format: date-time */
-            registeredAt: string;
-            reviewStatus: components["schemas"]["ReviewStatus"];
-            channelType?: string | null;
-            memo?: string | null;
-            files: components["schemas"]["AdvertisementFile"][];
-        };
-        FilePreview: {
-            fileId: string;
-            pageNo: number;
-            totalPages: number;
-            previewPath: string;
-            width?: number | null;
-            height?: number | null;
-        };
-        AuditLogSummary: {
-            /** Format: uuid */
-            auditLogId: string;
-            actorId?: string | null;
-            actorDepartmentId?: string | null;
-            actorRole?: components["schemas"]["Role"] | null;
-            actionType: string;
-            targetType: string;
-            targetId?: string | null;
+        SuggestionDecisionRequest: {
             /** @enum {string} */
-            result: "SUCCESS" | "FAILURE" | "DENIED";
-            reasonCode?: string | null;
-            traceId: string;
-            /** Format: date-time */
-            createdAt: string;
+            decisionStatus: "ACCEPTED" | "REJECTED" | "MODIFIED_AND_USED";
+            finalText?: string | null;
+            comment?: string | null;
         };
-        AuditLogPage: {
-            contents: components["schemas"]["AuditLogSummary"][];
-            page: number;
-            size: number;
-            totalElements: number;
-            totalPages: number;
-        };
-        /** @enum {string} */
-        EvidenceType: "LAW" | "REGULATION" | "INTERNAL_STANDARD" | "GUIDELINE" | "MANUAL" | "REVIEW_CASE" | "TEMPLATE" | "PRODUCT_STANDARD";
-        /** @enum {string} */
-        RuleType: "REQUIRED" | "PROHIBITED" | "RECOMMENDED" | "REFERENCE";
-        /** @enum {string} */
-        Importance: "HIGH" | "MEDIUM" | "LOW";
-        /**
-         * @default HYBRID
-         * @enum {string}
-         */
-        SearchMode: "KEYWORD" | "VECTOR" | "HYBRID";
-        /** @enum {string} */
-        IndexStatus: "PENDING" | "INDEXING" | "ACTIVE" | "FAILED" | "EXCLUDED" | "DELETED";
-        /** @enum {string} */
-        ReindexScope: "INDEX_ONLY" | "CHUNK_AND_INDEX" | "KEYWORD_ONLY" | "VECTOR_ONLY";
-        /** @enum {string} */
-        ReindexJobStatus: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
-        /** @enum {string} */
-        SearchBackend: "QDRANT" | "OPENSEARCH";
-        StandardSummary: {
-            standardId: string;
-            title: string;
-            evidenceType: components["schemas"]["EvidenceType"];
-            productGroup?: components["schemas"]["ProductGroup"] | null;
-            advertisementType?: components["schemas"]["AdvertisementType"] | null;
-            ruleType: components["schemas"]["RuleType"];
-            importance?: components["schemas"]["Importance"] | null;
-            /** Format: date */
-            effectiveDate?: string | null;
-            /** Format: date */
-            expiredDate?: string | null;
-            currentVersion: string;
-            isActive: boolean;
-            /** Format: date-time */
-            createdAt: string;
-        };
-        StandardPage: {
-            contents: components["schemas"]["StandardSummary"][];
-            page: number;
-            size: number;
-            totalElements: number;
-            totalPages: number;
-        };
-        CreateStandardRequest: {
-            title: string;
-            evidenceType: components["schemas"]["EvidenceType"];
-            productGroup?: components["schemas"]["ProductGroup"];
-            advertisementType?: components["schemas"]["AdvertisementType"];
-            ruleType: components["schemas"]["RuleType"];
-            importance?: components["schemas"]["Importance"];
-            /** Format: date */
-            effectiveDate?: string;
-            /** Format: date */
-            expiredDate?: string;
-            /** @description Evidence-type-required metadata defined by ADR-0050. */
-            metadata: {
-                [key: string]: unknown;
-            };
-            /** @description Directly entered reference body; M3 does not parse an attachment. */
-            content: string;
-            /**
-             * Format: binary
-             * @description Optional archival original; its content is outside the M3 parser boundary.
-             */
-            sourceFile?: string;
-        };
-        UpdateStandardRequest: {
-            title?: string;
-            content: string;
-            /** Format: date */
-            effectiveDate?: string | null;
-            /** Format: date */
-            expiredDate?: string | null;
-            metadata: {
-                [key: string]: unknown;
-            };
-            changeReason: string;
-        };
-        StandardCreated: {
-            standardId: string;
-            evidenceId: string;
-            standardVersionId: string;
-            version: string;
-            isActive: boolean;
-        };
-        StandardDetail: {
-            standardId: string;
-            evidenceId: string;
-            standardVersionId: string;
-            version: string;
-            title: string;
-            evidenceType: components["schemas"]["EvidenceType"];
-            productGroup?: components["schemas"]["ProductGroup"] | null;
-            advertisementType?: components["schemas"]["AdvertisementType"] | null;
-            ruleType: components["schemas"]["RuleType"];
-            importance?: components["schemas"]["Importance"] | null;
-            /** Format: date */
-            effectiveDate?: string | null;
-            /** Format: date */
-            expiredDate?: string | null;
-            metadata: {
-                [key: string]: unknown;
-            };
-            content: string;
-            changeReason?: string | null;
-            isActive: boolean;
-            /** Format: date-time */
-            createdAt: string;
-            createdBy: string;
-        };
-        StandardHistoryPage: {
-            contents: components["schemas"]["StandardDetail"][];
-            page: number;
-            size: number;
-            totalElements: number;
-            totalPages: number;
-        };
-        DeactivateStandardRequest: {
-            reason: string;
-        };
-        EvidenceSearchResult: {
-            evidenceId: string;
-            evidenceChunkId: string;
-            standardVersionId: string;
-            evidenceType: components["schemas"]["EvidenceType"];
-            title: string;
-            articleNo?: string | null;
-            ruleType: components["schemas"]["RuleType"];
-            productGroup?: components["schemas"]["ProductGroup"] | null;
-            advertisementType?: components["schemas"]["AdvertisementType"] | null;
-            contentSummary: string;
-            /** Format: date */
-            effectiveDate?: string | null;
-            version: string;
-            rankNo: number;
-            relevanceScore: number;
-            matchSource: components["schemas"]["SearchMode"];
-            highlights?: {
-                [key: string]: string[];
-            };
-        };
-        EvidenceDetail: {
-            evidenceId: string;
-            standardId: string;
-            standardVersionId: string;
-            evidenceType: components["schemas"]["EvidenceType"];
-            title: string;
-            articleNo?: string | null;
-            content: string;
-            contentSummary?: string | null;
-            productGroup?: components["schemas"]["ProductGroup"] | null;
-            advertisementType?: components["schemas"]["AdvertisementType"] | null;
-            ruleType: components["schemas"]["RuleType"];
-            importance?: components["schemas"]["Importance"] | null;
-            /** Format: date */
-            effectiveDate?: string | null;
-            /** Format: date */
-            expiredDate?: string | null;
-            version: string;
-            isActive: boolean;
-        };
-        ReindexStandardRequest: {
-            reindexScope: components["schemas"]["ReindexScope"];
-            reason: string;
-            parserRuleVersion?: string | null;
-            chunkingPolicyVersion: string;
-            /** @description Reproducibility label; M3 makes no provider network call. */
-            embeddingModel?: string | null;
-            searchSchemaVersion: string;
-            opensearchAnalyzerVersion?: string | null;
-            synonymVersion?: string | null;
-            targetIndexes: components["schemas"]["SearchBackend"][];
-        };
-        StandardReindexJob: {
-            jobId: string;
-            standardId: string;
-            standardVersionId: string;
-            reindexScope: components["schemas"]["ReindexScope"];
-            jobStatus: components["schemas"]["ReindexJobStatus"];
-            targetIndexes: components["schemas"]["SearchBackend"][];
-            parserRuleVersion?: string | null;
-            chunkingPolicyVersion?: string | null;
-            embeddingModel?: string | null;
-            searchSchemaVersion?: string | null;
-            opensearchAnalyzerVersion?: string | null;
-            synonymVersion?: string | null;
-            createdChunkCount: number;
-            indexedChunkCount: number;
-            qdrantStatus?: components["schemas"]["IndexStatus"] | null;
-            opensearchStatus?: components["schemas"]["IndexStatus"] | null;
-            failedReasonCode?: string | null;
-            failedReasonMessage?: string | null;
-            requestedBy: string;
-            /** Format: date-time */
-            requestedAt: string;
-            /** Format: date-time */
-            startedAt?: string | null;
-            /** Format: date-time */
-            completedAt?: string | null;
-        };
-        EvidenceChunk: {
-            evidenceChunkId: string;
-            evidenceId: string;
-            standardId: string;
-            standardVersionId: string;
-            chunkNo: number;
-            chunkText: string;
-            tokenCount?: number | null;
-            sectionPath?: string | null;
-            articleNo?: string | null;
-            pageNo?: number | null;
-            sourceSpan?: {
-                [key: string]: unknown;
-            } | null;
-            structureConfidence?: number | null;
-            parserRuleVersion?: string | null;
-            chunkingPolicyVersion: string;
-            embeddingModel?: string | null;
-            searchSchemaVersion: string;
-            opensearchAnalyzerVersion?: string | null;
-            synonymVersion?: string | null;
-            opensearchHighlights?: {
-                [key: string]: string[];
-            };
-            qdrantIndexStatus: components["schemas"]["IndexStatus"];
-            qdrantIndexErrorCode?: string | null;
-            opensearchIndexStatus: components["schemas"]["IndexStatus"];
-            opensearchIndexErrorCode?: string | null;
-            /** Format: date-time */
-            createdAt: string;
-        };
-        EvidenceChunkPage: {
-            contents: components["schemas"]["EvidenceChunk"][];
-            page: number;
-            size: number;
-            totalElements: number;
-            totalPages: number;
-        };
-        /** @enum {string} */
-        AIReviewStatus: "ANALYSIS_REQUESTED" | "ANALYZING" | "CHECK_REQUIRED" | "REVIEW_COMPLETED" | "REVIEW_FAILED";
-        /** @enum {string} */
-        ReviewJobStatus: "PENDING" | "RUNNING" | "RETRY_PENDING" | "STALE" | "COMPLETED" | "FAILED" | "FAILED_FINAL" | "CANCELED";
-        /** @enum {string} */
-        ReviewType: "REQUIRED_PHRASE" | "INTEREST_RATE" | "MISLEADING_EXPRESSION" | "PRODUCT_CONSISTENCY" | "VISIBILITY" | "OCR_QUALITY";
-        CreateReviewRequest: {
-            /** Format: date */
-            standardEffectiveDate?: string | null;
-            reviewTypes?: components["schemas"]["ReviewType"][] | null;
-            /** @default true */
-            includeSuggestion: boolean;
-            /** @default false */
-            includeOpinionDraft: boolean;
-            requestMemo?: string | null;
-        };
-        ReviewAccepted: {
-            reviewId: string;
-            advertisementId: string;
-            /** @constant */
-            reviewStatus: "ANALYSIS_REQUESTED";
-            jobId: string;
-            /** Format: date */
-            standardEffectiveDate: string;
-            standardVersionIds: string[];
-            /** Format: date-time */
-            requestedAt: string;
-        };
-        ReviewStepStatus: {
-            stepCode: string;
-            stepName: string;
-            /** @enum {string} */
-            status: "PENDING" | "RUNNING" | "RETRY_PENDING" | "COMPLETED" | "FAILED" | "SKIPPED";
-            /** Format: date-time */
-            timeoutAt: string | null;
-            failedReasonCode?: string | null;
-        };
-        ReviewProgress: {
-            reviewId: string;
-            advertisementId: string;
-            reviewStatus: components["schemas"]["AIReviewStatus"];
-            jobId: string;
-            jobStatus: components["schemas"]["ReviewJobStatus"];
-            currentStep?: string | null;
-            progressRate: number;
-            retryCount: number;
-            /** @constant */
-            maxRetries: 3;
-            /** Format: date-time */
-            nextRetryAt?: string | null;
-            isRetryable: boolean;
-            failedReasonCode?: string | null;
-            failedReason?: string | null;
-            /** Format: date-time */
-            timeoutAt: string;
-            steps: components["schemas"]["ReviewStepStatus"][];
+        SuggestionDecision: {
+            suggestionId: string;
+            decisionStatus: components["schemas"]["SuggestionDecisionStatus"];
+            finalText: string | null;
             /** Format: date-time */
             updatedAt: string;
         };
-        ReviewHistory: {
+        QaQuestionRequest: {
+            question: string;
+            productGroup?: string | null;
+            advertisementType?: string | null;
+            /** Format: date */
+            standardEffectiveDate?: string | null;
+        };
+        QaEvidence: {
+            evidenceId: string;
+            standardVersionId: string;
+            title: string;
+            articleNo?: string | null;
+            matchedText: string;
+        };
+        QaAnswer: {
+            qaId: string;
+            answerSummary: string;
+            answerDetail: string;
+            evidences: components["schemas"]["QaEvidence"][];
+            suggestedPhrases: string[];
+            needsHumanReview: boolean;
+        };
+        OpinionDraftRequest: {
+            includeReviewItemIds?: string[];
+            templateType?: string;
+            additionalInstruction?: string | null;
+        };
+        OpinionDraftUpdateRequest: {
+            finalContent: string;
+        };
+        OpinionDraft: {
+            draftId: string;
             reviewId: string;
-            reviewRound: number;
-            reviewStatus: components["schemas"]["AIReviewStatus"];
-            overallRiskLevel?: string | null;
+            draftContent: string;
+            finalContent?: string | null;
+            includedReviewItemIds: string[];
             /** Format: date-time */
-            requestedAt: string;
+            createdAt: string;
             /** Format: date-time */
-            completedAt?: string | null;
+            updatedAt?: string | null;
         };
-        RerunReviewRequest: {
-            reason: string;
-            reviewTypes?: components["schemas"]["ReviewType"][] | null;
-        };
-        RerunReviewAccepted: {
-            newReviewId: string;
-            previousReviewId: string;
-            /** @constant */
-            reviewStatus: "ANALYSIS_REQUESTED";
-            jobId: string;
-        };
-        /** @description Redis delivery payload. Raw files, OCR text, and provider output are forbidden. */
-        ReviewQueueMessageV1: {
-            /** @constant */
-            messageVersion: "review-job-v1";
-            jobId: string;
-            reviewId: string;
+        ReportRequest: {
             /** @enum {string} */
-            jobType: "REVIEW_ANALYSIS" | "RE_REVIEW";
-            correlationId: string;
-            idempotencyKey: string;
+            reportType?: "FULL" | "SELECTED";
+            format?: components["schemas"]["ReportFormat"];
+            includeAnnotations?: boolean;
+            includeSuggestions?: boolean;
+            includeOpinionDraft?: boolean;
+            includeEvidenceDetails?: boolean;
         };
-        /** Confidence */
-        Confidence: {
-            /** Score */
-            score: number;
-            status: components["schemas"]["ConfidenceStatus"];
-            /** Policyversion */
-            policyVersion: string;
-        };
-        /**
-         * ConfidenceStatus
-         * @enum {string}
-         */
-        ConfidenceStatus: "READABLE" | "LOW_CONFIDENCE" | "UNREADABLE";
-        /** Coordinate */
-        Coordinate: {
-            /** Sourcewidth */
-            sourceWidth: number;
-            /** Sourceheight */
-            sourceHeight: number;
-            /** Sourceunit */
-            sourceUnit: string;
-            /** X */
-            x: number;
-            /** Y */
-            y: number;
-            /** Width */
-            width: number;
-            /** Height */
-            height: number;
-            /** Normalizedx */
-            normalizedX: number;
-            /** Normalizedy */
-            normalizedY: number;
-            /** Normalizedwidth */
-            normalizedWidth: number;
-            /** Normalizedheight */
-            normalizedHeight: number;
-            /**
-             * Rotation
-             * @default 0
-             */
-            rotation: number;
-            /** Coordinateconfidence */
-            coordinateConfidence: number;
-        };
-        /** LayoutBlock */
-        LayoutBlock: {
-            /** Layoutblockid */
-            layoutBlockId: string;
-            /** Fileid */
-            fileId: string;
-            /** Pageno */
-            pageNo?: number | null;
-            /** Layouttype */
-            layoutType: string;
-            coordinate?: components["schemas"]["Coordinate"];
-            /** Relatedtextblockids */
-            relatedTextBlockIds?: string[];
-            /** Confidencescore */
-            confidenceScore: number;
-        };
-        /** NormalizedDocument */
-        NormalizedDocument: {
-            /** Documentid */
-            documentId: string;
-            /** Sourcefileid */
-            sourceFileId: string;
-            /** Reviewid */
+        Report: {
+            reportId: string;
             reviewId: string;
-            /** Sourcefiletype */
-            sourceFileType: string;
-            /** Parsername */
-            parserName: string;
-            /** Parserversion */
-            parserVersion: string;
-            /** Parserruleversion */
-            parserRuleVersion: string;
-            /** Irversion */
-            irVersion: string;
-            /** Pages */
-            pages: components["schemas"]["Page"][];
-            /** Textblocks */
-            textBlocks: components["schemas"]["TextBlock"][];
-            /** Layoutblocks */
-            layoutBlocks: components["schemas"]["LayoutBlock"][];
-            /** Tables */
-            tables: components["schemas"]["Table"][];
-            /** Warnings */
-            warnings: components["schemas"]["Warning"][];
-            confidence: components["schemas"]["Confidence"];
-            /** Rawartifactref */
-            rawArtifactRef: string;
-            /**
-             * Createdat
-             * Format: date-time
-             */
+            sourceReportId: string | null;
+            reportType: string;
+            format: components["schemas"]["ReportFormat"];
+            reportStatus: components["schemas"]["ReportStatus"];
+            snapshotHash: string;
+            snapshotVersion: string;
+            rendererVersion?: string | null;
+            converterVersion?: string | null;
+            downloadUrl?: string | null;
+            /** Format: date-time */
             createdAt: string;
         };
-        /** Page */
-        Page: {
-            /** Pageno */
-            pageNo: number;
-            /** Width */
-            width?: number | null;
-            /** Height */
-            height?: number | null;
-            /** Unit */
-            unit?: string | null;
+        ComparisonRequest: {
+            baseReviewId: string;
+            revisionId: string;
+            compareTypes?: string[];
         };
-        /** Table */
-        Table: {
-            /** Tableid */
-            tableId: string;
-            /** Pageno */
-            pageNo?: number | null;
-            /** Textpath */
-            textPath?: string | null;
-            coordinate?: components["schemas"]["Coordinate"];
-            /** Cells */
-            cells: string[][];
+        ComparisonItem: {
+            reviewItemId?: string | null;
+            originalText?: string | null;
+            revisedText?: string | null;
+            resolutionStatus: components["schemas"]["ResolutionStatus"];
+            comment?: string | null;
+            reanalysisReviewId?: string | null;
         };
-        /** TextBlock */
-        TextBlock: {
-            /** Textblockid */
-            textBlockId: string;
-            /** Fileid */
-            fileId: string;
-            /** Pageno */
-            pageNo?: number | null;
-            /** Textpath */
-            textPath?: string | null;
-            /** Textblocktype */
-            textBlockType: string;
-            /** Rawtext */
-            rawText: string;
-            /** Normalizedtext */
-            normalizedText: string;
-            /** Rawstartoffset */
-            rawStartOffset?: number | null;
-            /** Rawendoffset */
-            rawEndOffset?: number | null;
-            /** Normalizedstartoffset */
-            normalizedStartOffset?: number | null;
-            /** Normalizedendoffset */
-            normalizedEndOffset?: number | null;
-            /** Parsername */
-            parserName: string;
-            /** Parserversion */
-            parserVersion: string;
-            /** Parserruleversion */
-            parserRuleVersion: string;
-            /** Irversion */
-            irVersion: string;
-            /** Confidencescore */
-            confidenceScore: number;
-            confidenceStatus: components["schemas"]["ConfidenceStatus"];
-            /** Confidencepolicyversion */
-            confidencePolicyVersion: string;
-            coordinate?: components["schemas"]["Coordinate"];
-        };
-        /** Warning */
-        Warning: {
-            /** Code */
-            code: string;
-            /** Message */
-            message: string;
-            /** Requiresreview */
-            requiresReview: boolean;
+        Comparison: {
+            comparisonId: string;
+            advertisementId: string;
+            comparisonStatus: string;
+            resolvedIssueCount: number;
+            unresolvedIssueCount: number;
+            newIssueCount: number;
+            items?: components["schemas"]["ComparisonItem"][];
         };
     };
     responses: {
@@ -1314,8 +1715,8 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Authentication failed without revealing account state. */
-        Unauthorized: {
+        /** @description Duplicate or conflicting request. */
+        Conflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1341,43 +1742,6 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Duplicate or conflicting request. */
-        Conflict: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description A file exceeded the 50 MiB limit. */
-        PayloadTooLarge: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description File extension or MIME type is not allowed. */
-        UnsupportedMediaType: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Login IP rate limit exceeded. */
-        RateLimited: {
-            headers: {
-                "Retry-After"?: number;
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
         /** @description Qdrant, OpenSearch, or index consistency is unavailable; no keyword-only or vector-only fallback is returned as normal evidence. */
         SearchUnavailable: {
             headers: {
@@ -1387,22 +1751,28 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description Authentication failed without revealing account state. */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
     };
     parameters: {
-        Origin: string;
-        AdvertisementId: string;
-        FileId: string;
+        AdvertisementTypeQuery: components["schemas"]["AdvertisementType"];
+        EvidenceChunkId: string;
+        EvidenceId: string;
+        Keyword: string;
+        Page: number;
+        ProductGroupQuery: components["schemas"]["ProductGroup"];
+        ReindexJobId: string;
+        Size: number;
         StandardId: string;
         StandardVersionId: string;
-        EvidenceId: string;
-        EvidenceChunkId: string;
-        ReindexJobId: string;
-        Keyword: string;
-        ProductGroupQuery: components["schemas"]["ProductGroup"];
-        AdvertisementTypeQuery: components["schemas"]["AdvertisementType"];
-        ReviewStatusQuery: components["schemas"]["ReviewStatus"];
-        Page: number;
-        Size: number;
+        AdvertisementId: string;
         ReviewId: string;
         ReviewItemId: string;
         ReviewTypeQuery: components["schemas"]["ReviewType"];
@@ -1410,6 +1780,10 @@ export interface components {
         ResultStatusQuery: components["schemas"]["ReviewResultStatus"];
         EvidenceRequiredQuery: boolean;
         PageNoQuery: number;
+        SuggestionId: string;
+        DraftId: string;
+        ReportId: string;
+        ComparisonId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1417,356 +1791,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    login: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Access token issued and refreshToken cookie set. */
-            200: {
-                headers: {
-                    /** @description HttpOnly refresh token cookie; Secure outside local development. */
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /** @example {
-                     *       "accessToken": "synthetic.jwt.value",
-                     *       "tokenType": "Bearer",
-                     *       "expiresIn": 1800,
-                     *       "user": {
-                     *         "userId": "USR-SYNTH-PRODUCT",
-                     *         "userName": "Synthetic Product User",
-                     *         "departmentId": "DPT-SYNTH-PRODUCT",
-                     *         "departmentName": "Synthetic Product Team",
-                     *         "roles": [
-                     *           "PRODUCT_DEPARTMENT_USER"
-                     *         ]
-                     *       }
-                     *     } */
-                    "application/json": components["schemas"]["AuthTokenResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            429: components["responses"]["RateLimited"];
-        };
-    };
-    refreshAccessToken: {
-        parameters: {
-            query?: never;
-            header: {
-                Origin: components["parameters"]["Origin"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Rotated refresh session and new access token. */
-            200: {
-                headers: {
-                    /** @description Rotated HttpOnly refresh token cookie. */
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccessTokenResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    logout: {
-        parameters: {
-            query?: never;
-            header: {
-                Origin: components["parameters"]["Origin"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Refresh session revoked and cookie cleared. */
-            204: {
-                headers: {
-                    /** @description Expired refresh token cookie. */
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    getCurrentUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current authenticated user context. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserContext"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    listCommonCodes: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                codeGroup: components["schemas"]["CodeGroup"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Enabled common codes in display order. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CommonCode"][];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    listAdvertisements: {
-        parameters: {
-            query?: {
-                keyword?: components["parameters"]["Keyword"];
-                productGroup?: components["parameters"]["ProductGroupQuery"];
-                advertisementType?: components["parameters"]["AdvertisementTypeQuery"];
-                reviewStatus?: components["parameters"]["ReviewStatusQuery"];
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Scope-filtered advertisement page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdvertisementPage"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    createAdvertisement: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["CreateAdvertisementRequest"];
-            };
-        };
-        responses: {
-            /** @description Advertisement and file metadata created. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdvertisementCreated"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            413: components["responses"]["PayloadTooLarge"];
-            415: components["responses"]["UnsupportedMediaType"];
-        };
-    };
-    getAdvertisement: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                advertisementId: components["parameters"]["AdvertisementId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Advertisement detail visible to the caller. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /** @example {
-                     *       "advertisementId": "ADV-SYNTH-0001",
-                     *       "advertisementName": "Synthetic mobile banner",
-                     *       "productGroup": "SAVINGS",
-                     *       "advertisementType": "MOBILE_BANNER",
-                     *       "departmentId": "DPT-SYNTH-PRODUCT",
-                     *       "registeredBy": "USR-SYNTH-PRODUCT",
-                     *       "registeredAt": "2026-07-14T06:00:00Z",
-                     *       "reviewStatus": "UPLOADED",
-                     *       "channelType": "MOBILE_APP",
-                     *       "memo": "Synthetic fixture only",
-                     *       "files": [
-                     *         {
-                     *           "fileId": "FILE-SYNTH-0001",
-                     *           "fileType": "ADVERTISEMENT",
-                     *           "fileName": "synthetic-advertisement.png",
-                     *           "mimeType": "image/png",
-                     *           "fileSize": 68
-                     *         }
-                     *       ]
-                     *     } */
-                    "application/json": components["schemas"]["AdvertisementDetail"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    getFilePreview: {
-        parameters: {
-            query?: {
-                pageNo?: number;
-            };
-            header?: never;
-            path: {
-                fileId: components["parameters"]["FileId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Authorized preview descriptor. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FilePreview"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    downloadFile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                fileId: components["parameters"]["FileId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Authorized file stream. */
-            200: {
-                headers: {
-                    "Content-Disposition"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    getFilePreviewContent: {
-        parameters: {
-            query: {
-                pageNo: number;
-            };
-            header?: never;
-            path: {
-                fileId: components["parameters"]["FileId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Authorized rendered preview page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "image/png": string;
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    listAuditLogs: {
-        parameters: {
-            query?: {
-                userId?: string;
-                actionType?: string;
-                fromDate?: string;
-                toDate?: string;
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Redacted audit log page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuditLogPage"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
     listStandards: {
         parameters: {
             query?: {
@@ -2331,6 +2355,886 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthTokenResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    refreshAccessToken: {
+        parameters: {
+            query?: never;
+            header: {
+                Origin: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessTokenResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header: {
+                Origin: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserContext"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listCommonCodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                codeGroup: components["schemas"]["CodeGroup"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommonCode"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAdvertisements: {
+        parameters: {
+            query?: {
+                keyword?: string | null;
+                productGroup?: components["schemas"]["ProductGroup"] | null;
+                advertisementType?: components["schemas"]["AdvertisementType"] | null;
+                reviewStatus?: components["schemas"]["ReviewStatus"] | null;
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvertisementPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAdvertisement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["CreateAdvertisementRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvertisementCreated"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAdvertisement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advertisementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvertisementDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getFilePreview: {
+        parameters: {
+            query?: {
+                pageNo?: number;
+            };
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilePreview"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getFilePreviewContent: {
+        parameters: {
+            query: {
+                pageNo: number;
+            };
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    downloadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAuditLogs: {
+        parameters: {
+            query?: {
+                userId?: string | null;
+                actionType?: string | null;
+                fromDate?: string | null;
+                toDate?: string | null;
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReviewSuggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Suggestion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    recordSuggestionDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                suggestionId: components["parameters"]["SuggestionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestionDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestionDecision"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listComplianceQuestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaAnswer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    askComplianceQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaQuestionRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaAnswer"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["SearchUnavailable"];
+        };
+    };
+    listOpinionDrafts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpinionDraft"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createOpinionDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpinionDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpinionDraft"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateOpinionDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draftId: components["parameters"]["DraftId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpinionDraftUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpinionDraft"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createReviewReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getReviewReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadReviewReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized immutable report snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createAdvertisementComparison: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advertisementId: components["parameters"]["AdvertisementId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComparisonRequest"];
+            };
+        };
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAdvertisementComparison: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comparisonId: components["parameters"]["ComparisonId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped support output returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comparison"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

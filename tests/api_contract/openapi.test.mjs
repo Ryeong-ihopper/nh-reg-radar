@@ -12,20 +12,22 @@ import {
 
 const contractPath = new URL('../../openapi/openapi.yaml', import.meta.url).pathname;
 
-test('TC-NFR-API-001: M5 source document is valid and capability-bounded', async () => {
+test('TC-NFR-API-001: M6 source document is valid and capability-bounded', async () => {
   const document = await validateOpenApi(contractPath);
   assert.equal(document.openapi, '3.1.0');
   assert.equal(typeof document.info.title, 'string');
-  assert.equal(document.info.version, '0.5.0');
-  assert.deepEqual(Object.keys(document.paths).sort(), [
+  assert.equal(document.info.version, '0.6.0');
+  const requiredM5Paths = [
     '/admin/audit-logs',
     '/advertisements',
     '/advertisements/{advertisementId}',
+    '/advertisements/{advertisementId}/comparisons',
     '/advertisements/{advertisementId}/reviews',
     '/auth/login',
     '/auth/logout',
     '/auth/refresh',
     '/codes/{codeGroup}',
+    '/comparisons/{comparisonId}',
     '/evidence-chunks/{evidenceChunkId}',
     '/evidences/search',
     '/evidences/{evidenceId}',
@@ -33,11 +35,18 @@ test('TC-NFR-API-001: M5 source document is valid and capability-bounded', async
     '/files/{fileId}/download',
     '/files/{fileId}/preview',
     '/files/{fileId}/preview/content',
+    '/opinion-drafts/{draftId}',
+    '/qa/questions',
+    '/reports/{reportId}',
+    '/reports/{reportId}/download',
     '/reviews/{reviewId}/annotations',
     '/reviews/{reviewId}/items',
     '/reviews/{reviewId}/items/{reviewItemId}',
+    '/reviews/{reviewId}/opinion-drafts',
+    '/reviews/{reviewId}/reports',
     '/reviews/{reviewId}/rerun',
     '/reviews/{reviewId}/status',
+    '/reviews/{reviewId}/suggestions',
     '/reviews/{reviewId}/summary',
     '/standard-reindex-jobs/{jobId}',
     '/standards',
@@ -45,8 +54,10 @@ test('TC-NFR-API-001: M5 source document is valid and capability-bounded', async
     '/standards/{standardId}/deactivate',
     '/standards/{standardId}/histories',
     '/standards/{standardId}/versions/{standardVersionId}/reindex',
+    '/suggestions/{suggestionId}/decision',
     '/users/me',
-  ]);
+  ];
+  for (const path of requiredM5Paths) assert.ok(Object.hasOwn(document.paths, path), `missing preserved path: ${path}`);
   assert.ok(Object.hasOwn(document.components.schemas, 'ErrorResponse'));
 });
 

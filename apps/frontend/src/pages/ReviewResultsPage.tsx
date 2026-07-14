@@ -97,6 +97,7 @@ export function ReviewSummaryPage() {
             <Link className="button-link button-secondary" to="/advertisements">광고물 목록</Link>
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/items`}>상세 결과 보기</Link>
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/annotations`}>광고 화면 보기</Link>
+            <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/support`}>담당자 지원</Link>
           </div>
         </>
       ) : null}

@@ -1,0 +1,32 @@
+{
+  "fixtureVersion": "m6-support-outputs-v1",
+  "kind": "synthetic",
+  "containsCustomerData": false,
+  "networkAllowed": false,
+  "provider": null,
+  "suggestion": {
+    "suggestionId": "SUG-0001",
+    "reviewId": "REV-0001",
+    "reviewItemId": "ITEM-0001",
+    "originalText": "국내 최고 수준의 혜택",
+    "suggestedText": "조건 충족 시 우대 혜택을 제공받을 수 있습니다.",
+    "decisionStatus": "PENDING"
+  },
+  "qa": {
+    "needsHumanReview": true,
+    "standardVersionIds": ["STDVER-0001"],
+    "evidenceIds": ["EVD-0001"],
+    "missingEvidenceAnswer": "관련 근거가 충분하지 않아 담당자 확인이 필요합니다."
+  },
+  "report": {
+    "snapshotVersion": "report-snapshot-v1",
+    "snapshotHash": "sha256:8a01e3735cddd44e9fdf59a5e8e5cb4e6075636a64f8287d33f98800e5d6bd27",
+    "hwpxStatus": "CREATED",
+    "pdfStatus": "FAILED",
+    "pdfSourceReportId": "RPT-0001"
+  },
+  "comparison": {
+    "statuses": ["RESOLVED", "UNRESOLVED", "NEW_ISSUE"],
+    "reanalysisReviewId": "REV-0002"
+  }
+}

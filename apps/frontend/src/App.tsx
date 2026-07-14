@@ -9,6 +9,7 @@ import { AdvertisementCreatePage } from "./pages/AdvertisementCreatePage";
 import { AdvertisementDetailPage } from "./pages/AdvertisementDetailPage";
 import { AdvertisementListPage } from "./pages/AdvertisementListPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ComparisonPage, M6SupportPage } from "./pages/M6SupportPage";
 import { ReviewProgressPage } from "./pages/ReviewProgressPage";
 import { ReviewRequestPage } from "./pages/ReviewRequestPage";
 import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pages/ReviewResultsPage";
@@ -55,6 +56,8 @@ function Shell() {
           <Route path="/reviews/:reviewId/results" element={<ReviewSummaryPage />} />
           <Route path="/reviews/:reviewId/results/items" element={<ReviewItemsPage />} />
           <Route path="/reviews/:reviewId/results/annotations" element={<ReviewAnnotationsPage />} />
+          <Route path="/reviews/:reviewId/support" element={<M6SupportPage />} />
+          <Route path="/advertisements/:advertisementId/comparisons" element={<ComparisonPage />} />
         </Route>
         <Route element={<ProtectedRoute allowedRoles={CREATE_ROLES} />}>
           <Route path="/advertisements/new" element={<AdvertisementCreatePage />} />

@@ -42,6 +42,19 @@ export type ReviewAnnotation = components["schemas"]["Annotation"];
 export type ReviewAnnotationCollection = components["schemas"]["AnnotationCollection"];
 export type ReviewItemSearch = NonNullable<operations["listReviewItems"]["parameters"]["query"]>;
 export type ReviewAnnotationSearch = NonNullable<operations["listReviewAnnotations"]["parameters"]["query"]>;
+export type Suggestion = components["schemas"]["Suggestion"];
+export type SuggestionDecision = components["schemas"]["SuggestionDecision"];
+export type SuggestionDecisionInput = components["schemas"]["SuggestionDecisionRequest"];
+export type QaQuestionInput = components["schemas"]["QaQuestionRequest"];
+export type QaAnswer = components["schemas"]["QaAnswer"];
+export type OpinionDraft = components["schemas"]["OpinionDraft"];
+export type OpinionDraftInput = components["schemas"]["OpinionDraftRequest"];
+export type OpinionDraftUpdateInput = components["schemas"]["OpinionDraftUpdateRequest"];
+export type Report = components["schemas"]["Report"];
+export type ReportInput = components["schemas"]["ReportRequest"];
+export type ReportFormat = components["schemas"]["ReportFormat"];
+export type Comparison = components["schemas"]["Comparison"];
+export type ComparisonInput = components["schemas"]["ComparisonRequest"];
 
 export interface AdvertisementCreateInput {
   advertisementName: string;
@@ -353,6 +366,65 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     });
+  },
+
+  listReviewSuggestions(accessToken: string, reviewId: string): Promise<Suggestion> {
+    return request<Suggestion>(`/reviews/${encodeURIComponent(reviewId)}/suggestions`, accessToken);
+  },
+
+  recordSuggestionDecision(accessToken: string, suggestionId: string, input: SuggestionDecisionInput): Promise<SuggestionDecision> {
+    return request<SuggestionDecision>(`/suggestions/${encodeURIComponent(suggestionId)}/decision`, accessToken, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+  },
+
+  askComplianceQuestion(accessToken: string, input: QaQuestionInput): Promise<QaAnswer> {
+    return request<QaAnswer>("/qa/questions", accessToken, { method: "POST", body: JSON.stringify(input) });
+  },
+
+  listOpinionDrafts(accessToken: string, reviewId: string): Promise<OpinionDraft> {
+    return request<OpinionDraft>(`/reviews/${encodeURIComponent(reviewId)}/opinion-drafts`, accessToken);
+  },
+
+  createOpinionDraft(accessToken: string, reviewId: string, input: OpinionDraftInput = {}): Promise<OpinionDraft> {
+    return request<OpinionDraft>(`/reviews/${encodeURIComponent(reviewId)}/opinion-drafts`, accessToken, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  updateOpinionDraft(accessToken: string, draftId: string, input: OpinionDraftUpdateInput): Promise<OpinionDraft> {
+    return request<OpinionDraft>(`/opinion-drafts/${encodeURIComponent(draftId)}`, accessToken, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+  },
+
+  createReviewReport(accessToken: string, reviewId: string, input: ReportInput): Promise<Report> {
+    return request<Report>(`/reviews/${encodeURIComponent(reviewId)}/reports`, accessToken, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  getReviewReport(accessToken: string, reportId: string): Promise<Report> {
+    return request<Report>(`/reports/${encodeURIComponent(reportId)}`, accessToken);
+  },
+
+  downloadReviewReport(accessToken: string, reportId: string): Promise<Blob> {
+    return requestBlob(`/reports/${encodeURIComponent(reportId)}/download`, accessToken);
+  },
+
+  createAdvertisementComparison(accessToken: string, advertisementId: string, input: ComparisonInput): Promise<Comparison> {
+    return request<Comparison>(`/advertisements/${encodeURIComponent(advertisementId)}/comparisons`, accessToken, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  getAdvertisementComparison(accessToken: string, comparisonId: string): Promise<Comparison> {
+    return request<Comparison>(`/comparisons/${encodeURIComponent(comparisonId)}`, accessToken);
   },
 };
 

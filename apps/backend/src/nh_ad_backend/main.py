@@ -47,6 +47,7 @@ from nh_ad_backend.standards import (
 )
 from nh_ad_backend.standards_postgres import PostgresStandardRepository
 from nh_ad_backend.storage import ObjectStorage, PrivateFileStorage
+from nh_ad_backend.support import SupportService
 
 
 class HealthResponse(BaseModel):
@@ -156,6 +157,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         ),
         reviews=reviews,
         results=ResultService(result_repository, reviews),
+        support=SupportService(audit_sink=repository.add_audit_event),
     )
 
 
@@ -173,7 +175,7 @@ def create_app(
             "Capability-specific paths and schemas are added only when their "
             "implementation slice begins."
         ),
-        version="0.5.0",
+        version="0.6.0",
         root_path="/api/v1",
         servers=[{"url": "/api/v1"}],
     )

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.7 |
+| 현행 버전 | v1.8 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.8 | 2026-07-14 | G007 M6 additive 0006 migration의 추천 판단 이력, fixed-reference Q&A, 의견 초안, immutable report snapshot 및 수정 비교/re-analysis 제약 반영 |
 | v1.7 | 2026-07-14 | M5 worker의 parser 선택 산출물→결과 bundle 원자 영속화와 review snapshot/완료 상태 갱신 경계 반영 |
 | v1.6 | 2026-07-14 | M5 owner revision의 review item/risk rationale/evidence 상태·버전 snapshot/Annotation 좌표·offset 불변조건 반영 |
 | v1.5 | 2026-07-14 | M4 품질 재처리 전체 시도의 artifact metadata 기록과 단계별 단일 선택 산출물 영속화 불변조건 보강 |

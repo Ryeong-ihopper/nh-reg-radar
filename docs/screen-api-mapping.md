@@ -8,13 +8,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.6 |
-| 기준일 | 2026-07-14 |
+| 현행 버전 | v1.7 |
+| 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.7 | 2026-07-15 | OpenAPI v0.6.0 S-009~S-013 생성 client route, 문구 판단 검증, 비단정 Q&A, 초안 이력, 불변 HWPX/PDF snapshot과 구조 비교 화면 상태 동기화 |
 | v1.6 | 2026-07-14 | OpenAPI v0.5.0 S-006~S-008 결과 요약·상세·Annotation 생성 client route와 preview/필터/부분 실패·권한 화면 상태 동기화 |
 | v1.5 | 2026-07-14 | OpenAPI v0.4.0 S-004/S-005 요청·진행·retry/stale/final failure·quality warning·재분석·권한/redaction client 흐름 동기화 |
 | v1.4 | 2026-07-14 | S-014 내부 기준 등록의 필수 metadata JSON, 상위 필드 정합성 및 `REFERENCE_METADATA_INVALID` 안전 표시 경계 반영 |
@@ -31,7 +32,7 @@
 | --- | --- |
 | 문서명 | 화면-API 매핑표 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.6 |
+| 문서 버전 | v1.7 |
 | 작성 목적 | 화면별 호출 API, 호출 시점, 요청값, 응답값, 화면 반영 항목을 정의 |
 | 기준 문서 | 화면설계서 v0.1, API 명세서 v0.1 |
 | API Base URL | `/api/v1` |
@@ -482,6 +483,17 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 비교 실행 클릭 | 수정 전후 비교 요청 | `/advertisements/{advertisementId}/comparisons` | POST | `baseReviewId`, `revisionId`, `compareTypes` | `comparisonId`, 해결/미해결/신규 건수 | 비교 결과 요약 |
 | 비교 결과 조회 | 비교 상세 조회 | `/comparisons/{comparisonId}` | GET | `comparisonId` | 변경 문구, 해결 여부, 신규 리스크 | 비교 상세 영역 |
 | 재분석 요청 클릭 | AI 재분석 요청 | `/reviews/{reviewId}/rerun` | POST | `reason`, `reviewTypes` | `newReviewId` | S-005 이동 |
+
+### 3.30.1 M6 생성 client 실행 매핑
+
+| 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
+| --- | --- | --- |
+| S-009 `/reviews/{reviewId}/support` | `listReviewSuggestions`, `recordSuggestionDecision` | 추천 문구를 조회하고 `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED`를 저장한다. `MODIFIED_AND_USED`는 요청 전 `finalText`를 필수 검증하며 저장 후 목록을 다시 조회한다. |
+| S-010 `/reviews/{reviewId}/support` | `askComplianceQuestion`, `listComplianceQuestions` | 질문 결과의 답변 요약·상세·고정 근거를 표시한다. 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. |
+| S-011 `/reviews/{reviewId}/support` | `listOpinionDrafts`, `createOpinionDraft`, `updateOpinionDraft` | 최신 초안을 조회하고 없으면 생성한다. 원본 `draftContent`를 유지한 채 담당자 `finalContent`를 저장하고 다시 조회한다. |
+| S-012 `/reviews/{reviewId}/support` | `createReviewReport`, `getReviewReport`, `downloadReviewReport` | HWPX/PDF snapshot의 상태·버전·해시와 PDF 원본 HWPX `sourceReportId`를 표시한다. 다운로드는 Bearer 권한을 확인하며 변환 실패는 원본 HWPX와 분리한다. |
+| S-013 `/advertisements/{advertisementId}/comparisons` | `createAdvertisementComparison`, `getAdvertisementComparison` | 기준 검토와 수정본을 비교해 해결·미해결·신규 건수 및 항목을 표시하고 `reanalysisReviewId`를 재분석 연결로 노출한다. |
+| 공통 | 위 M6 operation | loading/error/403을 공통 상태로 표시하고 지원 산출물은 자동 확정하지 않는다. 화면은 내부 snapshot 원문, 감사 메타데이터, 저장소 경로를 노출하지 않는다. |
 
 ---
 

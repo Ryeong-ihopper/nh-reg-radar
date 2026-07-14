@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.7 |
+| 현행 버전 | v1.8 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.8 | 2026-07-14 | G007 M6 support output OpenAPI v0.6.0의 문구 추천·근거 고정 Q&A·의견 초안·불변 HWPX/PDF snapshot·수정 비교 계약 잠금 반영 |
 | v1.7 | 2026-07-14 | G006 M5 Review Result/Evidence/Annotation OpenAPI v0.5.0, 명시적 근거 상태와 provider-independent structured mock 계약 잠금 반영 |
 | v1.6 | 2026-07-14 | M4 worker delivery의 exact `review-job-v1` envelope와 Job 기준 idempotency 선검증 규칙 보강 |
 | v1.5 | 2026-07-14 | M4 frozen Review API runtime handler, PostgreSQL 상태 조회, 최소 Redis enqueue와 immutable rerun 실행 증거 반영 |
@@ -2606,6 +2607,12 @@ M5 원천 계약은 `openapi/openapi.yaml` v0.5.0이며 M0~M4 operation을 보�
 `INSUFFICIENT`는 검색이 정상 수행됐지만 업무 근거가 부족한 상태이고 `SEARCH_UNAVAILABLE`은 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED` 기술 장애다. 두 상태를 `CHECK_REQUIRED` 하나로 숨기지 않는다. M5a Rule 결과는 RAG/LLM 없이도 완결되며 M5b 검색 장애나 M5c `INVALID_SCHEMA`가 기존 Rule 항목을 정상 또는 무근거 상태로 덮어쓰지 않는다.
 
 M5c는 `review-structured-output-v1` fixture 계약만 사용한다. 실제 provider/model은 null이고 network 호출과 credential을 금지하며 Accepted ADR 없이 외부 adapter를 선택하지 않는다. Annotation은 ADR-0051/0053/0066에 따라 `BOX`, `TEXT_HIGHLIGHT`, `LIST_ONLY`, `UNAVAILABLE`을 지원하고 Coordinate가 없을 때도 목록/상세 결과를 유지한다.
+
+## 17.10 M6 Support Output entry gate
+
+M6 원천 계약은 `openapi/openapi.yaml` v0.6.0이며 `listReviewSuggestions`, `recordSuggestionDecision`, `askComplianceQuestion`, `listComplianceQuestions`, 의견 초안, 리포트, 비교 operation을 추가한다. 추천 판단 이력은 append-only이며 `MODIFIED_AND_USED`는 `finalText`를 요구한다. Q&A는 적용 기준자료 및 근거 버전을 고정하고 근거가 부족하면 `needsHumanReview=true`의 비단정 응답을 반환한다.
+
+리포트는 `snapshotHash`와 `snapshotVersion`으로 immutable HWPX snapshot을 식별한다. PDF는 HWPX source report를 참조하며 변환 실패는 HWPX 상태를 변경하지 않는 별도 `FAILED` report로 표현한다. 비교 결과는 `RESOLVED`, `UNRESOLVED`, `NEW_ISSUE`, `CHECK_REQUIRED` 및 재분석 linkage를 보존한다. M6 fixture는 provider와 credential 없이 결정적으로 실행된다.
 
 ---
 
