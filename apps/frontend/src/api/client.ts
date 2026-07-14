@@ -9,7 +9,7 @@ export type AdvertisementListResponse = components["schemas"]["AdvertisementPage
 export type AdvertisementFile = components["schemas"]["AdvertisementFile"];
 export type AdvertisementDetail = components["schemas"]["AdvertisementDetail"];
 export type AdvertisementCreateResponse = components["schemas"]["AdvertisementCreated"];
-export type AdvertisementRevisionCreateResponse = components["schemas"]["AdvertisementRevisionCreated"];
+export type AdvertisementRevision = components["schemas"]["AdvertisementRevision"];
 export type FilePreview = components["schemas"]["FilePreview"];
 export type ProductGroup = components["schemas"]["ProductGroup"];
 export type AdvertisementType = components["schemas"]["AdvertisementType"];
@@ -78,7 +78,7 @@ export interface AdvertisementCreateInput {
   additionalFiles?: File[];
 }
 
-export interface AdvertisementRevisionCreateInput {
+export interface AdvertisementRevisionInput {
   revisionMemo?: string;
   revisedAdvertisementFile: File;
 }
@@ -275,12 +275,12 @@ export const api = {
   createAdvertisementRevision(
     accessToken: string,
     advertisementId: string,
-    input: AdvertisementRevisionCreateInput,
-  ): Promise<AdvertisementRevisionCreateResponse> {
+    input: AdvertisementRevisionInput,
+  ): Promise<AdvertisementRevision> {
     const body = new FormData();
     body.set("revisedAdvertisementFile", input.revisedAdvertisementFile);
     if (input.revisionMemo) body.set("revisionMemo", input.revisionMemo);
-    return request<AdvertisementRevisionCreateResponse>(
+    return request<AdvertisementRevision>(
       `/advertisements/${encodeURIComponent(advertisementId)}/revisions`,
       accessToken,
       { method: "POST", body },

@@ -60,3 +60,42 @@ test("requires final text for a modified suggestion before mutating the contract
   expect(await screen.findByRole("alert")).toHaveTextContent("수정 후 사용에는 최종 문구가 필요합니다.");
   expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/decision"))).toBe(false);
 });
+
+test("registers an uploaded revision before comparison and reanalysis", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/advertisements/ADV-M6/revisions")) {
+      return response({ advertisementId: "ADV-M6", revisionId: "REVISION-M6-2", reviewStatus: "REVISED" }, 201);
+    }
+    if (url.endsWith("/advertisements/ADV-M6/comparisons")) {
+      return response({ comparisonId: "CMP-M6", advertisementId: "ADV-M6", comparisonStatus: "COMPLETED", resolvedIssueCount: 1, unresolvedIssueCount: 0, newIssueCount: 0, items: [] });
+    }
+    if (url.endsWith("/reviews/REV-M6/rerun")) {
+      return response({ newReviewId: "REV-M6-2", previousReviewId: "REV-M6", reviewStatus: "ANALYSIS_REQUESTED", jobId: "JOB-M6-2" }, 202);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-M6/comparisons"]}><App initialSession={session} /></MemoryRouter>);
+  fireEvent.change(screen.getByLabelText("기준 검토 ID"), { target: { value: "REV-M6" } });
+  fireEvent.change(screen.getByLabelText("수정 메모"), { target: { value: "확정 표현 완화" } });
+  const file = new File(["png"], "revised.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("수정 광고 파일"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "수정본 등록 후 비교·재검토" }));
+
+  expect(await screen.findByText("REVISION-M6-2")).toBeInTheDocument();
+  expect(screen.getByText("REV-M6-2")).toBeInTheDocument();
+  expect(calls.map((call) => call.url)).toEqual([
+    expect.stringEndingWith("/advertisements/ADV-M6/revisions"),
+    expect.stringEndingWith("/advertisements/ADV-M6/comparisons"),
+    expect.stringEndingWith("/reviews/REV-M6/rerun"),
+  ]);
+  const revisionBody = calls[0]?.init?.body;
+  expect(revisionBody).toBeInstanceOf(FormData);
+  expect((revisionBody as FormData).get("revisionMemo")).toBe("확정 표현 완화");
+  expect((revisionBody as FormData).get("revisedAdvertisementFile")).toBe(file);
+  expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ baseReviewId: "REV-M6", revisionId: "REVISION-M6-2" });
+  expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ reason: "수정본 REVISION-M6-2 등록 후 재검토" });
+});
