@@ -12,6 +12,8 @@ EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-15}"
 EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-78}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 REQUEST_INTERVAL_SECONDS="${NOTION_REQUEST_INTERVAL_SECONDS:-0.4}"
+RETRY_ATTEMPTS="${NOTION_RETRY_ATTEMPTS:-5}"
+RETRY_DELAY_SECONDS="${NOTION_RETRY_DELAY_SECONDS:-2}"
 
 require_command() {
   local command_name="$1"
@@ -180,11 +182,42 @@ throttle() {
   sleep "$REQUEST_INTERVAL_SECONDS"
 }
 
+retry_ntn() {
+  local attempt=1
+  local delay="$RETRY_DELAY_SECONDS"
+  local status=0
+  local retry_dir
+
+  retry_dir="$(mktemp -d)"
+  cat >"$retry_dir/stdin"
+
+  while [ "$attempt" -le "$RETRY_ATTEMPTS" ]; do
+    if ntn "$@" <"$retry_dir/stdin" >"$retry_dir/stdout" 2>"$retry_dir/stderr"; then
+      cat "$retry_dir/stdout"
+      rm -rf "$retry_dir"
+      return 0
+    else
+      status=$?
+    fi
+
+    if [ "$attempt" -eq "$RETRY_ATTEMPTS" ]; then
+      cat "$retry_dir/stderr" >&2
+      rm -rf "$retry_dir"
+      return "$status"
+    fi
+
+    echo "Notion API request failed; retrying idempotent request ($attempt/$RETRY_ATTEMPTS)" >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+    attempt=$((attempt + 1))
+  done
+}
+
 lock_page() {
   local page_id="$1"
 
   jq -n '{is_locked:true}' \
-    | ntn api "v1/pages/$page_id" -X PATCH --data @- \
+    | retry_ntn api "v1/pages/$page_id" -X PATCH --data @- \
     | jq -e '.is_locked == true' >/dev/null
   throttle
 }
@@ -195,7 +228,7 @@ set_page_title() {
 
   jq -n --arg title "$title" \
     '{properties:{title:{type:"title",title:[{type:"text",text:{content:$title}}]}}}' \
-    | ntn api "v1/pages/$page_id" -X PATCH --data @- \
+    | retry_ntn api "v1/pages/$page_id" -X PATCH --data @- \
     | jq -e --arg title "$title" \
       '.properties.title.title[0].plain_text == $title' >/dev/null
   throttle
@@ -215,12 +248,12 @@ validate_empty_parent() {
   local page_response
   local children_response
 
-  page_response="$(ntn api "v1/pages/$parent_page_id" </dev/null)"
+  page_response="$(retry_ntn api "v1/pages/$parent_page_id" </dev/null)"
   jq -e --arg title "$EXPECTED_PARENT_TITLE" \
     '(.properties.title.title[0].plain_text // "") == $title and .in_trash == false' \
     <<<"$page_response" >/dev/null
 
-  children_response="$(ntn api "v1/blocks/$parent_page_id/children" page_size==100 </dev/null)"
+  children_response="$(retry_ntn api "v1/blocks/$parent_page_id/children" page_size==100 </dev/null)"
   jq -e '.has_more == false and (.results | length) == 0' <<<"$children_response" >/dev/null
   jq -er '.url' <<<"$page_response"
 }
@@ -264,7 +297,7 @@ publish_document() {
 
   set_page_title "$page_id" "$title"
   lock_page "$page_id"
-  verification="$(ntn pages get "$page_id" --json)"
+  verification="$(retry_ntn pages get "$page_id" --json </dev/null)"
   throttle
 
   content_probe="$(content_probe "$source_path")"

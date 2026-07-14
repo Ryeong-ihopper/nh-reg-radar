@@ -76,6 +76,11 @@ case "${1:-}:${2:-}" in
     ;;
   pages:get)
     page_id="$3"
+    if [ "$page_id" = "mock-page-1" ] && [ ! -e "$MOCK_NTN_STATE_DIR/transient-get-failed" ]; then
+      : >"$MOCK_NTN_STATE_DIR/transient-get-failed"
+      echo 'error: Public API request failed: 502 Bad Gateway' >&2
+      exit 5
+    fi
     title="$(cat "$MOCK_NTN_STATE_DIR/titles/$page_id")"
     probes="$(
       while IFS= read -r source_path; do
@@ -149,6 +154,7 @@ PATH="$mock_dir:$PATH" \
   NOTION_API_TOKEN=test-token \
   NOTION_PARENT_PAGE_ID=test-parent \
   NOTION_REQUEST_INTERVAL_SECONDS=0 \
+  NOTION_RETRY_DELAY_SECONDS=0 \
   scripts/publish-notion-docs-test.sh --publish >/dev/null
 
 jq -e '
