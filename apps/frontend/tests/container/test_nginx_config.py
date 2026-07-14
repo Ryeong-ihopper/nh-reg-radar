@@ -170,7 +170,7 @@ class NginxBlackBoxTests(unittest.TestCase):
                 with urllib.request.urlopen(cls._url("/health"), timeout=1) as response:
                     if response.status == 200:
                         return
-            except (urllib.error.URLError, TimeoutError, socket.timeout) as error:
+            except (ConnectionError, urllib.error.URLError, TimeoutError, socket.timeout) as error:
                 last_error = error
             time.sleep(0.2)
         logs = cls._docker("logs", cls.frontend, check=False).stderr
