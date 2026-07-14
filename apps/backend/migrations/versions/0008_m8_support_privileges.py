@@ -12,25 +12,29 @@ down_revision = "0007_m7_validation_kpi"
 branch_labels = None
 depends_on = None
 
-SUPPORT_TABLES = (
+APP_SUPPORT_TABLES = (
     "suggestions",
     "suggestion_decisions",
-    "qa_sessions",
-    "qa_messages",
-    "qa_message_evidences",
     "opinion_drafts",
     "reports",
     "comparisons",
     "comparison_items",
 )
+RAG_SUPPORT_TABLES = ("qa_sessions", "qa_messages", "qa_message_evidences")
+
+
+def _qualified_tables(schema: str, tables: tuple[str, ...]) -> str:
+    return ", ".join(f"{schema}.{table}" for table in tables)
 
 
 def upgrade() -> None:
-    tables = ", ".join(f"app.{table}" for table in SUPPORT_TABLES)
-    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {tables} TO app")
-    op.execute(f"GRANT SELECT ON TABLE {tables} TO readonly")
+    app_tables = _qualified_tables("app", APP_SUPPORT_TABLES)
+    rag_tables = _qualified_tables("rag", RAG_SUPPORT_TABLES)
+    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {app_tables}, {rag_tables} TO app")
+    op.execute(f"GRANT SELECT ON TABLE {app_tables}, {rag_tables} TO readonly")
 
 
 def downgrade() -> None:
-    tables = ", ".join(f"app.{table}" for table in SUPPORT_TABLES)
-    op.execute(f"REVOKE ALL PRIVILEGES ON TABLE {tables} FROM app, readonly")
+    app_tables = _qualified_tables("app", APP_SUPPORT_TABLES)
+    rag_tables = _qualified_tables("rag", RAG_SUPPORT_TABLES)
+    op.execute(f"REVOKE ALL PRIVILEGES ON TABLE {app_tables}, {rag_tables} FROM app, readonly")
