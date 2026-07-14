@@ -1,0 +1,382 @@
+{
+  "schema_version": 1,
+  "goal_id": "G009-m8-release",
+  "capability": "M8 deterministic provider-free release E2E and AC16/AC17 B1 evidence",
+  "trace": {
+    "requirements": [
+      "FR-008",
+      "FR-016",
+      "FR-017",
+      "FR-020"
+    ],
+    "functions": [
+      "F-005",
+      "F-017",
+      "F-018",
+      "F-021",
+      "F-022"
+    ],
+    "screens": [
+      "S-006",
+      "S-008",
+      "S-009",
+      "S-012",
+      "S-013",
+      "S-014",
+      "S-015",
+      "S-016"
+    ],
+    "api_operations": [
+      "POST /api/v1/advertisements",
+      "POST /api/v1/advertisements/{advertisementId}/reviews",
+      "GET /api/v1/reviews/{reviewId}/status",
+      "GET /api/v1/reviews/{reviewId}/summary",
+      "GET /api/v1/reviews/{reviewId}/items",
+      "GET /api/v1/reviews/{reviewId}/items/{reviewItemId}",
+      "GET /api/v1/reviews/{reviewId}/annotations",
+      "GET /api/v1/reviews/{reviewId}/suggestions",
+      "PATCH /api/v1/suggestions/{suggestionId}/decision",
+      "POST /api/v1/reviews/{reviewId}/reports",
+      "GET /api/v1/reports/{reportId}/download",
+      "POST /api/v1/standards",
+      "POST /api/v1/standards/{standardId}/versions/{standardVersionId}/reindex",
+      "GET /api/v1/evidences/search",
+      "GET /api/v1/evidences/{evidenceId}/chunks",
+      "POST /api/v1/advertisements/{advertisementId}/revisions",
+      "POST /api/v1/advertisements/{advertisementId}/comparisons",
+      "GET /api/v1/comparisons/{comparisonId}",
+      "POST /api/v1/reviews/{reviewId}/rerun",
+      "POST /api/v1/validation/datasets",
+      "POST /api/v1/validation/datasets/{datasetId}/judgments",
+      "POST /api/v1/validation/evaluations",
+      "GET /api/v1/validation/evaluations/{evaluationId}"
+    ],
+    "db_objects": [
+      "app.advertisements",
+      "app.advertisement_revisions",
+      "app.reviews",
+      "app.review_items",
+      "app.annotations",
+      "app.suggestions",
+      "app.reports",
+      "app.comparisons",
+      "app.comparison_items",
+      "rag.standards",
+      "rag.standard_versions",
+      "rag.evidences",
+      "rag.evidence_chunks",
+      "validation.validation_datasets",
+      "validation.validation_judgments",
+      "validation.evaluations",
+      "validation.evaluation_metrics"
+    ]
+  },
+  "openapi": {
+    "version": "0.8.0",
+    "path": "openapi/openapi.yaml",
+    "sha256": "3f10c546569f741d05b9977e6d27375d40cd14a63cc28c3a2a5a349d9a57bc1c"
+  },
+  "generated_client": {
+    "path": "apps/frontend/src/api/generated/openapi.ts",
+    "sha256": "424707c0373210a63f4efca5e6704f256b9840d9296c824db6d55ae4c7ec53f3"
+  },
+  "migration": {
+    "revision": "0008_m8_support_privileges",
+    "path": "apps/backend/migrations/versions/0008_m8_support_privileges.py",
+    "sha256": "b195dd3b55fa16bf87a5a69056290f2083ab3461760fb0ae832d8113c8b9aa78"
+  },
+  "artifacts": [
+    {
+      "path": "tests/fixtures/m8/provider-free-release-v1.json",
+      "sha256": "b7467261128143d46328b8f0fe81f783ee7bce78d102d35d2d5002be46e74b3a",
+      "kind": "synthetic",
+      "contains_customer_data": false,
+      "network_allowed": false,
+      "provider": null
+    },
+    {
+      "path": "tests/e2e/test_m8_provider_free_release.py",
+      "sha256": "2b74810e73364a531ffae3e08ac7910beb158e9c8598011113e5596309d864bc",
+      "kind": "executable_release_evidence"
+    }
+  ],
+  "automation": {
+    "provider_free": {
+      "command": "uv run pytest tests/e2e -q",
+      "environment_mode": "test/provider_free",
+      "network_allowed": false,
+      "credential_required": false,
+      "expected": {
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "manual_external_ai": {
+      "command": "uv run pytest -m external_ai -q",
+      "required_for_provider_free_gate": false,
+      "status": "separate_manual_lane",
+      "sanitization": "provider/model/config/dataset metadata only; no secrets or customer data",
+      "owner": "B3 operations/security lane"
+    }
+  },
+  "e2e_flows": {
+    "E2E-001": {
+      "node": "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report",
+      "acceptance": [
+        "AC16.1",
+        "AC17.E2E",
+        "AC17.PROVIDER_FREE"
+      ],
+      "test_cases": [
+        "TC-ADV-001",
+        "TC-REV-001",
+        "TC-RES-001",
+        "TC-ANN-001",
+        "TC-SUG-001",
+        "TC-RPT-001"
+      ],
+      "proof": "advertisement -> review queue/status -> result/evidence/annotation -> suggestion decision -> immutable report download"
+    },
+    "E2E-002": {
+      "node": "tests/e2e/test_m8_provider_free_release.py::test_e2e_002_standard_reindex_hybrid_evidence_and_version_trace",
+      "acceptance": [
+        "AC16.2",
+        "AC17.E2E",
+        "AC17.PROVIDER_FREE"
+      ],
+      "test_cases": [
+        "TC-STD-001",
+        "TC-STD-010",
+        "TC-STD-011",
+        "TC-STD-012"
+      ],
+      "proof": "standard -> deterministic chunks/reindex -> HYBRID retrieval -> result evidence standard-version/config trace"
+    },
+    "E2E-003": {
+      "node": "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history",
+      "acceptance": [
+        "AC16.3",
+        "AC17.E2E",
+        "AC17.PROVIDER_FREE"
+      ],
+      "test_cases": [
+        "TC-ADV-017",
+        "TC-CMP-001",
+        "TC-CMP-002",
+        "TC-CMP-003",
+        "TC-CMP-004",
+        "TC-CMP-006",
+        "TC-CMP-010",
+        "TC-RPT-014"
+      ],
+      "proof": "registered revision -> comparison -> rerun -> independent review rounds and immutable historical report bytes/hash"
+    },
+    "E2E-004": {
+      "node": "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi",
+      "acceptance": [
+        "AC16.4",
+        "AC17.E2E",
+        "AC17.PROVIDER_FREE"
+      ],
+      "test_cases": [
+        "TC-VAL-001",
+        "TC-VAL-003",
+        "TC-EVAL-001",
+        "TC-EVAL-004",
+        "TC-EVAL-012",
+        "TC-EVAL-013",
+        "TC-EVAL-014"
+      ],
+      "proof": "synthetic dataset/judgment -> canonical snapshot/hash -> exact stored KPI -> repeatability and immutable prior evaluation"
+    }
+  },
+  "release_evidence": {
+    "scope": "B1 E2E/release evidence only",
+    "baseline_ancestor": "6827998",
+    "recorded_at": "2026-07-15T01:00:00Z",
+    "revision_mode": "worker commit recorded by team integration history",
+    "ac16_evidence": [
+      "AC16.1",
+      "AC16.2",
+      "AC16.3",
+      "AC16.4"
+    ],
+    "ac17_evidence": {
+      "e2e_passed": 4,
+      "e2e_total": 4,
+      "provider_free_deterministic": true
+    },
+    "not_final_claims": [
+      "P0 aggregate rate",
+      "P1 aggregate rate",
+      "Critical defect count",
+      "B2 recovery/Compose proof",
+      "B3 operations/security proof",
+      "B4 independent verdict"
+    ]
+  },
+  "test_cases": [
+    {
+      "id": "TC-ADV-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report"
+      ]
+    },
+    {
+      "id": "TC-REV-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report"
+      ]
+    },
+    {
+      "id": "TC-RES-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report"
+      ]
+    },
+    {
+      "id": "TC-ANN-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report"
+      ]
+    },
+    {
+      "id": "TC-SUG-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report"
+      ]
+    },
+    {
+      "id": "TC-RPT-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_001_advertisement_review_result_suggestion_and_report"
+      ]
+    },
+    {
+      "id": "TC-STD-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_002_standard_reindex_hybrid_evidence_and_version_trace"
+      ]
+    },
+    {
+      "id": "TC-STD-010",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_002_standard_reindex_hybrid_evidence_and_version_trace"
+      ]
+    },
+    {
+      "id": "TC-STD-011",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_002_standard_reindex_hybrid_evidence_and_version_trace"
+      ]
+    },
+    {
+      "id": "TC-STD-012",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_002_standard_reindex_hybrid_evidence_and_version_trace"
+      ]
+    },
+    {
+      "id": "TC-ADV-017",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-CMP-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-CMP-002",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-CMP-003",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-CMP-004",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-CMP-006",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-CMP-010",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-RPT-014",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_003_revision_comparison_rerun_and_independent_history"
+      ]
+    },
+    {
+      "id": "TC-VAL-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    },
+    {
+      "id": "TC-VAL-003",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    },
+    {
+      "id": "TC-EVAL-001",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    },
+    {
+      "id": "TC-EVAL-004",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    },
+    {
+      "id": "TC-EVAL-012",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    },
+    {
+      "id": "TC-EVAL-013",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    },
+    {
+      "id": "TC-EVAL-014",
+      "nodes": [
+        "tests/e2e/test_m8_provider_free_release.py::test_e2e_004_validation_judgment_snapshot_hash_and_kpi"
+      ]
+    }
+  ],
+  "changed_paths": [
+    "tests/e2e/test_m8_provider_free_release.py",
+    "tests/fixtures/m8/provider-free-release-v1.json",
+    "governance/goal-manifests/G009-m8-release.json"
+  ],
+  "synchronized_documents": [],
+  "residual_risks": [
+    "B1 uses deterministic in-memory provider fakes; B2 owns live migration/backup/restore/Compose evidence.",
+    "B3 owns observability/security/redaction and the separate sanitized external_ai manual lane.",
+    "B4 must independently reconcile P0/P1/Critical counts and final AC16/AC17 release status."
+  ]
+}
