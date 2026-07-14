@@ -79,7 +79,7 @@ case "${1:-}:${2:-}" in
     title="$(cat "$MOCK_NTN_STATE_DIR/titles/$page_id")"
     probes="$(
       while IFS= read -r source_path; do
-        awk 'NR > 1 && NF {print; exit}' "$source_path"
+        awk '/^## / {print; exit}' "$source_path"
       done < <(git ls-files -- 'docs/*.md' 'docs/**/*.md' | LC_ALL=C sort)
     )"
     jq -n --arg probes "$probes" --arg title "$title" \
@@ -106,6 +106,20 @@ case "${1:-}:${2:-}" in
     if ! jq -e . <<<"$request" >/dev/null 2>&1; then
       echo 'error: Invalid JSON from stdin' >&2
       exit 4
+    fi
+
+    if [ "$endpoint" = "v1/pages" ]; then
+      count="$(cat "$MOCK_NTN_STATE_DIR/counter")"
+      count=$((count + 1))
+      printf '%s' "$count" >"$MOCK_NTN_STATE_DIR/counter"
+      page_id="mock-page-$count"
+      parent="$(jq -er '.parent.page_id' <<<"$request")"
+      title="$(jq -er '.properties.title.title[0].text.content' <<<"$request")"
+      printf '%s' "$title" >"$MOCK_NTN_STATE_DIR/titles/$page_id"
+      printf 'container\t%s\t%s\t%s\n' "$page_id" "$parent" "$title" >>"$event_log"
+      jq -n --arg id "$page_id" --arg url "https://notion.example/$page_id" --arg title "$title" \
+        '{id:$id,url:$url,properties:{title:{title:[{plain_text:$title}]}}}'
+      exit 0
     fi
 
     page_id="${endpoint##*/}"
@@ -151,8 +165,13 @@ jq -e '
   and .pages[-1].display_title == "ADR-0076: AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층"
 ' "$result_path" >/dev/null
 
-test "$(awk -F '\t' '$1 == "create" && $3 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 16
+test "$(awk -F '\t' '$1 == "create" && $3 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 15
 test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 78
+grep -q $'^container\tmock-page-16\ttest-parent\t16. ADR$' "$mock_dir/events"
+if grep -q $'^create\t.*\ttest-parent\t# 16. ADR$' "$mock_dir/events"; then
+  echo "ADR container contains an unnecessary heading block" >&2
+  exit 1
+fi
 test "$(awk -F '\t' '$1 == "divider" && $2 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 1
 test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 95
 grep -q $'^lock\ttest-parent$' "$mock_dir/events"

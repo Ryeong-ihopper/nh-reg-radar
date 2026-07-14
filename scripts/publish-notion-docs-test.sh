@@ -58,6 +58,10 @@ source_title() {
   sed -n '1s/^# //p' "$1"
 }
 
+content_probe() {
+  awk '/^## / {print; exit}' "$1"
+}
+
 adr_order() {
   local source_path="$1"
 
@@ -160,6 +164,10 @@ validate_selection() {
         exit 1
         ;;
     esac
+    if [ -z "$(content_probe "$source_path")" ]; then
+      echo "document must contain a level-two section for publication verification: $source_path" >&2
+      exit 1
+    fi
   done < <(list_markdown_files)
 
   printf 'selected_markdown_count=%s\n' "$selected_count"
@@ -222,8 +230,14 @@ create_container_page() {
   local title="$2"
   local response
 
-  response="$(printf '# %s\n' "$title" | ntn pages create --parent "page:$parent_page_id" --json)"
-  set_page_title "$(jq -er '.id' <<<"$response")" "$title"
+  response="$(
+    jq -n --arg parent_page_id "$parent_page_id" --arg title "$title" \
+      '{parent:{type:"page_id",page_id:$parent_page_id},properties:{title:{type:"title",title:[{type:"text",text:{content:$title}}]}}}' \
+      | ntn api v1/pages -X POST --data @-
+  )"
+  jq -e --arg title "$title" \
+    '.id != null and .url != null and .properties.title.title[0].plain_text == $title' \
+    <<<"$response" >/dev/null
   printf '%s\n' "$response"
 }
 
@@ -253,8 +267,8 @@ publish_document() {
   verification="$(ntn pages get "$page_id" --json)"
   throttle
 
-  content_probe="$(awk 'NR > 1 && NF {print; exit}' "$source_path")"
-  jq -e \
+  content_probe="$(content_probe "$source_path")"
+  if ! jq -e \
     --arg title "$title" \
     --arg content_probe "$content_probe" \
     '.page.is_locked == true
@@ -262,7 +276,19 @@ publish_document() {
       and .markdown.truncated == false
       and (.markdown.unknown_block_ids | length == 0)
       and (.markdown.markdown | contains($content_probe))' \
-    <<<"$verification" >/dev/null
+    <<<"$verification" >/dev/null; then
+    echo "Notion publication verification failed: $source_path" >&2
+    jq -r --arg title "$title" --arg content_probe "$content_probe" \
+      '"expected_title=\($title)",
+       "actual_title=\(.page.properties.title.title[0].plain_text // "")",
+       "is_locked=\(.page.is_locked // false)",
+       "truncated=\(.markdown.truncated // true)",
+       "unknown_block_count=\((.markdown.unknown_block_ids // []) | length)",
+       "content_probe=\($content_probe)",
+       "content_probe_found=\((.markdown.markdown // "") | contains($content_probe))"' \
+      <<<"$verification" >&2
+    exit 1
+  fi
 
   source_hash="$(shasum -a 256 "$source_path" | awk '{print $1}')"
   jq -cn \
