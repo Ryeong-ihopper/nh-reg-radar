@@ -222,7 +222,7 @@ fi
 
 printf '%s\n' 'M8 Qdrant restore: stop OpenSearch, submit asynchronously, poll restored payload'
 "${compose[@]}" stop opensearch
-timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps \
+if ! timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps \
   --entrypoint python backend - "$qdrant_collection" <<'PY'
 from __future__ import annotations
 
@@ -269,8 +269,17 @@ deadline = time.monotonic() + 180
 point: dict[str, Any] = {}
 while time.monotonic() < deadline:
     try:
+        state = request_json("GET", f"{qdrant}/collections/{collection}")
+        if state.get("result", {}).get("status") != "green":
+            time.sleep(2)
+            continue
         point = request_json("GET", f"{qdrant}/collections/{collection}/points/4242")
-    except RuntimeError:
+    except RuntimeError as exc:
+        if "failed: 404" not in str(exc) and "failed: 503" not in str(exc):
+            raise
+        time.sleep(2)
+        continue
+    except (urllib.error.URLError, TimeoutError):
         time.sleep(2)
         continue
     if point.get("result", {}).get("payload", {}).get("probe") == "provider-free-qdrant-restore":
@@ -280,9 +289,14 @@ else:
     raise RuntimeError(f"Qdrant restored point did not become ready: {point!r}")
 print("QDRANT_RESTORED source=local-file-snapshot")
 PY
+then
+  "${compose[@]}" logs --no-color --tail=80 qdrant >&2 || true
+  exit 1
+fi
 
 printf '%s\n' 'M8 OpenSearch source rebuild after Qdrant restore'
-"${compose[@]}" up -d --wait opensearch
+timeout --signal=TERM 210 "${compose[@]}" \
+  up -d --wait --wait-timeout 180 opensearch
 timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps \
   --entrypoint python backend - "$opensearch_index" <<'PY'
 from __future__ import annotations
