@@ -37,6 +37,7 @@ class JobRunner:
         *,
         poll_timeout_seconds: int = 1,
         recovery_interval_seconds: float = 30.0,
+        recovery_backoff_seconds: float = 1.0,
         stale_after: timedelta = timedelta(minutes=2),
     ) -> None:
         self.queue = queue
@@ -44,6 +45,7 @@ class JobRunner:
         self.repository = repository
         self.poll_timeout_seconds = poll_timeout_seconds
         self.recovery_interval_seconds = recovery_interval_seconds
+        self.recovery_backoff_seconds = recovery_backoff_seconds
         self.stale_after = stale_after
         self._stop = Event()
 
@@ -82,7 +84,12 @@ class JobRunner:
         while not self._stop.is_set():
             current = monotonic()
             if current >= next_recovery:
-                self.recover_stale()
+                try:
+                    self.recover_stale()
+                except Exception:
+                    LOGGER.exception("job recovery iteration failed")
+                    if self._stop.wait(self.recovery_backoff_seconds):
+                        break
                 next_recovery = current + self.recovery_interval_seconds
             try:
                 self.run_once(self.poll_timeout_seconds)
