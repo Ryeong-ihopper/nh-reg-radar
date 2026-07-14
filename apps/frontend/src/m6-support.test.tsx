@@ -87,10 +87,10 @@ test("registers an uploaded revision before comparison and reanalysis", async ()
 
   expect(await screen.findByText("REVISION-M6-2")).toBeInTheDocument();
   expect(screen.getByText("REV-M6-2")).toBeInTheDocument();
-  expect(calls.map((call) => call.url)).toEqual([
-    expect.stringEndingWith("/advertisements/ADV-M6/revisions"),
-    expect.stringEndingWith("/advertisements/ADV-M6/comparisons"),
-    expect.stringEndingWith("/reviews/REV-M6/rerun"),
+  expect(calls.map((call) => new URL(call.url, "http://test").pathname)).toEqual([
+    "/api/v1/advertisements/ADV-M6/revisions",
+    "/api/v1/advertisements/ADV-M6/comparisons",
+    "/api/v1/reviews/REV-M6/rerun",
   ]);
   const revisionBody = calls[0]?.init?.body;
   expect(revisionBody).toBeInstanceOf(FormData);
