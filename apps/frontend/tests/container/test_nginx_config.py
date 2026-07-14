@@ -25,7 +25,9 @@ SECURITY_HEADERS = {
 
 
 def _location_block(config: str, location: str) -> str:
-    match = re.search(rf"location\s+{re.escape(location)}\s*\{{(?P<body>.*?)\n\s*\}}", config, re.DOTALL)
+    match = re.search(
+        rf"location\s+{re.escape(location)}\s*\{{(?P<body>.*?)\n\s*\}}", config, re.DOTALL
+    )
     if match is None:
         raise AssertionError(f"missing nginx location: {location}")
     return match.group("body")
@@ -71,7 +73,10 @@ class NginxConfigTests(unittest.TestCase):
         self.assertIn("client_max_body_size 50m;", self.config)
 
 
-@unittest.skipUnless(os.environ.get("RUN_CONTAINER_TESTS") == "1", "set RUN_CONTAINER_TESTS=1 for Docker black-box coverage")
+@unittest.skipUnless(
+    os.environ.get("RUN_CONTAINER_TESTS") == "1",
+    "set RUN_CONTAINER_TESTS=1 for Docker black-box coverage",
+)
 class NginxBlackBoxTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
