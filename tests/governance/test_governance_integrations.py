@@ -186,6 +186,21 @@ class GovernanceIntegrationTest(unittest.TestCase):
             hooks.mkdir()
             tests.mkdir(parents=True)
             skill.mkdir(parents=True)
+            _ = (tests / "test_smoke.py").write_text(
+                "\n".join(
+                    (
+                        "from pathlib import Path",
+                        "import unittest",
+                        "",
+                        "",
+                        "class SmokeTest(unittest.TestCase):",
+                        "    def test_fixture_is_discoverable(self):",
+                        "        self.assertTrue(Path(__file__).is_file())",
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+            )
             _ = shutil.copy2(
                 self.repository / "scripts" / "setup-dev-tools.sh",
                 scripts / "setup-dev-tools.sh",
