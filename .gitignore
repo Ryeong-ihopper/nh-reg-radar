@@ -10,6 +10,10 @@
 .DS_Store
 __pycache__/
 *.py[cod]
+node_modules/
 
 # Temporary review inputs and migration kits
 temp/
+
+# Reproducible generated contract output (regenerate with npm scripts)
+generated/

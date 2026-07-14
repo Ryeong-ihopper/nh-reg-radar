@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-14 | lockfile 기반 repository OpenAPI script와 generated output 규약 반영 |
 | v1.0 | 2026-07-13 | ADR-0026/0062/0064 기준 API 계약 동기화 및 검증 기준 정리 |
 
 ## 1. 문서 목적
@@ -73,16 +74,17 @@ PoC 초기에는 전체 API를 한 번에 작성하지 않고 ADR-0062 기준 �
 PoC 초기 CI는 ADR-0064 기준 PR 필수 Gate로 다음을 목표로 한다.
 
 ```bash
-npx @stoplight/spectral-cli lint openapi/openapi.yaml
+npm ci
+npm run openapi:check
 ```
 
 FastAPI 구현 이후에는 다음 검증을 추가한다.
 
 ```bash
 # 예시: 실제 앱 경로와 실행 방식 확정 후 스크립트화
-curl http://localhost:8000/openapi.json -o build/openapi.generated.json
-python scripts/compare_openapi_contract.py openapi/openapi.yaml build/openapi.generated.json
-pytest tests/api_contract
+curl http://localhost:8000/openapi.json -o generated/backend/openapi.json
+python3 scripts/compare_openapi_contract.py openapi/openapi.yaml generated/backend/openapi.json
+npm run test:api-contract
 ```
 
 프론트엔드는 ADR-0030에 따라 React + Vite + TypeScript를 사용한다. API 계약 변경 시 `openapi-typescript`로 생성한 TypeScript 타입도 함께 갱신한다.
@@ -92,8 +94,9 @@ AI/OCR/RAG가 포함된 API 계약 테스트는 ADR-0044와 ADR-0064 기준으�
 오류 응답 계약 테스트는 ADR-0027의 `ErrorResponse` 구조와 ADR-0045의 오류 코드별 사용자 메시지 매핑을 함께 기준으로 삼는다.
 
 ```bash
-npx openapi-typescript openapi/openapi.yaml -o frontend/src/generated/api-types.ts
-git diff --exit-code frontend/src/generated/api-types.ts
+# 프론트엔드 진입 Gate에서 openapi-typescript를 exact pin한 뒤 script를 추가한다.
+npm run openapi:types
+git diff --exit-code apps/frontend/src/generated/api-types.ts
 ```
 
 ## 7. 검증 도입 단계

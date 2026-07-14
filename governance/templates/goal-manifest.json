@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "goal_id": "GXXX-capability",
+  "capability": "Short capability name",
+  "trace": {
+    "requirements": ["FR-001"],
+    "functions": ["F-001"],
+    "screens": ["S-003"],
+    "api_operations": ["POST /api/v1/advertisements"],
+    "db_objects": ["app.advertisements"]
+  },
+  "test_cases": [
+    {
+      "id": "TC-ADV-001",
+      "nodes": ["tests/api/test_advertisements.py::test_create_advertisement"]
+    }
+  ],
+  "changed_paths": [
+    "openapi/openapi.yaml",
+    "apps/backend/api/advertisements.py"
+  ],
+  "synchronized_documents": [
+    "docs/api-specification.md",
+    "docs/test-cases.md"
+  ]
+}

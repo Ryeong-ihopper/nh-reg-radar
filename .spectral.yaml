@@ -5,3 +5,5 @@ rules:
   operation-operationId: error
   operation-tags: warn
   info-contact: off
+  # M0 intentionally publishes reusable core components before the first path.
+  oas3-unused-component: off

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-14 | M0 OpenAPI core skeleton, lockfile 기반 lint, 참조/example/operationId 계약 검증 항목 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/Parser/OCR/RAG/평가 snapshot 테스트 기준 보강 |
 
 ---
@@ -24,9 +25,9 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.0 |
+| 문서 버전 | v1.1 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
-| 기준 문서 | API 명세서 v0.2, DB 명세서 v0.1 |
+| 기준 문서 | API 명세서 v1.1, DB 명세서 v0.1 |
 | 테스트 범위 | PoC 기능 기준 |
 
 ---
@@ -520,10 +521,13 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
 | TC-NFR-API-001 | OpenAPI 문법 검증 | `openapi/openapi.yaml` parse/schema validation 실행 | OpenAPI 문법 및 schema 오류 없음 | P0 |
-| TC-NFR-API-002 | Spectral lint | `npx @stoplight/spectral-cli lint openapi/openapi.yaml` 실행 | ADR-0026/0062 기준 lint 통과 | P0 |
+| TC-NFR-API-002 | Spectral lint | lockfile 설치 후 repository의 OpenAPI lint script 실행 | transient `npx` 다운로드 없이 ADR-0026/0062 기준 lint 통과 | P0 |
 | TC-NFR-API-003 | TypeScript 타입 생성 diff | `openapi-typescript` 생성 후 git diff 확인 | 생성 타입 변경이 PR에 반영됨 | P1 |
 | TC-NFR-API-004 | FastAPI generated OpenAPI diff | FastAPI 구현 후 `/openapi.json`과 원천 OpenAPI 비교 | path/method/schema/status code 차이 없음 | P1 |
 | TC-NFR-API-005 | 핵심 플로우 API 포함 범위 | OpenAPI path 목록 확인 | Auth, 광고물/파일, AI 검토, 결과/Annotation, 기준자료, 리포트, PoC 검증 핵심 API 포함 | P0 |
+| TC-NFR-API-006 | M0 core skeleton 범위 | OpenAPI metadata, paths, components 확인 | `paths`는 비어 있고 schema는 `ErrorResponse`만 존재하며 capability 계약을 선설계하지 않음 | P0 |
+| TC-NFR-API-007 | OpenAPI 참조 및 example 검증 | 모든 local `$ref` 해석과 schema example validation 실행 | 끊어진 참조와 schema 불일치 example이 없음 | P0 |
+| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | 현재 빈 paths를 허용하고 후속 path 추가 시 누락·중복 `operationId`가 없음 | P0 |
 
 ## 19.5 화면 UI 및 반응형
 

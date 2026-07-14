@@ -1,0 +1,61 @@
+name: M0 Contract and Traceability
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m0-contract-and-traceability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install pinned OpenAPI tooling
+        run: npm ci --ignore-scripts
+
+      - name: Run pinned OpenAPI checks twice without registry access
+        env:
+          NPM_CONFIG_OFFLINE: "true"
+        run: |
+          npm run openapi:check
+          npm run openapi:check
+
+      - name: Validate capability trace manifests
+        run: python3 scripts/validate_goal_manifest.py
+
+      - name: Check M0 Python quality
+        run: |
+          uvx ruff check scripts/compare_openapi_contract.py scripts/validate_goal_manifest.py tests/api_contract tests/governance/test_goal_manifest.py
+          uvx ruff format --check scripts/compare_openapi_contract.py scripts/validate_goal_manifest.py tests/api_contract tests/governance/test_goal_manifest.py
+          uvx basedpyright scripts/compare_openapi_contract.py scripts/validate_goal_manifest.py tests/api_contract tests/governance/test_goal_manifest.py
+
+      - name: Run governance regression tests
+        run: python3 -m unittest discover -s tests/governance -v
+
+      - name: Check document links and contract examples
+        run: scripts/check-doc-consistency.sh
+
+      - name: Validate repository document governance
+        run: python3 -m scripts.doc_guard validate --scope all

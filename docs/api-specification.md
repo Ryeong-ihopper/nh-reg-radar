@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-14 | M0 OpenAPI core skeleton의 점진 확장 경계와 공통 ErrorResponse 계약 원천 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/화면/테스트 정합성 기준 보강 |
 
 ---
@@ -24,7 +25,7 @@
 | 문서명 | API 명세서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.0 |
+| 문서 버전 | v1.1 |
 | 작성 목적 | 프론트엔드, 백엔드, AI 분석 모듈, DB 간 연동 기준 정의 |
 | API 유형 | REST API |
 | 데이터 형식 | JSON, Multipart Form Data |
@@ -66,6 +67,19 @@
 | Standard API | 광고심의 기준자료 등록, 수정, 비활성화 |
 | Validation API | PoC 검증 데이터셋 및 성능 평가 |
 | Admin API | 사용자, 권한, 감사 로그 관리 |
+
+---
+
+## 1.3 M0 OpenAPI 계약 범위
+
+`openapi/openapi.yaml`은 API 계약 원천이다. M0에서는 OpenAPI 문서 메타데이터,
+빈 `paths`, 공통 `ErrorResponse` schema와 이를 참조하는 공통 response만 정의한다.
+Auth, 광고물, 검토, 근거, Annotation, 리포트 등 capability별 path와 schema는 해당
+구현 단계의 진입 계약 Gate에서 추가하며 M0에서 선설계하지 않는다.
+
+공통 오류 응답의 필수 필드는 `code`, `message`, `traceId`, `timestamp`이고,
+`details`는 사용자 조치에 필요한 안전한 정보만 포함하는 선택 필드다. 이 구조는
+아래 2.3절과 ADR-0027/0045를 따른다.
 
 ---
 

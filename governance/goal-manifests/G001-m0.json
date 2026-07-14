@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "goal_id": "G001-m0",
+  "capability": "M0 contract and governance foundation",
+  "trace": {
+    "requirements": ["NFR-004"],
+    "functions": [],
+    "screens": [],
+    "api_operations": [],
+    "db_objects": []
+  },
+  "test_cases": [
+    {
+      "id": "TC-NFR-API-001",
+      "external": "M0 OpenAPI contract parse/schema test owned by the contract lane"
+    },
+    {
+      "id": "TC-NFR-API-002",
+      "external": "M0 pinned Spectral lint test owned by the contract lane"
+    },
+    {
+      "id": "TC-NFR-API-003",
+      "manual": "Generated type diff becomes executable when the frontend package exists"
+    },
+    {
+      "id": "TC-NFR-API-004",
+      "manual": "Generated FastAPI semantic diff becomes executable when the backend exists"
+    }
+  ],
+  "changed_paths": [
+    "openapi/openapi.yaml",
+    "scripts/compare_openapi_contract.py",
+    "scripts/validate_goal_manifest.py",
+    "governance/goal-manifests/G001-m0.json"
+  ],
+  "synchronized_documents": [
+    "docs/api-specification.md",
+    "docs/test-cases.md"
+  ]
+}

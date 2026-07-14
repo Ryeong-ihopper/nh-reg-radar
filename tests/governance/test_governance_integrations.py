@@ -11,6 +11,20 @@ from pathlib import Path
 class GovernanceIntegrationTest(unittest.TestCase):
     repository: Path = Path(__file__).resolve().parents[2]
 
+    @staticmethod
+    def _nested_git_environment() -> dict[str, str]:
+        environment = os.environ.copy()
+        for variable in (
+            "GIT_COMMON_DIR",
+            "GIT_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_PREFIX",
+            "GIT_WORK_TREE",
+        ):
+            _ = environment.pop(variable, None)
+        return environment
+
     def test_pre_push_validates_upstream_commit_range(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -56,7 +70,7 @@ class GovernanceIntegrationTest(unittest.TestCase):
             consistency_path.chmod(0o755)
             skill_adapter_path.chmod(0o755)
 
-            environment = os.environ.copy()
+            environment = self._nested_git_environment()
             environment["PATH"] = f"{binary_directory}:{environment['PATH']}"
             environment["CALL_LOG"] = str(call_log)
             process = subprocess.run(
@@ -132,7 +146,7 @@ class GovernanceIntegrationTest(unittest.TestCase):
             python.chmod(0o755)
             project_rules = docs / "project-rules.md"
             _ = project_rules.write_text("# Project rules\n", encoding="utf-8")
-            environment = os.environ.copy()
+            environment = self._nested_git_environment()
             environment["PATH"] = f"{binary_directory}:{environment['PATH']}"
             environment["CALL_LOG"] = str(call_log)
             commands = (
@@ -146,6 +160,7 @@ class GovernanceIntegrationTest(unittest.TestCase):
                 setup = subprocess.run(
                     command,
                     cwd=root,
+                    env=environment,
                     check=False,
                     capture_output=True,
                     text=True,
@@ -155,6 +170,7 @@ class GovernanceIntegrationTest(unittest.TestCase):
             stage = subprocess.run(
                 ["git", "add", "--update"],
                 cwd=root,
+                env=environment,
                 check=False,
                 capture_output=True,
                 text=True,
@@ -228,12 +244,13 @@ class GovernanceIntegrationTest(unittest.TestCase):
             )
             git_init = subprocess.run(
                 ["git", "init", "--quiet", str(root)],
+                env=self._nested_git_environment(),
                 check=False,
                 capture_output=True,
                 text=True,
             )
             home = Path(temporary_directory) / "home"
-            environment = os.environ.copy()
+            environment = self._nested_git_environment()
             environment["HOME"] = str(home)
             environment["SKILL_ADAPTER_MODE"] = "symlink"
 
@@ -248,6 +265,7 @@ class GovernanceIntegrationTest(unittest.TestCase):
             hooks_path = subprocess.run(
                 ["git", "config", "--get", "core.hooksPath"],
                 cwd=root,
+                env=environment,
                 check=False,
                 capture_output=True,
                 text=True,

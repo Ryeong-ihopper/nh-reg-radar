@@ -10,7 +10,10 @@
 | `pyrightconfig.json` | 문서 거버넌스 Python 모듈의 타입 검사 범위와 최소 호환 버전 |
 | `templates/standard-document.md` | 신규 일반 문서의 최소 형식 |
 | `templates/adr.md` | 신규 ADR의 최소 형식 |
+| `templates/goal-manifest.json` | capability goal 추적 manifest 작성 예시 |
+| `goal-manifests/*.json` | goal별 요구/기능/화면/API/DB/실제 TC 추적 선언 |
 | `scripts/doc_guard.py` | 설정을 실행하는 검증 CLI |
+| `scripts/validate_goal_manifest.py` | goal 추적 ID, test node, API 문서 동기화 검증 CLI |
 | `scripts/manage-skill-adapters.sh` | `skills/` 원본을 프로젝트 로컬 Codex/Claude 탐색 경로에 설치하고 drift를 검증 |
 
 ## 명령
@@ -20,12 +23,19 @@ python3 -m scripts.doc_guard validate --scope all
 python3 -m scripts.doc_guard validate --scope working
 python3 -m scripts.doc_guard validate --scope staged
 python3 -m scripts.doc_guard impact --scope working
+python3 scripts/validate_goal_manifest.py
 scripts/manage-skill-adapters.sh validate
 uvx ruff check scripts/doc_guard.py scripts/doc_governance tests/governance
 uvx basedpyright --project governance/pyrightconfig.json
 ```
 
 `error`는 hook과 CI를 실패시킨다. `warning`은 변경자가 영향 없음의 근거를 검토하도록 알리되 자동 차단하지 않는다.
+
+Goal manifest의 `trace`는 빈 범위를 포함해 요구사항, 기능, 화면, API operation,
+DB object를 모두 명시한다. `test_cases`에는 `docs/test-cases.md`에 실제 선언된
+개별 `TC-*`와 실행 가능한 `path::node` 또는 명시적인 `manual`/`external` 근거를
+연결한다. `changed_paths`가 API 계약 경로를 포함하면 `synchronized_documents`에
+`docs/api-specification.md`와 `docs/test-cases.md`가 모두 있어야 한다.
 
 고객사 원본 자료, `temp/`, 로컬 agent runtime 경로는 변경 파일명 자체가 외부 로그나 CI 출력에 노출되지 않도록 영향 분석 입력에서 제외한다. 해당 자료의 보안·반출 정책은 문서 거버넌스가 아니라 관련 Accepted ADR을 따른다.
 
