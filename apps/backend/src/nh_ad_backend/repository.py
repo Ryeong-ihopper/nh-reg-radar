@@ -378,6 +378,15 @@ class PostgresRepository:
 
     def add_revision(self, revision: AdvertisementRevision) -> None:
         with self._engine.begin() as connection:
+            locked_advertisement = connection.execute(
+                text(
+                    "SELECT advertisement_id FROM app.advertisements "
+                    "WHERE advertisement_id=:advertisement_id AND NOT is_deleted FOR UPDATE"
+                ),
+                {"advertisement_id": revision.advertisement_id},
+            ).scalar_one_or_none()
+            if locked_advertisement is None:
+                raise ValueError("ADVERTISEMENT_NOT_FOUND")
             if connection.execute(
                 text(
                     "SELECT 1 FROM app.advertisement_files "

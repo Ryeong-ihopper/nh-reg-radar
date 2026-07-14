@@ -500,7 +500,9 @@ class PostgresSupportRepository:
             items = connection.execute(
                 text(
                     "SELECT * FROM app.comparison_items WHERE comparison_id=:comparison_id "
-                    "ORDER BY created_at,comparison_item_id"
+                    "ORDER BY CASE resolution_status "
+                    "WHEN 'RESOLVED' THEN 1 WHEN 'UNRESOLVED' THEN 2 "
+                    "WHEN 'NEW_ISSUE' THEN 3 ELSE 4 END,comparison_item_id"
                 ),
                 {"comparison_id": comparison_id},
             ).mappings().all()
