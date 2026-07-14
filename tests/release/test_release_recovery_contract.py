@@ -69,9 +69,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
 
         self.assertGreaterEqual(text.count("stop_grace_period:"), 3)
         for service in ("frontend", "backend", "worker"):
-            section = re.search(
-                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z].*:\n|\Z)", text
-            )
+            section = re.search(rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z].*:\n|\Z)", text)
             self.assertIsNotNone(section)
             self.assertIn("stop_grace_period:", section.group("body"))  # type: ignore[union-attr]
 
