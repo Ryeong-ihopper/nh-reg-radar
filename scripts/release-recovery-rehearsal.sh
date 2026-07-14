@@ -125,6 +125,8 @@ printf '%s\n' 'M8 object-storage backup/restore: private bucket mirror with chec
 "${compose[@]}" run --rm --no-deps \
   --volume "$backup_dir/object-storage:/backup" \
   --entrypoint /bin/sh minio-bootstrap -ec '
+    cleanup_backup_permissions() { chmod -R a+rwX /backup || true; }
+    trap cleanup_backup_permissions EXIT
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
     printf %s provider-free-object-restore > /tmp/m8-release-object
     expected="$(sha256sum /tmp/m8-release-object | cut -d" " -f1)"
@@ -147,11 +149,9 @@ chmod 0777 "$backup_dir"
 from __future__ import annotations
 
 import json
-import mimetypes
 import sys
 import urllib.error
 import urllib.request
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -203,30 +203,70 @@ with urllib.request.urlopen(
     f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", timeout=30
 ) as response:
     snapshot_path.write_bytes(response.read())
-request_json("DELETE", f"{qdrant}/collections/{collection}")
+print(f"QDRANT_SNAPSHOT_BACKED_UP snapshot={snapshot_name}")
+PY
 
-boundary = f"----m8-{uuid.uuid4().hex}"
-snapshot_bytes = snapshot_path.read_bytes()
-content_type = mimetypes.guess_type(snapshot_name)[0] or "application/octet-stream"
-multipart = (
-    f"--{boundary}\r\n"
-    f'Content-Disposition: form-data; name="snapshot"; filename="{snapshot_name}"\r\n'
-    f"Content-Type: {content_type}\r\n\r\n"
-).encode() + snapshot_bytes + f"\r\n--{boundary}--\r\n".encode()
-upload = urllib.request.Request(
-    f"{qdrant}/collections/{collection}/snapshots/upload?priority=snapshot&wait=true",
-    data=multipart,
-    method="POST",
-    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+qdrant_id="$("${compose[@]}" ps -q qdrant)"
+qdrant_checksum="$(sha256sum "$backup_dir/qdrant.snapshot" | cut -d' ' -f1)"
+qdrant_node_snapshot="/qdrant/snapshots/$qdrant_collection/m8-release-backup.snapshot"
+docker exec --user 0 "$qdrant_id" mkdir -p "/qdrant/snapshots/$qdrant_collection"
+docker cp "$backup_dir/qdrant.snapshot" \
+  "$qdrant_id:$qdrant_node_snapshot" >/dev/null
+qdrant_node_checksum="$(
+  docker exec "$qdrant_id" sha256sum "$qdrant_node_snapshot" | cut -d' ' -f1
+)"
+if [[ "$qdrant_node_checksum" != "$qdrant_checksum" ]]; then
+  printf 'Qdrant node-local snapshot checksum mismatch\n' >&2
+  exit 1
+fi
+
+"${compose[@]}" run --rm --no-deps \
+  --entrypoint python backend - "$qdrant_collection" "$opensearch_index" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+import urllib.error
+import urllib.request
+from typing import Any
+
+
+collection, index = sys.argv[1:]
+qdrant = "http://qdrant:6333"
+opensearch = "http://opensearch:9200"
+
+
+def request_json(method: str, url: str, payload: Any | None = None) -> dict[str, Any]:
+    body = None if payload is None else json.dumps(payload).encode()
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            data = response.read()
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc.code} {exc.read()!r}") from exc
+    return json.loads(data) if data else {}
+
+
+request_json("DELETE", f"{qdrant}/collections/{collection}")
+restored = request_json(
+    "PUT",
+    f"{qdrant}/collections/{collection}/snapshots/recover?wait=true",
+    {
+        "location": f"file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot",
+        "priority": "snapshot",
+    },
 )
-with urllib.request.urlopen(upload, timeout=60) as response:
-    restored = json.loads(response.read())
 if restored.get("result") is not True:
     raise RuntimeError(f"Qdrant snapshot restore failed: {restored!r}")
 point = request_json("GET", f"{qdrant}/collections/{collection}/points/4242")
 if point.get("result", {}).get("payload", {}).get("probe") != "provider-free-qdrant-restore":
     raise RuntimeError(f"Qdrant restored point mismatch: {point!r}")
-print(f"QDRANT_RESTORED snapshot={snapshot_name}")
+print("QDRANT_RESTORED source=local-file-snapshot")
 
 try:
     request_json("DELETE", f"{opensearch}/{index}")
@@ -259,7 +299,6 @@ if document.get("_source", {}).get("probe") != "provider-free-opensearch-reindex
     raise RuntimeError(f"OpenSearch reindex mismatch: {document!r}")
 print("OPENSEARCH_REINDEXED source=postgres-object-qdrant")
 PY
-qdrant_checksum="$(sha256sum "$backup_dir/qdrant.snapshot" | cut -d' ' -f1)"
 
 printf '%s\n' 'M8 Redis exclusion: queue/cache state is deliberately not backed up'
 "${compose[@]}" exec -T redis redis-cli SET "$redis_probe_key" ephemeral >/dev/null

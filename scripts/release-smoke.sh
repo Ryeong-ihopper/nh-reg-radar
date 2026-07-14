@@ -75,8 +75,20 @@ project_resources() {
 cleanup() {
   local exit_code=$?
   trap - EXIT
+  set +e
+  if [[ -d "$backup_dir" ]]; then
+    docker run --rm \
+      --volume "$backup_dir:/cleanup" \
+      --entrypoint /bin/sh \
+      minio/mc:RELEASE.2025-07-21T05-28-08Z \
+      -ec 'chmod -R a+rwX /cleanup' >/dev/null 2>&1
+  fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$backup_dir"
+  rm -rf "$backup_dir" || exit_code=1
+  if [[ -e "$backup_dir" ]]; then
+    printf 'release backup directory remains after cleanup: %s\n' "$backup_dir" >&2
+    exit_code=1
+  fi
   if [[ -n "$(project_resources "$project")" ]]; then
     printf 'release recovery resources remain after cleanup: %s\n' "$project" >&2
     docker ps -a --filter "label=com.docker.compose.project=$project" >&2 || true

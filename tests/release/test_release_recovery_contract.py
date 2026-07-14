@@ -48,6 +48,9 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("wait_for_worker_not_ready", text)
         self.assertIn("down --volumes --remove-orphans", text)
         self.assertIn("label=com.docker.compose.project", text)
+        self.assertIn("set +e", text)
+        self.assertIn("chmod -R a+rwX /cleanup", text)
+        self.assertIn("release backup directory remains", text)
         self.assertIn("release recovery resources remain", text)
 
     def test_recovery_rehearses_lossy_migration_restore_and_durable_stores(self) -> None:
@@ -58,8 +61,12 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("pg_dump", text)
         self.assertIn("pg_restore", text)
         self.assertIn("mc mirror", text)
+        self.assertIn("trap cleanup_backup_permissions EXIT", text)
         self.assertIn("/snapshots", text)
-        self.assertIn("snapshots/upload?priority=snapshot", text)
+        self.assertIn("/snapshots/recover?wait=true", text)
+        self.assertIn("file:///qdrant/snapshots/{collection}/m8-release-backup", text)
+        self.assertIn("docker cp", text)
+        self.assertIn("qdrant_node_checksum", text)
         self.assertIn("OPENSEARCH_REINDEXED", text)
         self.assertIn('"redis":"excluded"', text)
         self.assertNotIn("redis.rdb", text)
