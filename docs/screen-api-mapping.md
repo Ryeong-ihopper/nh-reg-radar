@@ -8,13 +8,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.4 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.4 | 2026-07-14 | S-014 내부 기준 등록의 필수 metadata JSON, 상위 필드 정합성 및 `REFERENCE_METADATA_INVALID` 안전 표시 경계 반영 |
+| v1.3 | 2026-07-14 | S-014 생성 client 연동, 역할별 route gate, 직접 입력 등록·불변 version·Hybrid 503·Chunk redaction의 화면 상태를 실행 흐름과 동기화 |
+| v1.2 | 2026-07-14 | S-014 기준자료 단건/이력/reindex/chunk 계약 확정, 관리자 상태·오류·내부 인덱스 식별자 redaction 경계 반영 |
 | v1.1 | 2026-07-14 | M2 로그인·광고물 목록·등록·기본 상세의 실제 API 호출, 상태, 권한 및 계약 생성 타입 사용 기준 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, 화면/API 호출 정합성 기준 보강 |
 
@@ -26,7 +29,7 @@
 | --- | --- |
 | 문서명 | 화면-API 매핑표 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.4 |
 | 작성 목적 | 화면별 호출 API, 호출 시점, 요청값, 응답값, 화면 반영 항목을 정의 |
 | 기준 문서 | 화면설계서 v0.1, API 명세서 v0.1 |
 | API Base URL | `/api/v1` |
@@ -488,21 +491,33 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 기준자료 목록 조회 | `/standards` | GET | `page`, `size`, `activeOnly` | 기준자료 목록 | 목록 영역 |
 | 조회 클릭 | 기준자료 조건 검색 | `/standards` | GET | `keyword`, `evidenceType`, `productGroup`, `advertisementType`, `ruleType`, `activeOnly` | 조건에 맞는 기준자료 목록 | 목록 영역 |
-| 신규 등록 클릭 | 기준자료 등록 | `/standards` | POST | `multipart/form-data`: 기준명, 기준유형, 상품군, 광고유형, 기준성격, 중요도, 적용일, 내용, 원문 파일 | `standardId`, `evidenceId`, `version` | 등록 완료 메시지 |
-| 행 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준 상세정보 | 상세 영역 |
+| 신규 등록 클릭 | 내부 기준 등록 | `/standards` | POST | `multipart/form-data`: 기준명, `INTERNAL_STANDARD`, 상품군, 광고유형, 기준성격, 중요도, 적용일, 직접 입력 내용, 선택 원문 파일 및 `metadata` JSON(`owningDepartment`, `documentName`, `sectionPath`, `effectiveDate`, `version`, `productGroup`, `inputBoundary`) | `standardId`, `evidenceId`, `version` | 등록 완료 후 목록 갱신. `metadata.productGroup`/`effectiveDate`는 상위 multipart 필드와 같은 값 유지 |
+| 행 클릭 | 기준자료 단건 조회 | `/standards/{standardId}` | GET | `standardId` | master와 현재 불변 version 상세 | 상세 영역 |
 | 수정 클릭 | 기준자료 수정 | `/standards/{standardId}` | PATCH | 기준명, 내용, 적용일, 변경 사유 | 수정 결과 | 상세 영역 갱신 |
 | 비활성화 클릭 | 기준자료 비활성화 | `/standards/{standardId}/deactivate` | PATCH | `reason` | 비활성화 결과 | 상태 변경 |
-| 이력 보기 클릭 | 기준자료 변경 이력 조회 | `/standards/{standardId}/histories` | GET | `standardId` | 변경 이력 목록 | API 추가 필요 |
+| 이력 보기 클릭 | 기준자료 변경 이력 조회 | `/standards/{standardId}/histories` | GET | `standardId` | 불변 version 변경 이력 목록 | 이력 패널 |
 | 재색인 클릭 | 기준자료 재색인 요청 | `/standards/{standardId}/versions/{standardVersionId}/reindex` | POST | `reindexScope`, `reason`, model/version 정보 | `jobId`, `jobStatus` | 재색인 상태 표시 |
 | 재색인 상태 확인 | 기준자료 재색인 상태 조회 | `/standard-reindex-jobs/{jobId}` | GET | `jobId` | 상태, 처리 건수, 실패 사유 | 상태 배지/오류 표시 |
-| Chunk 확인 클릭 | 기준자료 Chunk 목록 조회 | `/evidences/{evidenceId}/chunks` | GET | `evidenceId`, `page`, `size` | Chunk 목록 | 관리자 보조 화면 |
+| Chunk 확인 클릭 | 기준자료 Chunk 목록 조회 | `/evidences/{evidenceId}/chunks` | GET | `evidenceId`, `page`, `size` | 내부 index/point/doc ID가 제거된 Chunk 내용·version·상태 | 관리자 보조 화면 |
 
-### 3.33 추가 필요 API
+### 3.33 확정 계약 경계
 
-| API | 사유 |
+| API | 확정 기준 |
 | --- | --- |
-| `/standards/{standardId}/histories` | 기준자료 변경 이력 조회 필요 |
-| `/standards/{standardId}` | 기준자료 단건 조회 API 명확화 필요 |
+| `/standards/{standardId}/histories` | 불변 version 이력 조회 계약으로 사용 |
+| `/standards/{standardId}` | master와 현재 version 단건 조회 계약으로 사용 |
+
+### 3.34 화면 상태 및 권한 매핑
+
+| 경계 | 화면 처리 |
+| --- | --- |
+| 생성 타입 | OpenAPI 0.3.0 frozen 문서로 생성한 `StandardPage`, `StandardDetail`, `StandardHistoryPage`, `StandardReindexJob`, `EvidenceChunkPage`, `EvidenceSearchResult`를 client와 화면 경계에 사용 |
+| Route 권한 | `STANDARD_MANAGER`, `SYSTEM_ADMIN`만 `/standards` 접근과 navigation link를 허용하고, 그 외 role은 API 요청 전에 차단 |
+| 목록/관리 loading | 목록 조회와 상세·이력·Chunk·재색인·등록·수정·비활성화 action 진행 상태를 분리해 표시 |
+| Empty | 목록/이력/Chunk/검색 결과가 0건이면 해당 영역의 빈 상태 표시 |
+| 오류/redaction | ADR-0045 일반화 문구와 안전한 traceId만 표시하고 server message 및 index/point/doc ID를 숨김 |
+| 등록 metadata 오류 | `REFERENCE_METADATA_INVALID`를 필수 메타데이터 입력 확인 문구로 표시하고 안전한 traceId만 제공하며 backend 원문 message는 숨김 |
+| Hybrid 장애 | `/evidences/search` 또는 재색인 503을 정상/빈 결과로 fallback하지 않고 검색 인프라 장애로 표시 |
 
 ---
 

@@ -12,11 +12,11 @@ import {
 
 const contractPath = new URL('../../openapi/openapi.yaml', import.meta.url).pathname;
 
-test('TC-NFR-API-001/006: M2 document is valid and capability-bounded', async () => {
+test('TC-NFR-API-001: M3 source document is valid and capability-bounded', async () => {
   const document = await validateOpenApi(contractPath);
   assert.equal(document.openapi, '3.1.0');
   assert.equal(typeof document.info.title, 'string');
-  assert.equal(document.info.version, '0.2.0');
+  assert.equal(document.info.version, '0.3.0');
   assert.deepEqual(Object.keys(document.paths).sort(), [
     '/admin/audit-logs',
     '/advertisements',
@@ -25,9 +25,19 @@ test('TC-NFR-API-001/006: M2 document is valid and capability-bounded', async ()
     '/auth/logout',
     '/auth/refresh',
     '/codes/{codeGroup}',
+    '/evidence-chunks/{evidenceChunkId}',
+    '/evidences/search',
+    '/evidences/{evidenceId}',
+    '/evidences/{evidenceId}/chunks',
     '/files/{fileId}/download',
     '/files/{fileId}/preview',
     '/files/{fileId}/preview/content',
+    '/standard-reindex-jobs/{jobId}',
+    '/standards',
+    '/standards/{standardId}',
+    '/standards/{standardId}/deactivate',
+    '/standards/{standardId}/histories',
+    '/standards/{standardId}/versions/{standardVersionId}/reindex',
     '/users/me',
   ]);
   assert.ok(Object.hasOwn(document.components.schemas, 'ErrorResponse'));

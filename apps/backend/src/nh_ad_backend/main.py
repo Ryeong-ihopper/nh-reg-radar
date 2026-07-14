@@ -16,7 +16,21 @@ from nh_ad_backend.repository import InMemoryRepository, PostgresRepository, Rep
 from nh_ad_backend.s3_storage import S3ObjectStorage
 from nh_ad_backend.security import TokenService
 from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
+from nh_ad_backend.search import (
+    HybridSearch,
+    InMemorySearchBackend,
+    SearchBackend,
+    SearchInfrastructureError,
+)
+from nh_ad_backend.search_http import OpenSearchBackend, QdrantBackend
 from nh_ad_backend.settings import Settings, get_settings
+from nh_ad_backend.standards import (
+    InMemoryStandardRepository,
+    StandardRepository,
+    StandardService,
+    StandardsError,
+)
+from nh_ad_backend.standards_postgres import PostgresStandardRepository
 from nh_ad_backend.storage import ObjectStorage, PrivateFileStorage
 
 
@@ -26,6 +40,16 @@ class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: str
     environment: str
+
+
+def fixed_fixture_vector(_value: object) -> list[float]:
+    """Provider-free deterministic vector used only by M3 dev/test fixtures."""
+    return [0.1, 0.2, 0.3]
+
+
+def unavailable_production_vector(_value: object) -> list[float]:
+    """Keep production fail-closed until an accepted embedding adapter exists."""
+    raise SearchInfrastructureError("QDRANT", "production embedding provider is not configured")
 
 
 def build_services(settings: Settings) -> ApplicationServices:
@@ -48,8 +72,34 @@ def build_services(settings: Settings) -> ApplicationServices:
             storage_provider="minio",
             bucket=settings.ad_originals_bucket,
         )
+        standard_repository: StandardRepository = PostgresStandardRepository(engine)
+        keyword_search: SearchBackend = OpenSearchBackend(
+            settings.opensearch_endpoint,
+            settings.opensearch_index,
+            environment=settings.app_env,
+            embedding_model="fixed-fixture-v1",
+            chunking_policy_version="reference-chunking-v1",
+        )
+
+        vector = (
+            unavailable_production_vector if settings.app_env == "prod" else fixed_fixture_vector
+        )
+
+        vector_search: SearchBackend = QdrantBackend(
+            settings.qdrant_endpoint,
+            settings.qdrant_collection,
+            environment=settings.app_env,
+            embedding_model="fixed-fixture-v1",
+            chunking_policy_version="reference-chunking-v1",
+            dimensions=3,
+            document_vector=vector,
+            query_vector=vector,
+        )
     else:
         repository = InMemoryRepository()
+        standard_repository = InMemoryStandardRepository()
+        keyword_search = InMemorySearchBackend("OPENSEARCH")
+        vector_search = InMemorySearchBackend("QDRANT")
     if storage_configured:
         assert settings.object_storage_endpoint is not None
         assert settings.object_storage_access_key is not None
@@ -73,6 +123,12 @@ def build_services(settings: Settings) -> ApplicationServices:
         repository=repository,
         auth=AuthService(repository, tokens),
         advertisements=AdvertisementService(repository, storage),
+        standards=StandardService(
+            standard_repository,
+            HybridSearch(keyword=keyword_search, vector=vector_search),
+            environment=settings.app_env,
+            audit_sink=repository.add_audit_event,
+        ),
     )
 
 
@@ -90,7 +146,7 @@ def create_app(
             "Capability-specific paths and schemas are added only when their "
             "implementation slice begins."
         ),
-        version="0.2.0",
+        version="0.3.0",
         root_path="/api/v1",
         servers=[{"url": "/api/v1"}],
     )
@@ -98,7 +154,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(resolved_settings.allowed_origins),
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Authorization", "Content-Type", "X-Request-Id"],
     )
 
@@ -128,6 +184,21 @@ def create_app(
         request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
         return error_response(request, 400, "BAD_REQUEST", "요청값을 확인해 주세요.")
+
+    @application.exception_handler(StandardsError)
+    async def handle_standards_error(request: Request, exc: StandardsError) -> JSONResponse:
+        return error_response(request, exc.status_code, exc.code, exc.message)
+
+    @application.exception_handler(SearchInfrastructureError)
+    async def handle_search_error(
+        request: Request, _exc: SearchInfrastructureError
+    ) -> JSONResponse:
+        return error_response(
+            request,
+            503,
+            "RAG_SEARCH_UNAVAILABLE",
+            "검색 인프라를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        )
 
     @application.get("/health", include_in_schema=False, response_model=HealthResponse)
     async def health() -> HealthResponse:

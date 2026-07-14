@@ -12,6 +12,21 @@ export type AdvertisementCreateResponse = components["schemas"]["AdvertisementCr
 export type FilePreview = components["schemas"]["FilePreview"];
 export type ProductGroup = components["schemas"]["ProductGroup"];
 export type AdvertisementType = components["schemas"]["AdvertisementType"];
+export type EvidenceType = components["schemas"]["EvidenceType"];
+export type RuleType = components["schemas"]["RuleType"];
+export type Importance = components["schemas"]["Importance"];
+export type SearchMode = components["schemas"]["SearchMode"];
+export type ReindexScope = components["schemas"]["ReindexScope"];
+export type StandardSummary = components["schemas"]["StandardSummary"];
+export type StandardListResponse = components["schemas"]["StandardPage"];
+export type StandardDetail = components["schemas"]["StandardDetail"];
+export type StandardHistoryResponse = components["schemas"]["StandardHistoryPage"];
+export type StandardCreateResponse = components["schemas"]["StandardCreated"];
+export type StandardUpdateInput = components["schemas"]["UpdateStandardRequest"];
+export type StandardReindexInput = components["schemas"]["ReindexStandardRequest"];
+export type StandardReindexJob = components["schemas"]["StandardReindexJob"];
+export type EvidenceSearchResult = components["schemas"]["EvidenceSearchResult"];
+export type EvidenceChunkListResponse = components["schemas"]["EvidenceChunkPage"];
 
 export interface AdvertisementCreateInput {
   advertisementName: string;
@@ -26,7 +41,23 @@ export interface AdvertisementCreateInput {
   additionalFiles?: File[];
 }
 
+export interface StandardCreateInput {
+  title: string;
+  evidenceType: EvidenceType;
+  productGroup?: ProductGroup;
+  advertisementType?: AdvertisementType;
+  ruleType: RuleType;
+  importance?: Importance;
+  effectiveDate?: string;
+  expiredDate?: string;
+  metadata: Record<string, unknown>;
+  content: string;
+  sourceFile?: File;
+}
+
 export type AdvertisementSearch = NonNullable<operations["listAdvertisements"]["parameters"]["query"]>;
+export type StandardSearch = NonNullable<operations["listStandards"]["parameters"]["query"]>;
+export type EvidenceSearch = operations["searchEvidences"]["parameters"]["query"];
 
 interface ErrorResponse {
   code?: unknown;
@@ -44,6 +75,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   FILE_READ_FAILED: "파일을 읽지 못했습니다. 파일을 다시 확인해 주세요.",
   FILE_SIZE_EXCEEDED: "파일 용량이 50MB를 초과했습니다.",
   INTERNAL_ERROR: "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+  SEARCH_UNAVAILABLE: "검색 인프라를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  RAG_SEARCH_UNAVAILABLE: "검색 인프라를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  RAG_SEARCH_FAILED: "검색 인프라를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  REFERENCE_METADATA_INVALID: "기준 유형에 필요한 메타데이터를 확인해 주세요.",
 };
 
 export class ApiError extends Error {
@@ -115,6 +150,14 @@ async function requestBlob(path: string, accessToken: string): Promise<Blob> {
   return response.blob();
 }
 
+function queryString(values: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  return params.size > 0 ? `?${params.toString()}` : "";
+}
+
 export const api = {
   login(email: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/auth/login", undefined, {
@@ -128,14 +171,7 @@ export const api = {
   },
 
   listAdvertisements(accessToken: string, search: AdvertisementSearch = {}): Promise<AdvertisementListResponse> {
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(search)) {
-      if (value !== undefined && value !== "") {
-        params.set(key, String(value));
-      }
-    }
-    const query = params.size > 0 ? `?${params.toString()}` : "";
-    return request<AdvertisementListResponse>(`/advertisements${query}`, accessToken);
+    return request<AdvertisementListResponse>(`/advertisements${queryString(search)}`, accessToken);
   },
 
   getAdvertisement(accessToken: string, advertisementId: string): Promise<AdvertisementDetail> {
@@ -177,6 +213,73 @@ export const api = {
     for (const additionalFile of input.additionalFiles ?? []) body.append("additionalFiles", additionalFile);
 
     return request<AdvertisementCreateResponse>("/advertisements", accessToken, { method: "POST", body });
+  },
+
+  listStandards(accessToken: string, search: StandardSearch = {}): Promise<StandardListResponse> {
+    return request<StandardListResponse>(`/standards${queryString(search)}`, accessToken);
+  },
+
+  getStandard(accessToken: string, standardId: string): Promise<StandardDetail> {
+    return request<StandardDetail>(`/standards/${encodeURIComponent(standardId)}`, accessToken);
+  },
+
+  createStandard(accessToken: string, input: StandardCreateInput): Promise<StandardCreateResponse> {
+    const body = new FormData();
+    body.set("title", input.title);
+    body.set("evidenceType", input.evidenceType);
+    body.set("ruleType", input.ruleType);
+    body.set("metadata", JSON.stringify(input.metadata));
+    body.set("content", input.content);
+    if (input.productGroup) body.set("productGroup", input.productGroup);
+    if (input.advertisementType) body.set("advertisementType", input.advertisementType);
+    if (input.importance) body.set("importance", input.importance);
+    if (input.effectiveDate) body.set("effectiveDate", input.effectiveDate);
+    if (input.expiredDate) body.set("expiredDate", input.expiredDate);
+    if (input.sourceFile) body.set("sourceFile", input.sourceFile);
+    return request<StandardCreateResponse>("/standards", accessToken, { method: "POST", body });
+  },
+
+  updateStandard(accessToken: string, standardId: string, input: StandardUpdateInput): Promise<StandardDetail> {
+    return request<StandardDetail>(`/standards/${encodeURIComponent(standardId)}`, accessToken, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+  },
+
+  deactivateStandard(accessToken: string, standardId: string, reason: string): Promise<StandardDetail> {
+    return request<StandardDetail>(`/standards/${encodeURIComponent(standardId)}/deactivate`, accessToken, {
+      method: "PATCH",
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  listStandardHistories(accessToken: string, standardId: string): Promise<StandardHistoryResponse> {
+    return request<StandardHistoryResponse>(`/standards/${encodeURIComponent(standardId)}/histories?page=1&size=20`, accessToken);
+  },
+
+  searchEvidences(accessToken: string, search: EvidenceSearch): Promise<EvidenceSearchResult[]> {
+    return request<EvidenceSearchResult[]>(`/evidences/search${queryString(search)}`, accessToken);
+  },
+
+  listEvidenceChunks(accessToken: string, evidenceId: string): Promise<EvidenceChunkListResponse> {
+    return request<EvidenceChunkListResponse>(`/evidences/${encodeURIComponent(evidenceId)}/chunks?page=1&size=20`, accessToken);
+  },
+
+  requestStandardReindex(
+    accessToken: string,
+    standardId: string,
+    standardVersionId: string,
+    input: StandardReindexInput,
+  ): Promise<StandardReindexJob> {
+    return request<StandardReindexJob>(
+      `/standards/${encodeURIComponent(standardId)}/versions/${encodeURIComponent(standardVersionId)}/reindex`,
+      accessToken,
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  },
+
+  getStandardReindexJob(accessToken: string, jobId: string): Promise<StandardReindexJob> {
+    return request<StandardReindexJob>(`/standard-reindex-jobs/${encodeURIComponent(jobId)}`, accessToken);
   },
 };
 

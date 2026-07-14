@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.2 |
+| 현행 버전 | v1.3 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.3 | 2026-07-14 | M3 owner revision의 standards/version/evidence/chunk/reindex 원천 테이블, 결정적 인덱스 ID 제약과 분리된 synthetic seed 경계 반영 |
 | v1.2 | 2026-07-14 | M2 owner revision의 auth/common/advertisement/file/audit 테이블과 분리된 idempotent common/dev seed 경계 반영 |
 | v1.1 | 2026-07-14 | M1 schema-only Alembic base, 일회성 bootstrap, 계정별 최소권한 및 runtime/migration DSN 분리 기준 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, schema/계정/Parser/OCR/RAG/평가 snapshot 기준 보강 |
@@ -207,6 +208,20 @@ M2 revision은 seed, role 생성/변경, M1 schema bootstrap, M3 이후 `reviews
 Migration 완료 후 runtime `app`에는 `app`/`audit` schema의 DML만, `readonly`에는 조회만 부여한다. 공통 역할/코드는 `apps/backend/seeds/common.sql`, synthetic 부서/사용자는 `apps/backend/seeds/dev.sql`로 분리하고 두 seed 모두 idempotent하게 적용한다. Dev seed는 `NH_ENVIRONMENT=dev`, `app` runtime identity, 평문이 아닌 `NH_DEV_SEED_PASSWORD_HASH`를 요구한다.
 
 Refresh session은 발급 당시 `token_version`을 저장하고 `users.auth_token_version` 불일치 시 거부한다. `(user_id, revoked_at, expires_at)` active index는 권한 변경·사용자 비활성화 시 사용자별 미폐기 token 전체 revoke를 지원한다. 광고 파일의 `storage_provider`/`bucket`/`object_key`/`checksum_sha256`은 repository 내부 필드이며 API DTO, 일반 로그와 감사 조회 응답에는 포함하지 않는다.
+
+### M3 owner revision
+
+`0003_m3_standards_search`는 `0002_m2_auth_advertisement_audit`을 직접 상속하며 기존 0001/0002를 수정하지 않는다.
+
+| 구분 | M3 기준 |
+| --- | --- |
+| Owner tables | `rag.standards`, `rag.standard_versions`, `rag.evidences`, `rag.evidence_chunks`, `rag.standard_reindex_jobs` |
+| Source of truth | PostgreSQL 불변 version과 Chunk row. Qdrant/OpenSearch는 재생성 가능한 인덱스 |
+| Seed | migration과 분리된 `apps/backend/seeds/m3_test.sql`, synthetic/direct-text/idempotent 전용 |
+| Upgrade | 빈 DB 0001→0002→0003 및 기존 M2 DB 0002→0003 모두 지원 |
+| Exclusion | Parser/OCR, review/job/result/report 및 실제 embedding provider는 M3 owner 범위가 아님 |
+
+Runtime `app`은 `rag` schema의 DML만, `readonly`는 조회만 허용한다. 고정 fixture의 vector와 score는 테스트 재현성 전용이며 외부 embedding provider를 호출하지 않는다.
 
 ---
 
@@ -1012,6 +1027,7 @@ AI 검토 항목별 판정 결과를 관리한다.
 | rule_type | varchar(50) |  |  | Y | 필수/금지/권고/참고 |
 | importance | varchar(50) |  |  |  | 중요도 |
 | effective_date | date |  |  |  | 적용일 |
+| expired_date | date |  |  |  | 적용 종료일 |
 | metadata_json | jsonb |  |  |  | 검색/필터/표시용 유형별 메타데이터 |
 | is_active | boolean |  |  | Y | 활성 여부 |
 | created_at | timestamptz |  |  | Y | 생성일시 |
@@ -1102,6 +1118,8 @@ Qdrant point ID와 OpenSearch document ID는 ADR-0070 기준 deterministic ID를
 | synonym_version | varchar(100) |  |  |  | synonym 사전 version |
 | qdrant_collection | varchar(100) |  |  |  | 대상 Qdrant collection |
 | opensearch_index | varchar(100) |  |  |  | 대상 OpenSearch index |
+| qdrant_status | varchar(50) |  |  |  | Qdrant 독립 처리 상태 |
+| opensearch_status | varchar(50) |  |  |  | OpenSearch 독립 처리 상태 |
 | created_chunk_count | int |  |  |  | 생성 또는 재생성된 Chunk 수 |
 | indexed_chunk_count | int |  |  |  | 인덱싱 완료 Chunk 수 |
 | failed_reason_code | varchar(100) |  |  |  | 실패 사유 코드 |

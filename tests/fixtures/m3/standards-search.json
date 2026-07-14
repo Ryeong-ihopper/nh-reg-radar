@@ -1,0 +1,52 @@
+{
+  "fixtureVersion": 1,
+  "kind": "synthetic",
+  "containsCustomerData": false,
+  "inputBoundary": "DIRECT_TEXT_ONLY",
+  "embeddingProvider": null,
+  "rankingPolicy": {
+    "candidateLimit": 20,
+    "rerankLimit": 5,
+    "evidenceLimit": 3,
+    "tieBreak": ["combinedScore DESC", "evidenceChunkId ASC"]
+  },
+  "standards": [
+    {
+      "standardId": "STD-SYNTH-0001",
+      "versions": [
+        {
+          "standardVersionId": "STDVER-SYNTH-0001",
+          "version": "1.0",
+          "effectiveDate": "2025-01-01",
+          "expiredDate": "2025-12-31",
+          "content": "Synthetic prior rule text."
+        },
+        {
+          "standardVersionId": "STDVER-SYNTH-0002",
+          "version": "2.0",
+          "effectiveDate": "2026-01-01",
+          "expiredDate": null,
+          "content": "Synthetic current rule text with a required notice."
+        }
+      ]
+    }
+  ],
+  "chunks": [
+    {"evidenceChunkId": "ECH-SYNTH-0001", "keywordScore": 0.90, "vectorScore": 0.80, "combinedScore": 0.85, "vector": [0.10, 0.20, 0.30]},
+    {"evidenceChunkId": "ECH-SYNTH-0002", "keywordScore": 0.80, "vectorScore": 0.90, "combinedScore": 0.85, "vector": [0.20, 0.30, 0.40]},
+    {"evidenceChunkId": "ECH-SYNTH-0003", "keywordScore": 0.70, "vectorScore": 0.80, "combinedScore": 0.75, "vector": [0.30, 0.40, 0.50]},
+    {"evidenceChunkId": "ECH-SYNTH-0004", "keywordScore": 0.60, "vectorScore": 0.70, "combinedScore": 0.65, "vector": [0.40, 0.50, 0.60]},
+    {"evidenceChunkId": "ECH-SYNTH-0005", "keywordScore": 0.50, "vectorScore": 0.60, "combinedScore": 0.55, "vector": [0.50, 0.60, 0.70]},
+    {"evidenceChunkId": "ECH-SYNTH-0006", "keywordScore": 0.40, "vectorScore": 0.50, "combinedScore": 0.45, "vector": [0.60, 0.70, 0.80]}
+  ],
+  "expected": {
+    "top20": ["ECH-SYNTH-0001", "ECH-SYNTH-0002", "ECH-SYNTH-0003", "ECH-SYNTH-0004", "ECH-SYNTH-0005", "ECH-SYNTH-0006"],
+    "top5": ["ECH-SYNTH-0001", "ECH-SYNTH-0002", "ECH-SYNTH-0003", "ECH-SYNTH-0004", "ECH-SYNTH-0005"],
+    "top3": ["ECH-SYNTH-0001", "ECH-SYNTH-0002", "ECH-SYNTH-0003"]
+  },
+  "infrastructureFailure": {
+    "failedBackend": "OPENSEARCH",
+    "expectedCode": "RAG_SEARCH_UNAVAILABLE",
+    "allowFallback": false
+  }
+}

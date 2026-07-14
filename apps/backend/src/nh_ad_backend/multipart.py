@@ -81,7 +81,8 @@ async def parse_multipart(request: Request) -> MultipartForm:
                 raise MultipartError(400, "BAD_REQUEST", f"{name} 값을 읽을 수 없습니다.") from exc
             if name in fields:
                 raise MultipartError(400, "BAD_REQUEST", f"{name} 값이 중복되었습니다.")
-            if len(payload) > 4096:
+            field_limit = 1_000_000 if name == "content" else 4096
+            if len(payload) > field_limit:
                 raise MultipartError(400, "BAD_REQUEST", f"{name} 값이 너무 깁니다.")
             fields[name] = decoded
             continue
@@ -102,8 +103,22 @@ async def parse_multipart(request: Request) -> MultipartForm:
         "channelType",
         "departmentId",
         "memo",
+        "title",
+        "evidenceType",
+        "ruleType",
+        "importance",
+        "effectiveDate",
+        "expiredDate",
+        "metadata",
+        "content",
     }
-    allowed_files = {"advertisementFile", "productDescriptionFile", "termsFile", "additionalFiles"}
+    allowed_files = {
+        "advertisementFile",
+        "productDescriptionFile",
+        "termsFile",
+        "additionalFiles",
+        "sourceFile",
+    }
     if set(fields) - allowed_fields or set(files) - allowed_files:
         raise MultipartError(400, "BAD_REQUEST", "지원하지 않는 multipart 필드가 포함되었습니다.")
     for name in ("advertisementFile", "productDescriptionFile", "termsFile"):

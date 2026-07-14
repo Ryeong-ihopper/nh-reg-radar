@@ -24,6 +24,7 @@ from nh_ad_backend.multipart import MultipartError, parse_multipart
 from nh_ad_backend.repository import Repository
 from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
 from nh_ad_backend.settings import Settings
+from nh_ad_backend.standards import StandardService
 
 
 class ContractModel(BaseModel):
@@ -215,6 +216,7 @@ class ApplicationServices:
     repository: Repository
     auth: AuthService
     advertisements: AdvertisementService
+    standards: StandardService
 
 
 def _user_response(user: User | CurrentUser) -> UserContext:
@@ -299,6 +301,10 @@ def install_routes(
             raise ServiceError(403, "FORBIDDEN", "허용되지 않은 요청 출처입니다.")
 
     Actor = Annotated[CurrentUser, Depends(actor)]
+
+    from nh_ad_backend.standards_api import install_standard_routes
+
+    install_standard_routes(router, services.standards, actor)
 
     @router.post(
         "/auth/login",

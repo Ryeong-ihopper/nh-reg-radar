@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.2 |
+| 현행 버전 | v1.3 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.3 | 2026-07-14 | M3 Standards/Evidence/Reindex/Search OpenAPI, 직접 입력 본문 경계, 불변 버전과 명시적 검색 장애 응답 반영 |
 | v1.2 | 2026-07-14 | M2 Auth/Common/Advertisement/File/Audit OpenAPI 계약, queryless backend proxy descriptor와 redacted 감사 응답 반영 |
 | v1.1 | 2026-07-14 | M0 OpenAPI core skeleton의 점진 확장 경계와 공통 ErrorResponse 계약 원천 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, API/DB/화면/테스트 정합성 기준 보강 |
@@ -1210,6 +1211,8 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
 | searchMode | N | `KEYWORD`, `VECTOR`, `HYBRID` |
 | limit | N | 반환 개수. 기본 20, 최대 20 |
 
+검색은 내부 후보 Top 20, 판단 입력 Top 5, 화면 표시 Top 3 경계를 사용한다. 고정 fixture에서는 `relevanceScore DESC`, 동점 시 `evidenceChunkId ASC`로 정렬하며, 실제 점수 산식은 평가 데이터 없이 계약에 하드코딩하지 않는다. `HYBRID`에서 Qdrant 또는 OpenSearch가 실패하거나 인덱스 정합성이 깨지면 부분 fallback 없이 HTTP 503과 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED`를 반환한다.
+
 ### Response
 
 ```json
@@ -1283,7 +1286,7 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
   "reason": "embedding model changed",
   "parserRuleVersion": "reference-parser-rules-v1",
   "chunkingPolicyVersion": "reference-chunking-v1",
-  "embeddingModel": "text-embedding-3-large",
+  "embeddingModel": "fixed-vector-v1",
   "searchSchemaVersion": "search-schema-v1",
   "opensearchAnalyzerVersion": "ko-analyzer-v1",
   "synonymVersion": "synonyms-v1",
@@ -1295,6 +1298,8 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
 ```
 
 `reindexScope`는 `INDEX_ONLY`, `CHUNK_AND_INDEX`, `KEYWORD_ONLY`, `VECTOR_ONLY` 중 하나를 사용한다. `searchSchemaVersion`, `opensearchAnalyzerVersion`, `synonymVersion`은 ADR-0071 기준 검색 인덱스 schema/analyzer/synonym 변경 추적에 사용한다. `prod(main)`에서는 `reason`이 필수다.
+
+M3의 `embeddingModel`은 고정 vector fixture의 재현성 label이며 외부 embedding provider 호출을 뜻하지 않는다. 실제 provider/model 연결은 별도 Accepted ADR 이후 adapter 범위에서 수행한다.
 
 ### Response
 
@@ -1335,7 +1340,7 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
   ],
   "parserRuleVersion": "reference-parser-rules-v1",
   "chunkingPolicyVersion": "reference-chunking-v1",
-  "embeddingModel": "text-embedding-3-large",
+  "embeddingModel": "fixed-vector-v1",
   "searchSchemaVersion": "search-schema-v1",
   "opensearchAnalyzerVersion": "ko-analyzer-v1",
   "synonymVersion": "synonyms-v1",
@@ -1389,7 +1394,7 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
       "structureConfidence": 0.92,
       "parserRuleVersion": "reference-parser-rules-v1",
       "chunkingPolicyVersion": "reference-chunking-v1",
-      "embeddingModel": "text-embedding-3-large",
+      "embeddingModel": "fixed-vector-v1",
       "searchSchemaVersion": "search-schema-v1",
       "opensearchAnalyzerVersion": "ko-analyzer-v1",
       "synonymVersion": "synonyms-v1",
@@ -1435,11 +1440,10 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
   "structureConfidence": 0.92,
   "parserRuleVersion": "reference-parser-rules-v1",
   "chunkingPolicyVersion": "reference-chunking-v1",
-  "embeddingModel": "text-embedding-3-large",
+  "embeddingModel": "fixed-vector-v1",
   "searchSchemaVersion": "search-schema-v1",
   "opensearchAnalyzerVersion": "ko-analyzer-v1",
   "synonymVersion": "synonyms-v1",
-  "deterministicIndexId": "prod:STDVER-0001:ECH-0001:text-embedding-3-large:reference-chunking-v1",
   "opensearchHighlights": {
     "title": [
       "금융상품 <em>광고심의</em> 내부 기준"
@@ -1451,15 +1455,13 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
   "qdrantIndexStatus": "ACTIVE",
   "qdrantIndexedAt": "2026-07-12T09:02:10Z",
   "qdrantIndexErrorCode": null,
-  "qdrantCollection": "evidence_chunks",
-  "qdrantPointId": "qdrant-point-0001",
   "opensearchIndexStatus": "ACTIVE",
   "opensearchIndexedAt": "2026-07-12T09:02:20Z",
-  "opensearchIndexErrorCode": null,
-  "opensearchIndex": "evidence_chunks_index",
-  "opensearchDocId": "os-doc-0001"
+  "opensearchIndexErrorCode": null
 }
 ```
+
+Chunk API는 deterministic ID 생성과 인덱스 상태 검증에 필요한 버전·상태만 반환하며 Qdrant collection/point ID, OpenSearch index/document ID 같은 내부 인덱스 식별자는 응답에서 제외한다.
 
 ---
 
@@ -1885,6 +1887,8 @@ PDF 요청은 ADR-0054 기준 HWPX 기준 산출물을 생성한 뒤 HWPX-to-PDF
 
 `metadata`는 ADR-0050 기준 `evidenceType`별 필수 메타데이터를 포함해야 한다. 예를 들어 법령/감독규정은 기관, 조문번호, 시행일, 개정일, 원문 출처를 포함하고, 심의사례는 사례번호, 판단유형, 지적사항, 조치결과, 판단일을 포함한다.
 
+M3는 `content`로 직접 입력된 본문만 정규화·Chunking한다. `sourceFile`은 원문 보관용이며 PDF/HWP/HWPX 해석, OCR, embedding provider 호출은 M4 이후 별도 adapter 범위다.
+
 ### Response
 
 ```json
@@ -1899,7 +1903,20 @@ PDF 요청은 ADR-0054 기준 HWPX 기준 산출물을 생성한 뒤 HWPX-to-PDF
 
 ---
 
-## 14.3 기준자료 수정
+## 14.3 기준자료 단건 조회
+
+| 항목 | 내용 |
+| --- | --- |
+| Method | GET |
+| URI | `/api/v1/standards/{standardId}` |
+| 설명 | 기준자료 master와 현재 불변 version 상세를 조회한다. |
+| 권한 | `STANDARD_MANAGER`, `SYSTEM_ADMIN` |
+
+응답은 `standardId`, `evidenceId`, `standardVersionId`, `version`, 유형/필터 metadata, 직접 입력 본문, 적용일, 활성 상태와 생성 추적 필드를 반환한다.
+
+---
+
+## 14.4 기준자료 수정
 
 | 항목 | 내용 |
 | --- | --- |
@@ -1927,7 +1944,7 @@ PDF 요청은 ADR-0054 기준 HWPX 기준 산출물을 생성한 뒤 HWPX-to-PDF
 
 ---
 
-## 14.4 기준자료 비활성화
+## 14.5 기준자료 비활성화
 
 | 항목 | 내용 |
 | --- | --- |
@@ -1945,7 +1962,7 @@ PDF 요청은 ADR-0054 기준 HWPX 기준 산출물을 생성한 뒤 HWPX-to-PDF
 
 ---
 
-## 14.5 기준자료 변경 이력 조회
+## 14.6 기준자료 변경 이력 조회
 
 | 항목 | 내용 |
 | --- | --- |

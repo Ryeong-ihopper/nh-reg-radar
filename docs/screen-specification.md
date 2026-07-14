@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.3 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.3 | 2026-07-14 | S-014 내부 기준 등록의 필수 메타데이터 입력·multipart payload와 `REFERENCE_METADATA_INVALID` 안전 오류 상태 동기화 |
+| v1.2 | 2026-07-14 | S-014 생성 계약 기반 기준자료 CRUD·불변 버전·이력·재색인·Chunk·Hybrid Search와 loading/empty/error/권한/redaction 상태, 로그인 후 역할별 기본 진입 반영 |
 | v1.1 | 2026-07-14 | M2 로그인과 광고물 목록·등록·기본 상세의 loading/empty/error/validation/권한 상태 및 구현 경계 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과 반영, 핵심 화면/권한/Annotation/리포트 화면 기준 보강 |
 
@@ -24,7 +26,7 @@
 | --- | --- |
 | 문서명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 화면설계서 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
-| 문서 버전 | v1.1 |
+| 문서 버전 | v1.3 |
 | 작성 목적 | 화면기획서 작성 전, 주요 화면의 구조·역할·입출력·버튼·이동 흐름을 정의 |
 | 작성 범위 | PoC 화면 기준 |
 | 비고 | 본 문서는 상세 UI 디자인이 아닌 화면 설계 틀이다. |
@@ -225,7 +227,7 @@ ADR-0060 기준으로 PoC 1차 구현은 핵심 화면만 상세 레이아웃, �
 | --- | --- |
 | 경로 | `/login` |
 | 입력 | 이메일, 비밀번호. 빈 값과 10자 미만 비밀번호는 API 요청 전에 사용자 안내를 표시한다. |
-| 성공 | `POST /api/v1/auth/login` 성공 후 access token은 브라우저 메모리에만 두고 `/advertisements`로 이동한다. refresh token은 서버의 `refreshToken` httpOnly cookie를 사용하며 화면 코드가 읽거나 저장하지 않는다. |
+| 성공 | `POST /api/v1/auth/login` 성공 후 access token은 브라우저 메모리에만 두고 역할별 기본 경로로 이동한다. 상품부서 담당자·준법감시 담당자와 복수 기능 권한 사용자는 `/advertisements`, `STANDARD_MANAGER` 단일 기능 사용자는 `/standards`가 기본 경로다. refresh token은 서버의 `refreshToken` httpOnly cookie를 사용하며 화면 코드가 읽거나 저장하지 않는다. |
 | 진행 상태 | 요청 중 버튼을 비활성화하고 `로그인 중...` 상태를 표시한다. |
 | 실패 상태 | 로그인 실패·비활성·잠금 여부를 구분하지 않는 일반화 문구를 표시하고, 서버 내부 원인·token·경로를 노출하지 않는다. |
 | 권한 | 미인증 사용자의 광고물 경로 직접 접근은 `/login`으로 이동한다. |
@@ -937,6 +939,36 @@ PDF 다운로드는 ADR-0054 기준 HWPX 기준 산출물의 변환본을 제공
 | 비활성화 | 기준자료 비활성화 |
 | 이력 보기 | 변경 이력 조회 |
 | 첨부파일 보기 | 원문 파일 확인 |
+
+---
+
+### 5) M3 구현 흐름
+
+| 영역 | 구현 기준 |
+| --- | --- |
+| 계약 client | `openapi/openapi.yaml` 0.3.0의 frozen Standards/Evidence/Reindex/Chunk schema에서 생성한 TypeScript 타입만 API 경계에 사용한다. |
+| 목록/검색 | `/standards` 진입 시 `activeOnly=true`, `page=1`, `size=20`으로 조회하고 기준명, 기준 유형, 상품군, 광고유형, 기준 성격 필터를 query에 반영한다. |
+| 등록 | `INTERNAL_STANDARD` 등록 폼은 소관 부서, 문서명, 섹션 경로, 적용일, 문서 버전, 상품군을 필수 입력으로 수집한다. `multipart/form-data`의 `metadata` JSON에 `owningDepartment`, `documentName`, `sectionPath`, `effectiveDate`, `version`, `productGroup`와 `inputBoundary=DIRECT_TEXT_ONLY`를 전송하고 상품군·적용일은 상위 필드에도 동일하게 전송한다. 직접 입력 본문은 필수이며 원문 파일은 보관용 선택 항목이다. |
+| 수정/버전 | `/standards/{standardId}` 상세를 먼저 조회하고 PATCH로 기존 version을 덮어쓰지 않는 새 불변 version과 변경 사유를 등록한다. |
+| 비활성화 | 사유를 필수 입력하고 soft-deactivate하여 연결 Chunk가 검색 대상에서 제외되도록 요청한다. |
+| 이력 | version, standardVersionId, 적용일, 변경 사유, 등록자를 불변 이력 패널에 표시한다. |
+| 재색인 | 특정 standardVersionId에 `INDEX_ONLY`, 고정 chunk/search schema version, Qdrant+OpenSearch 대상을 전송하고 Job 상태와 양쪽 index 상태를 표시한다. |
+| Chunk | 관리자 전용 Chunk 본문, 구조 위치, token 수와 양쪽 index 상태만 표시한다. 내부 collection/index/point/document ID는 표시하지 않는다. |
+| 근거 검색 | `HYBRID`, 최대 20건으로 검색하며 rank, relevanceScore, matchSource와 안전한 요약을 표시한다. 한쪽 검색 backend 장애도 정상/빈 결과로 바꾸지 않는다. |
+
+---
+
+### 6) 요청 상태와 권한
+
+| 상태 | 화면 처리 |
+| --- | --- |
+| Loading | 목록과 관리 action 요청 중 별도 진행 문구를 표시하고 중복 요청 button을 비활성화한다. |
+| Empty | 목록, version 이력, Chunk, 근거 검색 결과가 0건이면 각 영역별 빈 상태 문구를 표시한다. |
+| Error | ADR-0045의 일반화된 문구와 안전한 traceId만 표시하며 backend 원문 message, 내부 경로, Qdrant collection, OpenSearch index를 노출하지 않는다. |
+| Metadata validation | 필수 내부 기준 메타데이터가 누락되거나 유효하지 않아 `REFERENCE_METADATA_INVALID`가 반환되면 입력 확인 문구와 안전한 traceId만 표시하고 backend 원문 message는 표시하지 않는다. |
+| Search unavailable | 503은 “검색 인프라를 사용할 수 없습니다”로 표시하고 근거 없음이나 정상 Hybrid 결과처럼 표시하지 않는다. |
+| Permission | `STANDARD_MANAGER`, `SYSTEM_ADMIN`만 route와 navigation action에 접근한다. 그 밖의 role은 API 요청 전에 접근 제한 상태를 표시한다. |
+| Responsive | PC/노트북에서 전체 관리 action을 제공하고 작은 화면에서는 filter/form을 1열로, table은 가로 scroll로 유지한다. |
 
 ---
 

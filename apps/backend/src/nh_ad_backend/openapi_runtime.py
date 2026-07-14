@@ -1,11 +1,13 @@
 """Narrow fixes for FastAPI artifacts that cannot describe the runtime boundary."""
 
-from typing import Any
+from copy import deepcopy
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from nh_ad_backend.api import CreateAdvertisementRequest
+from nh_ad_backend.m3_openapi import M3_OPENAPI
 
 
 def _without_null_branch(value: dict[str, Any]) -> dict[str, Any]:
@@ -17,6 +19,17 @@ def _without_null_branch(value: dict[str, Any]) -> dict[str, Any]:
     if len(non_null) != 1 or not isinstance(non_null[0], dict):
         return value
     return {**non_null[0], **{key: item for key, item in value.items() if key != "anyOf"}}
+
+
+def _normalize_integral_numbers(value: Any) -> Any:
+    """Avoid generator-only ``1.0`` drift for integer JSON-Schema bounds."""
+    if isinstance(value, dict):
+        return {key: _normalize_integral_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_integral_numbers(item) for item in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def generated_openapi(app: FastAPI) -> dict[str, Any]:
@@ -70,5 +83,17 @@ def generated_openapi(app: FastAPI) -> dict[str, Any]:
     components["CreateAdvertisementRequest"] = create_schema
     components.pop("HTTPValidationError", None)
     components.pop("ValidationError", None)
+    # M3 handlers return deliberately lightweight dictionaries, while the governed
+    # boundary has strict response, error, parameter, and multipart schemas. Publish
+    # those backend-owned fragments explicitly and keep them parity-tested against
+    # the repository source contract.
+    schema["paths"].update(deepcopy(M3_OPENAPI["paths"]))
+    for path in M3_OPENAPI["paths"]:
+        for operation in schema["paths"][path].values():
+            if isinstance(operation, dict):
+                operation.setdefault("security", [{"BearerAuth": []}])
+    for component_kind, values in M3_OPENAPI["components"].items():
+        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
+    schema = cast(dict[str, Any], _normalize_integral_numbers(schema))
     app.openapi_schema = schema
     return schema

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     object_storage_secret_key: SecretStr | None = None
     ad_originals_bucket: str = "nh-ad-originals"
     object_storage_region: str = "us-east-1"
+    qdrant_endpoint: str = "http://qdrant:6333"
+    qdrant_collection: str = "dev_reference_chunks"
+    opensearch_endpoint: str = "http://opensearch:9200"
+    opensearch_index: str = "dev_reference_docs"
 
     @property
     def allowed_origins(self) -> tuple[str, ...]:

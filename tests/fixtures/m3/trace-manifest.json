@@ -1,0 +1,121 @@
+{
+  "manifestVersion": 1,
+  "goalId": "G004-m3",
+  "capability": "m3-standards-version-search",
+  "openapi": {
+    "source": "openapi/openapi.yaml",
+    "version": "0.3.0",
+    "operationIds": [
+      "listStandards",
+      "createStandard",
+      "getStandard",
+      "updateStandard",
+      "deactivateStandard",
+      "listStandardHistories",
+      "searchEvidences",
+      "getEvidence",
+      "requestStandardReindex",
+      "getStandardReindexJob",
+      "listEvidenceChunks",
+      "getEvidenceChunk"
+    ],
+    "schemas": [
+      "EvidenceType",
+      "RuleType",
+      "Importance",
+      "SearchMode",
+      "StandardSummary",
+      "StandardPage",
+      "CreateStandardRequest",
+      "UpdateStandardRequest",
+      "StandardCreated",
+      "StandardDetail",
+      "StandardHistoryPage",
+      "DeactivateStandardRequest",
+      "EvidenceSearchResult",
+      "EvidenceDetail",
+      "ReindexStandardRequest",
+      "StandardReindexJob",
+      "EvidenceChunk",
+      "EvidenceChunkPage"
+    ]
+  },
+  "migration": {
+    "revision": "0003_m3_standards_search",
+    "downRevision": "0002_m2_auth_advertisement_audit",
+    "path": "apps/backend/migrations/versions/0003_m3_standards_search.py",
+    "ownedTables": [
+      "rag.standards",
+      "rag.standard_versions",
+      "rag.evidences",
+      "rag.evidence_chunks",
+      "rag.standard_reindex_jobs"
+    ]
+  },
+  "fixtures": [
+    {
+      "path": "tests/fixtures/m3/standards-search.json",
+      "version": 1,
+      "kind": "synthetic",
+      "sha256": "8b130cef470ff39c269d14c397311ff5cd7ec898b8ece1ecaa9e1743b75e5b50",
+      "containsCustomerData": false
+    }
+  ],
+  "testCaseIds": [
+    "TC-EVD-001",
+    "TC-EVD-002",
+    "TC-EVD-003",
+    "TC-EVD-004",
+    "TC-EVD-005",
+    "TC-EVD-006",
+    "TC-EVD-010",
+    "TC-EVD-012",
+    "TC-EVD-013",
+    "TC-EVD-014",
+    "TC-STD-001",
+    "TC-STD-002",
+    "TC-STD-003",
+    "TC-STD-004",
+    "TC-STD-005",
+    "TC-STD-006",
+    "TC-STD-007",
+    "TC-STD-008",
+    "TC-STD-009",
+    "TC-STD-010",
+    "TC-STD-011",
+    "TC-STD-012",
+    "TC-STD-013",
+    "TC-STD-014",
+    "TC-STD-015",
+    "TC-STD-016",
+    "TC-STD-017",
+    "TC-STD-018",
+    "TC-STD-019",
+    "TC-STD-020",
+    "TC-STD-021",
+    "TC-STD-022",
+    "TC-STD-023",
+    "TC-NFR-HIS-002",
+    "TC-NFR-HIS-005",
+    "TC-NFR-API-001",
+    "TC-NFR-API-002",
+    "TC-NFR-API-003",
+    "TC-NFR-API-004",
+    "TC-NFR-API-007",
+    "TC-NFR-API-008"
+  ],
+  "executionNodes": {
+    "contract": "tests/api_contract/m3_contract.test.mjs",
+    "migration": "tests/integration/test_m3_database_contract.py",
+    "backend": "apps/backend/tests/test_m3_standards_search.py",
+    "frontend": "apps/frontend/src/m3.e2e.test.tsx"
+  },
+  "excludedCapabilities": [
+    "parser-ocr",
+    "review-jobs",
+    "review-results",
+    "annotations",
+    "reports",
+    "validation-evaluation"
+  ]
+}

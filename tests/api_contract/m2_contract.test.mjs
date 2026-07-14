@@ -13,22 +13,18 @@ const root = new URL('../../', import.meta.url);
 const contractPath = new URL('openapi/openapi.yaml', root).pathname;
 const manifestPath = new URL('tests/fixtures/m2/trace-manifest.json', root).pathname;
 
-test('TC-COM-001..015/TC-ADV-001..017: manifest locks the exact M2 contract', async () => {
+test('TC-COM-001..015/TC-ADV-001..017: M2 manifest remains a stable subset', async () => {
   const document = await loadOpenApi(contractPath);
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  const operationIds = [...collectOperationIds(document).keys()];
+  const operationIds = collectOperationIds(document);
 
   assert.equal(manifest.goalId, 'G003-m2');
-  assert.equal(manifest.openapi.version, document.info.version);
-  assert.deepEqual(manifest.openapi.operationIds, operationIds);
-  assert.deepEqual(manifest.openapi.schemas, Object.keys(document.components.schemas));
-
-  for (const excluded of manifest.excludedCapabilities) {
-    assert.equal(
-      JSON.stringify(document).toLowerCase().includes(excluded),
-      false,
-      `M3+ capability leaked into M2: ${excluded}`,
-    );
+  assert.equal(manifest.openapi.version, '0.2.0');
+  for (const operationId of manifest.openapi.operationIds) {
+    assert.ok(operationIds.has(operationId), `M2 operation removed: ${operationId}`);
+  }
+  for (const schema of manifest.openapi.schemas) {
+    assert.ok(Object.hasOwn(document.components.schemas, schema), `M2 schema removed: ${schema}`);
   }
 });
 

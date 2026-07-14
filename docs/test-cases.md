@@ -6,13 +6,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.6 |
 | 기준일 | 2026-07-14 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.6 | 2026-07-14 | S-014 내부 기준 등록 필수 metadata의 정확한 multipart JSON과 `REFERENCE_METADATA_INVALID` 일반화 표시 통합 검증 반영 |
+| v1.5 | 2026-07-14 | S-014 생성 client와 관리자 route gate, CRUD/불변 version/이력/reindex/Chunk/Hybrid Search의 loading·empty·error·redaction component/integration 검증 반영 |
+| v1.4 | 2026-07-14 | G004-m3 실제 TC ID trace, Standards/Evidence/Reindex/Search 계약·migration·고정 score/vector fixture와 명시적 부분 장애 Gate 반영 |
 | v1.3 | 2026-07-14 | M2 capability-local OpenAPI/migration/seed/fixture trace Gate, queryless preview descriptor와 scope·redaction negative contract 검증 반영 |
 | v1.2 | 2026-07-14 | M1 앱 독립 검증, Compose smoke, DB bootstrap/Alembic 경계, 최소권한 및 dev/prod namespace 격리 CI 항목 반영 |
 | v1.1 | 2026-07-14 | M0 OpenAPI core skeleton, lockfile 기반 lint, 참조/example/operationId 계약 검증 항목 반영 |
@@ -27,7 +30,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.3 |
+| 문서 버전 | v1.6 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -409,8 +412,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 
 | TC ID | 테스트 항목 | 사전조건 | 테스트 절차 | 기대 결과 | 관련 DB/API | 우선순위 |
 | --- | --- | --- | --- | --- | --- | --- |
-| TC-STD-001 | 기준자료 정상 등록 | 기준 관리자 권한 | 기준자료 등록 API 호출 | standardId, evidenceId 생성 | `standards`, `standard_versions`, `evidences` | P0 |
-| TC-STD-002 | 기준자료 필수값 누락 | title 또는 content 누락 | 기준자료 등록 API 호출 | 400 BAD_REQUEST 반환 | - | P0 |
+| TC-STD-001 | 기준자료 정상 등록 | 기준 관리자 권한과 유효한 내부 기준 metadata | `owningDepartment`, `documentName`, `sectionPath`, `effectiveDate`, `version`, `productGroup`를 포함한 multipart 등록 API 호출 | 정확한 metadata JSON이 전달되고 standardId, evidenceId 생성 | `standards`, `standard_versions`, `evidences` | P0 |
+| TC-STD-002 | 기준자료 필수값 누락 | title/content 또는 내부 기준 필수 metadata 누락 | 기준자료 등록 API 호출 | 일반 필수값은 400 BAD_REQUEST, 유형별 metadata는 400 `REFERENCE_METADATA_INVALID` 반환 | - | P0 |
 | TC-STD-003 | 기준자료 목록 조회 | 기준자료 등록됨 | `/standards` 호출 | 기준자료 목록 반환 | `standards` | P1 |
 | TC-STD-004 | 기준자료 조건 검색 | 기준자료 다수 등록 | evidenceType, productGroup 조건 조회 | 조건 일치 목록 반환 | `standards` | P1 |
 | TC-STD-005 | 기준자료 상세 조회 | evidenceId 존재 | `/evidences/{id}` 호출 | 근거 상세 반환 | `evidences` | P0 |
@@ -418,11 +421,11 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-STD-007 | 기준자료 비활성화 | standardId 존재 | 비활성화 API 호출 | is_active=false | `standards` | P1 |
 | TC-STD-008 | 기준자료 변경 이력 조회 | 수정 이력 존재 | histories API 호출 | 변경 이력 목록 반환 | `standard_versions` | P1 |
 | TC-STD-009 | 권한 없는 기준자료 등록 | 상품부서 사용자 | 기준자료 등록 API 호출 | 403 FORBIDDEN 반환 | - | P0 |
-| TC-STD-010 | 기준자료 Chunk 생성 | 기준자료 등록 완료 | RAG 인덱싱 수행 | evidence_chunks 생성, Qdrant/OpenSearch ID 저장 | `evidence_chunks` | P1 |
+| TC-STD-010 | 기준자료 Chunk 생성 | 직접 입력 기준자료 등록 완료 | 고정 Chunk/score/vector fixture로 RAG 인덱싱 수행 | `evidence_chunks` 생성, 동일 입력은 deterministic Qdrant/OpenSearch ID로 upsert | `evidence_chunks` | P1 |
 | TC-STD-011 | 기준자료 재색인 요청 | 기준 관리자 권한과 standardVersionId 존재 | 재색인 API 호출 | `standard_reindex_jobs`에 QUEUED Job 생성 | `standard_reindex_jobs` | P0 |
 | TC-STD-012 | 재색인 상태 조회 | 재색인 Job 존재 | 상태 조회 API 호출 | jobStatus, reindexScope, indexedChunkCount, 실패 사유 반환 | `standard_reindex_jobs` | P0 |
 | TC-STD-013 | 임베딩 모델 변경 재색인 | 기존 Chunk와 새 embeddingModel 지정 | `VECTOR_ONLY` 또는 `INDEX_ONLY` 재색인 실행 | Chunk는 유지되고 Qdrant point와 embeddingModel metadata 갱신 | `evidence_chunks`, `standard_reindex_jobs` | P1 |
-| TC-STD-014 | 관리자 Chunk 조회 | 기준 관리자 권한과 evidenceId 존재 | Chunk 목록/상세 조회 API 호출 | chunkText, sectionPath, parserRuleVersion, qdrantPointId 반환 | `evidence_chunks` | P1 |
+| TC-STD-014 | 관리자 Chunk 조회 | 기준 관리자 권한과 evidenceId 존재 | Chunk 목록/상세 조회 API 호출 | chunkText, sectionPath, parserRuleVersion, 검색 version/status를 반환하고 내부 index/point/doc ID는 숨김 | `evidence_chunks` | P1 |
 | TC-STD-015 | 일반 사용자 Chunk 조회 차단 | 상품부서 사용자 | Chunk 조회 API 호출 | 403 FORBIDDEN 반환 | `audit_logs` | P0 |
 | TC-STD-016 | 재색인 중복 실행 idempotency | 동일 standardVersionId와 동일 embeddingModel 준비 | 같은 재색인 Job 또는 요청을 2회 실행 | 동일 deterministic ID에 upsert되고 중복 Qdrant point/OpenSearch doc가 생성되지 않음 | `evidence_chunks`, Qdrant, OpenSearch | P0 |
 | TC-STD-017 | 부분 실패 상태 기록 | Qdrant 성공, OpenSearch 실패 fixture 준비 | 재색인 실행 | Qdrant status ACTIVE, OpenSearch status FAILED, Job 실패 사유 기록 | `evidence_chunks`, `standard_reindex_jobs` | P0 |
@@ -432,6 +435,19 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-STD-021 | OpenSearch synonym 검색 | synonymVersion이 적용된 기준자료 색인 | 동의어 표현으로 기준자료 검색 | 동의어가 적용되어 관련 chunk가 검색됨 | OpenSearch | P1 |
 | TC-STD-022 | OpenSearch highlight 반환 | chunkText/title match가 있는 검색어 준비 | Chunk 상세 또는 검색 결과 조회 | `chunkText`, `title` highlight 또는 snippet 반환 | OpenSearch, API | P1 |
 | TC-STD-023 | analyzer/synonym 변경 재색인 | opensearchAnalyzerVersion 또는 synonymVersion 변경 | `KEYWORD_ONLY` 또는 `INDEX_ONLY` 재색인 실행 | OpenSearch document version 갱신, 검색 결과 정상 반환 | `standard_reindex_jobs`, OpenSearch | P1 |
+
+## 16.1 S-014 프론트엔드 통합 검증 기준
+
+S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC-EVD-001`~`TC-EVD-014`의 화면 경계를 다음과 같이 함께 검증한다. 새 요구사항 ID나 TC ID를 만들지 않고 기존 계약 TC의 사용자 흐름 증거로 연결한다.
+
+| 연결 TC | 화면 검증 |
+| --- | --- |
+| TC-STD-001/002/003/004 | 생성된 OpenAPI 타입으로 목록 loading/empty와 filter를 검증하고, 내부 기준 필수 metadata 여섯 필드와 `inputBoundary`가 multipart JSON 및 상위 상품군·적용일과 정확히 일치하는 성공 payload, 400 `REFERENCE_METADATA_INVALID` 일반화 문구·traceId·원문 message 미노출을 검증 |
+| TC-STD-005/006/008 | 단건 상세 후 변경 사유가 있는 새 불변 version 저장, version 이력 표시 검증 |
+| TC-STD-007/018 | 비활성화 사유 PATCH와 soft-deactivate 상태 표시 검증 |
+| TC-STD-009/015 | `STANDARD_MANAGER`, `SYSTEM_ADMIN` 외 role은 route에서 API 호출 전에 차단되고 Chunk action이 노출되지 않음을 검증 |
+| TC-STD-011/012/014/017 | 재색인 요청의 고정 version/양쪽 target과 Job 상태, redacted Chunk 내용·양쪽 index 상태, 내부 point/doc 식별자 미노출 검증 |
+| TC-EVD-001/004/012/013/014 | deterministic rank/score/matchSource 표시, 503 일반화 문구와 traceId, server message 및 내부 검색 식별자 미노출, fallback 금지 검증 |
 
 ---
 
@@ -529,7 +545,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-NFR-API-005 | M2 핵심 플로우 API 포함 범위 | OpenAPI path 목록과 FilePreview example/pattern 확인 | Auth/Common, 광고물 등록·목록·상세, authorized 파일 preview/content/download, redacted 감사 조회만 포함하고 previewPath는 queryless content descriptor이며 `pageNo`는 실제 content 요청에만 사용 | P0 |
 | TC-NFR-API-006 | M2 capability-local 범위 | OpenAPI metadata, paths, components 확인 | v0.2.0의 12 operation/schema가 trace manifest와 일치하고 Review/Parser/Search/Result/Report 등 M3+ 계약이 없음 | P0 |
 | TC-NFR-API-007 | OpenAPI 참조 및 example 검증 | 모든 local `$ref` 해석과 schema example validation 실행 | 끊어진 참조와 schema 불일치 example이 없음 | P0 |
-| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | M2 operation 12개에 누락·중복 `operationId`가 없음 | P0 |
+| TC-NFR-API-008 | operationId 유일성 | 모든 path operation의 `operationId` 수집 후 중복 검사 | M2 operation 12개를 보존한 M3 source contract 24개 operation에 누락·중복 `operationId`가 없음 | P0 |
 
 ## 19.5 화면 UI 및 반응형
 
@@ -596,7 +612,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 
 | 단계 | 사용자 액션 | 검증 API/DB | 기대 결과 |
 | --- | --- | --- | --- |
-| 1 | 기준자료 등록 | POST `/standards` | standardId, evidenceId 생성 |
+| 1 | 내부 기준 등록 | POST `/standards` | 필수 metadata JSON과 상위 상품군·적용일이 일치하고 standardId, evidenceId 생성 |
 | 2 | 기준자료 Chunk 생성 | `evidence_chunks` | qdrant_point_id, opensearch_doc_id 저장 |
 | 3 | 광고물 검토 요청 | POST `/advertisements/{id}/reviews` | AI 분석 시작 |
 | 4 | 위험 표현 검토 | `review_items` | 위험 표현 항목 생성 |

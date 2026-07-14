@@ -13,6 +13,8 @@ from nh_ad_backend.repository import InMemoryRepository
 from nh_ad_backend.security import LoginRateLimiter, TokenService, hash_password
 from nh_ad_backend.services import AdvertisementService, AuthService
 from nh_ad_backend.settings import Settings
+from nh_ad_backend.search import HybridSearch, InMemorySearchBackend
+from nh_ad_backend.standards import InMemoryStandardRepository, StandardService
 from nh_ad_backend.storage import PrivateFileStorage
 
 
@@ -90,6 +92,7 @@ def repository() -> InMemoryRepository:
 def services(repository: InMemoryRepository, clock: Clock, tmp_path: Path) -> ApplicationServices:
     tokens = TokenService(JWT_SECRET, now=clock)
     counter = iter(range(1, 100))
+    standard_counter = iter(range(1, 100))
     return ApplicationServices(
         repository=repository,
         auth=AuthService(repository, tokens, now=clock, rate_limiter=LoginRateLimiter(clock)),
@@ -98,6 +101,17 @@ def services(repository: InMemoryRepository, clock: Clock, tmp_path: Path) -> Ap
             PrivateFileStorage(tmp_path / "objects"),
             now=clock,
             identifier=lambda prefix: f"{prefix}-{next(counter):04d}",
+        ),
+        standards=StandardService(
+            InMemoryStandardRepository(),
+            HybridSearch(
+                keyword=InMemorySearchBackend("OPENSEARCH"),
+                vector=InMemorySearchBackend("QDRANT"),
+            ),
+            now=clock,
+            identifier=lambda prefix: f"{prefix}-{next(standard_counter):04d}",
+            environment="test",
+            audit_sink=repository.add_audit_event,
         ),
     )
 

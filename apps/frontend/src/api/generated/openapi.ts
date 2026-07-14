@@ -192,12 +192,183 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/standards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists standards for standard managers and system administrators. */
+        get: operations["listStandards"];
+        put?: never;
+        /** @description Creates a standard and immutable version 1.0 from directly entered text. */
+        post: operations["createStandard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/standards/{standardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns the standard master with its current immutable version. */
+        get: operations["getStandard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Appends a new immutable standard version; it never overwrites history. */
+        patch: operations["updateStandard"];
+        trace?: never;
+    };
+    "/standards/{standardId}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Soft-deactivates a standard and excludes its chunks from search. */
+        patch: operations["deactivateStandard"];
+        trace?: never;
+    };
+    "/standards/{standardId}/histories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Lists immutable versions in descending effective/version order. */
+        get: operations["listStandardHistories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evidences/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Searches only active, basis-date-valid chunks. Hybrid mode requires both Qdrant and OpenSearch; a backend failure is never converted to a keyword-only or vector-only success. */
+        get: operations["searchEvidences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evidences/{evidenceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns evidence bound to one immutable standard version. */
+        get: operations["getEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/standards/{standardId}/versions/{standardVersionId}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Queues an idempotent deterministic-ID reindex for directly entered text. */
+        post: operations["requestStandardReindex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/standard-reindex-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Returns independent Qdrant and OpenSearch processing states. */
+        get: operations["getStandardReindexJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evidences/{evidenceId}/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Administrator-only chunk inspection without internal index identifiers. */
+        get: operations["listEvidenceChunks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evidence-chunks/{evidenceChunkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Administrator-only redacted chunk detail. */
+        get: operations["getEvidenceChunk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * @example {
+        /** @example {
          *       "code": "FILE_NOT_SUPPORTED",
          *       "message": "지원하지 않는 파일 형식입니다.",
          *       "details": [
@@ -208,8 +379,7 @@ export interface components {
          *       ],
          *       "traceId": "req-example-000001",
          *       "timestamp": "2026-07-14T06:00:00Z"
-         *     }
-         */
+         *     } */
         ErrorResponse: {
             code: string;
             message: string;
@@ -361,6 +531,244 @@ export interface components {
             totalElements: number;
             totalPages: number;
         };
+        /** @enum {string} */
+        EvidenceType: "LAW" | "REGULATION" | "INTERNAL_STANDARD" | "GUIDELINE" | "MANUAL" | "REVIEW_CASE" | "TEMPLATE" | "PRODUCT_STANDARD";
+        /** @enum {string} */
+        RuleType: "REQUIRED" | "PROHIBITED" | "RECOMMENDED" | "REFERENCE";
+        /** @enum {string} */
+        Importance: "HIGH" | "MEDIUM" | "LOW";
+        /**
+         * @default HYBRID
+         * @enum {string}
+         */
+        SearchMode: "KEYWORD" | "VECTOR" | "HYBRID";
+        /** @enum {string} */
+        IndexStatus: "PENDING" | "INDEXING" | "ACTIVE" | "FAILED" | "EXCLUDED" | "DELETED";
+        /** @enum {string} */
+        ReindexScope: "INDEX_ONLY" | "CHUNK_AND_INDEX" | "KEYWORD_ONLY" | "VECTOR_ONLY";
+        /** @enum {string} */
+        ReindexJobStatus: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+        /** @enum {string} */
+        SearchBackend: "QDRANT" | "OPENSEARCH";
+        StandardSummary: {
+            standardId: string;
+            title: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            ruleType: components["schemas"]["RuleType"];
+            importance?: components["schemas"]["Importance"] | null;
+            /** Format: date */
+            effectiveDate?: string | null;
+            /** Format: date */
+            expiredDate?: string | null;
+            currentVersion: string;
+            isActive: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        StandardPage: {
+            contents: components["schemas"]["StandardSummary"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        CreateStandardRequest: {
+            title: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            productGroup?: components["schemas"]["ProductGroup"];
+            advertisementType?: components["schemas"]["AdvertisementType"];
+            ruleType: components["schemas"]["RuleType"];
+            importance?: components["schemas"]["Importance"];
+            /** Format: date */
+            effectiveDate?: string;
+            /** Format: date */
+            expiredDate?: string;
+            /** @description Evidence-type-required metadata defined by ADR-0050. */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** @description Directly entered reference body; M3 does not parse an attachment. */
+            content: string;
+            /**
+             * Format: binary
+             * @description Optional archival original; its content is outside the M3 parser boundary.
+             */
+            sourceFile?: string;
+        };
+        UpdateStandardRequest: {
+            title?: string;
+            content: string;
+            /** Format: date */
+            effectiveDate?: string | null;
+            /** Format: date */
+            expiredDate?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            changeReason: string;
+        };
+        StandardCreated: {
+            standardId: string;
+            evidenceId: string;
+            standardVersionId: string;
+            version: string;
+            isActive: boolean;
+        };
+        StandardDetail: {
+            standardId: string;
+            evidenceId: string;
+            standardVersionId: string;
+            version: string;
+            title: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            ruleType: components["schemas"]["RuleType"];
+            importance?: components["schemas"]["Importance"] | null;
+            /** Format: date */
+            effectiveDate?: string | null;
+            /** Format: date */
+            expiredDate?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            content: string;
+            changeReason?: string | null;
+            isActive: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+        };
+        StandardHistoryPage: {
+            contents: components["schemas"]["StandardDetail"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
+        DeactivateStandardRequest: {
+            reason: string;
+        };
+        EvidenceSearchResult: {
+            evidenceId: string;
+            evidenceChunkId: string;
+            standardVersionId: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            title: string;
+            articleNo?: string | null;
+            ruleType: components["schemas"]["RuleType"];
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            contentSummary: string;
+            /** Format: date */
+            effectiveDate?: string | null;
+            version: string;
+            rankNo: number;
+            relevanceScore: number;
+            matchSource: components["schemas"]["SearchMode"];
+            highlights?: {
+                [key: string]: string[];
+            };
+        };
+        EvidenceDetail: {
+            evidenceId: string;
+            standardId: string;
+            standardVersionId: string;
+            evidenceType: components["schemas"]["EvidenceType"];
+            title: string;
+            articleNo?: string | null;
+            content: string;
+            contentSummary?: string | null;
+            productGroup?: components["schemas"]["ProductGroup"] | null;
+            advertisementType?: components["schemas"]["AdvertisementType"] | null;
+            ruleType: components["schemas"]["RuleType"];
+            importance?: components["schemas"]["Importance"] | null;
+            /** Format: date */
+            effectiveDate?: string | null;
+            /** Format: date */
+            expiredDate?: string | null;
+            version: string;
+            isActive: boolean;
+        };
+        ReindexStandardRequest: {
+            reindexScope: components["schemas"]["ReindexScope"];
+            reason: string;
+            parserRuleVersion?: string | null;
+            chunkingPolicyVersion: string;
+            /** @description Reproducibility label; M3 makes no provider network call. */
+            embeddingModel?: string | null;
+            searchSchemaVersion: string;
+            opensearchAnalyzerVersion?: string | null;
+            synonymVersion?: string | null;
+            targetIndexes: components["schemas"]["SearchBackend"][];
+        };
+        StandardReindexJob: {
+            jobId: string;
+            standardId: string;
+            standardVersionId: string;
+            reindexScope: components["schemas"]["ReindexScope"];
+            jobStatus: components["schemas"]["ReindexJobStatus"];
+            targetIndexes: components["schemas"]["SearchBackend"][];
+            parserRuleVersion?: string | null;
+            chunkingPolicyVersion?: string | null;
+            embeddingModel?: string | null;
+            searchSchemaVersion?: string | null;
+            opensearchAnalyzerVersion?: string | null;
+            synonymVersion?: string | null;
+            createdChunkCount: number;
+            indexedChunkCount: number;
+            qdrantStatus?: components["schemas"]["IndexStatus"] | null;
+            opensearchStatus?: components["schemas"]["IndexStatus"] | null;
+            failedReasonCode?: string | null;
+            failedReasonMessage?: string | null;
+            requestedBy: string;
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            startedAt?: string | null;
+            /** Format: date-time */
+            completedAt?: string | null;
+        };
+        EvidenceChunk: {
+            evidenceChunkId: string;
+            evidenceId: string;
+            standardId: string;
+            standardVersionId: string;
+            chunkNo: number;
+            chunkText: string;
+            tokenCount?: number | null;
+            sectionPath?: string | null;
+            articleNo?: string | null;
+            pageNo?: number | null;
+            sourceSpan?: {
+                [key: string]: unknown;
+            } | null;
+            structureConfidence?: number | null;
+            parserRuleVersion?: string | null;
+            chunkingPolicyVersion: string;
+            embeddingModel?: string | null;
+            searchSchemaVersion: string;
+            opensearchAnalyzerVersion?: string | null;
+            synonymVersion?: string | null;
+            opensearchHighlights?: {
+                [key: string]: string[];
+            };
+            qdrantIndexStatus: components["schemas"]["IndexStatus"];
+            qdrantIndexErrorCode?: string | null;
+            opensearchIndexStatus: components["schemas"]["IndexStatus"];
+            opensearchIndexErrorCode?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EvidenceChunkPage: {
+            contents: components["schemas"]["EvidenceChunk"][];
+            page: number;
+            size: number;
+            totalElements: number;
+            totalPages: number;
+        };
     };
     responses: {
         /** @description Request validation or file integrity failed. */
@@ -436,11 +844,25 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description Qdrant, OpenSearch, or index consistency is unavailable; no keyword-only or vector-only fallback is returned as normal evidence. */
+        SearchUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
     };
     parameters: {
         Origin: string;
         AdvertisementId: string;
         FileId: string;
+        StandardId: string;
+        StandardVersionId: string;
+        EvidenceId: string;
+        EvidenceChunkId: string;
+        ReindexJobId: string;
         Keyword: string;
         ProductGroupQuery: components["schemas"]["ProductGroup"];
         AdvertisementTypeQuery: components["schemas"]["AdvertisementType"];
@@ -475,8 +897,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
+                    /** @example {
                      *       "accessToken": "synthetic.jwt.value",
                      *       "tokenType": "Bearer",
                      *       "expiresIn": 1800,
@@ -489,8 +910,7 @@ export interface operations {
                      *           "PRODUCT_DEPARTMENT_USER"
                      *         ]
                      *       }
-                     *     }
-                     */
+                     *     } */
                     "application/json": components["schemas"]["AuthTokenResponse"];
                 };
             };
@@ -668,8 +1088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
+                    /** @example {
                      *       "advertisementId": "ADV-SYNTH-0001",
                      *       "advertisementName": "Synthetic mobile banner",
                      *       "productGroup": "SAVINGS",
@@ -689,8 +1108,7 @@ export interface operations {
                      *           "fileSize": 68
                      *         }
                      *       ]
-                     *     }
-                     */
+                     *     } */
                     "application/json": components["schemas"]["AdvertisementDetail"];
                 };
             };
@@ -806,6 +1224,347 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listStandards: {
+        parameters: {
+            query?: {
+                keyword?: components["parameters"]["Keyword"];
+                evidenceType?: components["schemas"]["EvidenceType"];
+                productGroup?: components["parameters"]["ProductGroupQuery"];
+                advertisementType?: components["parameters"]["AdvertisementTypeQuery"];
+                ruleType?: components["schemas"]["RuleType"];
+                activeOnly?: boolean;
+                page?: components["parameters"]["Page"];
+                size?: components["parameters"]["Size"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scope-authorized standards page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createStandard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["CreateStandardRequest"];
+            };
+        };
+        responses: {
+            /** @description Standard, immutable version, and evidence created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getStandard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                standardId: components["parameters"]["StandardId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current standard master and immutable version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateStandard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                standardId: components["parameters"]["StandardId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStandardRequest"];
+            };
+        };
+        responses: {
+            /** @description Newly created immutable version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deactivateStandard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                standardId: components["parameters"]["StandardId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeactivateStandardRequest"];
+            };
+        };
+        responses: {
+            /** @description Deactivated standard. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listStandardHistories: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                size?: components["parameters"]["Size"];
+            };
+            header?: never;
+            path: {
+                standardId: components["parameters"]["StandardId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable version history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardHistoryPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    searchEvidences: {
+        parameters: {
+            query: {
+                keyword: string;
+                evidenceType?: components["schemas"]["EvidenceType"];
+                productGroup?: components["parameters"]["ProductGroupQuery"];
+                advertisementType?: components["parameters"]["AdvertisementTypeQuery"];
+                ruleType?: components["schemas"]["RuleType"];
+                effectiveDate?: string;
+                searchMode?: components["schemas"]["SearchMode"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ranked evidence chunks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceSearchResult"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["SearchUnavailable"];
+        };
+    };
+    getEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidenceId: components["parameters"]["EvidenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence detail for the selected immutable standard version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    requestStandardReindex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                standardId: components["parameters"]["StandardId"];
+                standardVersionId: components["parameters"]["StandardVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReindexStandardRequest"];
+            };
+        };
+        responses: {
+            /** @description Reindex job accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardReindexJob"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["SearchUnavailable"];
+        };
+    };
+    getStandardReindexJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: components["parameters"]["ReindexJobId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reindex status including independent backend results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardReindexJob"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SearchUnavailable"];
+        };
+    };
+    listEvidenceChunks: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                size?: components["parameters"]["Size"];
+            };
+            header?: never;
+            path: {
+                evidenceId: components["parameters"]["EvidenceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redacted evidence chunk page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceChunkPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getEvidenceChunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                evidenceChunkId: components["parameters"]["EvidenceChunkId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redacted evidence chunk detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceChunk"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

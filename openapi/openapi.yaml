@@ -3,9 +3,9 @@ info:
   title: NH Advertisement Compliance API
   description: >-
     Source contract for the advertisement-compliance PoC. This revision is
-    intentionally bounded to the M2 authentication, common-code,
-    advertisement, file-access, and audit capabilities.
-  version: 0.2.0
+    bounded through M3 authentication, advertisement input, immutable
+    standards, evidence, reindex, and deterministic search capabilities.
+  version: 0.3.0
 servers:
   - url: /api/v1
 tags:
@@ -14,6 +14,9 @@ tags:
   - name: Advertisements
   - name: Files
   - name: Audit
+  - name: Standards
+  - name: Evidence
+  - name: Search Operations
 security:
   - BearerAuth: []
 paths:
@@ -343,6 +346,338 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /standards:
+    get:
+      tags: [Standards]
+      operationId: listStandards
+      description: Lists standards for standard managers and system administrators.
+      parameters:
+        - $ref: '#/components/parameters/Keyword'
+        - name: evidenceType
+          in: query
+          schema:
+            $ref: '#/components/schemas/EvidenceType'
+        - $ref: '#/components/parameters/ProductGroupQuery'
+        - $ref: '#/components/parameters/AdvertisementTypeQuery'
+        - name: ruleType
+          in: query
+          schema:
+            $ref: '#/components/schemas/RuleType'
+        - name: activeOnly
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Scope-authorized standards page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Standards]
+      operationId: createStandard
+      description: Creates a standard and immutable version 1.0 from directly entered text.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateStandardRequest'
+      responses:
+        '201':
+          description: Standard, immutable version, and evidence created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /standards/{standardId}:
+    get:
+      tags: [Standards]
+      operationId: getStandard
+      description: Returns the standard master with its current immutable version.
+      parameters:
+        - $ref: '#/components/parameters/StandardId'
+      responses:
+        '200':
+          description: Current standard master and immutable version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Standards]
+      operationId: updateStandard
+      description: Appends a new immutable standard version; it never overwrites history.
+      parameters:
+        - $ref: '#/components/parameters/StandardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStandardRequest'
+      responses:
+        '200':
+          description: Newly created immutable version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /standards/{standardId}/deactivate:
+    patch:
+      tags: [Standards]
+      operationId: deactivateStandard
+      description: Soft-deactivates a standard and excludes its chunks from search.
+      parameters:
+        - $ref: '#/components/parameters/StandardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeactivateStandardRequest'
+      responses:
+        '200':
+          description: Deactivated standard.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /standards/{standardId}/histories:
+    get:
+      tags: [Standards]
+      operationId: listStandardHistories
+      description: Lists immutable versions in descending effective/version order.
+      parameters:
+        - $ref: '#/components/parameters/StandardId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Immutable version history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardHistoryPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /evidences/search:
+    get:
+      tags: [Evidence]
+      operationId: searchEvidences
+      description: >-
+        Searches only active, basis-date-valid chunks. Hybrid mode requires
+        both Qdrant and OpenSearch; a backend failure is never converted to a
+        keyword-only or vector-only success.
+      parameters:
+        - name: keyword
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 300
+        - name: evidenceType
+          in: query
+          schema:
+            $ref: '#/components/schemas/EvidenceType'
+        - $ref: '#/components/parameters/ProductGroupQuery'
+        - $ref: '#/components/parameters/AdvertisementTypeQuery'
+        - name: ruleType
+          in: query
+          schema:
+            $ref: '#/components/schemas/RuleType'
+        - name: effectiveDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: searchMode
+          in: query
+          schema:
+            $ref: '#/components/schemas/SearchMode'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+      responses:
+        '200':
+          description: Deterministically ranked evidence chunks.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 20
+                items:
+                  $ref: '#/components/schemas/EvidenceSearchResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/SearchUnavailable'
+  /evidences/{evidenceId}:
+    get:
+      tags: [Evidence]
+      operationId: getEvidence
+      description: Returns evidence bound to one immutable standard version.
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Evidence detail for the selected immutable standard version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /standards/{standardId}/versions/{standardVersionId}/reindex:
+    post:
+      tags: [Search Operations]
+      operationId: requestStandardReindex
+      description: Queues an idempotent deterministic-ID reindex for directly entered text.
+      parameters:
+        - $ref: '#/components/parameters/StandardId'
+        - $ref: '#/components/parameters/StandardVersionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReindexStandardRequest'
+      responses:
+        '202':
+          description: Reindex job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardReindexJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/SearchUnavailable'
+  /standard-reindex-jobs/{jobId}:
+    get:
+      tags: [Search Operations]
+      operationId: getStandardReindexJob
+      description: Returns independent Qdrant and OpenSearch processing states.
+      parameters:
+        - $ref: '#/components/parameters/ReindexJobId'
+      responses:
+        '200':
+          description: Reindex status including independent backend results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardReindexJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SearchUnavailable'
+  /evidences/{evidenceId}/chunks:
+    get:
+      tags: [Search Operations]
+      operationId: listEvidenceChunks
+      description: Administrator-only chunk inspection without internal index identifiers.
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Redacted evidence chunk page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceChunkPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /evidence-chunks/{evidenceChunkId}:
+    get:
+      tags: [Search Operations]
+      operationId: getEvidenceChunk
+      description: Administrator-only redacted chunk detail.
+      parameters:
+        - $ref: '#/components/parameters/EvidenceChunkId'
+      responses:
+        '200':
+          description: Redacted evidence chunk detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceChunk'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     BearerAuth:
@@ -375,6 +710,41 @@ components:
       schema:
         type: string
         pattern: '^FILE-[A-Za-z0-9-]+$'
+    StandardId:
+      name: standardId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^STD-[A-Za-z0-9-]+$'
+    StandardVersionId:
+      name: standardVersionId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^STDVER-[A-Za-z0-9-]+$'
+    EvidenceId:
+      name: evidenceId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^EVD-[A-Za-z0-9-]+$'
+    EvidenceChunkId:
+      name: evidenceChunkId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^ECH-[A-Za-z0-9-]+$'
+    ReindexJobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^SRJ-[A-Za-z0-9-]+$'
     Keyword:
       name: keyword
       in: query
@@ -461,6 +831,14 @@ components:
           schema:
             type: integer
             minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SearchUnavailable:
+      description: >-
+        Qdrant, OpenSearch, or index consistency is unavailable; no
+        keyword-only or vector-only fallback is returned as normal evidence.
       content:
         application/json:
           schema:
@@ -822,6 +1200,608 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AuditLogSummary'
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    EvidenceType:
+      type: string
+      enum:
+        - LAW
+        - REGULATION
+        - INTERNAL_STANDARD
+        - GUIDELINE
+        - MANUAL
+        - REVIEW_CASE
+        - TEMPLATE
+        - PRODUCT_STANDARD
+    RuleType:
+      type: string
+      enum: [REQUIRED, PROHIBITED, RECOMMENDED, REFERENCE]
+    Importance:
+      type: string
+      enum: [HIGH, MEDIUM, LOW]
+    SearchMode:
+      type: string
+      enum: [KEYWORD, VECTOR, HYBRID]
+      default: HYBRID
+    IndexStatus:
+      type: string
+      enum: [PENDING, INDEXING, ACTIVE, FAILED, EXCLUDED, DELETED]
+    ReindexScope:
+      type: string
+      enum: [INDEX_ONLY, CHUNK_AND_INDEX, KEYWORD_ONLY, VECTOR_ONLY]
+    ReindexJobStatus:
+      type: string
+      enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+    SearchBackend:
+      type: string
+      enum: [QDRANT, OPENSEARCH]
+    StandardSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - standardId
+        - title
+        - evidenceType
+        - ruleType
+        - currentVersion
+        - isActive
+        - createdAt
+      properties:
+        standardId:
+          type: string
+        title:
+          type: string
+        evidenceType:
+          $ref: '#/components/schemas/EvidenceType'
+        productGroup:
+          oneOf:
+            - $ref: '#/components/schemas/ProductGroup'
+            - type: 'null'
+        advertisementType:
+          oneOf:
+            - $ref: '#/components/schemas/AdvertisementType'
+            - type: 'null'
+        ruleType:
+          $ref: '#/components/schemas/RuleType'
+        importance:
+          oneOf:
+            - $ref: '#/components/schemas/Importance'
+            - type: 'null'
+        effectiveDate:
+          type: [string, 'null']
+          format: date
+        expiredDate:
+          type: [string, 'null']
+          format: date
+        currentVersion:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    StandardPage:
+      type: object
+      additionalProperties: false
+      required: [contents, page, size, totalElements, totalPages]
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: '#/components/schemas/StandardSummary'
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    CreateStandardRequest:
+      type: object
+      additionalProperties: false
+      required: [title, evidenceType, ruleType, metadata, content]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        evidenceType:
+          $ref: '#/components/schemas/EvidenceType'
+        productGroup:
+          $ref: '#/components/schemas/ProductGroup'
+        advertisementType:
+          $ref: '#/components/schemas/AdvertisementType'
+        ruleType:
+          $ref: '#/components/schemas/RuleType'
+        importance:
+          $ref: '#/components/schemas/Importance'
+        effectiveDate:
+          type: string
+          format: date
+        expiredDate:
+          type: string
+          format: date
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Evidence-type-required metadata defined by ADR-0050.
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000000
+          description: Directly entered reference body; M3 does not parse an attachment.
+        sourceFile:
+          type: string
+          format: binary
+          description: Optional archival original; its content is outside the M3 parser boundary.
+    UpdateStandardRequest:
+      type: object
+      additionalProperties: false
+      required: [content, metadata, changeReason]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000000
+        effectiveDate:
+          type: [string, 'null']
+          format: date
+        expiredDate:
+          type: [string, 'null']
+          format: date
+        metadata:
+          type: object
+          additionalProperties: true
+        changeReason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    StandardCreated:
+      type: object
+      additionalProperties: false
+      required:
+        - standardId
+        - evidenceId
+        - standardVersionId
+        - version
+        - isActive
+      properties:
+        standardId:
+          type: string
+        evidenceId:
+          type: string
+        standardVersionId:
+          type: string
+        version:
+          type: string
+        isActive:
+          type: boolean
+    StandardDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - standardId
+        - evidenceId
+        - standardVersionId
+        - version
+        - title
+        - evidenceType
+        - ruleType
+        - metadata
+        - content
+        - isActive
+        - createdAt
+        - createdBy
+      properties:
+        standardId:
+          type: string
+        evidenceId:
+          type: string
+        standardVersionId:
+          type: string
+        version:
+          type: string
+        title:
+          type: string
+        evidenceType:
+          $ref: '#/components/schemas/EvidenceType'
+        productGroup:
+          oneOf:
+            - $ref: '#/components/schemas/ProductGroup'
+            - type: 'null'
+        advertisementType:
+          oneOf:
+            - $ref: '#/components/schemas/AdvertisementType'
+            - type: 'null'
+        ruleType:
+          $ref: '#/components/schemas/RuleType'
+        importance:
+          oneOf:
+            - $ref: '#/components/schemas/Importance'
+            - type: 'null'
+        effectiveDate:
+          type: [string, 'null']
+          format: date
+        expiredDate:
+          type: [string, 'null']
+          format: date
+        metadata:
+          type: object
+          additionalProperties: true
+        content:
+          type: string
+        changeReason:
+          type: [string, 'null']
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+    StandardHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [contents, page, size, totalElements, totalPages]
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: '#/components/schemas/StandardDetail'
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    DeactivateStandardRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    EvidenceSearchResult:
+      type: object
+      additionalProperties: false
+      required:
+        - evidenceId
+        - evidenceChunkId
+        - standardVersionId
+        - evidenceType
+        - title
+        - ruleType
+        - contentSummary
+        - version
+        - rankNo
+        - relevanceScore
+        - matchSource
+      properties:
+        evidenceId:
+          type: string
+        evidenceChunkId:
+          type: string
+        standardVersionId:
+          type: string
+        evidenceType:
+          $ref: '#/components/schemas/EvidenceType'
+        title:
+          type: string
+        articleNo:
+          type: [string, 'null']
+        ruleType:
+          $ref: '#/components/schemas/RuleType'
+        productGroup:
+          oneOf:
+            - $ref: '#/components/schemas/ProductGroup'
+            - type: 'null'
+        advertisementType:
+          oneOf:
+            - $ref: '#/components/schemas/AdvertisementType'
+            - type: 'null'
+        contentSummary:
+          type: string
+        effectiveDate:
+          type: [string, 'null']
+          format: date
+        version:
+          type: string
+        rankNo:
+          type: integer
+          minimum: 1
+          maximum: 20
+        relevanceScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        matchSource:
+          $ref: '#/components/schemas/SearchMode'
+        highlights:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    EvidenceDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - evidenceId
+        - standardId
+        - standardVersionId
+        - evidenceType
+        - title
+        - content
+        - ruleType
+        - version
+        - isActive
+      properties:
+        evidenceId:
+          type: string
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        evidenceType:
+          $ref: '#/components/schemas/EvidenceType'
+        title:
+          type: string
+        articleNo:
+          type: [string, 'null']
+        content:
+          type: string
+        contentSummary:
+          type: [string, 'null']
+        productGroup:
+          oneOf:
+            - $ref: '#/components/schemas/ProductGroup'
+            - type: 'null'
+        advertisementType:
+          oneOf:
+            - $ref: '#/components/schemas/AdvertisementType'
+            - type: 'null'
+        ruleType:
+          $ref: '#/components/schemas/RuleType'
+        importance:
+          oneOf:
+            - $ref: '#/components/schemas/Importance'
+            - type: 'null'
+        effectiveDate:
+          type: [string, 'null']
+          format: date
+        expiredDate:
+          type: [string, 'null']
+          format: date
+        version:
+          type: string
+        isActive:
+          type: boolean
+    ReindexStandardRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reindexScope
+        - reason
+        - chunkingPolicyVersion
+        - searchSchemaVersion
+        - targetIndexes
+      properties:
+        reindexScope:
+          $ref: '#/components/schemas/ReindexScope'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        parserRuleVersion:
+          type: [string, 'null']
+          maxLength: 100
+        chunkingPolicyVersion:
+          type: string
+          minLength: 1
+          maxLength: 100
+        embeddingModel:
+          type: [string, 'null']
+          maxLength: 100
+          description: Reproducibility label; M3 makes no provider network call.
+        searchSchemaVersion:
+          type: string
+          minLength: 1
+          maxLength: 100
+        opensearchAnalyzerVersion:
+          type: [string, 'null']
+          maxLength: 100
+        synonymVersion:
+          type: [string, 'null']
+          maxLength: 100
+        targetIndexes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/SearchBackend'
+    StandardReindexJob:
+      type: object
+      additionalProperties: false
+      required:
+        - jobId
+        - standardId
+        - standardVersionId
+        - reindexScope
+        - jobStatus
+        - targetIndexes
+        - createdChunkCount
+        - indexedChunkCount
+        - requestedBy
+        - requestedAt
+      properties:
+        jobId:
+          type: string
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        reindexScope:
+          $ref: '#/components/schemas/ReindexScope'
+        jobStatus:
+          $ref: '#/components/schemas/ReindexJobStatus'
+        targetIndexes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/SearchBackend'
+        parserRuleVersion:
+          type: [string, 'null']
+        chunkingPolicyVersion:
+          type: [string, 'null']
+        embeddingModel:
+          type: [string, 'null']
+        searchSchemaVersion:
+          type: [string, 'null']
+        opensearchAnalyzerVersion:
+          type: [string, 'null']
+        synonymVersion:
+          type: [string, 'null']
+        createdChunkCount:
+          type: integer
+          minimum: 0
+        indexedChunkCount:
+          type: integer
+          minimum: 0
+        qdrantStatus:
+          oneOf:
+            - $ref: '#/components/schemas/IndexStatus'
+            - type: 'null'
+        opensearchStatus:
+          oneOf:
+            - $ref: '#/components/schemas/IndexStatus'
+            - type: 'null'
+        failedReasonCode:
+          type: [string, 'null']
+        failedReasonMessage:
+          type: [string, 'null']
+        requestedBy:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+    EvidenceChunk:
+      type: object
+      additionalProperties: false
+      required:
+        - evidenceChunkId
+        - evidenceId
+        - standardId
+        - standardVersionId
+        - chunkNo
+        - chunkText
+        - chunkingPolicyVersion
+        - searchSchemaVersion
+        - qdrantIndexStatus
+        - opensearchIndexStatus
+        - createdAt
+      properties:
+        evidenceChunkId:
+          type: string
+        evidenceId:
+          type: string
+        standardId:
+          type: string
+        standardVersionId:
+          type: string
+        chunkNo:
+          type: integer
+          minimum: 1
+        chunkText:
+          type: string
+        tokenCount:
+          type: [integer, 'null']
+          minimum: 0
+        sectionPath:
+          type: [string, 'null']
+        articleNo:
+          type: [string, 'null']
+        pageNo:
+          type: [integer, 'null']
+          minimum: 1
+        sourceSpan:
+          type: [object, 'null']
+          additionalProperties: true
+        structureConfidence:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+        parserRuleVersion:
+          type: [string, 'null']
+        chunkingPolicyVersion:
+          type: string
+        embeddingModel:
+          type: [string, 'null']
+        searchSchemaVersion:
+          type: string
+        opensearchAnalyzerVersion:
+          type: [string, 'null']
+        synonymVersion:
+          type: [string, 'null']
+        opensearchHighlights:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        qdrantIndexStatus:
+          $ref: '#/components/schemas/IndexStatus'
+        qdrantIndexErrorCode:
+          type: [string, 'null']
+        opensearchIndexStatus:
+          $ref: '#/components/schemas/IndexStatus'
+        opensearchIndexErrorCode:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+    EvidenceChunkPage:
+      type: object
+      additionalProperties: false
+      required: [contents, page, size, totalElements, totalPages]
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceChunk'
         page:
           type: integer
           minimum: 1

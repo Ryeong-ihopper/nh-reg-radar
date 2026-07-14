@@ -26,7 +26,7 @@ export function LoginPage() {
     setError(null);
     try {
       await login(email.trim(), password);
-      navigate("/advertisements", { replace: true });
+      navigate("/", { replace: true });
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 401
         ? "이메일 또는 비밀번호가 올바르지 않거나 로그인이 제한되었습니다."
