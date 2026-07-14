@@ -134,11 +134,24 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
             )
         )
         connection.execute(
+            text(
+                "INSERT INTO app.roles (role_id,role_name) "
+                "VALUES ('COMPLIANCE_REVIEWER','준법 검토자')"
+            )
+        )
+        connection.execute(
             text("""
                 INSERT INTO app.users
                 (user_id,auth_provider,user_name,email,department_id,user_status)
                 VALUES ('m8-user','LOCAL','M8 담당','m8@example.com','DPT-M8','ACTIVE')
             """)
+        )
+        connection.execute(
+            text(
+                "INSERT INTO app.user_roles (user_role_id,user_id,role_id) "
+                "VALUES (:id,'m8-user','COMPLIANCE_REVIEWER')"
+            ),
+            {"id": uuid4()},
         )
     actor = CurrentUser(
         "m8-user",
