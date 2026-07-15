@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -58,7 +58,9 @@ def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
     assert "governance/goal-manifests/G009-m8-release.json" in workflow
     assert "Run exact G009 provider-free evidence" in workflow
     assert "--junitxml=/tmp/g009-provider-free-junit.xml" in workflow
-    assert "actual != expected" in workflow
+    assert "actual != exact_expected" in workflow
+    assert "set(expected) != set(exact_expected)" in workflow
+    assert "type(value) is not int" in workflow
     assert "provider-free count mismatch" in workflow
     assert '"failed": counts["failures"] + counts["errors"]' in workflow
     assert "scripts/check-doc-consistency.sh" in workflow
@@ -163,6 +165,21 @@ def test_provider_free_junit_gate_rejects_float_manifest_count(tmp_path: Path) -
 
     assert result.returncode != 0
     assert "provider-free manifest counts must be integers" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_non_exact_manifest_keys(tmp_path: Path) -> None:
+    for expected in (
+        {"passed": 4, "failed": 0},
+        {"passed": 4, "failed": 0, "skipped": 0, "errors": 0},
+    ):
+        result = _run_provider_free_junit_gate(
+            tmp_path,
+            '<testsuite tests="4" failures="0" errors="0" skipped="0" />',
+            provider_free_expected=expected,
+        )
+
+        assert result.returncode != 0
+        assert "provider-free manifest counts must use exactly" in result.stderr
 
 
 def test_external_engine_workflow_is_manual_sanitized_and_non_blocking() -> None:

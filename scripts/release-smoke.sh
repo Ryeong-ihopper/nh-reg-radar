@@ -279,7 +279,7 @@ PY
 }
 
 run_g011_gate() {
-  local started elapsed fresh_elapsed g011_log g011_status
+  local started elapsed fresh_elapsed g011_log g011_status replay_status
   g011_log="$backup_dir/g011-regression.log"
   started=$SECONDS
   if run_with_timeout "$timeout_seconds" \
@@ -293,16 +293,19 @@ run_g011_gate() {
   else
     g011_status=$?
   fi
-  if ! cat "$g011_log"; then
-    printf 'could not replay G011 regression log: %s\n' "$g011_log" >&2
-    if ((g011_status == 0)); then
-      g011_status=1
-    fi
+  if cat "$g011_log"; then
+    replay_status=0
+  else
+    replay_status=$?
   fi
   if ((g011_status != 0)); then
     printf 'G011 full regression failed with status %s within %ss\n' \
       "$g011_status" "$timeout_seconds" >&2
     exit "$g011_status"
+  fi
+  if ((replay_status != 0)); then
+    printf 'G011 regression log replay failed with status %s\n' "$replay_status" >&2
+    exit "$replay_status"
   fi
   elapsed=$((SECONDS - started))
   fresh_elapsed="$(sed -n 's/^G011_FRESH_VOLUME_SECONDS=//p' "$g011_log" | tail -n 1)"

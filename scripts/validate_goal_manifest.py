@@ -357,7 +357,13 @@ def _validate_g009_release_evidence(
     automation = manifest.get("automation")
     provider_free = automation.get("provider_free") if isinstance(automation, dict) else None
     expected = provider_free.get("expected") if isinstance(provider_free, dict) else None
-    if expected != G009_EXPECTED_PROVIDER_FREE:
+    expected_is_exact = (
+        isinstance(expected, dict)
+        and set(expected) == set(G009_EXPECTED_PROVIDER_FREE)
+        and all(type(value) is int for value in expected.values())
+        and expected == G009_EXPECTED_PROVIDER_FREE
+    )
+    if not expected_is_exact:
         findings.append(
             ManifestFinding(
                 "PROVIDER_FREE_EXPECTED_MISMATCH",

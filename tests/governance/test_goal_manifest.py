@@ -215,6 +215,25 @@ class GoalManifestValidatorTest(unittest.TestCase):
                     self._validate_g009(use_non_integer_count),
                 )
 
+    def test_g009_m8_rejects_non_exact_provider_free_keys(self) -> None:
+        for name, expected in (
+            ("missing", {"passed": 4, "failed": 0}),
+            ("extra", {"passed": 4, "failed": 0, "skipped": 0, "errors": 0}),
+        ):
+            with self.subTest(name=name):
+
+                def use_non_exact_keys(manifest: Manifest) -> None:
+                    automation = self._mapping(manifest, "automation")
+                    provider_free = automation.get("provider_free")
+                    if not isinstance(provider_free, dict):
+                        raise AssertionError("provider_free is not a mapping")
+                    provider_free["expected"] = expected
+
+                self.assertIn(
+                    "PROVIDER_FREE_EXPECTED_MISMATCH",
+                    self._validate_g009(use_non_exact_keys),
+                )
+
     def test_g009_m8_rejects_mismatched_goal_id(self) -> None:
         def replace_goal_id(manifest: Manifest) -> None:
             manifest["goal_id"] = "G010-m9"

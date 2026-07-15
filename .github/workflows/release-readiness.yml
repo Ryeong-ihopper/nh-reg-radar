@@ -83,6 +83,18 @@ jobs:
               )
           )
           expected = manifest["automation"]["provider_free"]["expected"]
+          exact_expected = {"passed": 4, "failed": 0, "skipped": 0}
+          if not isinstance(expected, dict) or set(expected) != set(exact_expected):
+              raise SystemExit(
+                  "provider-free manifest counts must use exactly "
+                  f"these keys: {sorted(exact_expected)}"
+              )
+          if any(type(value) is not int for value in expected.values()):
+              raise SystemExit("provider-free manifest counts must be integers")
+          if expected != exact_expected:
+              raise SystemExit(
+                  f"provider-free manifest counts must be exactly {exact_expected}"
+              )
           junit_path = Path("/tmp/g009-provider-free-junit.xml")
           try:
               root = ElementTree.parse(junit_path).getroot()
@@ -125,9 +137,9 @@ jobs:
               "failed": counts["failures"] + counts["errors"],
               "skipped": counts["skipped"],
           }
-          if actual != expected:
+          if actual != exact_expected:
               raise SystemExit(
-                  f"provider-free count mismatch: expected {expected}, got {actual}"
+                  f"provider-free count mismatch: expected {exact_expected}, got {actual}"
               )
           if int(os.environ["TEST_EXIT"]) != 0:
               raise SystemExit(f"provider-free pytest failed with {os.environ['TEST_EXIT']}")
