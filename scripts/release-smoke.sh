@@ -105,10 +105,6 @@ compose_probe_call() {
   compose_call_with_timeout "$probe_timeout_seconds" "$@"
 }
 
-docker_call() {
-  run_with_timeout "$timeout_seconds" docker "$@"
-}
-
 docker_probe_call() {
   run_with_timeout "$probe_timeout_seconds" docker "$@"
 }
@@ -127,7 +123,7 @@ cleanup_docker_call() {
 
 project_resources() {
   local project_name="$1"
-  local docker_runner="${2:-docker_call}"
+  local docker_runner="${2:-docker_probe_call}"
   {
     "$docker_runner" ps -aq --filter "label=com.docker.compose.project=$project_name" || return
     "$docker_runner" volume ls -q --filter "label=com.docker.compose.project=$project_name" || return
@@ -333,7 +329,7 @@ run_fresh_start() {
 }
 
 run_restart_and_outages() {
-  local container_id database_name
+  local container_id database_name migration_revision
   printf '%s\n' 'M8 graceful application restart'
   compose_call stop frontend backend worker
   run_with_timeout "$timeout_seconds" "$root/scripts/release-recovery-rehearsal.sh" \
@@ -368,10 +364,13 @@ run_restart_and_outages() {
   compose_call restart postgres
   wait_for_service_health postgres
   database_name="$(run_with_timeout "$probe_timeout_seconds" awk -F= '$1 == "POSTGRES_DB" {print $2; exit}' "$env_file")"
+  migration_revision="$backup_dir/postgres-migration-revision.txt"
   compose_call exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align \
     --set=ON_ERROR_STOP=1 --username migration --dbname "$database_name" \
     --command 'SELECT version_num FROM app.alembic_version;' \
-    | grep -qx 0008_m8_support_privileges
+    >"$migration_revision"
+  run_with_timeout "$probe_timeout_seconds" grep -qx 0008_m8_support_privileges \
+    "$migration_revision"
 }
 
 assert_fresh_project

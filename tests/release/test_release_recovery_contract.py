@@ -67,7 +67,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("run_with_timeout()", text)
         self.assertIn('timeout --signal=TERM --kill-after="$timeout_kill_after_seconds"', text)
         self.assertIn("compose_call()", text)
-        self.assertIn("docker_call()", text)
+        self.assertIn("docker_probe_call()", text)
         self.assertIn("cleanup_compose_call()", text)
         self.assertIn("cleanup_g011_compose_call()", text)
         self.assertIn("cleanup_docker_call()", text)
