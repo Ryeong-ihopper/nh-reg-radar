@@ -143,7 +143,7 @@ object_checksum="$(sha256sum "$backup_dir/object-storage/release/m8-restore-prob
 
 printf '%s\n' 'M8 Qdrant snapshot backup/restore and OpenSearch source rebuild'
 chmod 0777 "$backup_dir"
-"${compose[@]}" run --rm --no-deps \
+timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps \
   --volume "$backup_dir:/backup" \
   --entrypoint python backend - "$qdrant_collection" "$opensearch_index" <<'PY'
 from __future__ import annotations
@@ -162,7 +162,12 @@ opensearch = "http://opensearch:9200"
 snapshot_path = Path("/backup/qdrant.snapshot")
 
 
-def request_json(method: str, url: str, payload: Any | None = None) -> dict[str, Any]:
+def request_json(
+    method: str,
+    url: str,
+    payload: Any | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
     body = None if payload is None else json.dumps(payload).encode()
     request = urllib.request.Request(
         url,
@@ -171,7 +176,7 @@ def request_json(method: str, url: str, payload: Any | None = None) -> dict[str,
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read()
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"{method} {url} failed: {exc.code} {exc.read()!r}") from exc
@@ -197,7 +202,11 @@ request_json(
         ]
     },
 )
-snapshot = request_json("POST", f"{qdrant}/collections/{collection}/snapshots?wait=true")
+snapshot = request_json(
+    "POST",
+    f"{qdrant}/collections/{collection}/snapshots?wait=true",
+    timeout=180,
+)
 snapshot_name = str(snapshot["result"]["name"])
 with urllib.request.urlopen(
     f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", timeout=30

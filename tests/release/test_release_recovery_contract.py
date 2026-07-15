@@ -90,6 +90,21 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
 
     def test_qdrant_async_submission_response_allowlist(self) -> None:
         production = " ".join(RECOVERY.read_text(encoding="utf-8").split())
+        backup_outer = production.index(
+            'timeout --signal=TERM 240 "${compose[@]}" run --rm --no-deps'
+        )
+        backup_volume = production.index('--volume "$backup_dir:/backup"', backup_outer)
+        snapshot_create = production.index(
+            'snapshot = request_json( "POST", '
+            'f"{qdrant}/collections/{collection}/snapshots?wait=true", timeout=180, )'
+        )
+        self.assertLess(backup_outer, backup_volume)
+        self.assertLess(backup_volume, snapshot_create)
+        self.assertIn(
+            'f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", '
+            "timeout=30",
+            production,
+        )
         self.assertIn(
             'submission_accepted = ( restored.get("result") is True or '
             'restored.get("status") == "accepted" )',
@@ -115,6 +130,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         deleted = production.index("QDRANT_SOURCE_COLLECTION_DELETED", waited_delete)
         node_copy = production.index("docker cp")
         recover = production.index("/snapshots/recover?wait=false")
+        self.assertLess(snapshot_create, download)
         self.assertLess(download, waited_delete)
         self.assertLess(waited_delete, deleted)
         self.assertLess(deleted, node_copy)
