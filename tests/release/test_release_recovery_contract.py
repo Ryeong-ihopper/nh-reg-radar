@@ -58,6 +58,46 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn('g011_compose[@]}" down --volumes --remove-orphans', text)
         self.assertIn("G011 resources remain after outer cleanup", text)
 
+    def test_release_smoke_bounds_compose_and_docker_processes_uniformly(self) -> None:
+        text = SMOKE.read_text(encoding="utf-8")
+
+        self.assertIn("run_with_timeout()", text)
+        self.assertIn("compose_call()", text)
+        self.assertIn("g011_compose_call()", text)
+        self.assertIn("docker_call()", text)
+        self.assertIn("cleanup_compose_call()", text)
+        self.assertIn("cleanup_g011_compose_call()", text)
+        self.assertIn("cleanup_docker_call()", text)
+        for command in (
+            "compose_call config --quiet",
+            "compose_call build frontend backend worker",
+            "compose_call stop frontend backend worker",
+            "compose_call up -d --wait frontend backend worker",
+            "compose_call stop redis",
+            "compose_call start redis",
+            'compose_call stop "$service"',
+            'compose_call start "$service"',
+            "compose_call restart postgres",
+            "compose_call exec -T postgres",
+        ):
+            self.assertIn(command, text)
+        self.assertNotRegex(text, r'(?m)^\s*"\$\{compose\[@\]\}"')
+        self.assertNotRegex(text, r'(?m)^\s*"\$\{g011_compose\[@\]\}"')
+
+    def test_release_smoke_cleanup_is_repeat_signal_safe_and_preserves_status(self) -> None:
+        text = SMOKE.read_text(encoding="utf-8")
+
+        self.assertIn("cleanup_started=false", text)
+        self.assertIn("trap - EXIT", text)
+        self.assertIn("trap '' INT TERM", text)
+        self.assertIn("trap 'handle_signal INT' INT", text)
+        self.assertIn("trap 'handle_signal TERM' TERM", text)
+        self.assertIn("cleanup_started=true", text)
+        self.assertIn("if ((exit_code == 0)); then", text)
+        self.assertIn('exit "$exit_code"', text)
+        self.assertNotIn("--resume", text)
+        self.assertLess(text.index("project_resources \"$project\""), text.index("run_g011_gate\n"))
+
     def test_recovery_rehearses_lossy_migration_restore_and_durable_stores(self) -> None:
         text = RECOVERY.read_text(encoding="utf-8")
 
