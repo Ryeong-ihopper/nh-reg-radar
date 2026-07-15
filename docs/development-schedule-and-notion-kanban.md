@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
+| 현행 버전 | v1.2 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-07-15 | Accepted ADR과 충돌하던 검색 우회·Parser/OCR 자동 fallback 표현을 장애 복구·조건부 재처리 경계로 정정 |
 | v1.1 | 2026-07-15 | AC-18 기준 실제 M0~M8·G011 구현 증거와 잔여 provider/customer/deployment dependency를 Sprint·Kanban 상태에 반영 |
 | v1.0 | 2026-07-13 | ADR-0001~ADR-0074 검토 결과를 반영한 Sprint/칸반 구성 기준 정리 |
 
@@ -202,7 +203,7 @@ Done은 현재 저장소에서 재현 가능한 provider-free 구현·계약·�
 | T-0301 | AI 검토 요청 API 구현 | E05. AI Review Pipeline | Done | Sprint 3 | P0 | Backend | 2026-08-10 | 2026-08-12 | T-0201 | POST /advertisements/{advertisementId}/reviews | reviewId, jobId 생성 및 Redis Queue enqueue 가능 | N |
 | T-0302 | Review Job/Step 상태 관리 구현 | E05. AI Review Pipeline | Done | Sprint 3 | P0 | Backend | 2026-08-10 | 2026-08-14 | T-0301 | review_jobs | PostgreSQL 기준 Job 상태와 단계별 진행률 저장 | N |
 | T-0303 | AI Worker 컨테이너 구성 | E05. AI Review Pipeline | Done | Sprint 3 | P0 | AI, DevOps | 2026-08-12 | 2026-08-16 | T-0106, T-0301 | worker container | Redis Queue에서 비동기 분석 작업 실행 가능 | Y |
-| T-0304 | OCR/VLM 추출 방식 ADR 확정 | E05. AI Review Pipeline | Done | Sprint 3 | P0 | AI | 2026-08-10 | 2026-08-12 | T-0007 | ADR | OCR/VLM 선택 및 fallback 정책 확정 | Y |
+| T-0304 | OCR/VLM 추출 방식 ADR 확정 | E05. AI Review Pipeline | Done | Sprint 3 | P0 | AI | 2026-08-10 | 2026-08-12 | T-0007 | ADR | 파일 유형별 엔진 라우팅과 품질 기반 재처리 정책 확정 | Y |
 | T-0305 | OCR 텍스트 추출 모듈 1차 구현 | E05. AI Review Pipeline | Blocked | Sprint 3 | P0 | AI | 2026-08-13 | 2026-08-19 | T-0304 | OCR Module | 텍스트, confidence, 좌표 저장 | N |
 | T-0306 | 레이아웃 분석 모듈 1차 구현 | E05. AI Review Pipeline | Blocked | Sprint 3 | P1 | AI | 2026-08-17 | 2026-08-21 | T-0305 | layout_blocks | 제목/본문/유의사항 영역 구분 | N |
 | T-0307 | 검토 진행 상태 API 구현 | E05. AI Review Pipeline | Done | Sprint 3 | P0 | Backend | 2026-08-14 | 2026-08-18 | T-0302 | GET /reviews/{id}/status | 진행률 및 단계 조회 가능 | N |
@@ -351,9 +352,9 @@ Done은 현재 저장소에서 재현 가능한 provider-free 구현·계약·�
 
 | 리스크 | 영향 | 대응 |
 | --- | --- | --- |
-| 고객사 기준자료 제공 지연 | RAG/Rule 검토 정확도 저하 | 샘플 기준자료로 Mock 개발 후 실제 자료 반영 |
-| OCR/VLM 성능 부족 | Annotation 및 문구 검토 품질 저하 | OCR+VLM fallback 구조 검토 |
-| Qdrant/OpenSearch 운영 지연 | RAG 검색 개발 지연 | PostgreSQL 기반 임시 검색으로 우회 가능 |
+| 고객사 기준자료 제공 지연 | RAG/Rule 검토 정확도 저하 | Synthetic fixture로 계약 회귀를 유지하되 실제 품질 판단은 승인 자료 확보 전까지 보류 |
+| OCR/VLM 성능 부족 | Annotation 및 문구 검토 품질 저하 | ADR-0072/0073 기준 조건부 보조 엔진 재처리와 담당자 확인 적용 |
+| Qdrant/OpenSearch 운영 지연 | RAG 검색 개발 지연 | ADR-0061 기준 RAG 검토 실패·retry/복구 대상으로 처리하고 단일 검색 또는 DB 우회는 금지 |
 | 화면 디자인 지연 | 프론트 개발 지연 | 기능 우선 화면 구현 후 디자인 개선 |
 | KPI 산식 미확정 | PoC 평가 지연 | 10월 9일까지 ADR로 산식 확정 |
 | 개발 VM/Runner 지연 | 통합 배포 지연 | 로컬 Docker Compose 부분 스택으로 우선 개발하고, 공용 VM 확보 후 전체 스택 통합 검증 |
