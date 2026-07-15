@@ -60,7 +60,6 @@ if [[ ! "$project" =~ ^m8-release-[a-zA-Z0-9-]+$ ]]; then
   exit 64
 fi
 env_file="$(cd "$(dirname "$env_file")" && pwd)/$(basename "$env_file")"
-backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/${project}.XXXXXX")"
 
 compose=(
   docker compose
@@ -223,6 +222,7 @@ handle_signal() {
 trap cleanup EXIT
 trap 'handle_signal INT' INT
 trap 'handle_signal TERM' TERM
+backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/${project}.XXXXXX")"
 
 assert_fresh_project() {
   local project_name resources
