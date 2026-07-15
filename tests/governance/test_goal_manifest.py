@@ -193,6 +193,28 @@ class GoalManifestValidatorTest(unittest.TestCase):
 
         self.assertIn("PROVIDER_FREE_EXPECTED_MISMATCH", self._validate_g009(corrupt_expected))
 
+    def test_g009_m8_rejects_bool_and_float_provider_free_counts(self) -> None:
+        for name, field, value in (
+            ("bool", "failed", False),
+            ("float", "passed", 4.0),
+        ):
+            with self.subTest(name=name):
+
+                def use_non_integer_count(manifest: Manifest) -> None:
+                    automation = self._mapping(manifest, "automation")
+                    provider_free = automation.get("provider_free")
+                    if not isinstance(provider_free, dict):
+                        raise AssertionError("provider_free is not a mapping")
+                    expected = provider_free.get("expected")
+                    if not isinstance(expected, dict):
+                        raise AssertionError("expected is not a mapping")
+                    expected[field] = value
+
+                self.assertIn(
+                    "PROVIDER_FREE_EXPECTED_MISMATCH",
+                    self._validate_g009(use_non_integer_count),
+                )
+
     def test_g009_m8_rejects_mismatched_goal_id(self) -> None:
         def replace_goal_id(manifest: Manifest) -> None:
             manifest["goal_id"] = "G010-m9"
