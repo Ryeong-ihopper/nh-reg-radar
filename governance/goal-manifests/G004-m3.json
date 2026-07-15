@@ -64,7 +64,7 @@
     {"id": "TC-STD-023", "external": "Actual OpenSearch analyzer-version reindex probe"},
     {"id": "TC-NFR-HIS-002", "nodes": ["tests/integration/test_m3_database_contract.py::test_version_history_and_search_idempotency_constraints_are_locked"]},
     {"id": "TC-NFR-HIS-005", "external": "Later review snapshot integration uses immutable M3 version IDs"},
-    {"id": "TC-NFR-API-001", "nodes": ["tests/api_contract/openapi.test.mjs::TC-NFR-API-001: M7 source document is valid and capability-bounded"]},
+    {"id": "TC-NFR-API-001", "nodes": ["tests/api_contract/openapi.test.mjs::TC-NFR-API-001: M8 source document is valid and capability-bounded"]},
     {"id": "TC-NFR-API-002", "external": "npm run openapi:lint"},
     {"id": "TC-NFR-API-003", "external": "Frontend generated-client deterministic diff"},
     {"id": "TC-NFR-API-004", "external": "Runtime semantic OpenAPI equivalence"},
