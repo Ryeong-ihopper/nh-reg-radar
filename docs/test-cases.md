@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.20 |
+| 현행 버전 | v1.21 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.21 | 2026-07-15 | M8 production recovery 공개·opt-in 명령의 6/6 terminal PASS와 multi-store 복구·outage·무잔여 정리 증거 반영 |
 | v1.20 | 2026-07-15 | M8 provider-free 릴리스 workflow와 sanitized `external_ai` 수동 workflow 분리, backend/worker 보안·감사·readiness·recovery redaction Gate 반영 |
 | v1.19 | 2026-07-15 | M8 실제 PostgreSQL restart/concurrency, 수정본→비교→재검토 frontend, worker lease reconciliation과 G011 반복 bootstrap 증거 반영 |
 | v1.18 | 2026-07-15 | G008 M7 provider-free backend KPI/API/PostgreSQL runtime과 전체 backend 회귀 실행 증거를 기존 S-015/S-016 frontend 증거와 통합 반영 |
@@ -722,6 +723,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | Provider-free E2E 4종 | `uv run pytest tests/e2e -q`, `governance/goal-manifests/G009-m8-release.json` | E2E-001~004가 4 passed/0 failed/0 skipped이고 AC16.1~16.4 및 실제 25개 TC node에 연결됨. manifest SHA-256 `db7d44419f3e0c90319d2422de5406a934891eca2c341f772a083365cbae148a`, executable SHA-256 `c457aea1564854695f314b945331b81a5d0336c43d2c691a5be7ddaaef76d302`, fixture SHA-256 `b7467261128143d46328b8f0fe81f783ee7bce78d102d35d2d5002be46e74b3a` |
 | Provider-free release workflow | `.github/workflows/release-readiness.yml`, `tests/release/test_m8_release_workflows.py` | PR/push Gate가 secret 또는 실제 provider 호출 없이 G009 manifest, E2E/release, lint/type/OpenAPI/frontend/docs/governance를 결정적으로 실행하고 `external_ai`를 제외함 |
 | Recovery 선행 안전 Gate | `.github/workflows/release-readiness.yml` | 수동 recovery smoke가 `NH_RUN_G011_DOCKER_REGRESSION=1`인 `test_compose_bootstrap_repeat_up.py`를 먼저 통과한 후에만 `scripts/release-smoke.sh`를 실행함 |
+| Production recovery terminal PASS | `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`, `NH_RUN_M8_RELEASE_DOCKER=1 uv run pytest tests/release/test_release_recovery_contract.py -q -rs` | terminal run이 6 passed in 666.35s로 통과함. G011 fresh/repeat-volume, 0001→0007→0008 및 backup-before-downgrade, PostgreSQL payload/revision·MinIO checksum·Qdrant node-global snapshot green+point payload 복구, OpenSearch 재색인, Redis backup 제외와 strict 503 `not_ready`→recovery, object/search outage, PostgreSQL restart를 fail-closed로 검증하고 production/G011 container·volume·network와 임시 directory가 각각 0개임 |
 | 외부 엔진 수동 증거 | `.github/workflows/external-ai-evaluation.yml`, `tests/release/test_m8_release_workflows.py` | `workflow_dispatch`와 승인 environment에서만 `external_ai` marker를 실행하고 provider/engine/model/config SHA-256/dataset ID/revision/time/count만 sanitized JSON으로 보존하며 provider-free Gate와 분리됨 |
 | Backend 보안·trace | `tests/release/test_m8_release_operations.py` | `TC-COM-009`, `TC-NFR-SEC-009`, `TC-NFR-SEC-010` 기준 request ID, CSP/HSTS/nosniff/frame 보호, 민감 응답 `no-store`, token 비노출이 재현됨 |
 | 감사 redaction | `tests/release/test_m8_release_operations.py` | `TC-AUD-007`, `TC-NFR-SEC-004` 기준 로그인 audit가 actor/action/result/trace만 보존하고 비밀번호/token/email/name/IP 원문을 저장하지 않음 |

@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.6 |
+| 현행 버전 | v1.7 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.7 | 2026-07-15 | M8 production recovery 공개 명령과 PostgreSQL·MinIO·Qdrant·OpenSearch·Redis outage 검증 및 무잔여 정리 경계를 명시 |
 | v1.6 | 2026-07-15 | M8 provider-free 릴리스 Gate와 실제 외부 AI 수동 평가를 분리하고 보안·감사·redaction 증거 형식을 구체화 |
 | v1.5 | 2026-07-14 | M4 worker의 PostgreSQL 상태 원천, 환경별 parser-artifacts private bucket, 최소 Redis 전달과 실제 tri-store 검증·정리 기준 반영 |
 | v1.4 | 2026-07-14 | M1 제품 CI에 앱 독립 품질, Compose/health, DB bootstrap·최소권한, 자격증명 및 namespace 격리 Gate를 구체화 |
@@ -586,6 +587,8 @@ M8 릴리스 후보 검증은 [ADR-0044](adr/ADR-0044-ai-mock-fixture-test-polic
 | `.github/workflows/external-ai-evaluation.yml` | 승인 환경의 `workflow_dispatch` 수동 평가 | `external_ai` marker만 실행한다. provider/engine/model, 비밀값이 아닌 config SHA-256, 승인 dataset snapshot ID, revision/time/pass-fail-skip count만 `external-ai-evidence.json`에 기록한다. API key, 고객 원문, raw pytest log는 artifact에 포함하지 않는다. |
 
 수동 실제 엔진 평가는 릴리스 판단을 보조하는 별도 증거이며 provider-free Gate를 대체하거나 약화하지 않는다. 수동 workflow가 실행되지 않았거나 실패해도 이를 provider-free 성공으로 오인하지 않고 별도 잔여 위험 또는 결함으로 기록한다.
+
+M8 production recovery rehearsal의 공개 실행 경계는 `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`이며, 자동 회귀는 `NH_RUN_M8_RELEASE_DOCKER=1 uv run pytest tests/release/test_release_recovery_contract.py -q -rs`로 opt-in 한다. 이 Gate는 G011 fresh/repeat-volume, 0001→0007→0008 migration, backup 이후 downgrade와 PostgreSQL payload/revision 복구, MinIO checksum 복구, Qdrant snapshot download→waited delete→node-global copy→async restore의 green collection·point payload 확인, OpenSearch 재색인, Redis backup 제외와 503 `not_ready`→recovery, object/search outage, PostgreSQL restart를 모두 통과해야 한다. 성공과 실패 모두 production/G011 project의 container·volume·network와 임시 backup directory가 0개로 정리되어야 한다.
 
 ---
 
