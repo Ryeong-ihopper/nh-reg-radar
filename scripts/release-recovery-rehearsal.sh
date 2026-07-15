@@ -282,8 +282,7 @@ while time.monotonic() < deadline:
         error = str(exc)
         transient_shard_install = (
             "failed: 500" in error
-            and "Local shard" in error
-            and "not found" in error
+            and "Local shard 0 not found" in error
         )
         if (
             "failed: 404" not in error

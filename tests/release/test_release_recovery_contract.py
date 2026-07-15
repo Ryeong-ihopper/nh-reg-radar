@@ -77,8 +77,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn('failed: 404', text)
         self.assertIn('failed: 503', text)
         self.assertIn('"failed: 500" in error', text)
-        self.assertIn('"Local shard" in error', text)
-        self.assertIn('"not found" in error', text)
+        self.assertIn('"Local shard 0 not found" in error', text)
         self.assertIn('stop opensearch', text)
         self.assertIn('up -d --wait --wait-timeout 180 opensearch', text)
         self.assertIn('logs --no-color --tail=80 qdrant', text)
@@ -103,7 +102,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("provider-free-qdrant-restore", production)
         self.assertIn(
             'transient_shard_install = ( "failed: 500" in error and '
-            '"Local shard" in error and "not found" in error )',
+            '"Local shard 0 not found" in error )',
             production,
         )
         self.assertIn("and not transient_shard_install", production)
@@ -155,6 +154,23 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
             {"result": False, "status": "rejected"},
         ):
             self.assertFalse(accepted(response))
+
+        def transient_shard_install(error: str) -> bool:
+            return "failed: 500" in error and "Local shard 0 not found" in error
+
+        self.assertTrue(
+            transient_shard_install(
+                "GET failed: 500 Service internal error: Local shard 0 not found"
+            )
+        )
+        for error in (
+            "GET failed: 500 Service internal error",
+            "GET failed: 500 Local shard 1 not found",
+            "GET failed: 500 Local shard 0 unavailable",
+            "GET failed: 500 resource not found",
+            "GET failed: 404 Local shard 0 not found",
+        ):
+            self.assertFalse(transient_shard_install(error))
 
     def test_prod_override_declares_graceful_stop_windows(self) -> None:
         text = PROD_COMPOSE.read_text(encoding="utf-8")
