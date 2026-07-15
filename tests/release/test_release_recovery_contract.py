@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -26,7 +29,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("G011_COLD_GATE_SECONDS", text)
         self.assertIn("G011_REGRESSION_SECONDS", text)
         self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
-        self.assertIn('timeout --signal=TERM "$timeout_seconds"', text)
+        self.assertIn('run_with_timeout "$timeout_seconds"', text)
         self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
         self.assertIn("PROD_COLD_START_SECONDS", text)
         self.assertLess(text.index("up -d --wait postgres"), text.index("up -d --wait\n"))
@@ -55,8 +58,155 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("chmod -R a+rwX /cleanup", text)
         self.assertIn("release backup directory remains", text)
         self.assertIn("release recovery resources remain", text)
-        self.assertIn('g011_compose[@]}" down --volumes --remove-orphans', text)
+        self.assertIn("cleanup_g011_compose_call down --volumes --remove-orphans", text)
         self.assertIn("G011 resources remain after outer cleanup", text)
+
+    def test_release_smoke_bounds_compose_and_docker_processes_uniformly(self) -> None:
+        text = SMOKE.read_text(encoding="utf-8")
+
+        self.assertIn("run_with_timeout()", text)
+        self.assertIn('timeout --signal=TERM --kill-after="$timeout_kill_after_seconds"', text)
+        self.assertIn("compose_call()", text)
+        self.assertIn("docker_probe_call()", text)
+        self.assertIn("cleanup_compose_call()", text)
+        self.assertIn("cleanup_g011_compose_call()", text)
+        self.assertIn("cleanup_docker_call()", text)
+        for command in (
+            "compose_call config --quiet",
+            "compose_call build frontend backend worker",
+            "compose_call stop frontend backend worker",
+            "compose_call up -d --wait frontend backend worker",
+            "compose_call stop redis",
+            "compose_call start redis",
+            'compose_call stop "$service"',
+            'compose_call start "$service"',
+            "compose_call restart postgres",
+            "compose_call exec -T postgres",
+        ):
+            self.assertIn(command, text)
+        self.assertNotRegex(text, r'(?m)^\s*"\$\{compose\[@\]\}"')
+        self.assertNotRegex(text, r'(?m)^\s*"\$\{g011_compose\[@\]\}"')
+
+    def test_release_smoke_cleanup_is_repeat_signal_safe_and_preserves_status(self) -> None:
+        text = SMOKE.read_text(encoding="utf-8")
+
+        self.assertIn("cleanup_started=false", text)
+        self.assertIn("trap - EXIT", text)
+        self.assertIn("trap '' INT TERM", text)
+        self.assertIn("trap 'handle_signal INT' INT", text)
+        self.assertIn("trap 'handle_signal TERM' TERM", text)
+        self.assertIn("cleanup_started=true", text)
+        self.assertIn("if ((exit_code == 0)); then", text)
+        self.assertIn('exit "$exit_code"', text)
+        self.assertNotIn("--resume", text)
+        self.assertIn("assert_fresh_project\nrun_g011_gate\n", text)
+
+    def test_release_smoke_repeated_term_cleans_once_and_allows_clean_rerun(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            fake_bin = temp / "bin"
+            fake_bin.mkdir()
+            call_log = temp / "docker.log"
+            fail_config = temp / "fail-config"
+            docker = fake_bin / "docker"
+            docker.write_text(
+                """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >>"$FAKE_DOCKER_LOG"
+case " $* " in
+  *" config --quiet "*)
+    if [[ -e "$FAKE_CONFIG_FAIL" ]]; then
+      exit 42
+    fi
+    sleep 30
+    ;;
+  *" down --volumes --remove-orphans "*)
+    sleep 0.2
+    ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+            uv = fake_bin / "uv"
+            uv.write_text(
+                "#!/usr/bin/env bash\nprintf 'G011_FRESH_VOLUME_SECONDS=1\\n'\n",
+                encoding="utf-8",
+            )
+            uv.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "FAKE_DOCKER_LOG": str(call_log),
+                    "FAKE_CONFIG_FAIL": str(fail_config),
+                    "NH_M8_RELEASE_COMPOSE_PROJECT": "m8-release-signal-contract",
+                    "NH_M8_RELEASE_TIMEOUT_SECONDS": "3",
+                    "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
+                    "NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS": "2",
+                    "NH_M8_RELEASE_KILL_AFTER_SECONDS": "1",
+                }
+            )
+            command = [
+                "bash",
+                str(SMOKE),
+                "--env-file",
+                str(ROOT / ".env.prod.example"),
+                "--fresh-project",
+                "--with-restart-and-outages",
+            ]
+            started = time.monotonic()
+            process = subprocess.Popen(
+                command,
+                cwd=ROOT,
+                env=environment,
+                start_new_session=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if call_log.exists() and "config --quiet" in call_log.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.02)
+            else:
+                process.kill()
+                self.fail("release smoke did not reach the blocked Compose config call")
+
+            os.kill(process.pid, signal.SIGTERM)
+            cleanup_deadline = time.monotonic() + 5
+            while time.monotonic() < cleanup_deadline:
+                if "down --volumes --remove-orphans" in call_log.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.02)
+            os.kill(process.pid, signal.SIGTERM)
+            os.kill(process.pid, signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 143, stdout + stderr)
+            self.assertLess(time.monotonic() - started, 2.5)
+            first_calls = call_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(
+                sum("down --volumes --remove-orphans" in call for call in first_calls), 2
+            )
+
+            call_log.write_text("", encoding="utf-8")
+            fail_config.touch()
+            rerun = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(rerun.returncode, 42, rerun.stdout + rerun.stderr)
+            rerun_calls = call_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(
+                sum("down --volumes --remove-orphans" in call for call in rerun_calls), 2
+            )
 
     def test_recovery_rehearses_lossy_migration_restore_and_durable_stores(self) -> None:
         text = RECOVERY.read_text(encoding="utf-8")

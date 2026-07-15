@@ -6,8 +6,13 @@ env_file=""
 fresh_project=false
 with_restart_and_outages=false
 timeout_seconds="${NH_M8_RELEASE_TIMEOUT_SECONDS:-600}"
+probe_timeout_seconds="${NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS:-10}"
+cleanup_timeout_seconds="${NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS:-60}"
+timeout_kill_after_seconds="${NH_M8_RELEASE_KILL_AFTER_SECONDS:-10}"
 project="${NH_M8_RELEASE_COMPOSE_PROJECT:-m8-release-$(date -u +%Y%m%d%H%M%S)-$$}"
 backup_dir=""
+cleanup_started=false
+active_timeout_pid=""
 
 usage() {
   cat <<'EOF'
@@ -71,58 +76,168 @@ g011_compose=(
   --env-file "$root/.env.dev.example"
 )
 
+run_with_timeout() {
+  local limit="$1"
+  local command_status
+  shift
+  timeout --signal=TERM --kill-after="$timeout_kill_after_seconds" "$limit" "$@" &
+  active_timeout_pid=$!
+  if wait "$active_timeout_pid"; then
+    command_status=0
+  else
+    command_status=$?
+  fi
+  active_timeout_pid=""
+  return "$command_status"
+}
+
+compose_call_with_timeout() {
+  local limit="$1"
+  shift
+  run_with_timeout "$limit" "${compose[@]}" "$@"
+}
+
+compose_call() {
+  compose_call_with_timeout "$timeout_seconds" "$@"
+}
+
+compose_probe_call() {
+  compose_call_with_timeout "$probe_timeout_seconds" "$@"
+}
+
+docker_probe_call() {
+  run_with_timeout "$probe_timeout_seconds" docker "$@"
+}
+
+cleanup_compose_call() {
+  run_with_timeout "$cleanup_timeout_seconds" "${compose[@]}" "$@"
+}
+
+cleanup_g011_compose_call() {
+  run_with_timeout "$cleanup_timeout_seconds" "${g011_compose[@]}" "$@"
+}
+
+cleanup_docker_call() {
+  run_with_timeout "$cleanup_timeout_seconds" docker "$@"
+}
+
 project_resources() {
+  local project_name="$1"
+  local docker_runner="${2:-docker_probe_call}"
   {
-    docker ps -aq --filter "label=com.docker.compose.project=$1"
-    docker volume ls -q --filter "label=com.docker.compose.project=$1"
-    docker network ls -q --filter "label=com.docker.compose.project=$1"
+    "$docker_runner" ps -aq --filter "label=com.docker.compose.project=$project_name" || return
+    "$docker_runner" volume ls -q --filter "label=com.docker.compose.project=$project_name" || return
+    "$docker_runner" network ls -q --filter "label=com.docker.compose.project=$project_name" || return
   } | sed '/^$/d'
 }
 
 cleanup() {
   local exit_code=$?
+  local resources resource_status
+  if [[ "$cleanup_started" == true ]]; then
+    return
+  fi
+  cleanup_started=true
   trap - EXIT
+  trap '' INT TERM
   set +e
   if [[ -d "$backup_dir" ]]; then
-    docker run --rm \
+    cleanup_docker_call run --rm \
       --volume "$backup_dir:/cleanup" \
       --entrypoint /bin/sh \
       minio/mc:RELEASE.2025-07-21T05-28-08Z \
       -ec 'chmod -R a+rwX /cleanup' >/dev/null 2>&1
   fi
-  "${g011_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$backup_dir" || exit_code=1
+  cleanup_g011_compose_call down --volumes --remove-orphans >/dev/null 2>&1 || true
+  cleanup_compose_call down --volumes --remove-orphans >/dev/null 2>&1 || true
+  if ! run_with_timeout "$cleanup_timeout_seconds" rm -rf "$backup_dir"; then
+    if ((exit_code == 0)); then
+      exit_code=1
+    fi
+  fi
   if [[ -e "$backup_dir" ]]; then
     printf 'release backup directory remains after cleanup: %s\n' "$backup_dir" >&2
-    exit_code=1
+    if ((exit_code == 0)); then
+      exit_code=1
+    fi
   fi
-  if [[ -n "$(project_resources "$project")" ]]; then
+  resources="$(project_resources "$project" cleanup_docker_call)"
+  resource_status=$?
+  if ((resource_status != 0)); then
+    printf 'could not verify release recovery cleanup: %s\n' "$project" >&2
+    if ((exit_code == 0)); then
+      exit_code=1
+    fi
+  elif [[ -n "$resources" ]]; then
     printf 'release recovery resources remain after cleanup: %s\n' "$project" >&2
-    docker ps -a --filter "label=com.docker.compose.project=$project" >&2 || true
-    docker volume ls --filter "label=com.docker.compose.project=$project" >&2 || true
-    docker network ls --filter "label=com.docker.compose.project=$project" >&2 || true
-    exit_code=1
+    cleanup_docker_call ps -a --filter "label=com.docker.compose.project=$project" >&2 || true
+    cleanup_docker_call volume ls --filter "label=com.docker.compose.project=$project" >&2 || true
+    cleanup_docker_call network ls --filter "label=com.docker.compose.project=$project" >&2 || true
+    if ((exit_code == 0)); then
+      exit_code=1
+    fi
   fi
-  if [[ -n "$(project_resources "$g011_project")" ]]; then
+  resources="$(project_resources "$g011_project" cleanup_docker_call)"
+  resource_status=$?
+  if ((resource_status != 0)); then
+    printf 'could not verify G011 cleanup: %s\n' "$g011_project" >&2
+    if ((exit_code == 0)); then
+      exit_code=1
+    fi
+  elif [[ -n "$resources" ]]; then
     printf 'G011 resources remain after outer cleanup: %s\n' "$g011_project" >&2
-    docker ps -a --filter "label=com.docker.compose.project=$g011_project" >&2 || true
-    docker volume ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
-    docker network ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
-    exit_code=1
+    cleanup_docker_call ps -a --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+    cleanup_docker_call volume ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+    cleanup_docker_call network ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+    if ((exit_code == 0)); then
+      exit_code=1
+    fi
   fi
   exit "$exit_code"
 }
+
+handle_signal() {
+  local signal="$1"
+  local signal_exit_code
+  case "$signal" in
+    INT) signal_exit_code=130 ;;
+    TERM) signal_exit_code=143 ;;
+    *) signal_exit_code=1 ;;
+  esac
+  trap '' INT TERM
+  if [[ -n "$active_timeout_pid" ]]; then
+    kill -TERM -- "-$active_timeout_pid" >/dev/null 2>&1 \
+      || kill -TERM "$active_timeout_pid" >/dev/null 2>&1 \
+      || true
+    wait "$active_timeout_pid" >/dev/null 2>&1 || true
+    active_timeout_pid=""
+  fi
+  exit "$signal_exit_code"
+}
+
 trap cleanup EXIT
+trap 'handle_signal INT' INT
+trap 'handle_signal TERM' TERM
+
+assert_fresh_project() {
+  local project_name resources
+  for project_name in "$project" "$g011_project"; do
+    resources="$(project_resources "$project_name")"
+    if [[ -n "$resources" ]]; then
+      printf 'fresh release project already has Docker resources: %s\n' "$project_name" >&2
+      return 1
+    fi
+  done
+}
 
 wait_for_service_health() {
   local service="$1"
   local deadline=$((SECONDS + timeout_seconds))
   local container_id health
   while ((SECONDS < deadline)); do
-    container_id="$("${compose[@]}" ps -q "$service")"
+    container_id="$(compose_probe_call ps -q "$service")"
     if [[ -n "$container_id" ]]; then
-      health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
+      health="$(docker_probe_call inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
       if [[ "$health" == healthy || "$health" == running ]]; then
         return 0
       fi
@@ -130,14 +245,14 @@ wait_for_service_health() {
     sleep 2
   done
   printf 'service did not become healthy within %ss: %s\n' "$timeout_seconds" "$service" >&2
-  "${compose[@]}" ps >&2 || true
+  compose_probe_call ps >&2 || true
   return 1
 }
 
 wait_for_worker_not_ready() {
   local deadline=$((SECONDS + 60))
   while ((SECONDS < deadline)); do
-    if "${compose[@]}" exec -T worker python - <<'PY' >/dev/null 2>&1
+    if compose_probe_call exec -T worker python - <<'PY' >/dev/null 2>&1
 import urllib.error
 import urllib.request
 
@@ -162,13 +277,13 @@ run_g011_gate() {
   local started elapsed fresh_elapsed g011_log
   g011_log="$backup_dir/g011-regression.log"
   started=$SECONDS
-  if ! timeout --signal=TERM "$timeout_seconds" \
+  if ! run_with_timeout "$timeout_seconds" \
     env NH_RUN_G011_DOCKER_REGRESSION=1 \
       NH_G011_COMPOSE_PROJECT="$g011_project" \
       NH_G011_TIMEOUT_SECONDS=120 \
       PYTHONPATH=. \
       uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q -s \
-    | tee "$g011_log"; then
+    > >(tee "$g011_log"); then
     printf 'G011 full regression exceeded or failed within %ss\n' "$timeout_seconds" >&2
     exit 1
   fi
@@ -188,18 +303,14 @@ run_g011_gate() {
 
 run_fresh_start() {
   local started postgres_elapsed elapsed
-  if [[ -n "$(project_resources "$project")" ]]; then
-    printf 'fresh release project already has Docker resources: %s\n' "$project" >&2
-    exit 1
-  fi
-  "${compose[@]}" config --quiet
-  "${compose[@]}" build frontend backend worker
+  compose_call config --quiet
+  compose_call build frontend backend worker
 
   # A fresh PostgreSQL volume owns the one-time bootstrap critical path. Start
   # it before memory-heavy search services so the proven 120-second G011 bound
   # is meaningful rather than being distorted by concurrent image cold starts.
   started=$SECONDS
-  timeout 120 "${compose[@]}" up -d --wait postgres
+  compose_call_with_timeout 120 up -d --wait postgres
   postgres_elapsed=$((SECONDS - started))
   if ((postgres_elapsed > 120)); then
     printf 'G011 fresh-volume bootstrap exceeded 120s: %ss\n' "$postgres_elapsed" >&2
@@ -209,7 +320,7 @@ run_fresh_start() {
   printf 'G011_FRESH_VOLUME_SECONDS=%s\n' "$postgres_elapsed"
 
   started=$SECONDS
-  timeout "$timeout_seconds" "${compose[@]}" up -d --wait
+  compose_call up -d --wait
   elapsed=$((SECONDS - started))
   for service in frontend backend worker postgres redis minio qdrant opensearch; do
     wait_for_service_health "$service"
@@ -218,48 +329,55 @@ run_fresh_start() {
 }
 
 run_restart_and_outages() {
+  local container_id database_name migration_revision
   printf '%s\n' 'M8 graceful application restart'
-  "${compose[@]}" stop frontend backend worker
-  "$root/scripts/release-recovery-rehearsal.sh" \
+  compose_call stop frontend backend worker
+  run_with_timeout "$timeout_seconds" "$root/scripts/release-recovery-rehearsal.sh" \
     --project "$project" \
     --env-file "$env_file" \
     --backup-dir "$backup_dir"
-  "${compose[@]}" up -d --wait frontend backend worker
+  compose_call up -d --wait frontend backend worker
   for service in frontend backend worker; do
     wait_for_service_health "$service"
   done
 
   printf '%s\n' 'M8 bounded Redis outage and readiness recovery'
-  "${compose[@]}" stop redis
+  compose_call stop redis
   wait_for_worker_not_ready
-  "${compose[@]}" start redis
+  compose_call start redis
   wait_for_service_health redis
   wait_for_service_health worker
 
   printf '%s\n' 'M8 bounded object/search outages and recovery'
   for service in minio qdrant opensearch; do
-    "${compose[@]}" stop "$service"
-    if [[ "$(docker inspect --format '{{.State.Running}}' "$("${compose[@]}" ps -aq "$service")")" != false ]]; then
+    compose_call stop "$service"
+    container_id="$(compose_probe_call ps -aq "$service")"
+    if [[ "$(docker_probe_call inspect --format '{{.State.Running}}' "$container_id")" != false ]]; then
       printf 'dependency did not stop: %s\n' "$service" >&2
       exit 1
     fi
-    "${compose[@]}" start "$service"
+    compose_call start "$service"
     wait_for_service_health "$service"
   done
 
   printf '%s\n' 'M8 PostgreSQL restart after G011 live-volume proof'
-  "${compose[@]}" restart postgres
+  compose_call restart postgres
   wait_for_service_health postgres
-  "${compose[@]}" exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align \
-    --set=ON_ERROR_STOP=1 --username migration --dbname "$(awk -F= '$1 == "POSTGRES_DB" {print $2; exit}' "$env_file")" \
+  database_name="$(run_with_timeout "$probe_timeout_seconds" awk -F= '$1 == "POSTGRES_DB" {print $2; exit}' "$env_file")"
+  migration_revision="$backup_dir/postgres-migration-revision.txt"
+  compose_call exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align \
+    --set=ON_ERROR_STOP=1 --username migration --dbname "$database_name" \
     --command 'SELECT version_num FROM app.alembic_version;' \
-    | grep -qx 0008_m8_support_privileges
+    >"$migration_revision"
+  run_with_timeout "$probe_timeout_seconds" grep -qx 0008_m8_support_privileges \
+    "$migration_revision"
 }
 
+assert_fresh_project
 run_g011_gate
 run_fresh_start
 run_restart_and_outages
 
-manifest_checksum="$(sha256sum "$backup_dir/manifest.json" | cut -d' ' -f1)"
+manifest_checksum="$(run_with_timeout "$probe_timeout_seconds" sha256sum "$backup_dir/manifest.json" | cut -d' ' -f1)"
 printf 'PASS: M8 production fresh/restart/outage smoke project=%s manifest_sha256=%s\n' \
   "$project" "$manifest_checksum"
