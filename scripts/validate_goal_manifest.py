@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import re
 import sys
@@ -72,6 +73,9 @@ REQUIRED_TRACE_FIELDS = {
     "api_operations",
     "db_objects",
 }
+G009_RELEASE_GOAL_ID = "G009-m8-release"
+G009_EXPECTED_PROVIDER_FREE = {"passed": 4, "failed": 0, "skipped": 0}
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _decode_json(source: str, loader: JsonLoader = json.loads) -> JsonValue:
@@ -263,6 +267,106 @@ def _validate_test_cases(root: Path, manifest_path: str, value: JsonValue) -> li
     return findings
 
 
+def _validate_current_file_sha(
+    root: Path,
+    manifest_path: str,
+    field: str,
+    value: JsonValue,
+) -> list[ManifestFinding]:
+    if not isinstance(value, dict):
+        return [
+            ManifestFinding("MANIFEST_TYPE", manifest_path, f"{field} must be an object")
+        ]
+    path_value = value.get("path")
+    sha256_value = value.get("sha256")
+    if not isinstance(path_value, str) or not path_value.strip():
+        return [
+            ManifestFinding(
+                "MANIFEST_TYPE", manifest_path, f"{field}.path must be a non-empty string"
+            )
+        ]
+    if not isinstance(sha256_value, str) or not SHA256_PATTERN.fullmatch(sha256_value):
+        return [
+            ManifestFinding(
+                "MANIFEST_TYPE",
+                manifest_path,
+                f"{field}.sha256 must be a lowercase SHA-256",
+            )
+        ]
+
+    root = root.resolve()
+    current_file = (root / path_value).resolve()
+    if not current_file.is_relative_to(root):
+        return [
+            ManifestFinding(
+                "EVIDENCE_PATH_INVALID",
+                manifest_path,
+                f"{field}.path escapes the repository: {path_value}",
+            )
+        ]
+    if not current_file.is_file():
+        return [
+            ManifestFinding(
+                "EVIDENCE_FILE_MISSING",
+                manifest_path,
+                f"{field}.path is not a current repository file: {path_value}",
+            )
+        ]
+    current_sha256 = hashlib.sha256(current_file.read_bytes()).hexdigest()
+    if current_sha256 != sha256_value:
+        return [
+            ManifestFinding(
+                "EVIDENCE_SHA_MISMATCH",
+                manifest_path,
+                f"{field}.sha256 does not match current file: {path_value}",
+            )
+        ]
+    return []
+
+
+def _validate_g009_release_evidence(
+    root: Path, manifest_path: str, manifest: Manifest
+) -> list[ManifestFinding]:
+    if manifest.get("goal_id") != G009_RELEASE_GOAL_ID:
+        return []
+
+    findings: list[ManifestFinding] = []
+    for field in ("openapi", "generated_client", "migration"):
+        findings.extend(_validate_current_file_sha(root, manifest_path, field, manifest.get(field)))
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        findings.append(
+            ManifestFinding(
+                "MANIFEST_TYPE", manifest_path, "artifacts must be a non-empty array"
+            )
+        )
+    else:
+        for index, artifact in enumerate(artifacts):
+            findings.extend(
+                _validate_current_file_sha(
+                    root,
+                    manifest_path,
+                    f"artifacts[{index}]",
+                    artifact,
+                )
+            )
+
+    automation = manifest.get("automation")
+    provider_free = automation.get("provider_free") if isinstance(automation, dict) else None
+    expected = provider_free.get("expected") if isinstance(provider_free, dict) else None
+    if expected != G009_EXPECTED_PROVIDER_FREE:
+        findings.append(
+            ManifestFinding(
+                "PROVIDER_FREE_EXPECTED_MISMATCH",
+                manifest_path,
+                "automation.provider_free.expected must be exactly "
+                f"{G009_EXPECTED_PROVIDER_FREE}",
+            )
+        )
+    return findings
+
+
 def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
     manifest, findings = _load_json(manifest_path)
     display_path = (
@@ -355,6 +459,7 @@ def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
                     f"API contract changes require synchronized document: {missing}",
                 )
             )
+    findings.extend(_validate_g009_release_evidence(root, display_path, manifest))
     return findings
 
 

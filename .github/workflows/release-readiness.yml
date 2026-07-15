@@ -63,6 +63,49 @@ jobs:
           python3 scripts/validate_goal_manifest.py
           governance/goal-manifests/G009-m8-release.json
 
+      - name: Run exact G009 provider-free evidence
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/e2e -q \
+            --junitxml=/tmp/g009-provider-free-junit.xml
+          test_exit=$?
+          set -e
+          TEST_EXIT="$test_exit" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          manifest = json.loads(
+              Path("governance/goal-manifests/G009-m8-release.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          expected = manifest["automation"]["provider_free"]["expected"]
+          root = ElementTree.parse("/tmp/g009-provider-free-junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+          counts = {
+              key: sum(int(suite.attrib.get(key, 0)) for suite in suites)
+              for key in ("tests", "failures", "errors", "skipped")
+          }
+          actual = {
+              "passed": counts["tests"]
+              - counts["failures"]
+              - counts["errors"]
+              - counts["skipped"],
+              "failed": counts["failures"] + counts["errors"],
+              "skipped": counts["skipped"],
+          }
+          if actual != expected:
+              raise SystemExit(
+                  f"provider-free count mismatch: expected {expected}, got {actual}"
+              )
+          if int(os.environ["TEST_EXIT"]) != 0:
+              raise SystemExit(f"provider-free pytest failed with {os.environ['TEST_EXIT']}")
+          print(f"G009 provider-free counts verified: {actual}")
+          PY
+
       - name: Run deterministic product regressions
         run: uv run python -m pytest -m "not external_ai and not slow" -q
 
