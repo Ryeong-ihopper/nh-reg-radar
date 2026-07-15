@@ -153,9 +153,7 @@ class GoalManifestValidatorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             manifest_path = Path(temporary_directory) / "G009-m8-release.json"
             _ = manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-            codes = {
-                finding.code for finding in validate_manifest(self.repository, manifest_path)
-            }
+            codes = {finding.code for finding in validate_manifest(self.repository, manifest_path)}
 
         self.assertTrue(
             {"G009_GOAL_ID_MISMATCH", "PROVIDER_FREE_EXPECTED_MISMATCH"}.isdisjoint(codes)
