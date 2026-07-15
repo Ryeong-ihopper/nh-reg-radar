@@ -96,7 +96,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("if ((exit_code == 0)); then", text)
         self.assertIn('exit "$exit_code"', text)
         self.assertNotIn("--resume", text)
-        self.assertLess(text.index("project_resources \"$project\""), text.index("run_g011_gate\n"))
+        self.assertLess(text.index('project_resources "$project"'), text.index("run_g011_gate\n"))
 
     def test_recovery_rehearses_lossy_migration_restore_and_durable_stores(self) -> None:
         text = RECOVERY.read_text(encoding="utf-8")
