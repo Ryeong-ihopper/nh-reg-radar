@@ -371,7 +371,7 @@ def _validate_g009_release_evidence(
 def _is_g009_release_manifest(root: Path, manifest_path: Path) -> bool:
     canonical_path = (root / G009_RELEASE_MANIFEST_PATH).resolve()
     resolved_path = manifest_path.resolve()
-    return resolved_path == canonical_path or manifest_path.name == canonical_path.name
+    return resolved_path == canonical_path
 
 
 def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:

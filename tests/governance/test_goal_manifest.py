@@ -6,6 +6,7 @@ import unittest
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 from scripts.validate_goal_manifest import JsonValue, Manifest, validate_manifest
 
@@ -83,10 +84,11 @@ class GoalManifestValidatorTest(unittest.TestCase):
         source = self.repository / "governance" / "goal-manifests" / "G009-m8-release.json"
         manifest = cast(Manifest, json.loads(source.read_text(encoding="utf-8")))
         update(manifest)
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            manifest_path = Path(temporary_directory) / "G009-m8-release.json"
-            _ = manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-            findings = validate_manifest(self.repository, manifest_path)
+        with patch(
+            "scripts.validate_goal_manifest._load_json",
+            return_value=(manifest, []),
+        ):
+            findings = validate_manifest(self.repository, source)
         return {finding.code for finding in findings}
 
     def test_valid_manifest_maps_all_trace_dimensions(self) -> None:
@@ -137,6 +139,27 @@ class GoalManifestValidatorTest(unittest.TestCase):
         manifest = self.repository / "governance" / "goal-manifests" / "G009-m8-release.json"
 
         self.assertEqual([], validate_manifest(self.repository, manifest))
+
+    def test_g009_m8_same_basename_outside_canonical_path_is_not_release_manifest(self) -> None:
+        source = self.repository / "governance" / "goal-manifests" / "G009-m8-release.json"
+        manifest = cast(Manifest, json.loads(source.read_text(encoding="utf-8")))
+        manifest["goal_id"] = "G010-m9"
+        automation = self._mapping(manifest, "automation")
+        provider_free = automation.get("provider_free")
+        if not isinstance(provider_free, dict):
+            raise AssertionError("provider_free is not a mapping")
+        provider_free["expected"] = {"passed": 3, "failed": 0, "skipped": 0}
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest_path = Path(temporary_directory) / "G009-m8-release.json"
+            _ = manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            codes = {
+                finding.code for finding in validate_manifest(self.repository, manifest_path)
+            }
+
+        self.assertTrue(
+            {"G009_GOAL_ID_MISMATCH", "PROVIDER_FREE_EXPECTED_MISMATCH"}.isdisjoint(codes)
+        )
 
     def test_g009_m8_rejects_corrupted_declared_sha256(self) -> None:
         def corrupt_openapi(manifest: Manifest) -> None:
