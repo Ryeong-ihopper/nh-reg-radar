@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.11 |
+| 현행 버전 | v1.12 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.12 | 2026-07-16 | `main`/`dev`/`feature/*`/`hotfix/*` 브랜치, PR·보호 브랜치, Conventional Commits, release tag 및 GitOps 승격·롤백 규칙을 기존 중복 없이 통합 |
 | v1.11 | 2026-07-16 | Product CI의 Python/OpenAPI 교차 런타임 의존성 설치 순서와 현행 migration 적용 후 DB privilege probe 검증 기준 명시 |
 | v1.10 | 2026-07-16 | Notion 수동 게시의 번호형 문서·ADR 계층, secret·checkout credential 격리, 재시도·실패 정리 및 내용 완전성 검증 기준 통합 |
 | v1.9 | 2026-07-15 | G009 현재 파일 SHA-256과 provider-free E2E 4/0/0 건수를 릴리스 Gate에서 정확히 검증하는 fail-closed 기준 반영 |
@@ -303,7 +304,7 @@ scripts/check-doc-consistency.sh
 python3 -m scripts.doc_guard validate --scope working
 ```
 
-`error`는 commit 또는 CI 실패 기준이다. `warning`은 자동 차단하지 않지만, 변경자는 관련 문서를 수정하지 않은 이유가 타당한지 확인해야 한다. 로컬 hook은 우회할 수 있으므로 동일 검사를 PR 및 `main`/`develop` push CI에 연결한다.
+`error`는 commit 또는 CI 실패 기준이다. `warning`은 자동 차단하지 않지만, 변경자는 관련 문서를 수정하지 않은 이유가 타당한지 확인해야 한다. 로컬 hook은 우회할 수 있으므로 동일 검사를 PR 및 `main`/`dev` 대상 CI에 연결한다.
 
 `skills/`만 사람이 수정하며 `.agents/skills`, `.claude/skills`는 온보딩 스크립트가 생성하는 Git 제외 산출물이다. copy fallback을 사용하는 환경에서 원본과 adapter가 달라지면 로컬 Git hook이 실패하므로 setup 스크립트를 다시 실행해야 한다.
 
@@ -691,28 +692,20 @@ pytest marker는 ADR-0064 기준으로 `unit`, `contract`, `integration`, `exter
 
 ---
 
-## 10.4 배포
+## 10.4 GitOps 배포
 
-배포는 **Self-hosted Runner**를 활용한다.
+Git은 코드와 배포 구성의 단일 진실원천이다. 운영 변경은 PR을 통해서만 수행하며 클러스터에 `kubectl apply` 등으로 직접 반영하지 않는다. 긴급 수동 조치가 불가피하면 즉시 Git 변경으로 역반영하고 접근·승인 기록을 남긴다.
 
-Self-hosted Runner를 사용하는 이유는 다음과 같다.
+애플리케이션 저장소는 소스·테스트·Dockerfile·CI를, 별도 GitOps 저장소는 Kubernetes manifest·Helm values·Kustomize overlay를 관리하는 구성을 권장한다. GitOps 환경은 장기 브랜치보다 `overlays/dev`, `overlays/stg`, `overlays/prod` 디렉터리로 분리한다.
 
-- 내부망 또는 사내 인프라 접근 필요
-- 개발 VM 및 사내 서버와의 네트워크 연계
-- 보안 정책 준수
-- 컨테이너 기반 배포 자동화
+| 단계 | 기준 |
+| --- | --- |
+| 개발 | `feature/*`가 `dev`에 병합되면 CI가 immutable SHA image를 빌드하고 GitOps `dev` overlay 변경 PR을 생성 |
+| 운영 | `dev`→`main` 릴리즈 PR과 `vMAJOR.MINOR.PATCH` tag 이후 같은 image tag를 `stg`→`prod`로 승격하며 재빌드하지 않음 |
+| 롤백 | 이전 Git commit을 revert하거나 이전 immutable tag로 되돌리는 GitOps PR 사용 |
+| Drift | Argo CD/Flux 차이 감지 시 수동 변경 여부를 확인하고 실제 환경을 Git 기준으로 원복하거나 승인된 Git 변경으로 수렴 |
 
-배포 파이프라인은 다음 흐름을 따른다.
-
-```
-코드 Push / PR Merge
-→ CI 실행
-→ Lint 검사
-→ Test 실행
-→ Docker Build
-→ Self-hosted Runner 배포
-→ 컨테이너 상태 확인
-```
+Self-hosted Runner는 내부망 image build·registry push·GitOps PR 생성에 사용할 수 있지만 운영 manifest를 우회해 직접 배포하지 않는다. 운영에서는 `latest` tag를 금지하고 release tag 또는 commit SHA만 사용한다.
 
 ---
 
@@ -720,56 +713,70 @@ Self-hosted Runner를 사용하는 이유는 다음과 같다.
 
 ## 11.1 브랜치 전략
 
-기본 브랜치 전략은 다음을 따른다.
-
-```
-main
-develop
-feature/*
-fix/*
-hotfix/*
-release/*
-```
+`main`과 `dev`는 보호 브랜치이며 직접 commit·push, force push, branch 삭제를 금지한다. 모든 기능·수정·문서·운영 설정 변경은 작업 브랜치와 PR을 사용한다. 저장소 관리자 긴급 조치는 예외 사유와 후속 PR·리뷰 기록을 남겨야 한다.
 
 | 브랜치 | 용도 |
 | --- | --- |
-| main | 운영 또는 배포 기준 브랜치 |
-| develop | 개발 통합 브랜치 |
-| feature/* | 기능 개발 브랜치 |
-| fix/* | 일반 버그 수정 |
-| hotfix/* | 긴급 수정 |
-| release/* | 배포 준비 브랜치 |
+| `main` | 배포 가능한 운영 기준선과 릴리즈 이력 |
+| `dev` | 기능 통합·개발 환경 검증 기준선 |
+| `feature/*` | `dev`에서 분기하는 신규 기능·개선·일반 수정 |
+| `hotfix/*` | `main`에서 분기하는 운영 장애·치명적 결함 긴급 수정 |
+| `docs/*` | 문서 전용 변경에 선택적으로 사용 |
 
----
+## 11.2 병합 흐름
 
-## 11.2 PR 기준
+| 변경 유형 | PR 흐름 | 병합 방식 |
+| --- | --- | --- |
+| 기능·일반 수정 | `feature/*` → `dev` | Squash merge 권장 |
+| 문서 | `docs/*` → `dev` | Squash merge 권장 |
+| 운영 릴리즈 | `dev` → `main` | Merge commit |
+| 긴급 수정 | `hotfix/*` → `main`, 이후 `main` → `dev` 역반영 | Merge commit |
 
-PR 생성 시 다음 항목을 포함해야 한다.
+CI 실패 상태에서는 병합하지 않는다. `hotfix/*`를 `main`에만 반영하고 `dev` 역반영을 누락해서는 안 된다.
 
-- 작업 개요
-- 관련 요구사항 또는 이슈 번호
-- 변경 내용
-- 테스트 결과
-- 영향 범위
-- 리뷰 요청 사항
+## 11.3 브랜치 및 커밋 명명
 
-PR은 최소 1명 이상의 리뷰를 받은 후 병합한다.
+브랜치는 `<type>/<short-description>` 또는 `<type>/<issue-number>-<short-description>` 형식으로 작성하며 소문자와 하이픈을 사용한다. `feature/test`, `feature/tmp`처럼 목적이 불명확한 이름은 금지한다.
 
----
+커밋 제목은 Conventional Commits 형식을 사용한다.
 
-## 11.3 PR 체크리스트
+```text
+<type>(<scope>): <summary>
+```
+
+허용 type은 `feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`이다. 한 커밋에는 하나의 논리적 변경만 담고 `WIP`, `final`, `test` 같은 의미 없는 제목은 사용하지 않는다. 예: `fix(auth): prevent refresh token replay`, `ci(database): verify current migration head`.
+
+## 11.4 PR 및 리뷰 기준
+
+PR은 가능한 한 한 가지 목적과 300~500줄 이내의 리뷰 가능한 크기로 유지하며 리팩터링과 기능 추가를 분리한다. PR 본문에는 다음 항목을 포함한다.
+
+- 변경 목적과 관련 요구사항·이슈
+- 변경 내용 요약
+- API·DB·배포·운영 영향 범위
+- 테스트 방법과 결과
+- 운영 변경 시 배포·롤백 방법
+
+최소 1명 승인을 필수로 하고 2명을 권장한다. DB·인프라·운영 영향 변경은 담당자 추가 승인을 받는다. `main`과 `dev`에는 PR, 필수 CI, 승인, force push·삭제 금지 보호 정책을 적용한다.
+
+## 11.5 릴리즈 및 Hotfix
+
+운영 릴리즈는 `main`에 `vMAJOR.MINOR.PATCH` tag와 릴리즈 노트를 남긴다. 호환성 파괴는 MAJOR, 기능 추가는 MINOR, 버그 수정은 PATCH를 증가시킨다. 운영 image는 release tag와 commit SHA를 함께 추적하고 immutable하게 사용한다.
+
+Hotfix는 `main`에서 `hotfix/<issue>`를 분기해 긴급 리뷰·CI 후 `main`에 병합한다. 배포 이후 `main`→`dev` 역반영과 GitOps `prod` overlay 변경을 확인한다.
+
+## 11.6 PR 체크리스트
 
 PR 작성자는 다음 항목을 확인한다.
 
-```
+```text
 [ ] 관련 요구사항 또는 이슈가 연결되어 있다.
 [ ] 기능명세 또는 API 명세 변경이 필요한 경우 문서를 수정했다.
 [ ] 테스트 케이스를 추가했다.
-[ ] ruff check를 통과했다.
-[ ] ruff format을 적용했다.
-[ ] pytest를 통과했다.
+[ ] lint, format, typecheck, 테스트를 통과했다.
 [ ] Docker 실행에 문제가 없다.
 [ ] 민감정보가 코드에 포함되지 않았다.
+[ ] 배포 영향과 롤백 방법을 확인했다.
+[ ] hotfix라면 dev 역반영 계획이 있다.
 ```
 
 ---
@@ -846,7 +853,7 @@ Accepted
 7. Notion은 공유 인터페이스로 활용하되 원천 저장소로 사용하지 않는다.
 8. 주요 기술 결정은 ADR로 남긴다.
 9. 백엔드, 프론트엔드, AI 워커는 컨테이너를 분리한다.
-10. 배포는 Self-hosted Runner 기반 CI/CD를 통해 수행한다.
+10. 운영 배포와 롤백은 immutable image와 GitOps PR을 통해 수행한다.
 
 ---
 

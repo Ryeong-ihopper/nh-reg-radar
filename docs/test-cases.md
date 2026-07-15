@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.28 |
+| 현행 버전 | v1.29 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.29 | 2026-07-16 | 팀 Git 브랜치·PR·Conventional Commits·release/hotfix 역반영과 GitOps immutable 승격·rollback 정책의 수동 검증 기준 추가 |
 | v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 현행 0009 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
 | v1.27 | 2026-07-16 | Notion 수동 게시의 93개 Markdown 선별, 번호형 계층, secret 격리, 재시도·실패 정리와 페이지별 내용 검증 회귀 기준 통합 |
 | v1.26 | 2026-07-16 | 운영 교차검증에서 발견된 enum/read-path 500, refresh replay·bootstrap, worker lease·poison replay, targetIndexes, OCR DB 정합성과 frontend 흐름 회귀 Gate 추가 |
@@ -52,7 +53,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.28 |
+| 문서 버전 | v1.29 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |
@@ -754,6 +755,16 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-DOC-008 | 결과 추적 | GitHub Actions 완료 후 summary와 JSON artifact 확인 | 대상 commit, 일반/ADR 게시 수, 원본 경로·SHA-256, page ID/URL, 잠금 상태를 확인할 수 있음 | P1 |
 | TC-NFR-DOC-009 | 실패 실행 생성물 정리 | ADR 게시 중 영구 `502`를 Mock으로 발생 | 제한 재시도 후 실패하고 이번 실행이 만든 프로젝트 규칙·일반 문서, `15. ADR` 및 구분선만 제거되며 부모 `개발 문서`는 유지됨 | P0 |
 | TC-NFR-DOC-010 | 페이지별 본문 검증 | 서로 다른 Markdown을 게시한 Mock 페이지를 각각 재조회 | 각 페이지 검증은 해당 페이지에 게시한 본문만 사용하며 다른 문서의 대표 구문으로 통과하지 않음 | P1 |
+
+## 19.19 Git 협업 및 GitOps 정책 수동 테스트
+
+| TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
+| --- | --- | --- | --- | --- |
+| TC-NFR-GIT-001 | 브랜치 흐름 | 기능·릴리즈·긴급 수정 PR의 base/head 확인 | `feature/*`→`dev`, `dev`→`main`, `hotfix/*`→`main` 흐름이며 hotfix는 `dev` 역반영 PR을 포함 | P0 |
+| TC-NFR-GIT-002 | 보호 브랜치 | `main`, `dev`의 repository rule 확인 | direct/force push와 삭제가 금지되고 PR·필수 CI·승인이 요구됨 | P0 |
+| TC-NFR-GIT-003 | 커밋·PR 형식 | PR commit과 본문 검토 | Conventional Commits 제목을 사용하고 목적·영향·테스트·배포/롤백 항목이 존재 | P1 |
+| TC-NFR-GIT-004 | 릴리즈 추적 | 운영 릴리즈의 tag·image·release note 확인 | `vMAJOR.MINOR.PATCH`와 commit SHA가 immutable image 및 릴리즈 노트에 연결됨 | P0 |
+| TC-NFR-GIT-005 | GitOps 승격·롤백 | dev/stg/prod overlay와 배포 이력 비교 | 동일 image tag를 재빌드 없이 승격하고 배포·롤백·drift 해소가 Git PR로 추적됨 | P0 |
 
 ---
 
