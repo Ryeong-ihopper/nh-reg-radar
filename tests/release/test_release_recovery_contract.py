@@ -69,7 +69,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("trap cleanup_backup_permissions EXIT", text)
         self.assertIn("/snapshots", text)
         self.assertIn("/snapshots/recover?wait=false", text)
-        self.assertIn("file:///qdrant/snapshots/{collection}/m8-release-backup", text)
+        self.assertIn("file:///qdrant/snapshots/m8-release-backup", text)
         self.assertIn("docker cp", text)
         self.assertIn("qdrant_node_checksum", text)
         self.assertIn("time.monotonic() + 180", text)
@@ -106,11 +106,20 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertLess(download, deleted)
         self.assertLess(deleted, node_copy)
         self.assertLess(node_copy, recover)
+        self.assertIn(
+            'request_json("DELETE", f"{qdrant}/collections/{collection}?wait=true")',
+            production,
+        )
         self.assertEqual(
             production.count(
-                'request_json("DELETE", f"{qdrant}/collections/{collection}")'
+                'request_json("DELETE", f"{qdrant}/collections/{collection}?wait=true")'
             ),
             2,
+        )
+        self.assertEqual(production.count("QDRANT_SOURCE_COLLECTION_DELETED"), 1)
+        self.assertNotIn(
+            'file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot',
+            production,
         )
 
         def accepted(response: dict[str, object]) -> bool:

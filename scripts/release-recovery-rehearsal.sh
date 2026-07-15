@@ -178,7 +178,7 @@ def request_json(method: str, url: str, payload: Any | None = None) -> dict[str,
     return json.loads(data) if data else {}
 
 
-request_json("DELETE", f"{qdrant}/collections/{collection}")
+request_json("DELETE", f"{qdrant}/collections/{collection}?wait=true")
 request_json(
     "PUT",
     f"{qdrant}/collections/{collection}",
@@ -203,15 +203,15 @@ with urllib.request.urlopen(
     f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", timeout=30
 ) as response:
     snapshot_path.write_bytes(response.read())
-request_json("DELETE", f"{qdrant}/collections/{collection}")
+request_json("DELETE", f"{qdrant}/collections/{collection}?wait=true")
 print(f"QDRANT_SNAPSHOT_BACKED_UP snapshot={snapshot_name}")
 print("QDRANT_SOURCE_COLLECTION_DELETED before=node-local-copy")
 PY
 
 qdrant_id="$("${compose[@]}" ps -q qdrant)"
 qdrant_checksum="$(sha256sum "$backup_dir/qdrant.snapshot" | cut -d' ' -f1)"
-qdrant_node_snapshot="/qdrant/snapshots/$qdrant_collection/m8-release-backup.snapshot"
-docker exec --user 0 "$qdrant_id" mkdir -p "/qdrant/snapshots/$qdrant_collection"
+qdrant_node_snapshot="/qdrant/snapshots/m8-release-backup.snapshot"
+docker exec --user 0 "$qdrant_id" mkdir -p "/qdrant/snapshots"
 docker cp "$backup_dir/qdrant.snapshot" \
   "$qdrant_id:$qdrant_node_snapshot" >/dev/null
 qdrant_node_checksum="$(
@@ -260,7 +260,7 @@ restored = request_json(
     "PUT",
     f"{qdrant}/collections/{collection}/snapshots/recover?wait=false",
     {
-        "location": f"file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot",
+        "location": "file:///qdrant/snapshots/m8-release-backup.snapshot",
         "priority": "snapshot",
     },
 )
