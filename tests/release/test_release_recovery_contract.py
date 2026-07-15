@@ -100,10 +100,15 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("provider-free-qdrant-restore", production)
 
         download = production.index("snapshot_path.write_bytes(response.read())")
-        deleted = production.index("QDRANT_SOURCE_COLLECTION_DELETED")
+        waited_delete = production.index(
+            'request_json("DELETE", f"{qdrant}/collections/{collection}?wait=true")',
+            download,
+        )
+        deleted = production.index("QDRANT_SOURCE_COLLECTION_DELETED", waited_delete)
         node_copy = production.index("docker cp")
         recover = production.index("/snapshots/recover?wait=false")
-        self.assertLess(download, deleted)
+        self.assertLess(download, waited_delete)
+        self.assertLess(waited_delete, deleted)
         self.assertLess(deleted, node_copy)
         self.assertLess(node_copy, recover)
         self.assertIn(
@@ -120,6 +125,11 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertNotIn(
             'file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot',
             production,
+        )
+        restore_helper = production[production.index("M8 Qdrant restore:") :]
+        self.assertNotIn(
+            'request_json("DELETE", f"{qdrant}/collections/{collection}',
+            restore_helper,
         )
 
         def accepted(response: dict[str, object]) -> bool:
