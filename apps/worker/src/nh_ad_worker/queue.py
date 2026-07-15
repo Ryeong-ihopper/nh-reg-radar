@@ -7,6 +7,7 @@ from typing import Protocol
 
 from redis.asyncio import Redis
 from redis import Redis as SyncRedis
+from redis.exceptions import RedisError
 
 
 class QueueReadiness(Protocol):
@@ -24,7 +25,10 @@ class RedisQueueReadiness:
         self._client = Redis.from_url(redis_url, decode_responses=True)
 
     async def ready(self) -> bool:
-        return bool(await self._client.ping())
+        try:
+            return bool(await self._client.ping())
+        except RedisError:
+            return False
 
     async def close(self) -> None:
         await self._client.aclose()
