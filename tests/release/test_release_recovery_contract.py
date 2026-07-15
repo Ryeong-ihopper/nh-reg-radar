@@ -76,6 +76,9 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("except (urllib.error.URLError, TimeoutError)", text)
         self.assertIn('failed: 404', text)
         self.assertIn('failed: 503', text)
+        self.assertIn('"failed: 500" in error', text)
+        self.assertIn('"Local shard" in error', text)
+        self.assertIn('"not found" in error', text)
         self.assertIn('stop opensearch', text)
         self.assertIn('up -d --wait --wait-timeout 180 opensearch', text)
         self.assertIn('logs --no-color --tail=80 qdrant', text)
@@ -98,6 +101,12 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn('.get("status") != "green"', production)
         self.assertIn("points/4242", production)
         self.assertIn("provider-free-qdrant-restore", production)
+        self.assertIn(
+            'transient_shard_install = ( "failed: 500" in error and '
+            '"Local shard" in error and "not found" in error )',
+            production,
+        )
+        self.assertIn("and not transient_shard_install", production)
 
         download = production.index("snapshot_path.write_bytes(response.read())")
         waited_delete = production.index(

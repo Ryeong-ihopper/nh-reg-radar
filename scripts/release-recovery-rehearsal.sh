@@ -279,7 +279,17 @@ while time.monotonic() < deadline:
             continue
         point = request_json("GET", f"{qdrant}/collections/{collection}/points/4242")
     except RuntimeError as exc:
-        if "failed: 404" not in str(exc) and "failed: 503" not in str(exc):
+        error = str(exc)
+        transient_shard_install = (
+            "failed: 500" in error
+            and "Local shard" in error
+            and "not found" in error
+        )
+        if (
+            "failed: 404" not in error
+            and "failed: 503" not in error
+            and not transient_shard_install
+        ):
             raise
         time.sleep(2)
         continue
