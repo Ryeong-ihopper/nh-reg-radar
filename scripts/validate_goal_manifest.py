@@ -274,9 +274,7 @@ def _validate_current_file_sha(
     value: JsonValue,
 ) -> list[ManifestFinding]:
     if not isinstance(value, dict):
-        return [
-            ManifestFinding("MANIFEST_TYPE", manifest_path, f"{field} must be an object")
-        ]
+        return [ManifestFinding("MANIFEST_TYPE", manifest_path, f"{field} must be an object")]
     path_value = value.get("path")
     sha256_value = value.get("sha256")
     if not isinstance(path_value, str) or not path_value.strip():
@@ -337,9 +335,7 @@ def _validate_g009_release_evidence(
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         findings.append(
-            ManifestFinding(
-                "MANIFEST_TYPE", manifest_path, "artifacts must be a non-empty array"
-            )
+            ManifestFinding("MANIFEST_TYPE", manifest_path, "artifacts must be a non-empty array")
         )
     else:
         for index, artifact in enumerate(artifacts):
@@ -360,8 +356,7 @@ def _validate_g009_release_evidence(
             ManifestFinding(
                 "PROVIDER_FREE_EXPECTED_MISMATCH",
                 manifest_path,
-                "automation.provider_free.expected must be exactly "
-                f"{G009_EXPECTED_PROVIDER_FREE}",
+                f"automation.provider_free.expected must be exactly {G009_EXPECTED_PROVIDER_FREE}",
             )
         )
     return findings

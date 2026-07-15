@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.8 |
+| 현행 버전 | v1.9 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.9 | 2026-07-15 | G009 현재 파일 SHA-256과 provider-free E2E 4/0/0 건수를 릴리스 Gate에서 정확히 검증하는 fail-closed 기준 반영 |
 | v1.8 | 2026-07-15 | AC-18 최종 문서·일정 동기화 실행 순서와 provider-free·수동 외부 AI·production recovery 운영 증거 해석 경계 반영 |
 | v1.7 | 2026-07-15 | M8 production recovery 공개 명령과 PostgreSQL·MinIO·Qdrant·OpenSearch·Redis outage 검증 및 무잔여 정리 경계를 명시 |
 | v1.6 | 2026-07-15 | M8 provider-free 릴리스 Gate와 실제 외부 AI 수동 평가를 분리하고 보안·감사·redaction 증거 형식을 구체화 |
@@ -584,7 +585,7 @@ M8 릴리스 후보 검증은 [ADR-0044](adr/ADR-0044-ai-mock-fixture-test-polic
 
 | Workflow | 실행 경계 | 자격증명·증거 기준 |
 | --- | --- | --- |
-| `.github/workflows/release-readiness.yml` | PR/push 및 명시적 수동 실행의 provider-free Gate | 외부 provider secret과 live inference를 사용하지 않는다. 고정 fixture 기반 E2E/release test, G009 manifest, lint/type/OpenAPI/frontend/docs/governance를 검증한다. recovery smoke는 수동 입력으로만 실행하되 `NH_RUN_G011_DOCKER_REGRESSION=1` 반복 bootstrap 회귀를 먼저 통과해야 한다. |
+| `.github/workflows/release-readiness.yml` | PR/push 및 명시적 수동 실행의 provider-free Gate | 외부 provider secret과 live inference를 사용하지 않는다. G009 manifest의 OpenAPI·generated client·migration·artifact SHA-256을 현재 파일과 대조하고, provider-free E2E JUnit 결과가 `4 passed/0 failed/0 skipped`와 정확히 일치해야 한다. 이어서 고정 fixture 기반 E2E/release test, lint/type/OpenAPI/frontend/docs/governance를 검증한다. recovery smoke는 수동 입력으로만 실행하되 `NH_RUN_G011_DOCKER_REGRESSION=1` 반복 bootstrap 회귀를 먼저 통과해야 한다. |
 | `.github/workflows/external-ai-evaluation.yml` | 승인 환경의 `workflow_dispatch` 수동 평가 | `external_ai` marker만 실행한다. provider/engine/model, 비밀값이 아닌 config SHA-256, 승인 dataset snapshot ID, revision/time/pass-fail-skip count만 `external-ai-evidence.json`에 기록한다. API key, 고객 원문, raw pytest log는 artifact에 포함하지 않는다. |
 
 수동 실제 엔진 평가는 릴리스 판단을 보조하는 별도 증거이며 provider-free Gate를 대체하거나 약화하지 않는다. 수동 workflow가 실행되지 않았거나 실패해도 이를 provider-free 성공으로 오인하지 않고 별도 잔여 위험 또는 결함으로 기록한다.

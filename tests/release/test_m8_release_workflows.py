@@ -18,7 +18,7 @@ def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
     assert "governance/goal-manifests/G009-m8-release.json" in workflow
     assert "Run exact G009 provider-free evidence" in workflow
     assert "--junitxml=/tmp/g009-provider-free-junit.xml" in workflow
-    assert 'actual != expected' in workflow
+    assert "actual != expected" in workflow
     assert "provider-free count mismatch" in workflow
     assert '"failed": counts["failures"] + counts["errors"]' in workflow
     assert "scripts/check-doc-consistency.sh" in workflow
