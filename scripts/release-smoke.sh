@@ -12,6 +12,7 @@ timeout_kill_after_seconds="${NH_M8_RELEASE_KILL_AFTER_SECONDS:-10}"
 project="${NH_M8_RELEASE_COMPOSE_PROJECT:-m8-release-$(date -u +%Y%m%d%H%M%S)-$$}"
 backup_dir=""
 cleanup_started=false
+active_timeout_pid=""
 
 usage() {
   cat <<'EOF'
@@ -77,8 +78,17 @@ g011_compose=(
 
 run_with_timeout() {
   local limit="$1"
+  local command_status
   shift
-  timeout --signal=TERM --kill-after="$timeout_kill_after_seconds" "$limit" "$@"
+  timeout --signal=TERM --kill-after="$timeout_kill_after_seconds" "$limit" "$@" &
+  active_timeout_pid=$!
+  if wait "$active_timeout_pid"; then
+    command_status=0
+  else
+    command_status=$?
+  fi
+  active_timeout_pid=""
+  return "$command_status"
 }
 
 compose_call_with_timeout() {
@@ -199,6 +209,13 @@ handle_signal() {
     *) signal_exit_code=1 ;;
   esac
   trap '' INT TERM
+  if [[ -n "$active_timeout_pid" ]]; then
+    kill -TERM -- "-$active_timeout_pid" >/dev/null 2>&1 \
+      || kill -TERM "$active_timeout_pid" >/dev/null 2>&1 \
+      || true
+    wait "$active_timeout_pid" >/dev/null 2>&1 || true
+    active_timeout_pid=""
+  fi
   exit "$signal_exit_code"
 }
 
@@ -270,7 +287,7 @@ run_g011_gate() {
       NH_G011_TIMEOUT_SECONDS=120 \
       PYTHONPATH=. \
       uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q -s \
-    | tee "$g011_log"; then
+    > >(tee "$g011_log"); then
     printf 'G011 full regression exceeded or failed within %ss\n' "$timeout_seconds" >&2
     exit 1
   fi

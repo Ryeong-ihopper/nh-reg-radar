@@ -142,7 +142,7 @@ esac
                     "FAKE_DOCKER_LOG": str(call_log),
                     "FAKE_CONFIG_FAIL": str(fail_config),
                     "NH_M8_RELEASE_COMPOSE_PROJECT": "m8-release-signal-contract",
-                    "NH_M8_RELEASE_TIMEOUT_SECONDS": "5",
+                    "NH_M8_RELEASE_TIMEOUT_SECONDS": "3",
                     "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
                     "NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS": "2",
                     "NH_M8_RELEASE_KILL_AFTER_SECONDS": "1",
@@ -156,6 +156,7 @@ esac
                 "--fresh-project",
                 "--with-restart-and-outages",
             ]
+            started = time.monotonic()
             process = subprocess.Popen(
                 command,
                 cwd=ROOT,
@@ -184,6 +185,7 @@ esac
             os.kill(process.pid, signal.SIGTERM)
             stdout, stderr = process.communicate(timeout=5)
             self.assertEqual(process.returncode, 143, stdout + stderr)
+            self.assertLess(time.monotonic() - started, 2.5)
             first_calls = call_log.read_text(encoding="utf-8").splitlines()
             self.assertEqual(
                 sum("down --volumes --remove-orphans" in call for call in first_calls), 2
