@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.9 |
-| 기준일 | 2026-07-15 |
+| 현행 버전 | v1.10 |
+| 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.10 | 2026-07-16 | Notion 수동 게시의 번호형 문서·ADR 계층, secret·checkout credential 격리, 재시도·실패 정리 및 내용 완전성 검증 기준 통합 |
 | v1.9 | 2026-07-15 | G009 현재 파일 SHA-256과 provider-free E2E 4/0/0 건수를 릴리스 Gate에서 정확히 검증하는 fail-closed 기준 반영 |
 | v1.8 | 2026-07-15 | AC-18 최종 문서·일정 동기화 실행 순서와 provider-free·수동 외부 AI·production recovery 운영 증거 해석 경계 반영 |
 | v1.7 | 2026-07-15 | M8 production recovery 공개 명령과 PostgreSQL·MinIO·Qdrant·OpenSearch·Redis outage 검증 및 무잔여 정리 경계를 명시 |
@@ -306,6 +307,31 @@ python3 -m scripts.doc_guard validate --scope working
 `skills/`만 사람이 수정하며 `.agents/skills`, `.claude/skills`는 온보딩 스크립트가 생성하는 Git 제외 산출물이다. copy fallback을 사용하는 환경에서 원본과 adapter가 달라지면 로컬 Git hook이 실패하므로 setup 스크립트를 다시 실행해야 한다.
 
 저장소 밖의 내용을 Skill 원본이나 adapter 경로로 우회하지 않도록 `skills/` 내부 심볼릭 링크와 특수 파일, `.agents`/`.claude` adapter root 심볼릭 링크를 허용하지 않는다. 설치·검증 스크립트는 실제 경로가 저장소 내부인지 확인하고 후보 copy의 content/mode hash를 검증한 뒤에만 adapter를 변경한다.
+
+## 5.4 Notion 문서 게시 수동 테스트
+
+Git 문서를 Notion에 단방향으로 게시하는 운영 정책을 ADR로 확정하기 전에 다음 수동 테스트로 기술적 가능성과 제약을 검증한다.
+
+| 항목 | 테스트 기준 |
+| --- | --- |
+| 실행 방식 | `.github/workflows/notion-docs-publish-test.yml`의 `workflow_dispatch`를 확인 문자열 `PUBLISH_DEV_DOCS`와 함께 수동 실행 |
+| 게시 도구 | 공식 Notion CLI를 사용하는 `scripts/publish-notion-docs-test.sh` |
+| 게시 대상 | Git이 추적하는 `docs/*.md`, `docs/**/*.md` Markdown 93개. 개수는 2026-07-14 테스트 기준 |
+| 제외 대상 | `docs/`의 HWP/HWPX, PDF, PNG, YAML 등 비 Markdown 파일과 Git 비추적 파일 |
+| 실행 전제 | 지정한 Notion 부모 페이지의 제목이 `개발 문서`이고 활성 하위 block이 없는 경우에만 실행 |
+| 프로젝트 규칙 | `프로젝트 규칙`을 번호 없이 `개발 문서` 최상단에 게시하고, 다음 문서군과 구분선으로 분리 |
+| 일반 문서 | README 문서 참조 순서에 따라 프로젝트 규칙을 제외한 14개 문서를 `01`~`14` 번호 제목으로 게시 |
+| ADR 문서 | 일반 문서 다음에 두 번째 구분선을 추가하고 마지막 `15. ADR` 페이지 아래에 `docs/adr/` 문서 78개 게시 |
+| 본문 | Git Markdown 본문만 게시하며 배포 안내, 원본 경로, commit, 동기화 시각과 별도 문서 목록을 Notion 본문에 추가하지 않음 |
+| 내부 링크 | 상대 Markdown 링크를 같은 commit의 GitHub 원문 절대 링크로 변환 |
+| 추적 정보 | 게시 대상 commit, Git 원본 경로, 원본 SHA-256, Notion page ID/URL은 GitHub Actions 결과 artifact에만 기록 |
+| 잠금 | 게시 완료 후 문서 93개, `15. ADR`, `개발 문서` 페이지를 잠금 처리하고 API로 재검증 |
+| 내용 검증 | 제목, 본문 대표 구문, `truncated=false`, 알 수 없는 block 없음 확인 |
+| 장애 처리 | 조회·제목 변경·잠금처럼 재실행 안전한 API 요청만 제한적으로 재시도하고, 실패 시 이번 실행이 만든 프로젝트 규칙·일반 문서·`15. ADR`·구분선만 자동 정리 |
+| Secret 범위 | `NOTION_API_TOKEN`은 설정 검증, 연결 확인, 게시 단계에만 주입하고 외부 CLI 설치 단계와 job 공통 환경에는 노출하지 않으며, checkout credential도 설치 단계 전에 저장소에 유지하지 않음 |
+| 변경 요청 | Notion 댓글로 의견을 수집하되 공식 변경은 Git branch/PR에서 수행 |
+
+테스트 전 기존 테스트 산출물은 확인 후 삭제하고 비어 있는 `개발 문서` 페이지에 게시한다. GitHub Actions의 `NOTION_API_TOKEN` secret과 `NOTION_PARENT_PAGE_ID`, `NOTION_WORKSPACE_ID` variable을 사용하며 token 값은 로그나 산출물에 기록하지 않는다. 테스트 스크립트는 실패한 단일 실행에서 생성한 산출물만 회수하며 기존 페이지 자동 교체는 수행하지 않는다. 게시 자동화의 운영 주기, 기존 페이지 증분 갱신 방식, Git 삭제·이름 변경 전파, 운영 수준 복구, 잠금 이탈 감지는 테스트 결과를 검토한 뒤 별도 ADR에서 확정한다.
 
 ---
 
