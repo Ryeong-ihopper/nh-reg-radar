@@ -288,10 +288,16 @@ run_g011_gate() {
       NH_G011_TIMEOUT_SECONDS=120 \
       PYTHONPATH=. \
       uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q -s \
-    > >(tee "$g011_log"); then
+    >"$g011_log"; then
     g011_status=0
   else
     g011_status=$?
+  fi
+  if ! cat "$g011_log"; then
+    printf 'could not replay G011 regression log: %s\n' "$g011_log" >&2
+    if ((g011_status == 0)); then
+      g011_status=1
+    fi
   fi
   if ((g011_status != 0)); then
     printf 'G011 full regression failed with status %s within %ss\n' \

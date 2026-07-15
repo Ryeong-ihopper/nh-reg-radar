@@ -30,6 +30,9 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("G011_REGRESSION_SECONDS", text)
         self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
         self.assertIn('run_with_timeout "$timeout_seconds"', text)
+        self.assertIn('>"$g011_log"', text)
+        self.assertIn('cat "$g011_log"', text)
+        self.assertNotIn('> >(tee "$g011_log")', text)
         self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
         self.assertIn("PROD_COLD_START_SECONDS", text)
         self.assertLess(text.index("up -d --wait postgres"), text.index("up -d --wait\n"))
@@ -261,20 +264,20 @@ sleep 30
                     sum("down --volumes --remove-orphans" in call for call in calls), 2
                 )
 
-    def test_release_smoke_owns_log_capture_instead_of_racing_delayed_tee(self) -> None:
+    def test_release_smoke_owns_g011_log_before_replay_and_parse(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
             fake_bin = temp / "bin"
             fake_bin.mkdir()
             call_log = temp / "docker.log"
-            tee_log = temp / "tee.log"
+            tee_marker = temp / "tee-invoked"
             docker = fake_bin / "docker"
             docker.write_text(
                 """#!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
 case " $* " in
-  *" config --quiet "*) exit 42 ;;
+  *" config --quiet "*) exit 43 ;;
 esac
 """,
                 encoding="utf-8",
@@ -284,8 +287,9 @@ esac
             uv.write_text(
                 """#!/usr/bin/env bash
 set -eu
-printf 'G011_DELAYED_CONSUMER_DIAGNOSTIC\n'
+printf 'G011_DELAYED_CONSUMER_STDOUT\n'
 printf 'G011_FRESH_VOLUME_SECONDS=1\n'
+printf 'G011_DELAYED_CONSUMER_STDERR\n' >&2
 """,
                 encoding="utf-8",
             )
@@ -294,9 +298,9 @@ printf 'G011_FRESH_VOLUME_SECONDS=1\n'
             tee.write_text(
                 """#!/usr/bin/env bash
 set -eu
-printf 'invoked\n' >"$FAKE_TEE_LOG"
+: >"$FAKE_TEE_MARKER"
 sleep 1
-/usr/bin/tee "$@"
+command -p tee "$@"
 """,
                 encoding="utf-8",
             )
@@ -307,8 +311,8 @@ sleep 1
                 {
                     "PATH": f"{fake_bin}:{environment['PATH']}",
                     "FAKE_DOCKER_LOG": str(call_log),
-                    "FAKE_TEE_LOG": str(tee_log),
-                    "NH_M8_RELEASE_COMPOSE_PROJECT": "m8-release-owned-log-contract",
+                    "FAKE_TEE_MARKER": str(tee_marker),
+                    "NH_M8_RELEASE_COMPOSE_PROJECT": "m8-release-g011-owned-log",
                     "NH_M8_RELEASE_TIMEOUT_SECONDS": "3",
                     "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
                     "NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS": "2",
@@ -332,10 +336,19 @@ sleep 1
                 check=False,
             )
 
-            self.assertEqual(result.returncode, 42, result.stdout + result.stderr)
-            self.assertIn("G011_DELAYED_CONSUMER_DIAGNOSTIC", result.stdout)
+            self.assertEqual(result.returncode, 43, result.stdout + result.stderr)
+            self.assertIn("G011_DELAYED_CONSUMER_STDOUT", result.stdout)
+            self.assertIn("G011_FRESH_VOLUME_SECONDS=1", result.stdout)
             self.assertIn("G011_COLD_GATE_SECONDS=1", result.stdout)
-            self.assertFalse(tee_log.exists(), "release smoke still invoked asynchronous tee")
+            self.assertIn("G011_DELAYED_CONSUMER_STDERR", result.stderr)
+            self.assertNotIn("timing evidence missing or invalid", result.stderr)
+            self.assertFalse(tee_marker.exists(), result.stdout + result.stderr)
+            self.assertTrue(
+                any(
+                    "config --quiet" in call
+                    for call in call_log.read_text(encoding="utf-8").splitlines()
+                )
+            )
 
     def test_release_smoke_repeated_term_cleans_once_and_allows_clean_rerun(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
