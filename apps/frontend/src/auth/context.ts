@@ -9,6 +9,7 @@ export interface AuthSession {
 
 export interface AuthValue {
   session: AuthSession | null;
+  isInitializing: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }

@@ -3,6 +3,7 @@
 import secrets
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import BinaryIO
 
 from nh_ad_backend.domain import (
@@ -31,6 +32,24 @@ class ServiceError(ValueError):
         self.status_code = status_code
         self.code = code
         self.message = message
+
+
+class ProductGroup(StrEnum):
+    DEPOSIT = "DEPOSIT"
+    SAVINGS = "SAVINGS"
+    DEMAND_DEPOSIT = "DEMAND_DEPOSIT"
+    EVENT = "EVENT"
+
+
+class AdvertisementType(StrEnum):
+    BRANCH_FLYER = "BRANCH_FLYER"
+    NOTICE = "NOTICE"
+    MOBILE_BANNER = "MOBILE_BANNER"
+    WEB_BANNER = "WEB_BANNER"
+    EVENT_PAGE = "EVENT_PAGE"
+    PUSH = "PUSH"
+    SMS = "SMS"
+    ALIMTALK = "ALIMTALK"
 
 
 class AuthService:
@@ -107,9 +126,18 @@ class AuthService:
     def refresh(self, refresh_token: str, trace_id: str) -> tuple[str, str]:
         now = self._now()
         session = self.repository.get_refresh_session(self.tokens.hash_refresh_token(refresh_token))
-        if session is None or session.revoked_at is not None or session.expires_at <= now:
+        if session is None:
             raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
         user = self.repository.get_user(session.user_id)
+        if session.revoked_at is not None:
+            if user is not None:
+                self.repository.revoke_all_refresh_sessions(
+                    user.user_id, "REFRESH_TOKEN_REUSE", now
+                )
+                self._audit(user, "TOKEN_REFRESH", "FAILURE", "REFRESH_TOKEN_REUSE", trace_id)
+            raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
+        if session.expires_at <= now:
+            raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
         if (
             user is None
             or user.user_status != "ACTIVE"
@@ -120,18 +148,19 @@ class AuthService:
                     user.user_id, "TOKEN_VERSION_CHANGED", now
                 )
             raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
-        self.repository.revoke_refresh_session(session, "ROTATED", now)
         new_token, new_hash = self.tokens.new_refresh_token()
-        self.repository.save_refresh_session(
-            RefreshSession(
-                session_id=secrets.token_hex(16),
-                user_id=user.user_id,
-                token_hash=new_hash,
-                issued_at=now,
-                expires_at=now + self.tokens.refresh_ttl,
-                token_version=user.auth_token_version,
-            )
+        replacement = RefreshSession(
+            session_id=secrets.token_hex(16),
+            user_id=user.user_id,
+            token_hash=new_hash,
+            issued_at=now,
+            expires_at=now + self.tokens.refresh_ttl,
+            token_version=user.auth_token_version,
         )
+        if not self.repository.rotate_refresh_session(session, replacement, now):
+            self.repository.revoke_all_refresh_sessions(user.user_id, "REFRESH_TOKEN_REUSE", now)
+            self._audit(user, "TOKEN_REFRESH", "FAILURE", "REFRESH_TOKEN_REUSE", trace_id)
+            raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
         self._audit(user, "TOKEN_REFRESH", "SUCCESS", None, trace_id)
         return self.tokens.issue_access_token(user), new_token
 
@@ -227,6 +256,13 @@ class AdvertisementService:
             )
         ):
             raise ServiceError(400, "BAD_REQUEST", "필수 입력값을 확인해 주세요.")
+        try:
+            ProductGroup(product_group)
+            AdvertisementType(advertisement_type)
+        except ValueError as exc:
+            raise ServiceError(
+                400, "BAD_REQUEST", "상품군 또는 광고 유형을 확인해 주세요."
+            ) from exc
         if not AuthorizationService.can_create_advertisement(actor, department_id):
             self._audit(actor, "ADVERTISEMENT_CREATE", "DENIED", "DEPARTMENT_SCOPE", None, trace_id)
             raise ServiceError(403, "FORBIDDEN", "접근 권한이 없습니다.")

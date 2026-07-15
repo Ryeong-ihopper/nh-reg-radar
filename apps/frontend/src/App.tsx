@@ -28,7 +28,8 @@ function homePath(roles: string[]): string {
 }
 
 function ProtectedRoute({ allowedRoles }: { allowedRoles: Set<string> }) {
-  const { session } = useAuth();
+  const { isInitializing, session } = useAuth();
+  if (isInitializing) return <div role="status" className="state-message">로그인 상태를 확인하는 중입니다.</div>;
   if (!session) return <Navigate to="/login" replace />;
   if (!session.user.roles.some((role) => allowedRoles.has(role))) {
     return <section><div role="alert" className="state-message state-error"><strong>접근 권한이 없습니다.</strong><p>현재 역할로 사용할 수 없는 기능입니다.</p></div></section>;
@@ -75,7 +76,7 @@ function Shell() {
   );
 }
 
-export function App({ initialSession = null }: { initialSession?: AuthSession | null }) {
+export function App({ initialSession }: { initialSession?: AuthSession | null }) {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   return <QueryClientProvider client={queryClient}><AuthProvider initialSession={initialSession}><Shell /></AuthProvider></QueryClientProvider>;
 }

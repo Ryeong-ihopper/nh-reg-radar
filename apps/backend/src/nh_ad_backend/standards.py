@@ -630,6 +630,7 @@ class StandardService:
         search_schema_version: str,
         opensearch_analyzer_version: str,
         synonym_version: str,
+        target_indexes: Sequence[str],
         trace_id: str,
         parser_rule_version: str = "direct-text-v1",
     ) -> ReindexJob:
@@ -646,13 +647,15 @@ class StandardService:
         if version is None or version.standard_id != standard_id:
             raise StandardsError(404, "NOT_FOUND", "요청한 기준자료 버전을 찾을 수 없습니다.")
         now = self._now()
-        targets = (
-            ("OPENSEARCH",)
-            if reindex_scope == "KEYWORD_ONLY"
-            else ("QDRANT",)
-            if reindex_scope == "VECTOR_ONLY"
-            else ("QDRANT", "OPENSEARCH")
-        )
+        targets = tuple(target_indexes)
+        if (
+            not targets
+            or len(targets) != len(set(targets))
+            or any(target not in {"QDRANT", "OPENSEARCH"} for target in targets)
+            or (reindex_scope == "KEYWORD_ONLY" and targets != ("OPENSEARCH",))
+            or (reindex_scope == "VECTOR_ONLY" and targets != ("QDRANT",))
+        ):
+            raise StandardsError(400, "BAD_REQUEST", "재색인 범위와 대상 인덱스를 확인해 주세요.")
         job = ReindexJob(
             self._identifier("SRJ"),
             standard_id,

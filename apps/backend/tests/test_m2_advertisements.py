@@ -149,6 +149,63 @@ def test_file_error_statuses_and_duplicates(client: TestClient) -> None:
     assert duplicate_request.status_code == 409
 
 
+def test_create_rejects_unknown_product_group_and_advertisement_type(
+    client: TestClient,
+    repository: InMemoryRepository,
+) -> None:
+    token, _ = login(client)
+    for field, value in (
+        ("productGroup", "UNKNOWN_PRODUCT"),
+        ("advertisementType", "UNKNOWN_TYPE"),
+    ):
+        data = {
+            "advertisementName": "invalid enum",
+            "productGroup": "SAVINGS",
+            "advertisementType": "NOTICE",
+            "departmentId": "DPT-A",
+        }
+        data[field] = value
+        response = client.post(
+            "/api/v1/advertisements",
+            headers={"Authorization": f"Bearer {token}"},
+            data=data,
+            files={"advertisementFile": ("banner.png", PNG, "image/png")},
+        )
+        assert response.status_code == 400
+        assert response.json()["code"] == "BAD_REQUEST"
+    assert repository.advertisements == {}
+
+
+def test_all_persisted_review_statuses_remain_readable(
+    client: TestClient,
+    repository: InMemoryRepository,
+) -> None:
+    token, _ = login(client)
+    advertisement_id = upload(client, token).json()["advertisementId"]
+    advertisement = repository.get_advertisement(advertisement_id)
+    assert advertisement is not None
+
+    for status in (
+        "UPLOADED",
+        "ANALYSIS_REQUESTED",
+        "ANALYZING",
+        "CHECK_REQUIRED",
+        "REVIEW_COMPLETED",
+        "REVIEW_FAILED",
+        "REVISED",
+    ):
+        advertisement.review_status = status
+        listing = client.get("/api/v1/advertisements", headers={"Authorization": f"Bearer {token}"})
+        detail = client.get(
+            f"/api/v1/advertisements/{advertisement_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert listing.status_code == 200, (status, listing.text)
+        assert detail.status_code == 200, (status, detail.text)
+        assert listing.json()["contents"][0]["reviewStatus"] == status
+        assert detail.json()["reviewStatus"] == status
+
+
 def test_revision_registration_stores_revision_file_and_preserves_scope_and_audit(
     client: TestClient,
     repository: InMemoryRepository,

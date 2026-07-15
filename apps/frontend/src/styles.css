@@ -706,6 +706,14 @@ progress {
   font-size: 0.9rem;
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
 @media (max-width: 767px) {
   .app-header,
   .page-heading,

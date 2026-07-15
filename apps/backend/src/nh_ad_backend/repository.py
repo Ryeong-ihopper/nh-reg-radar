@@ -31,6 +31,9 @@ class Repository(Protocol):
     def revoke_refresh_session(
         self, session: RefreshSession, reason: str, now: datetime
     ) -> None: ...
+    def rotate_refresh_session(
+        self, current: RefreshSession, replacement: RefreshSession, now: datetime
+    ) -> bool: ...
     def revoke_all_refresh_sessions(self, user_id: str, reason: str, now: datetime) -> None: ...
     def add_advertisement(self, advertisement: Advertisement) -> None: ...
     def add_revision(self, revision: AdvertisementRevision) -> None: ...
@@ -94,6 +97,18 @@ class InMemoryRepository:
         with self._lock:
             session.revoked_at = now
             session.revoked_reason = reason
+
+    def rotate_refresh_session(
+        self, current: RefreshSession, replacement: RefreshSession, now: datetime
+    ) -> bool:
+        with self._lock:
+            stored = self.refresh_sessions.get(current.token_hash)
+            if stored is None or stored.revoked_at is not None:
+                return False
+            stored.revoked_at = now
+            stored.revoked_reason = "ROTATED"
+            self.refresh_sessions[replacement.token_hash] = replacement
+            return True
 
     def revoke_all_refresh_sessions(self, user_id: str, reason: str, now: datetime) -> None:
         with self._lock:
@@ -178,7 +193,19 @@ class InMemoryRepository:
                 "SMS",
                 "ALIMTALK",
             ),
-            "review-statuses": ("UPLOADED", "REVISED"),
+            "review-statuses": (
+                "DRAFT",
+                "UPLOADED",
+                "ANALYSIS_REQUESTED",
+                "EXTRACTING",
+                "ANALYZING",
+                "CHECK_REQUIRED",
+                "REVIEW_COMPLETED",
+                "REVIEW_FAILED",
+                "REVISED",
+                "COMPARED",
+                "REPORT_CREATED",
+            ),
         }.get(code_group, ())
         return [
             {"code": value, "name": value, "sortOrder": order, "enabled": True}
@@ -328,6 +355,38 @@ class PostgresRepository:
                 {"now": now, "reason": reason, "token_hash": session.token_hash},
             )
         session.revoked_at, session.revoked_reason = now, reason
+
+    def rotate_refresh_session(
+        self, current: RefreshSession, replacement: RefreshSession, now: datetime
+    ) -> bool:
+        with self._engine.begin() as connection:
+            updated = connection.execute(
+                text("""
+                UPDATE app.refresh_tokens
+                   SET revoked_at=:now, revoked_reason='ROTATED'
+                 WHERE token_hash=:token_hash AND revoked_at IS NULL
+            """),
+                {"now": now, "token_hash": current.token_hash},
+            )
+            if updated.rowcount != 1:
+                return False
+            connection.execute(
+                text("""
+                INSERT INTO app.refresh_tokens
+                (refresh_token_id,user_id,token_hash,issued_at,expires_at,token_version,created_at)
+                VALUES (:id,:user_id,:token_hash,:issued_at,:expires_at,:token_version,:issued_at)
+            """),
+                {
+                    "id": UUID(replacement.session_id),
+                    "user_id": replacement.user_id,
+                    "token_hash": replacement.token_hash,
+                    "issued_at": replacement.issued_at,
+                    "expires_at": replacement.expires_at,
+                    "token_version": replacement.token_version,
+                },
+            )
+        current.revoked_at, current.revoked_reason = now, "ROTATED"
+        return True
 
     def revoke_all_refresh_sessions(self, user_id: str, reason: str, now: datetime) -> None:
         with self._engine.begin() as connection:

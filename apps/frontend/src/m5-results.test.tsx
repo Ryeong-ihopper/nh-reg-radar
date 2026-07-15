@@ -121,8 +121,15 @@ afterEach(() => {
 test("renders S-006 counts and distinguishes RAG failure from insufficient evidence", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ url: String(input), init });
-    return response(summary);
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/summary")) return response(summary);
+    if (url.endsWith("/advertisements/ADV-M5")) return response({
+      advertisementId: "ADV-M5", advertisementName: "정기예금 포스터", productGroup: "DEPOSIT",
+      advertisementType: "BRANCH_FLYER", departmentId: "DPT-M5", registeredBy: "USR-M5",
+      registeredAt: "2026-07-14T00:00:00Z", reviewStatus: "REVIEW_COMPLETED", files: [],
+    });
+    throw new Error(`Unexpected request: ${url}`);
   }));
 
   render(<MemoryRouter initialEntries={["/reviews/REV-M5/results"]}><App initialSession={session} /></MemoryRouter>);
@@ -133,6 +140,15 @@ test("renders S-006 counts and distinguishes RAG failure from insufficient evide
   expect(within(kpis).getByText("3")).toBeInTheDocument();
   expect(screen.getByText(/RAG 검토 실패\/복구 필요/)).toBeInTheDocument();
   expect(screen.queryByText("근거 부족")).not.toBeInTheDocument();
+  const basic = await screen.findByLabelText("광고 기본정보");
+  expect(basic).toHaveTextContent("정기예금 포스터");
+  expect(basic).toHaveTextContent("DEPOSIT");
+  expect(basic).toHaveTextContent("BRANCH_FLYER");
+  expect(basic).toHaveTextContent("USR-M5");
+  expect(screen.getByRole("link", { name: "수정본 비교·재검토" })).toHaveAttribute(
+    "href",
+    "/advertisements/ADV-M5/comparisons?reviewId=REV-M5",
+  );
   expect(new Headers(calls[0].init?.headers).get("Authorization")).toBe("Bearer m5-access-token");
 });
 
@@ -153,6 +169,24 @@ test("filters S-008, opens deterministic detail, and preserves rule result durin
   expect(await screen.findByText("조건과 산출 기준을 명시해 주세요.")).toBeInTheDocument();
   expect(screen.getAllByText(/RAG 검토 실패\/복구 필요/).length).toBeGreaterThan(0);
   expect(screen.getByText("RULE_EXPLICIT_VIOLATION")).toBeInTheDocument();
+});
+
+test("navigates paged review items without losing filters", async () => {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    const params = new URL(url, "http://test").searchParams;
+    return response({ contents: [{ ...item, reviewItemId: `ITEM-${params.get("page")}` }], page: Number(params.get("page")), size: 20, totalElements: 40, totalPages: 2 });
+  }));
+  render(<MemoryRouter initialEntries={["/reviews/REV-M5/results/items"]}><App initialSession={session} /></MemoryRouter>);
+  expect(await screen.findByText("국내 최고 혜택")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("위험도"), { target: { value: "HIGH" } });
+  await waitFor(() => expect(urls.at(-1)).toContain("riskLevel=HIGH"));
+  await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  await waitFor(() => expect(urls.at(-1)).toContain("page=2"));
+  expect(urls.at(-1)).toContain("riskLevel=HIGH");
 });
 
 test("renders image boxes, HWP offsets, low-confidence warnings, and list fallback for AC-13", async () => {
@@ -192,6 +226,7 @@ test("continues advertisement analysis polling into summary and Annotation witho
     const url = String(input);
     if (url.endsWith("/status")) return response({ reviewId: "REV-M5", advertisementId: "ADV-M5", reviewStatus: "REVIEW_COMPLETED", jobId: "JOB-M5", jobStatus: "COMPLETED", currentStep: "COMPLETED", progressRate: 100, retryCount: 0, maxRetries: 3, nextRetryAt: null, isRetryable: false, failedReasonCode: null, failedReason: null, timeoutAt: null, steps: [{ stepCode: "COMPLETED", stepName: "완료", status: "COMPLETED", timeoutAt: null }], updatedAt: "2026-07-14T12:00:00+09:00" });
     if (url.endsWith("/summary")) return response(summary);
+    if (url.endsWith("/advertisements/ADV-M5")) return response({ advertisementId: "ADV-M5", advertisementName: "정기예금 포스터", productGroup: "DEPOSIT", advertisementType: "BRANCH_FLYER", departmentId: "DPT-M5", registeredBy: "USR-M5", registeredAt: "2026-07-14T00:00:00Z", reviewStatus: "REVIEW_COMPLETED", files: [] });
     if (url.includes("/annotations")) return response(annotations);
     if (url.includes("/preview/content")) return new Response(new Blob(["preview"], { type: "image/png" }), { status: 200 });
     if (url.includes("/preview?")) return response({ fileId: "FILE-M5", pageNo: 1, totalPages: 1, previewPath: "/api/v1/files/FILE-M5/preview/content", width: 1000, height: 500 });

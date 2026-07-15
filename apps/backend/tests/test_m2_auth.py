@@ -72,6 +72,7 @@ def test_refresh_rotation_origin_logout_and_version_revoke(
         headers={"Origin": "http://localhost:5173"},
     )
     assert replay.status_code == 401
+    assert all(session.revoked_at is not None for session in repository.refresh_sessions.values())
 
     current_refresh = rotated.cookies["refreshToken"]
     repository.users["user-a"].auth_token_version += 1

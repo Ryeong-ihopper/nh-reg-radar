@@ -143,6 +143,7 @@ def test_reindex_is_idempotent_and_deactivation_excludes_search() -> None:
         search_schema_version="search-schema-v1",
         opensearch_analyzer_version="ko-v1",
         synonym_version="syn-v1",
+        target_indexes=("QDRANT", "OPENSEARCH"),
         trace_id="req-index-1",
     )
     second = standards.reindex(
@@ -156,6 +157,7 @@ def test_reindex_is_idempotent_and_deactivation_excludes_search() -> None:
         search_schema_version="search-schema-v1",
         opensearch_analyzer_version="ko-v2",
         synonym_version="syn-v2",
+        target_indexes=("QDRANT", "OPENSEARCH"),
         trace_id="req-index-2",
     )
     assert first.job_status == second.job_status == "SUCCEEDED"

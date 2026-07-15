@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.11 |
-| 기준일 | 2026-07-15 |
+| 현행 버전 | v1.12 |
+| 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.12 | 2026-07-16 | 0009 운영 정합성 revision으로 OCR/layout 좌표 물리명·정밀도와 normalized text GIN 인덱스를 명세에 맞추고 현행 migration head를 동기화 |
 | v1.11 | 2026-07-15 | M8 revision 동시 번호 직렬화, M6 PostgreSQL restart roundtrip과 additive 0008 runtime/readonly 권한 반영 |
 | v1.10 | 2026-07-15 | G008 M7 PostgreSQL runtime repository의 version 증가, 원자 평가 저장, canonical snapshot/hash 및 기존 평가 불변 조회 실행 증거 반영 |
 | v1.9 | 2026-07-14 | G008 M7 additive 0007 migration의 validation DB 원천 version, 승인 제외, immutable snapshot/hash 및 4개 KPI 저장 제약 반영 |
@@ -263,7 +264,7 @@ Runtime `app`은 `rag` schema의 DML만, `readonly`는 조회만 허용한다. �
 
 검토 항목은 evidence mapping이 없어도 `NOT_REQUIRED`, `INSUFFICIENT`, `SEARCH_UNAVAILABLE` 중 하나를 저장해야 한다. 검색 장애에만 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED`를 허용하고 정상 검색의 근거 부족과 분리한다. 항목별 저장 근거는 ADR-0043 기준 최대 5개이며 `rank_no`는 1~5로 제한한다.
 
-M5 worker는 선택된 `NormalizedDocument`와 raw artifact metadata가 먼저 영속화된 동일 Job에 대해서만 결과 bundle을 저장한다. `review_items`와 연결 근거·Annotation을 한 transaction에서 추가하고, 중복 bundle 저장은 거부한다. 이후 `reviews.applied_standard_version_ids`와 `overall_risk_level` snapshot을 갱신하고 Rule/RAG/결과 단계 완료와 Job/Review 완료를 순서대로 반영한다. 검색 장애 또는 structured schema 오류가 발생해도 기존 Rule item row를 삭제·정상화하지 않는다.
+M5 worker는 선택된 `NormalizedDocument`와 raw artifact metadata가 먼저 영속화된 동일 Job에 대해서만 결과 bundle을 저장한다. `review_items`와 연결 근거·Annotation을 한 transaction에서 추가하고, 동일 Job·동일 결과 식별자 bundle의 재전달은 idempotent no-op으로 처리하되 내용이 충돌하는 중복 bundle은 거부한다. 이후 `reviews.applied_standard_version_ids`와 `overall_risk_level` snapshot을 갱신하고 Rule/RAG/결과 단계 완료와 Job/Review 완료를 순서대로 반영한다. 검색 장애 또는 structured schema 오류가 발생해도 기존 Rule item row를 삭제·정상화하지 않는다.
 
 ### M7 owner revision
 
@@ -287,6 +288,10 @@ M7 backend runtime은 `PostgresValidationRepository`를 통해 데이터셋·판
 `0008_m8_support_privileges`는 `0007_m7_validation_kpi`를 상속하는 additive 권한 revision이며 0001~0007 schema를 수정하지 않는다. `app.suggestions`, `app.suggestion_decisions`, `app.opinion_drafts`, `app.reports`, `app.comparisons`, `app.comparison_items`와 `rag.qa_sessions`, `rag.qa_messages`, `rag.qa_message_evidences`에 runtime `app` CRUD와 `readonly` SELECT만 부여한다. QA 테이블은 `rag` schema 소유이므로 `app.*`로 잘못 qualification하지 않는다.
 
 `PostgresRepository.add_revision`은 대상 `advertisements` row를 `FOR UPDATE`로 잠그고 checksum 중복을 거부한 뒤 `MAX(revision_no)+1`을 배정한다. 따라서 같은 광고물의 동시 등록도 양의 연속 revision 번호를 가지며 revision/file/advertisement `REVISED` 상태가 한 transaction에 저장된다. `PostgresSupportRepository`는 M6 owner tables를 그대로 사용하고 report canonical payload, immutable hash, HWPX/PDF source linkage, comparison item을 재시작 이후에도 복원한다.
+
+### 운영 정합성 revision
+
+`0009_operational_consistency`는 기존 owner revision을 수정하지 않고 `0008_m8_support_privileges`를 상속한다. `ocr_text_blocks`와 `layout_blocks`의 좌표 물리명을 `x`, `y`, `width`, `height`로 통일하고 normalized 좌표와 rotation 정밀도를 본 명세에 맞춘다. `ocr_text_blocks.normalized_text`에는 built-in `to_tsvector('simple', ...)` 표현식 기반 `idx_ocr_blocks_text_gin`을 생성한다. Worker SQL은 0009 head의 물리 컬럼명만 사용하며 배포·복구 smoke는 `0009_operational_consistency`를 현행 head로 확인한다.
 
 ---
 

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.12 |
-| 기준일 | 2026-07-15 |
+| 현행 버전 | v1.13 |
+| 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.13 | 2026-07-16 | 운영 교차검증 결함에 따라 광고 상태 계약, refresh 단일사용, worker lease/idempotency/dead-letter, 재색인 대상 준수와 0009 DB 정합성 경계를 보강 |
 | v1.12 | 2026-07-15 | M8 실제 runtime/generated client 경로와 provider-free 자동 Gate·credentialed `external_ai` 수동 평가 분리, AC-18 문서 동기화 경계 반영 |
 | v1.11 | 2026-07-15 | M8 수정본 등록→비교→재검토, restart-safe M6 산출물, worker lease 복구와 반복 Compose bootstrap 실행 경계 반영 |
 | v1.10 | 2026-07-14 | G006 M5 결정적 Rule→근거 선택→provider-independent structured 실행, 0005 영속화와 결과 조회 handler 경계 반영 |
@@ -271,7 +272,7 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 | 위치/신뢰도 | Coordinate 원본/정규화 값, HWP/HWPX raw/normalized offset, 0.80/0.79/0.49 경계를 손실 없이 보존 |
 | Raw artifact | 모든 1차·보조 시도의 engine, 재처리 사유, confidence, raw artifact 참조와 선택 여부를 기록하되 Text/Layout block은 정확히 하나의 선택 산출물만 영속화. bucket 본문과 DB metadata/checksum을 분리하고 일반 사용자 접근 금지, 예외 접근·삭제 redacted audit, retention hold/승인 삭제 적용 |
 
-공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
+공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
 ### M5 근거 기반 결과·Annotation entry gate
 
@@ -300,7 +301,7 @@ Worker runtime은 supervised `JobRunner` 시작/종료, truthful readiness, 처�
 
 반복 Compose up에서 `db-bootstrap`은 활성 `$PGDATA/postmaster.pid`가 있으면 별도 postmaster를 시작하지 않고 이미 실행 중인 PostgreSQL과 NOLOGIN bootstrap/product-role 상태를 검증한 뒤 종료한다. 검증 실패는 fail-closed이며, 같은 volume에서 bootstrap 컨테이너만 재생성해도 데이터·role/ACL·PostgreSQL identity가 보존되고 PANIC/invalid checkpoint/interrupted recovery 흔적을 허용하지 않는다.
 
-M8 구현 증거의 실제 경로는 backend `apps/backend/src/nh_ad_backend/main.py`와 capability별 `*_api.py`, worker `apps/worker/src/nh_ad_worker/main.py`·`runtime.py`·`postgres.py`, frontend `apps/frontend/src/App.tsx`·`api/client.ts`·`api/generated/openapi.ts`, additive migration `apps/backend/migrations/versions/0001`~`0008`이다. 원천 `openapi/openapi.yaml`의 현행 metadata version은 `0.8.0`이며 generated client는 이 계약과 clean diff를 유지한다.
+M8 구현 증거의 실제 경로는 backend `apps/backend/src/nh_ad_backend/main.py`와 capability별 `*_api.py`, worker `apps/worker/src/nh_ad_worker/main.py`·`runtime.py`·`postgres.py`, frontend `apps/frontend/src/App.tsx`·`api/client.ts`·`api/generated/openapi.ts`, migration `apps/backend/migrations/versions/0001`~`0009`이다. 원천 `openapi/openapi.yaml`의 현행 metadata version은 `0.8.0`이며 generated client는 이 계약과 clean diff를 유지한다.
 
 자동 릴리스 판단은 `.github/workflows/release-readiness.yml`의 provider-free Gate만 사용한다. 이 Gate는 외부 provider credential, live inference, 고객사 원문 없이 고정 fixture와 G009 trace, deterministic E2E/release 회귀를 실행한다. `.github/workflows/external-ai-evaluation.yml`은 승인 환경에서 credential과 `external_ai` marker를 사용하는 별도 수동 평가이며, 실행 여부나 결과를 provider-free 성공으로 대체하지 않는다.
 

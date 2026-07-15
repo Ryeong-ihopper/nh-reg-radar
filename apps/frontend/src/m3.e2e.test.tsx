@@ -100,6 +100,22 @@ test("loads S-014 for a standard manager, searches deterministically, and keeps 
   expect(new Headers(calls[1].init?.headers).get("Authorization")).toBe("Bearer standards-token");
 });
 
+test("navigates standard pages using response metadata", async () => {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    const page = Number(new URL(url, "http://test").searchParams.get("page"));
+    return response({ contents: [{ ...standard, standardId: `STD-${page}`, title: `기준 ${page}` }], page, size: 20, totalElements: 40, totalPages: 2 });
+  }));
+
+  render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
+  expect(await screen.findByText("기준 1")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  expect(await screen.findByText("기준 2")).toBeInTheDocument();
+  expect(urls.at(-1)).toContain("page=2");
+});
+
 test("renders empty and redacted failure states without leaking server or index details", async () => {
   let requestNo = 0;
   vi.stubGlobal("fetch", vi.fn(async () => {

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.25 |
-| 기준일 | 2026-07-15 |
+| 현행 버전 | v1.26 |
+| 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.26 | 2026-07-16 | 운영 교차검증에서 발견된 enum/read-path 500, refresh replay·bootstrap, worker lease·poison replay, targetIndexes, OCR DB 정합성과 frontend 흐름 회귀 Gate 추가 |
 | v1.25 | 2026-07-15 | production recovery의 과거 실제 Docker 수동 증거와 현재 provider-free fake-Docker 회귀 증거를 분리하고 현재 HEAD 운영 복구 주장은 실제 Docker opt-in 재실행 후에만 가능하도록 정정 |
 | v1.24 | 2026-07-15 | G010 Ruff canonical formatting 반영 후 G009 executable·manifest SHA-256 동기화 |
 | v1.23 | 2026-07-15 | G009 선언 SHA-256 현재 파일 대조와 provider-free E2E 정확한 4/0/0 건수 fail-closed 회귀 기준 반영 |
@@ -723,7 +724,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 | 검증 범위 | 실행/증거 | 기대 결과 |
 | --- | --- | --- |
-| 구현 경로 | `README.md`, `docs/functional-specification.md` | backend/worker runtime, frontend client/generated contract, OpenAPI `0.8.0`, migration `0001`~`0008` 경로가 저장소 실제 경로와 일치 |
+| 구현 경로 | `README.md`, `docs/functional-specification.md` | backend/worker runtime, frontend client/generated contract, OpenAPI `0.8.0`, migration `0001`~`0009` 경로가 저장소 실제 경로와 일치 |
 | Provider 경계 | release/external-AI workflow와 `-m "not external_ai and not slow"` | provider-free 자동 Gate와 credentialed `external_ai` 수동 평가를 분리하고 서로의 성공을 대체하지 않음 |
 | 일정/Kanban | `docs/development-schedule-and-notion-kanban.md` | 구현 증거가 있는 task만 `Done`; 실제 provider, 고객 검증·피드백, 배포·tag, 미집계 P0/P1/Critical 기준은 `Backlog`/`Blocked` 유지 |
 | 문서 정합성 | `scripts/check-doc-consistency.sh`, `python3 -m scripts.doc_guard validate --scope working`, governance unit test | metadata·변경 이력·링크·traceability 0 error |
@@ -793,6 +794,22 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | 5 | 평가 snapshot 확인 | `evaluations` | snapshotHash와 입력/AI 결과 snapshot 저장 |
 | 6 | KPI 확인 | `evaluation_metrics` | 정확도, 일치율 산출 |
 | 7 | 결과 조회 | GET `/validation/evaluations/{id}` | KPI별 점수와 snapshot metadata 반환 |
+
+---
+
+## 20.5 운영 교차검증 회귀
+
+| 검증 항목 | 입력/경합 | 기대 결과 |
+| --- | --- | --- |
+| 광고 상태 읽기 | `ANALYSIS_REQUESTED`, `ANALYZING`, `CHECK_REQUIRED`, `REVIEW_COMPLETED`, `REVIEW_FAILED` 광고 목록·상세 조회 | 응답 enum validation 500 없이 저장 상태 반환 |
+| 멀티파트 enum | 미지원 `productGroup` 또는 `advertisementType`로 광고 등록 | 저장 전에 400 거부, 후속 목록 오염 없음 |
+| refresh 단일사용 | 회전된 token replay 및 동일 token 동시 rotation | active session family 폐기 또는 한 요청만 성공하며 두 successor가 동시에 활성화되지 않음 |
+| frontend 세션 복구 | refresh cookie가 있는 새로고침·보호 경로 진입, access token 401 | 시작 시 세션 복원, 401은 단 한 번 refresh 후 원 요청 재시도 |
+| worker lease | stale 회수 뒤 이전 worker의 persist/retry/complete | `RUNNING`과 `locked_by` CAS가 거부하고 새 owner 상태를 변경하지 않음 |
+| worker poison/idempotency | claim 이후 예상외 예외, 결과 저장 후 완료 전 재실행 | 최종 실패/dead-letter 또는 동일 checkpoint 재사용으로 무한 stale loop 없음 |
+| 재색인 대상 | `targetIndexes` 부분집합 및 scope 불일치 | 요청 target만 실행하고 모순된 조합은 400 거부 |
+| OCR DB 계약 | 0008→0009 upgrade 및 fresh head | 좌표 물리명·정밀도와 `idx_ocr_blocks_text_gin` 존재 |
+| 화면 완결성 | 복수 추천, S-006, S-013, 2페이지 이상 목록 | 모든 추천 판단 가능, 기본정보·비교 진입·pagination 표시 |
 
 ---
 

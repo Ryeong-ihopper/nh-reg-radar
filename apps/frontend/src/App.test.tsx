@@ -32,7 +32,7 @@ afterEach(() => {
 test("rejects passwords shorter than the locked 10-character minimum before calling the API", () => {
   const fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
-  render(<MemoryRouter><App /></MemoryRouter>);
+  render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText("이메일"), { target: { value: "user@example.com" } });
   fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "short123" } });
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -41,10 +41,60 @@ test("rejects passwords shorter than the locked 10-character minimum before call
 });
 
 test("redirects an unauthenticated root route to login and validates required credentials", () => {
-  render(<MemoryRouter><App /></MemoryRouter>);
+  render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "로그인" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
   expect(screen.getByRole("alert")).toHaveTextContent("이메일과 비밀번호를 입력해 주세요.");
+});
+
+test("restores an httpOnly refresh-cookie session before rendering a protected deep link", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/auth/refresh")) {
+      return response({ accessToken: "restored-token", tokenType: "Bearer", expiresIn: 1800, user: productSession.user });
+    }
+    if (url.includes("/advertisements?")) return response(emptyList());
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements"]}><App /></MemoryRouter>);
+
+  expect(screen.getByRole("status")).toHaveTextContent("로그인 상태를 확인하는 중입니다.");
+  expect(await screen.findByRole("heading", { name: "광고물 목록" })).toBeInTheDocument();
+  expect(calls.map((call) => new URL(call.url, "http://test").pathname)).toEqual([
+    "/api/v1/auth/refresh",
+    "/api/v1/advertisements",
+  ]);
+  expect(calls[0].init?.credentials).toBe("include");
+  expect(new Headers(calls[1].init?.headers).get("Authorization")).toBe("Bearer restored-token");
+});
+
+test("refreshes once after a 401, retries with the rotated token, and synchronizes the session", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  let listAttempts = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/auth/refresh")) {
+      return response({ accessToken: "rotated-token", tokenType: "Bearer", expiresIn: 1800, user: productSession.user });
+    }
+    if (url.includes("/advertisements?")) {
+      listAttempts += 1;
+      return listAttempts === 1 ? response({ code: "UNAUTHORIZED" }, 401) : response(emptyList());
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  expect(await screen.findByText("등록된 광고물이 없습니다.")).toBeInTheDocument();
+  expect(calls.filter((call) => call.url.endsWith("/auth/refresh"))).toHaveLength(1);
+  const listCalls = calls.filter((call) => call.url.includes("/advertisements?"));
+  expect(listCalls).toHaveLength(2);
+  expect(new Headers(listCalls[0].init?.headers).get("Authorization")).toBe("Bearer access-token-for-test");
+  expect(new Headers(listCalls[1].init?.headers).get("Authorization")).toBe("Bearer rotated-token");
 });
 
 test("logs in with cookie credentials, keeps the bearer token in memory, and renders an empty advertisement list", async () => {
@@ -58,7 +108,7 @@ test("logs in with cookie credentials, keeps the bearer token in memory, and ren
     return response(emptyList());
   }));
 
-  render(<MemoryRouter><App /></MemoryRouter>);
+  render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText("이메일"), { target: { value: "user@example.com" } });
   fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct-password" } });
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -73,7 +123,7 @@ test("logs in with cookie credentials, keeps the bearer token in memory, and ren
 
 test("generalizes a rejected login without exposing the server reason", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => response({ code: "UNAUTHORIZED", message: "account locked for internal@example.com", traceId: "req-login" }, 401)));
-  render(<MemoryRouter><App /></MemoryRouter>);
+  render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText("이메일"), { target: { value: "user@example.com" } });
   fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "wrong-password" } });
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -110,6 +160,26 @@ test("shows loading then a redacted error and safe trace id for list failures", 
   expect(alert).toHaveTextContent("일시적인 오류가 발생했습니다.");
   expect(alert).toHaveTextContent("req-safe-001");
   expect(alert).not.toHaveTextContent("internal-object-key");
+});
+
+test("navigates advertisement result pages using server pagination metadata", async () => {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    const page = new URL(url, "http://test").searchParams.get("page");
+    return response({
+      contents: [{ advertisementId: `ADV-${page}`, advertisementName: `광고 ${page}`, productGroup: "DEPOSIT", advertisementType: "BRANCH_FLYER", departmentId: "DPT-001", registeredBy: "USR-001", registeredAt: "2026-07-16T00:00:00Z", reviewStatus: "UPLOADED" }],
+      page: Number(page), size: 20, totalElements: 40, totalPages: 2,
+    });
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements"]}><App initialSession={productSession} /></MemoryRouter>);
+  expect(await screen.findByText("광고 1")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  expect(await screen.findByText("광고 2")).toBeInTheDocument();
+  expect(urls.at(-1)).toContain("page=2");
+  expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
 });
 
 test("blocks roles without advertisement permission before any API request", () => {
@@ -168,7 +238,7 @@ test("completes login, allowed multipart upload, list/detail, authorized preview
     return response(emptyList());
   }));
 
-  render(<MemoryRouter><App /></MemoryRouter>);
+  render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText("이메일"), { target: { value: "user@example.com" } });
   fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct-password" } });
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -239,6 +309,6 @@ test("renders a dedicated forbidden state for cross-department detail access", a
 });
 
 test("renders the not-found route", () => {
-  render(<MemoryRouter initialEntries={["/missing"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/missing"]}><App initialSession={null} /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "페이지를 찾을 수 없습니다." })).toBeInTheDocument();
 });

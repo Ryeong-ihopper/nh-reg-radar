@@ -24,7 +24,13 @@ from nh_ad_backend.multipart import MultipartError, parse_multipart
 from nh_ad_backend.repository import Repository
 from nh_ad_backend.reviews import ReviewService
 from nh_ad_backend.results import ResultService
-from nh_ad_backend.services import AdvertisementService, AuthService, ServiceError
+from nh_ad_backend.services import (
+    AdvertisementService,
+    AdvertisementType,
+    AuthService,
+    ProductGroup,
+    ServiceError,
+)
 from nh_ad_backend.support import SupportService
 from nh_ad_backend.validation import ValidationService
 from nh_ad_backend.settings import Settings
@@ -53,27 +59,18 @@ class CodeGroup(StrEnum):
     REVIEW_STATUSES = "review-statuses"
 
 
-class ProductGroup(StrEnum):
-    DEPOSIT = "DEPOSIT"
-    SAVINGS = "SAVINGS"
-    DEMAND_DEPOSIT = "DEMAND_DEPOSIT"
-    EVENT = "EVENT"
-
-
-class AdvertisementType(StrEnum):
-    BRANCH_FLYER = "BRANCH_FLYER"
-    NOTICE = "NOTICE"
-    MOBILE_BANNER = "MOBILE_BANNER"
-    WEB_BANNER = "WEB_BANNER"
-    EVENT_PAGE = "EVENT_PAGE"
-    PUSH = "PUSH"
-    SMS = "SMS"
-    ALIMTALK = "ALIMTALK"
-
-
 class ReviewStatus(StrEnum):
+    DRAFT = "DRAFT"
     UPLOADED = "UPLOADED"
+    ANALYSIS_REQUESTED = "ANALYSIS_REQUESTED"
+    EXTRACTING = "EXTRACTING"
+    ANALYZING = "ANALYZING"
+    CHECK_REQUIRED = "CHECK_REQUIRED"
+    REVIEW_COMPLETED = "REVIEW_COMPLETED"
+    REVIEW_FAILED = "REVIEW_FAILED"
     REVISED = "REVISED"
+    COMPARED = "COMPARED"
+    REPORT_CREATED = "REPORT_CREATED"
 
 
 class FileType(StrEnum):
@@ -524,11 +521,18 @@ def install_routes(
             for file_type, field_name in file_fields
             for file in form.files.get(field_name, [])
         ]
+        try:
+            product_group = ProductGroup(form.fields.get("productGroup", "")).value
+            advertisement_type = AdvertisementType(form.fields.get("advertisementType", "")).value
+        except ValueError as exc:
+            raise ServiceError(
+                400, "BAD_REQUEST", "상품군 또는 광고 유형을 확인해 주세요."
+            ) from exc
         advertisement = services.advertisements.create(
             current,
             advertisement_name=form.fields.get("advertisementName", ""),
-            product_group=form.fields.get("productGroup", ""),
-            advertisement_type=form.fields.get("advertisementType", ""),
+            product_group=product_group,
+            advertisement_type=advertisement_type,
             department_id=form.fields.get("departmentId", ""),
             channel_type=form.fields.get("channelType"),
             memo=form.fields.get("memo"),

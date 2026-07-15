@@ -999,7 +999,7 @@ export interface components {
          * ReviewStatus
          * @enum {string}
          */
-        ReviewStatus: "UPLOADED" | "REVISED";
+        ReviewStatus: "DRAFT" | "UPLOADED" | "ANALYSIS_REQUESTED" | "EXTRACTING" | "ANALYZING" | "CHECK_REQUIRED" | "REVIEW_COMPLETED" | "REVIEW_FAILED" | "REVISED" | "COMPARED" | "REPORT_CREATED";
         /**
          * Role
          * @enum {string}

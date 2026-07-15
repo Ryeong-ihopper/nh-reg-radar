@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { ErrorState, LoadingState } from "../components/RequestState";
+import { Pagination } from "../components/Pagination";
 
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
 
@@ -12,11 +13,12 @@ export function AdvertisementListPage() {
   const { session } = useAuth();
   const [keywordInput, setKeywordInput] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(1);
   const token = session?.accessToken ?? "";
   const canCreate = session?.user.roles.some((role) => CREATE_ROLES.has(role)) ?? false;
   const query = useQuery({
-    queryKey: ["advertisements", keyword],
-    queryFn: () => api.listAdvertisements(token, { keyword, page: 1, size: 20 }),
+    queryKey: ["advertisements", keyword, page],
+    queryFn: () => api.listAdvertisements(token, { keyword, page, size: 20 }),
   });
 
   return (
@@ -25,11 +27,11 @@ export function AdvertisementListPage() {
         <div><p className="eyebrow">S-002</p><h2 id="advertisement-list-heading">광고물 목록</h2></div>
         {canCreate ? <Link className="button-link" to="/advertisements/new">광고물 등록</Link> : null}
       </div>
-      <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setKeyword(keywordInput.trim()); }}>
+      <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); setKeyword(keywordInput.trim()); }}>
         <label htmlFor="keyword">광고명</label>
         <input id="keyword" value={keywordInput} onChange={(event) => setKeywordInput(event.target.value)} />
         <button type="submit">조회</button>
-        <button type="button" className="button-secondary" onClick={() => { setKeywordInput(""); setKeyword(""); }}>초기화</button>
+        <button type="button" className="button-secondary" onClick={() => { setKeywordInput(""); setKeyword(""); setPage(1); }}>초기화</button>
       </form>
 
       {query.isPending ? <LoadingState label="광고물 목록을 불러오는 중입니다." /> : null}
@@ -50,6 +52,7 @@ export function AdvertisementListPage() {
           </table>
         </div>
       ) : null}
+      {query.data ? <Pagination page={query.data.page} totalPages={query.data.totalPages} totalElements={query.data.totalElements} onPageChange={setPage} /> : null}
     </section>
   );
 }

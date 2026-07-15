@@ -174,7 +174,25 @@ async function readError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, code, traceId);
 }
 
-async function request<T>(path: string, accessToken?: string, init: RequestInit = {}): Promise<T> {
+type AuthRefreshHandler = () => Promise<LoginResponse | null>;
+
+let authRefreshHandler: AuthRefreshHandler | null = null;
+let refreshInFlight: Promise<LoginResponse | null> | null = null;
+
+export function setAuthRefreshHandler(handler: AuthRefreshHandler | null): void {
+  authRefreshHandler = handler;
+  if (!handler) refreshInFlight = null;
+}
+
+async function refreshSession(): Promise<LoginResponse | null> {
+  if (!authRefreshHandler) return null;
+  refreshInFlight ??= authRefreshHandler().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function fetchWithToken(path: string, accessToken: string | undefined, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   if (accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
@@ -183,11 +201,19 @@ async function request<T>(path: string, accessToken?: string, init: RequestInit 
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(resolveApiUrl(path), {
+  return fetch(resolveApiUrl(path), {
     ...init,
     headers,
     credentials: "include",
   });
+}
+
+async function request<T>(path: string, accessToken?: string, init: RequestInit = {}, allowRefresh = true): Promise<T> {
+  let response = await fetchWithToken(path, accessToken, init);
+  if (response.status === 401 && accessToken && allowRefresh) {
+    const refreshed = await refreshSession();
+    if (refreshed) response = await fetchWithToken(path, refreshed.accessToken, init);
+  }
 
   if (!response.ok) {
     throw await readError(response);
@@ -199,10 +225,11 @@ async function request<T>(path: string, accessToken?: string, init: RequestInit 
 }
 
 async function requestBlob(path: string, accessToken: string): Promise<Blob> {
-  const response = await fetch(resolveApiUrl(path), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    credentials: "include",
-  });
+  let response = await fetchWithToken(path, accessToken, {});
+  if (response.status === 401) {
+    const refreshed = await refreshSession();
+    if (refreshed) response = await fetchWithToken(path, refreshed.accessToken, {});
+  }
   if (!response.ok) throw await readError(response);
   return response.blob();
 }
@@ -221,6 +248,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
+  },
+
+  refresh(): Promise<LoginResponse> {
+    return request<LoginResponse>("/auth/refresh", undefined, { method: "POST" }, false);
   },
 
   logout(): Promise<void> {

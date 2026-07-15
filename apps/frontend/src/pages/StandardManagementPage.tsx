@@ -15,6 +15,7 @@ import {
   type StandardSearch,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { Pagination } from "../components/Pagination";
 import { ErrorState, LoadingState } from "../components/RequestState";
 
 const EVIDENCE_TYPES: EvidenceType[] = ["LAW", "REGULATION", "INTERNAL_STANDARD", "GUIDELINE", "MANUAL", "REVIEW_CASE", "TEMPLATE", "PRODUCT_STANDARD"];
@@ -278,6 +279,7 @@ export function StandardManagementPage() {
           </table>
         </div>
       ) : null}
+      {standards.data ? <Pagination page={standards.data.page} totalPages={standards.data.totalPages} totalElements={standards.data.totalElements} onPageChange={(page) => setFilters((current) => ({ ...current, page }))} /> : null}
 
       {busy ? <LoadingState label="기준자료 요청을 처리하는 중입니다." /> : null}
       {actionError ? <ErrorState error={actionError} /> : null}

@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
-import { api, type ReportFormat, type SuggestionDecisionInput } from "../api/client";
+import { api, type ReportFormat, type Suggestion, type SuggestionDecisionInput } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { ErrorState, LoadingState } from "../components/RequestState";
 
@@ -12,12 +12,41 @@ const DECISION_LABELS = {
   MODIFIED_AND_USED: "수정 후 사용",
 } as const;
 
+function SuggestionDecisionForm({ suggestion, token, onSaved }: { suggestion: Suggestion; token: string; onSaved: () => void }) {
+  const [decisionStatus, setDecisionStatus] = useState<keyof typeof DECISION_LABELS>("ACCEPTED");
+  const [decisionError, setDecisionError] = useState("");
+  const decision = useMutation({
+    mutationFn: (input: SuggestionDecisionInput) => api.recordSuggestionDecision(token, suggestion.suggestionId, input),
+    onSuccess: onSaved,
+  });
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const finalText = new FormData(event.currentTarget).get("finalText")?.toString().trim() ?? "";
+    if (decisionStatus === "MODIFIED_AND_USED" && !finalText) {
+      setDecisionError("수정 후 사용에는 최종 문구가 필요합니다.");
+      return;
+    }
+    setDecisionError("");
+    decision.mutate({ decisionStatus, finalText: finalText || null });
+  }
+
+  return <article className="result-detail" aria-label={`추천 문구 ${suggestion.originalText}`}>
+    <p><strong>{suggestion.originalText}</strong> → {suggestion.suggestedText}</p>
+    <p>{suggestion.suggestionReason}</p>
+    <form onSubmit={submit}><label>판단<select value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value as keyof typeof DECISION_LABELS)}>{Object.entries(DECISION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label>최종 문구<textarea name="finalText" /></label>
+      {decisionError ? <p role="alert" className="state-message state-error">{decisionError}</p> : null}
+      {decision.isError ? <ErrorState error={decision.error} /> : null}
+      <button type="submit" disabled={decision.isPending}>{decision.isPending ? "저장 중..." : "담당자 판단 저장"}</button>
+    </form>
+  </article>;
+}
+
 export function M6SupportPage() {
   const { reviewId = "" } = useParams();
   const { session } = useAuth();
   const token = session?.accessToken ?? "";
-  const [decisionStatus, setDecisionStatus] = useState<keyof typeof DECISION_LABELS>("ACCEPTED");
-  const [decisionError, setDecisionError] = useState("");
   const [qaAnswer, setQaAnswer] = useState<Awaited<ReturnType<typeof api.askComplianceQuestion>> | null>(null);
   const [report, setReport] = useState<Awaited<ReturnType<typeof api.createReviewReport>> | null>(null);
 
@@ -31,27 +60,10 @@ export function M6SupportPage() {
     queryFn: () => api.listOpinionDrafts(token, reviewId),
     enabled: Boolean(token && reviewId),
   });
-  const decision = useMutation({
-    mutationFn: ({ suggestionId, input }: { suggestionId: string; input: SuggestionDecisionInput }) => api.recordSuggestionDecision(token, suggestionId, input),
-    onSuccess: () => void suggestions.refetch(),
-  });
   const question = useMutation({ mutationFn: (questionText: string) => api.askComplianceQuestion(token, { question: questionText }), onSuccess: setQaAnswer });
   const createDraft = useMutation({ mutationFn: () => api.createOpinionDraft(token, reviewId), onSuccess: () => void opinion.refetch() });
   const updateDraft = useMutation({ mutationFn: ({ draftId, finalContent }: { draftId: string; finalContent: string }) => api.updateOpinionDraft(token, draftId, { finalContent }), onSuccess: () => void opinion.refetch() });
   const createReport = useMutation({ mutationFn: (format: ReportFormat) => api.createReviewReport(token, reviewId, { format, includeAnnotations: true, includeSuggestions: true, includeOpinionDraft: true, includeEvidenceDetails: true }), onSuccess: setReport });
-
-  function submitDecision(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const suggestion = suggestions.data?.[0];
-    if (!suggestion) return;
-    const finalText = new FormData(event.currentTarget).get("finalText")?.toString().trim() ?? "";
-    if (decisionStatus === "MODIFIED_AND_USED" && !finalText) {
-      setDecisionError("수정 후 사용에는 최종 문구가 필요합니다.");
-      return;
-    }
-    setDecisionError("");
-    decision.mutate({ suggestionId: suggestion.suggestionId, input: { decisionStatus, finalText: finalText || null } });
-  }
 
   function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,13 +99,7 @@ export function M6SupportPage() {
       <section aria-labelledby="suggestion-heading"><h3 id="suggestion-heading">문구 추천</h3>
         {suggestions.isPending ? <LoadingState label="추천 문구를 불러오는 중입니다." /> : null}
         {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => void suggestions.refetch()} /> : null}
-        {suggestions.data?.[0] ? <><p><strong>{suggestions.data[0].originalText}</strong> → {suggestions.data[0].suggestedText}</p><p>{suggestions.data[0].suggestionReason}</p>
-          <form onSubmit={submitDecision}><label>판단<select value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value as keyof typeof DECISION_LABELS)}>{Object.entries(DECISION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            <label>최종 문구<textarea name="finalText" /></label>
-            {decisionError ? <p role="alert" className="state-message state-error">{decisionError}</p> : null}
-            {decision.isError ? <ErrorState error={decision.error} /> : null}
-            <button type="submit" disabled={decision.isPending}>{decision.isPending ? "저장 중..." : "담당자 판단 저장"}</button>
-          </form></> : null}
+        {suggestions.data?.map((suggestion) => <SuggestionDecisionForm key={suggestion.suggestionId} suggestion={suggestion} token={token} onSaved={() => void suggestions.refetch()} />)}
       </section>
 
       <section aria-labelledby="qa-heading"><h3 id="qa-heading">광고 규정 Q&A</h3><form onSubmit={submitQuestion}><label>질문<textarea name="question" required /></label><button type="submit" disabled={question.isPending}>{question.isPending ? "답변 생성 중..." : "근거 기반 질문"}</button></form>
@@ -119,6 +125,8 @@ export function M6SupportPage() {
 
 export function ComparisonPage() {
   const { advertisementId = "" } = useParams();
+  const { search } = useLocation();
+  const baseReviewId = new URLSearchParams(search).get("reviewId") ?? "";
   const { session } = useAuth();
   const token = session?.accessToken ?? "";
   const [revisionFile, setRevisionFile] = useState<File | null>(null);
@@ -159,5 +167,5 @@ export function ComparisonPage() {
       revisedAdvertisementFile: revisionFile,
     });
   }
-  return <section aria-labelledby="comparison-heading"><p className="eyebrow">수정 전후 비교</p><h2 id="comparison-heading">수정본 재검토 비교</h2><form onSubmit={submit}><label>기준 검토 ID<input name="baseReviewId" required /></label><label>수정 메모<textarea name="revisionMemo" /></label><label>수정 광고 파일<input name="revisedAdvertisementFile" type="file" accept="image/png,image/jpeg,application/pdf" onChange={(event) => setRevisionFile(event.target.files?.[0] ?? null)} required /></label><button type="submit" disabled={createComparison.isPending}>{createComparison.isPending ? "등록·비교·재검토 중..." : "수정본 등록 후 비교·재검토"}</button></form>{createComparison.isError ? <ErrorState error={createComparison.error} /> : null}{result ? <article className="result-detail"><p>수정본 ID: <code>{result.revisionId}</code> · 재검토 ID: <code>{result.newReviewId}</code></p><p>해결 {result.comparison.resolvedIssueCount} · 미해결 {result.comparison.unresolvedIssueCount} · 신규 {result.comparison.newIssueCount}</p><ul>{result.comparison.items?.map((item, index) => <li key={`${item.reviewItemId}-${index}`}><strong>{item.resolutionStatus}</strong> {item.originalText} → {item.revisedText}{item.reanalysisReviewId ? ` (재분석 ${item.reanalysisReviewId})` : ""}</li>)}</ul></article> : null}<Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>광고물 상세로</Link></section>;
+  return <section aria-labelledby="comparison-heading"><p className="eyebrow">수정 전후 비교</p><h2 id="comparison-heading">수정본 재검토 비교</h2><form onSubmit={submit}><label>광고물 ID<input value={advertisementId} readOnly /></label><label>기준 검토 ID<input name="baseReviewId" defaultValue={baseReviewId} required /></label><label>수정 메모<textarea name="revisionMemo" /></label><label>수정 광고 파일<input name="revisedAdvertisementFile" type="file" accept="image/png,image/jpeg,application/pdf" onChange={(event) => setRevisionFile(event.target.files?.[0] ?? null)} required /></label><button type="submit" disabled={createComparison.isPending}>{createComparison.isPending ? "등록·비교·재검토 중..." : "수정본 등록 후 비교·재검토"}</button></form>{createComparison.isError ? <ErrorState error={createComparison.error} /> : null}{result ? <article className="result-detail"><p>수정본 ID: <code>{result.revisionId}</code> · 재검토 ID: <code>{result.newReviewId}</code></p><p>해결 {result.comparison.resolvedIssueCount} · 미해결 {result.comparison.unresolvedIssueCount} · 신규 {result.comparison.newIssueCount}</p><ul>{result.comparison.items?.map((item, index) => <li key={`${item.reviewItemId}-${index}`}><strong>{item.resolutionStatus}</strong> {item.originalText} → {item.revisedText}{item.reanalysisReviewId ? ` (재분석 ${item.reanalysisReviewId})` : ""}</li>)}</ul></article> : null}<Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>광고물 상세로</Link></section>;
 }

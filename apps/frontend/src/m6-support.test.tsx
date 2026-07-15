@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -20,9 +20,12 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input); calls.push({ url, init });
-    if (url.endsWith("/reviews/REV-M6/suggestions")) return response([{ suggestionId: "SUG-1", reviewItemId: "ITEM-1", originalText: "국내 최고", suggestedText: "경쟁력 있는", suggestionReason: "근거 확인 필요", decisionStatus: "PENDING" }]);
+    if (url.endsWith("/reviews/REV-M6/suggestions")) return response([
+      { suggestionId: "SUG-1", reviewItemId: "ITEM-1", originalText: "국내 최고", suggestedText: "경쟁력 있는", suggestionReason: "근거 확인 필요", decisionStatus: "PENDING" },
+      { suggestionId: "SUG-2", reviewItemId: "ITEM-2", originalText: "무조건 이득", suggestedText: "조건 충족 시 혜택", suggestionReason: "조건 명시 필요", decisionStatus: "PENDING" },
+    ]);
     if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response([{ draftId: "OPN-1", reviewId: "REV-M6", draftContent: "초안", includedReviewItemIds: [], createdAt: "2026-07-14T10:00:00Z" }]);
-    if (url.endsWith("/suggestions/SUG-1/decision")) return response({ suggestionId: "SUG-1", decisionStatus: "MODIFIED_AND_USED", finalText: "수정 문구", updatedAt: "2026-07-14T10:01:00Z" });
+    if (url.endsWith("/suggestions/SUG-2/decision")) return response({ suggestionId: "SUG-2", decisionStatus: "MODIFIED_AND_USED", finalText: "수정 문구", updatedAt: "2026-07-14T10:01:00Z" });
     if (url.endsWith("/qa/questions")) return response({ qaId: "QA-1", answerSummary: "확인이 필요합니다", answerDetail: "기준 근거를 확인하세요.", evidences: [], suggestedPhrases: [], needsHumanReview: true });
     if (url.endsWith("/reviews/REV-M6/reports")) return response({ reportId: "RPT-1", reviewId: "REV-M6", sourceReportId: null, reportType: "FULL", format: "HWPX", reportStatus: "CREATED", snapshotHash: "sha256:test", snapshotVersion: "v1", createdAt: "2026-07-14T10:02:00Z" });
     throw new Error(`Unexpected request: ${url}`);
@@ -30,11 +33,13 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
 
   render(<MemoryRouter initialEntries={["/reviews/REV-M6/support"]}><App initialSession={session} /></MemoryRouter>);
   expect(await screen.findByText("국내 최고")).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("판단"), { target: { value: "MODIFIED_AND_USED" } });
-  fireEvent.change(screen.getByLabelText("최종 문구"), { target: { value: "수정 문구" } });
-  fireEvent.click(screen.getByRole("button", { name: "담당자 판단 저장" }));
-  await waitFor(() => expect(calls.some((call) => call.url.endsWith("/suggestions/SUG-1/decision"))).toBe(true));
-  const decision = calls.find((call) => call.url.endsWith("/suggestions/SUG-1/decision"));
+  expect(screen.getByText("무조건 이득")).toBeInTheDocument();
+  const secondSuggestion = screen.getByRole("article", { name: "추천 문구 무조건 이득" });
+  fireEvent.change(within(secondSuggestion).getByLabelText("판단"), { target: { value: "MODIFIED_AND_USED" } });
+  fireEvent.change(within(secondSuggestion).getByLabelText("최종 문구"), { target: { value: "수정 문구" } });
+  fireEvent.click(within(secondSuggestion).getByRole("button", { name: "담당자 판단 저장" }));
+  await waitFor(() => expect(calls.some((call) => call.url.endsWith("/suggestions/SUG-2/decision"))).toBe(true));
+  const decision = calls.find((call) => call.url.endsWith("/suggestions/SUG-2/decision"));
   expect(JSON.parse(String(decision?.init?.body))).toEqual({ decisionStatus: "MODIFIED_AND_USED", finalText: "수정 문구" });
 
   fireEvent.change(screen.getByLabelText("질문"), { target: { value: "표현을 사용할 수 있나요?" } });
@@ -78,8 +83,9 @@ test("registers an uploaded revision before comparison and reanalysis", async ()
     throw new Error(`Unexpected request: ${url}`);
   }));
 
-  render(<MemoryRouter initialEntries={["/advertisements/ADV-M6/comparisons"]}><App initialSession={session} /></MemoryRouter>);
-  fireEvent.change(screen.getByLabelText("기준 검토 ID"), { target: { value: "REV-M6" } });
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-M6/comparisons?reviewId=REV-M6"]}><App initialSession={session} /></MemoryRouter>);
+  expect(screen.getByLabelText("광고물 ID")).toHaveValue("ADV-M6");
+  expect(screen.getByLabelText("기준 검토 ID")).toHaveValue("REV-M6");
   fireEvent.change(screen.getByLabelText("수정 메모"), { target: { value: "확정 표현 완화" } });
   const file = new File(["png"], "revised.png", { type: "image/png" });
   fireEvent.change(screen.getByLabelText("수정 광고 파일"), { target: { files: [file] } });

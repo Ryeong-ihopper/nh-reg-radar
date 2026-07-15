@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.11 |
-| 기준일 | 2026-07-15 |
+| 현행 버전 | v1.12 |
+| 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.12 | 2026-07-16 | 광고 목록·상세의 전체 persisted review lifecycle 상태, 멀티파트 enum 검증, refresh replay/CAS 단일사용과 targetIndexes 실행 일치를 보강 |
 | v1.11 | 2026-07-15 | M8 OpenAPI v0.8.0 수정본 multipart 등록, 생성 client 비교·재검토 연계와 restart-safe M6 runtime 계약 반영 |
 | v1.10 | 2026-07-15 | G008 M7 provider-free Validation backend의 정확히 5개 runtime route, 권한·감사, 불변 snapshot/hash 및 저장 KPI 응답 실행 증거 반영 |
 | v1.9 | 2026-07-14 | G008 M7 Validation OpenAPI v0.7.0의 정확히 5개 operation, DB 원천 version, 불변 평가 snapshot과 저장 KPI 응답 계약 잠금 반영 |

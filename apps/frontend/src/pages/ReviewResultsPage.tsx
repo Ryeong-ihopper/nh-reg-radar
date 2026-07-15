@@ -11,6 +11,7 @@ import {
   type ReviewType,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { Pagination } from "../components/Pagination";
 import { ErrorState, LoadingState } from "../components/RequestState";
 
 const RISK_LABELS = {
@@ -61,6 +62,12 @@ export function ReviewSummaryPage() {
     enabled: Boolean(reviewId),
     retry: false,
   });
+  const advertisement = useQuery({
+    queryKey: ["advertisement", summary.data?.advertisementId],
+    queryFn: () => api.getAdvertisement(session?.accessToken ?? "", summary.data?.advertisementId ?? ""),
+    enabled: Boolean(summary.data?.advertisementId),
+    retry: false,
+  });
 
   return (
     <section aria-labelledby="review-summary-heading">
@@ -71,6 +78,15 @@ export function ReviewSummaryPage() {
       {summary.isError && !isForbidden(summary.error) ? <ErrorState error={summary.error} onRetry={() => void summary.refetch()} /> : null}
       {summary.data ? (
         <>
+          {summary.data && advertisement.isPending ? <LoadingState label="광고 기본정보를 불러오는 중입니다." /> : null}
+          {advertisement.isError ? <ErrorState error={advertisement.error} onRetry={() => void advertisement.refetch()} /> : null}
+          {advertisement.data ? <dl className="compact-detail" aria-label="광고 기본정보">
+            <div><dt>광고명</dt><dd>{advertisement.data.advertisementName}</dd></div>
+            <div><dt>상품군</dt><dd>{advertisement.data.productGroup}</dd></div>
+            <div><dt>광고유형</dt><dd>{advertisement.data.advertisementType}</dd></div>
+            <div><dt>등록자</dt><dd>{advertisement.data.registeredBy}</dd></div>
+            <div><dt>검토일</dt><dd>{new Date(summary.data.completedAt).toLocaleString("ko-KR")}</dd></div>
+          </dl> : null}
           <div className="result-kpis" aria-label="검토 결과 집계">
             <article><span>종합 위험도</span><strong data-risk={summary.data.overallRiskLevel}>{RISK_LABELS[summary.data.overallRiskLevel]}</strong></article>
             <article><span>전체 항목</span><strong>{summary.data.totalItemCount}</strong></article>
@@ -98,6 +114,7 @@ export function ReviewSummaryPage() {
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/items`}>상세 결과 보기</Link>
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/annotations`}>광고 화면 보기</Link>
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/support`}>담당자 지원</Link>
+            <Link className="button-link" to={`/advertisements/${encodeURIComponent(summary.data.advertisementId)}/comparisons?reviewId=${encodeURIComponent(reviewId)}`}>수정본 비교·재검토</Link>
           </div>
         </>
       ) : null}
@@ -160,6 +177,7 @@ export function ReviewItemsPage() {
           {detail.data.annotation ? <Link to={`/reviews/${encodeURIComponent(reviewId)}/results/annotations?reviewItemId=${encodeURIComponent(detail.data.reviewItemId)}`}>광고 화면에서 보기</Link> : <p className="panel-note">위치 확인이 필요한 항목입니다.</p>}
         </> : null}
       </aside></div> : null}
+      {items.data ? <Pagination page={items.data.page} totalPages={items.data.totalPages} totalElements={items.data.totalElements} onPageChange={(page) => setFilters((current) => ({ ...current, page }))} /> : null}
       <div className="form-actions"><Link className="button-link button-secondary" to={`/reviews/${encodeURIComponent(reviewId)}/results`}>요약으로</Link><Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/annotations`}>광고 화면 보기</Link></div>
     </section>
   );

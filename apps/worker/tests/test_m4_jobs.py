@@ -21,6 +21,7 @@ from nh_ad_worker.jobs import (
     WorkerJob,
     redacted_log,
 )
+from nh_ad_worker.results import ReviewResultEngine
 
 
 FIXTURE = (
@@ -61,6 +62,49 @@ class TransientAdapter:
 
     def parse(self, _input: DocumentInput) -> NormalizedDocument:
         raise TransientParserError("provider timeout")
+
+
+class UnexpectedAdapter:
+    name = "paddleocr"
+
+    def parse(self, _input: DocumentInput) -> NormalizedDocument:
+        raise RuntimeError("unexpected provider response")
+
+
+class CrashBeforeCompleteRepository(InMemoryJobRepository):
+    def __init__(self, jobs: list[WorkerJob]) -> None:
+        super().__init__(jobs)
+        self.crash_once = True
+
+    def complete(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        now: datetime,
+        check_required: bool,
+    ) -> None:
+        if self.crash_once:
+            self.crash_once = False
+            raise SystemExit("simulated worker termination")
+        super().complete(
+            job_id,
+            worker_id=worker_id,
+            now=now,
+            check_required=check_required,
+        )
+
+
+class CrashAfterClaimRepository(InMemoryJobRepository):
+    def claim(
+        self,
+        message: QueueMessage,
+        *,
+        worker_id: str,
+        now: datetime,
+    ) -> WorkerJob | None:
+        super().claim(message, worker_id=worker_id, now=now)
+        raise RuntimeError("source loading failed after claim")
 
 
 class HeartbeatRepository(InMemoryJobRepository):
@@ -250,6 +294,171 @@ def test_unconfigured_parser_fails_claimed_job_without_leaving_it_running() -> N
             "reasonCode": "PARSER_ADAPTER_NOT_CONFIGURED",
         }
     ]
+
+
+def test_unexpected_processing_error_fails_final_and_dead_letters() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    processor, job, _repository, _clock, dead_letters = setup(UnexpectedAdapter())
+
+    assert processor.process(message(job)) == "FAILED_FINAL"
+    assert job.status == "FAILED_FINAL"
+    assert job.review_status == "REVIEW_FAILED"
+    assert job.failed_reason_code == "UNEXPECTED_PROCESSING_ERROR"
+    assert job.locked_by is None
+    assert dead_letters.messages == [
+        {
+            "messageVersion": "review-job-v1",
+            "jobId": job.job_id,
+            "reviewId": fixture.review_id,
+            "reasonCode": "UNEXPECTED_PROCESSING_ERROR",
+        }
+    ]
+
+
+def test_unexpected_claim_error_fails_final_and_dead_letters() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M4-CLAIM-ERROR", fixture.review_id, source)
+    repository = CrashAfterClaimRepository([job])
+    dead_letters = InMemoryDeadLetterSink()
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter({"paddleocr": FixtureAdapter(fixture)}),
+        ArtifactStore(
+            InMemoryArtifactStorage(),
+            InMemoryArtifactMetadataRepository(),
+            bucket="parser-artifacts",
+        ),
+        dead_letters,
+        worker_id="worker-claim-error",
+        now=Clock(),
+    )
+
+    assert processor.process(message(job)) == "FAILED_FINAL"
+    assert job.status == "FAILED_FINAL"
+    assert job.failed_reason_code == "UNEXPECTED_PROCESSING_ERROR"
+    assert dead_letters.messages[0]["reasonCode"] == "UNEXPECTED_PROCESSING_ERROR"
+
+
+def test_post_claim_mutations_reject_a_worker_that_lost_its_lease() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M4-LEASE", fixture.review_id, source)
+    repository = InMemoryJobRepository([job])
+    now = Clock()()
+    assert repository.claim(QueueMessage.parse(message(job)), worker_id="worker-a", now=now) is job
+    job.locked_by = "worker-b"
+
+    with pytest.raises(ValueError, match="ILLEGAL_JOB_TRANSITION"):
+        repository.retry_or_dead_letter(
+            job.job_id,
+            worker_id="worker-a",
+            now=now,
+            reason_code="TRANSIENT",
+        )
+    with pytest.raises(ValueError, match="ILLEGAL_JOB_TRANSITION"):
+        repository.fail_final(
+            job.job_id,
+            worker_id="worker-a",
+            now=now,
+            reason_code="PERMANENT",
+        )
+    with pytest.raises(ValueError, match="ILLEGAL_JOB_TRANSITION"):
+        repository.persist_selected(
+            job.job_id,
+            fixture,
+            ArtifactStore(
+                InMemoryArtifactStorage(),
+                InMemoryArtifactMetadataRepository(),
+                bucket="parser-artifacts",
+            ).put(
+                b"{}",
+                raw_artifact_id="ART-LEASE",
+                review_id=job.review_id,
+                file_id=fixture.source_file_id,
+                review_step_id=job.review_step_id,
+                artifact_type="PROVIDER_RAW",
+                content_type="application/json",
+                parser_name=fixture.parser_name,
+                parser_version=fixture.parser_version,
+                parser_rule_version=fixture.parser_rule_version,
+                ir_version=fixture.ir_version,
+                attempt_no=1,
+                is_primary_attempt=True,
+                is_selected_output=True,
+                rerun_reason_code=None,
+                confidence_score=fixture.confidence.score,
+                confidence_status=fixture.confidence.status.value,
+                created_at=now,
+                retention_until=now + timedelta(days=14),
+            ),
+            worker_id="worker-a",
+        )
+    with pytest.raises(ValueError, match="ILLEGAL_JOB_TRANSITION"):
+        repository.complete(
+            job.job_id,
+            worker_id="worker-a",
+            now=now,
+            check_required=False,
+        )
+
+
+def test_stale_replay_after_selected_output_and_results_completes_idempotently() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M4-REPLAY", fixture.review_id, source)
+    repository = CrashBeforeCompleteRepository([job])
+    metadata = InMemoryArtifactMetadataRepository()
+    storage = InMemoryArtifactStorage()
+    clock = Clock()
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter({"paddleocr": FixtureAdapter(fixture)}),
+        ArtifactStore(
+            storage,
+            metadata,
+            bucket="parser-artifacts",
+        ),
+        InMemoryDeadLetterSink(),
+        worker_id="worker-replay",
+        now=clock,
+        result_engine=ReviewResultEngine(),
+    )
+
+    with pytest.raises(SystemExit, match="simulated worker termination"):
+        processor.process(message(job))
+    assert job.status == "RUNNING"
+    assert job.selected_artifact is not None
+    assert job.review_results is not None
+
+    clock.value += timedelta(minutes=3)
+    repository.recover_stale(
+        now=clock.value,
+        stale_before=clock.value - timedelta(minutes=2),
+    )
+
+    assert processor.process(message(job)) == "CHECK_REQUIRED"
+    assert job.status == "COMPLETED"
+    assert len(metadata.items) == 1
+    assert len(storage.objects) == 1
 
 
 def test_queue_contract_rejects_raw_or_object_storage_fields() -> None:

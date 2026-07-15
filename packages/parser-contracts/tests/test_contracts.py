@@ -133,3 +133,39 @@ def test_raw_artifact_checksum_access_retention_and_audit_are_enforced() -> None
     assert store.delete_expired(
         "RAWART-1", now=now + timedelta(days=8), approved=True, actor_id="admin"
     )
+
+
+def test_raw_artifact_put_is_idempotent_without_creating_orphan_objects() -> None:
+    now = datetime(2026, 7, 14, tzinfo=UTC)
+    storage = InMemoryArtifactStorage()
+    repository = InMemoryArtifactMetadataRepository()
+    store = ArtifactStore(storage, repository, bucket="test-parser-artifacts")
+    arguments = {
+        "raw_artifact_id": "RAWART-IDEMPOTENT",
+        "review_id": "REV-1",
+        "file_id": "FILE-1",
+        "review_step_id": "STEP-1",
+        "artifact_type": "OCR_RAW",
+        "content_type": "application/json",
+        "parser_name": "paddleocr",
+        "parser_version": "fixture-1",
+        "parser_rule_version": "rules-v1",
+        "ir_version": "normalized-document-v1",
+        "attempt_no": 1,
+        "is_primary_attempt": True,
+        "is_selected_output": True,
+        "rerun_reason_code": None,
+        "confidence_score": 0.94,
+        "confidence_status": "READABLE",
+        "created_at": now,
+        "retention_until": now + timedelta(days=7),
+    }
+
+    first = store.put(b'{"stable":true}', **arguments)  # type: ignore[arg-type]
+    second = store.put(b'{"stable":true}', **arguments)  # type: ignore[arg-type]
+
+    assert second == first
+    assert len(storage.objects) == 1
+    with pytest.raises(ValueError, match="ARTIFACT_IDEMPOTENCY_CONFLICT"):
+        store.put(b'{"stable":false}', **arguments)  # type: ignore[arg-type]
+    assert len(storage.objects) == 1

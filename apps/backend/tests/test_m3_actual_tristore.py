@@ -66,6 +66,7 @@ def test_actual_postgres_qdrant_opensearch_vertical() -> None:
         search_schema_version="search-schema-v1",
         opensearch_analyzer_version="ko-analyzer-v1",
         synonym_version="synonym-v1",
+        target_indexes=("QDRANT", "OPENSEARCH"),
         trace_id="trace-live-tristore",
     )
     hits = service.search("required notice", mode="HYBRID", effective_on=date(2026, 7, 14))

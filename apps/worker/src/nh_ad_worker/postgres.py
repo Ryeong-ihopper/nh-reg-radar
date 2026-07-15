@@ -21,8 +21,42 @@ class PostgresArtifactMetadataRepository:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def add(self, item: ArtifactMetadata) -> None:
+    @staticmethod
+    def _metadata(row: Any) -> ArtifactMetadata:
+        value = dict(row._mapping)
+        value["review_step_id"] = str(value["review_step_id"])
+        value.pop("rerun_reason_message", None)
+        return ArtifactMetadata(**value)
+
+    def add(self, item: ArtifactMetadata) -> ArtifactMetadata:
         with self._engine.begin() as connection:
+            existing = connection.execute(
+                text("""
+                    SELECT * FROM app.parser_artifacts
+                     WHERE raw_artifact_id=:raw_artifact_id
+                     FOR UPDATE
+                """),
+                {"raw_artifact_id": item.raw_artifact_id},
+            ).first()
+            if existing is not None:
+                canonical = self._metadata(existing)
+                same_artifact = (
+                    canonical.review_id == item.review_id
+                    and canonical.file_id == item.file_id
+                    and canonical.review_step_id == item.review_step_id
+                    and canonical.artifact_type == item.artifact_type
+                    and canonical.parser_name == item.parser_name
+                    and canonical.parser_version == item.parser_version
+                    and canonical.parser_rule_version == item.parser_rule_version
+                    and canonical.ir_version == item.ir_version
+                    and canonical.attempt_no == item.attempt_no
+                    and canonical.is_primary_attempt == item.is_primary_attempt
+                    and canonical.is_selected_output == item.is_selected_output
+                    and canonical.checksum_sha256 == item.checksum_sha256
+                )
+                if not same_artifact:
+                    raise ValueError("ARTIFACT_IDEMPOTENCY_CONFLICT")
+                return canonical
             connection.execute(
                 text("""
                     INSERT INTO app.parser_artifacts
@@ -39,6 +73,7 @@ class PostgresArtifactMetadataRepository:
                 """),
                 {**item.__dict__, "review_step_id": UUID(item.review_step_id)},
             )
+            return item
 
     def get(self, raw_artifact_id: str) -> ArtifactMetadata | None:
         with self._engine.connect() as connection:
@@ -48,10 +83,7 @@ class PostgresArtifactMetadataRepository:
             ).first()
         if row is None:
             return None
-        value = dict(row._mapping)
-        value["review_step_id"] = str(value["review_step_id"])
-        value.pop("rerun_reason_message", None)
-        return ArtifactMetadata(**value)
+        return self._metadata(row)
 
     def replace(self, item: ArtifactMetadata) -> None:
         with self._engine.begin() as connection:
@@ -205,6 +237,56 @@ class PostgresJobRepository:
         if updated is None:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
 
+    def fail_claim_error(
+        self,
+        message: QueueMessage,
+        *,
+        worker_id: str,
+        now: datetime,
+        reason_code: str,
+    ) -> bool:
+        with self._engine.begin() as connection:
+            review_id = connection.execute(
+                text("""
+                    UPDATE app.review_jobs
+                       SET job_status='FAILED_FINAL',is_retryable=false,
+                           failed_reason_code=:reason,dead_lettered_at=:now,
+                           locked_by=NULL,locked_at=NULL
+                     WHERE job_id=:job_id AND review_id=:review_id
+                       AND (
+                            (job_status='RUNNING' AND locked_by=:worker)
+                            OR job_status IN ('PENDING','RETRY_PENDING','STALE')
+                       )
+                    RETURNING review_id
+                """),
+                {
+                    "reason": reason_code,
+                    "now": now,
+                    "job_id": message.job_id,
+                    "review_id": message.review_id,
+                    "worker": worker_id,
+                },
+            ).scalar_one_or_none()
+            if review_id is None:
+                return False
+            connection.execute(
+                text("""
+                    UPDATE app.reviews
+                       SET review_status='REVIEW_FAILED',failed_reason=:reason,updated_at=:now
+                     WHERE review_id=:review_id
+                """),
+                {"reason": reason_code, "now": now, "review_id": review_id},
+            )
+            connection.execute(
+                text("""
+                    UPDATE app.review_steps
+                       SET step_status='FAILED',completed_at=:now,failed_reason_code=:reason
+                     WHERE job_id=:job_id AND step_status='RUNNING'
+                """),
+                {"reason": reason_code, "now": now, "job_id": message.job_id},
+            )
+            return True
+
     @staticmethod
     def _coordinate(block: object) -> dict[str, object | None]:
         coordinate = getattr(block, "coordinate")
@@ -215,10 +297,10 @@ class PostgresJobRepository:
                     "source_width",
                     "source_height",
                     "source_unit",
-                    "coordinate_x",
-                    "coordinate_y",
-                    "coordinate_width",
-                    "coordinate_height",
+                    "x",
+                    "y",
+                    "width",
+                    "height",
                     "normalized_x",
                     "normalized_y",
                     "normalized_width",
@@ -231,10 +313,10 @@ class PostgresJobRepository:
             "source_width": coordinate.source_width,
             "source_height": coordinate.source_height,
             "source_unit": coordinate.source_unit,
-            "coordinate_x": coordinate.x,
-            "coordinate_y": coordinate.y,
-            "coordinate_width": coordinate.width,
-            "coordinate_height": coordinate.height,
+            "x": coordinate.x,
+            "y": coordinate.y,
+            "width": coordinate.width,
+            "height": coordinate.height,
             "normalized_x": coordinate.normalized_x,
             "normalized_y": coordinate.normalized_y,
             "normalized_width": coordinate.normalized_width,
@@ -244,11 +326,26 @@ class PostgresJobRepository:
         }
 
     def persist_selected(
-        self, job_id: str, document: NormalizedDocument, artifact: ArtifactMetadata
+        self,
+        job_id: str,
+        document: NormalizedDocument,
+        artifact: ArtifactMetadata,
+        *,
+        worker_id: str,
     ) -> None:
         if not artifact.is_selected_output:
             raise ValueError("UNSELECTED_OUTPUT_PERSISTENCE_FORBIDDEN")
         with self._engine.begin() as connection:
+            owns_lease = connection.execute(
+                text("""
+                    SELECT 1 FROM app.review_jobs
+                     WHERE job_id=:job_id AND job_status='RUNNING' AND locked_by=:worker
+                     FOR UPDATE
+                """),
+                {"job_id": job_id, "worker": worker_id},
+            ).scalar_one_or_none()
+            if owns_lease is None:
+                raise ValueError("ILLEGAL_JOB_TRANSITION")
             selected = connection.execute(
                 text("""
                     SELECT raw_artifact_id FROM app.parser_artifacts
@@ -258,6 +355,38 @@ class PostgresJobRepository:
             ).scalar_one_or_none()
             if selected != artifact.raw_artifact_id:
                 raise ValueError("SELECTED_ARTIFACT_MISMATCH")
+            existing_text = {
+                row._mapping["ocr_block_id"]: row._mapping["raw_artifact_id"]
+                for row in connection.execute(
+                    text("""
+                        SELECT ocr_block_id,raw_artifact_id FROM app.ocr_text_blocks
+                         WHERE review_id=:review_id
+                    """),
+                    {"review_id": artifact.review_id},
+                )
+            }
+            existing_layout = {
+                row._mapping["layout_block_id"]: row._mapping["raw_artifact_id"]
+                for row in connection.execute(
+                    text("""
+                        SELECT layout_block_id,raw_artifact_id FROM app.layout_blocks
+                         WHERE review_id=:review_id
+                    """),
+                    {"review_id": artifact.review_id},
+                )
+            }
+            if existing_text or existing_layout:
+                expected_text = {block.text_block_id for block in document.text_blocks}
+                expected_layout = {block.layout_block_id for block in document.layout_blocks}
+                same_checkpoint = (
+                    set(existing_text) == expected_text
+                    and set(existing_layout) == expected_layout
+                    and all(value == artifact.raw_artifact_id for value in existing_text.values())
+                    and all(value == artifact.raw_artifact_id for value in existing_layout.values())
+                )
+                if same_checkpoint:
+                    return
+                raise ValueError("SELECTED_OUTPUT_ALREADY_PERSISTED")
             for text_block in document.text_blocks:
                 values: dict[str, Any] = {
                     "id": text_block.text_block_id,
@@ -290,16 +419,15 @@ class PostgresJobRepository:
                          text_block_type,raw_start_offset,raw_end_offset,normalized_start_offset,
                          normalized_end_offset,parser_name,parser_version,parser_rule_version,
                          ir_version,confidence_score,confidence_status,confidence_policy_version,
-                         source_width,source_height,source_unit,coordinate_x,coordinate_y,
-                         coordinate_width,coordinate_height,normalized_x,normalized_y,
+                         source_width,source_height,source_unit,x,y,width,height,normalized_x,normalized_y,
                          normalized_width,normalized_height,rotation,coordinate_confidence,
                          raw_artifact_id,created_at)
                         VALUES (:id,:review_id,:file_id,:page_no,:raw,:normalized,:path,:type,
                          :raw_start,:raw_end,:normalized_start,:normalized_end,:parser,:version,
                          :rules,:ir,:confidence,:confidence_status,:policy,:source_width,
-                         :source_height,:source_unit,:coordinate_x,:coordinate_y,:coordinate_width,
-                         :coordinate_height,:normalized_x,:normalized_y,:normalized_width,
-                         :normalized_height,:rotation,:coordinate_confidence,:artifact,:created)
+                         :source_height,:source_unit,:x,:y,:width,:height,:normalized_x,
+                         :normalized_y,:normalized_width,:normalized_height,:rotation,
+                         :coordinate_confidence,:artifact,:created)
                     """),
                     values,
                 )
@@ -308,13 +436,11 @@ class PostgresJobRepository:
                     text("""
                         INSERT INTO app.layout_blocks
                         (layout_block_id,review_id,file_id,page_no,layout_type,source_width,
-                         source_height,source_unit,coordinate_x,coordinate_y,coordinate_width,
-                         coordinate_height,normalized_x,normalized_y,normalized_width,
+                         source_height,source_unit,x,y,width,height,normalized_x,normalized_y,normalized_width,
                          normalized_height,rotation,coordinate_confidence,related_ocr_block_ids,
                          confidence_score,raw_artifact_id,created_at)
                         VALUES (:id,:review_id,:file_id,:page_no,:type,:source_width,:source_height,
-                         :source_unit,:coordinate_x,:coordinate_y,:coordinate_width,
-                         :coordinate_height,:normalized_x,:normalized_y,:normalized_width,
+                         :source_unit,:x,:y,:width,:height,:normalized_x,:normalized_y,:normalized_width,
                          :normalized_height,:rotation,:coordinate_confidence,
                          CAST(:related AS jsonb),:confidence,:artifact,:created)
                     """),
@@ -332,20 +458,31 @@ class PostgresJobRepository:
                     },
                 )
 
-    def persist_results(self, job_id: str, results: ReviewResultBundle) -> None:
+    def persist_results(self, job_id: str, results: ReviewResultBundle, *, worker_id: str) -> None:
         """Persist a complete M5 result bundle in the migration-0005 owner tables."""
         with self._engine.begin() as connection:
             review_id = connection.execute(
-                text("SELECT review_id FROM app.review_jobs WHERE job_id=:job_id"),
-                {"job_id": job_id},
+                text("""
+                    SELECT review_id FROM app.review_jobs
+                     WHERE job_id=:job_id AND job_status='RUNNING' AND locked_by=:worker
+                     FOR UPDATE
+                """),
+                {"job_id": job_id, "worker": worker_id},
             ).scalar_one_or_none()
+            if review_id is None:
+                raise ValueError("ILLEGAL_JOB_TRANSITION")
             if review_id != results.review_id:
                 raise ValueError("REVIEW_RESULT_SOURCE_NOT_PERSISTED")
-            existing = connection.execute(
-                text("SELECT 1 FROM app.review_items WHERE review_id=:review_id LIMIT 1"),
-                {"review_id": review_id},
-            ).scalar_one_or_none()
-            if existing is not None:
+            existing = set(
+                connection.execute(
+                    text("SELECT review_item_id FROM app.review_items WHERE review_id=:review_id"),
+                    {"review_id": review_id},
+                ).scalars()
+            )
+            if existing:
+                expected = {item.review_item_id for item in results.items}
+                if existing == expected:
+                    return
                 raise ValueError("REVIEW_RESULTS_ALREADY_PERSISTED")
             for item in results.items:
                 connection.execute(
@@ -494,7 +631,7 @@ class PostgresJobRepository:
                 },
             )
 
-    def complete(self, job_id: str, *, now: datetime, check_required: bool) -> None:
+    def complete(self, job_id: str, *, worker_id: str, now: datetime, check_required: bool) -> None:
         review_status = "CHECK_REQUIRED" if check_required else "REVIEW_COMPLETED"
         with self._engine.begin() as connection:
             review_id = connection.execute(
@@ -503,10 +640,10 @@ class PostgresJobRepository:
                        SET job_status='COMPLETED',progress_rate=100,current_step=NULL,
                            completed_at=:now,heartbeat_at=:now,locked_by=NULL,locked_at=NULL,
                            is_retryable=false
-                     WHERE job_id=:job_id AND job_status='RUNNING'
+                     WHERE job_id=:job_id AND job_status='RUNNING' AND locked_by=:worker
                     RETURNING review_id
                 """),
-                {"now": now, "job_id": job_id},
+                {"now": now, "job_id": job_id, "worker": worker_id},
             ).scalar_one_or_none()
             if review_id is None:
                 raise ValueError("ILLEGAL_JOB_TRANSITION")
@@ -533,32 +670,44 @@ class PostgresJobRepository:
                 {"status": review_status, "now": now, "id": advertisement_id},
             )
 
-    def retry_or_dead_letter(self, job_id: str, *, now: datetime, reason_code: str) -> bool:
+    def retry_or_dead_letter(
+        self, job_id: str, *, worker_id: str, now: datetime, reason_code: str
+    ) -> bool:
         with self._engine.begin() as connection:
-            row = (
-                connection.execute(
-                    text(
-                        "SELECT review_id,retry_count,max_retries FROM app.review_jobs WHERE job_id=:id FOR UPDATE"
-                    ),
-                    {"id": job_id},
-                )
-                .one()
-                ._mapping
-            )
+            found = connection.execute(
+                text("""
+                    SELECT review_id,retry_count,max_retries FROM app.review_jobs
+                     WHERE job_id=:id AND job_status='RUNNING' AND locked_by=:worker
+                     FOR UPDATE
+                """),
+                {"id": job_id, "worker": worker_id},
+            ).first()
+            if found is None:
+                raise ValueError("ILLEGAL_JOB_TRANSITION")
+            row = found._mapping
             if row["retry_count"] >= row["max_retries"]:
                 connection.execute(
                     text("""
                         UPDATE app.review_jobs SET job_status='FAILED_FINAL',is_retryable=false,
-                         failed_reason_code=:reason,dead_lettered_at=:now,locked_by=NULL
-                         WHERE job_id=:id
+                         failed_reason_code=:reason,dead_lettered_at=:now,
+                         locked_by=NULL,locked_at=NULL
+                         WHERE job_id=:id AND job_status='RUNNING' AND locked_by=:worker
                     """),
-                    {"reason": reason_code, "now": now, "id": job_id},
+                    {"reason": reason_code, "now": now, "id": job_id, "worker": worker_id},
                 )
                 connection.execute(
                     text(
                         "UPDATE app.reviews SET review_status='REVIEW_FAILED',failed_reason=:reason,updated_at=:now WHERE review_id=:id"
                     ),
                     {"reason": reason_code, "now": now, "id": row["review_id"]},
+                )
+                connection.execute(
+                    text("""
+                        UPDATE app.review_steps
+                           SET step_status='FAILED',completed_at=:now,failed_reason_code=:reason
+                         WHERE job_id=:id AND step_status='RUNNING'
+                    """),
+                    {"reason": reason_code, "now": now, "id": job_id},
                 )
                 return False
             count = row["retry_count"] + 1
@@ -568,13 +717,14 @@ class PostgresJobRepository:
                     UPDATE app.review_jobs SET job_status='RETRY_PENDING',retry_count=:count,
                      next_retry_at=:next_retry,failed_reason_code=:reason,locked_by=NULL,
                      locked_at=NULL,enqueued_at=NULL
-                     WHERE job_id=:id
+                     WHERE job_id=:id AND job_status='RUNNING' AND locked_by=:worker
                 """),
                 {
                     "count": count,
                     "next_retry": next_retry,
                     "reason": reason_code,
                     "id": job_id,
+                    "worker": worker_id,
                 },
             )
             connection.execute(
@@ -585,15 +735,17 @@ class PostgresJobRepository:
             )
             return True
 
-    def fail_final(self, job_id: str, *, now: datetime, reason_code: str) -> None:
+    def fail_final(self, job_id: str, *, worker_id: str, now: datetime, reason_code: str) -> None:
         with self._engine.begin() as connection:
             review_id = connection.execute(
                 text("""
                     UPDATE app.review_jobs SET job_status='FAILED_FINAL',is_retryable=false,
-                     failed_reason_code=:reason,dead_lettered_at=:now,locked_by=NULL
-                     WHERE job_id=:id AND job_status='RUNNING' RETURNING review_id
+                     failed_reason_code=:reason,dead_lettered_at=:now,
+                     locked_by=NULL,locked_at=NULL
+                     WHERE job_id=:id AND job_status='RUNNING' AND locked_by=:worker
+                    RETURNING review_id
                 """),
-                {"reason": reason_code, "now": now, "id": job_id},
+                {"reason": reason_code, "now": now, "id": job_id, "worker": worker_id},
             ).scalar_one_or_none()
             if review_id is None:
                 raise ValueError("ILLEGAL_JOB_TRANSITION")
@@ -602,6 +754,14 @@ class PostgresJobRepository:
                     "UPDATE app.reviews SET review_status='REVIEW_FAILED',failed_reason=:reason,updated_at=:now WHERE review_id=:id"
                 ),
                 {"reason": reason_code, "now": now, "id": review_id},
+            )
+            connection.execute(
+                text("""
+                    UPDATE app.review_steps
+                       SET step_status='FAILED',completed_at=:now,failed_reason_code=:reason
+                     WHERE job_id=:id AND step_status='RUNNING'
+                """),
+                {"reason": reason_code, "now": now, "id": job_id},
             )
 
     def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]:

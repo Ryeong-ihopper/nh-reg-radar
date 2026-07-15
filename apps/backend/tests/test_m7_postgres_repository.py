@@ -8,7 +8,7 @@ import sys
 import time
 from collections import defaultdict
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,7 +16,8 @@ import psycopg
 import pytest
 from sqlalchemy import create_engine
 
-from nh_ad_backend.domain import CurrentUser
+from nh_ad_backend.domain import CurrentUser, RefreshSession
+from nh_ad_backend.repository import PostgresRepository
 from nh_ad_backend.validation import PostgresValidationRepository, ValidationService
 
 
@@ -226,3 +227,40 @@ def test_postgres_repository_round_trips_versioned_inputs_and_immutable_evaluati
     assert stored.metrics == first.metrics
     assert second.evaluation_id != first.evaluation_id
     assert second.snapshot_hash != first.snapshot_hash
+
+
+def test_postgres_refresh_rotation_is_compare_and_swap(postgres_url: str) -> None:
+    now = datetime(2026, 7, 14, 11, tzinfo=UTC)
+    engine = create_engine(postgres_url, pool_pre_ping=True)
+    repository = PostgresRepository(engine, storage_provider="local", bucket="test")
+    current = RefreshSession(
+        session_id=str(uuid4()),
+        user_id="reviewer",
+        token_hash=f"current-{uuid4().hex}",
+        issued_at=now,
+        expires_at=now + timedelta(days=7),
+        token_version=1,
+    )
+    replacement = RefreshSession(
+        session_id=str(uuid4()),
+        user_id="reviewer",
+        token_hash=f"replacement-{uuid4().hex}",
+        issued_at=now,
+        expires_at=now + timedelta(days=7),
+        token_version=1,
+    )
+    losing_replacement = RefreshSession(
+        session_id=str(uuid4()),
+        user_id="reviewer",
+        token_hash=f"loser-{uuid4().hex}",
+        issued_at=now,
+        expires_at=now + timedelta(days=7),
+        token_version=1,
+    )
+    repository.save_refresh_session(current)
+
+    assert repository.rotate_refresh_session(current, replacement, now) is True
+    assert repository.rotate_refresh_session(current, losing_replacement, now) is False
+    assert repository.get_refresh_session(replacement.token_hash) is not None
+    assert repository.get_refresh_session(losing_replacement.token_hash) is None
+    engine.dispose()

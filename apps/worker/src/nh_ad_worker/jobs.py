@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import Callable, Iterable
@@ -92,13 +93,34 @@ class JobRepository(Protocol):
         self, message: QueueMessage, *, worker_id: str, now: datetime
     ) -> WorkerJob | None: ...
     def heartbeat(self, job_id: str, *, worker_id: str, now: datetime) -> None: ...
+    def fail_claim_error(
+        self,
+        message: QueueMessage,
+        *,
+        worker_id: str,
+        now: datetime,
+        reason_code: str,
+    ) -> bool: ...
     def persist_selected(
-        self, job_id: str, document: NormalizedDocument, artifact: ArtifactMetadata
+        self,
+        job_id: str,
+        document: NormalizedDocument,
+        artifact: ArtifactMetadata,
+        *,
+        worker_id: str,
     ) -> None: ...
-    def persist_results(self, job_id: str, results: ReviewResultBundle) -> None: ...
-    def complete(self, job_id: str, *, now: datetime, check_required: bool) -> None: ...
-    def retry_or_dead_letter(self, job_id: str, *, now: datetime, reason_code: str) -> bool: ...
-    def fail_final(self, job_id: str, *, now: datetime, reason_code: str) -> None: ...
+    def persist_results(
+        self, job_id: str, results: ReviewResultBundle, *, worker_id: str
+    ) -> None: ...
+    def complete(
+        self, job_id: str, *, worker_id: str, now: datetime, check_required: bool
+    ) -> None: ...
+    def retry_or_dead_letter(
+        self, job_id: str, *, worker_id: str, now: datetime, reason_code: str
+    ) -> bool: ...
+    def fail_final(
+        self, job_id: str, *, worker_id: str, now: datetime, reason_code: str
+    ) -> None: ...
     def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]: ...
     def close(self) -> None: ...
 
@@ -129,36 +151,76 @@ class InMemoryJobRepository:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
         job.heartbeat_at = now
 
+    def fail_claim_error(
+        self,
+        message: QueueMessage,
+        *,
+        worker_id: str,
+        now: datetime,
+        reason_code: str,
+    ) -> bool:
+        job = self.jobs.get(message.job_id)
+        if job is None or job.review_id != message.review_id:
+            return False
+        owns_claim = job.status == "RUNNING" and job.locked_by == worker_id
+        failed_before_claim = job.status in {"PENDING", "RETRY_PENDING", "STALE"}
+        if not owns_claim and not failed_before_claim:
+            return False
+        job.status = "FAILED_FINAL"
+        job.review_status = "REVIEW_FAILED"
+        job.failed_reason_code = reason_code
+        job.locked_by = None
+        job.dead_lettered_at = now
+        return True
+
     def persist_selected(
-        self, job_id: str, document: NormalizedDocument, artifact: ArtifactMetadata
+        self,
+        job_id: str,
+        document: NormalizedDocument,
+        artifact: ArtifactMetadata,
+        *,
+        worker_id: str,
     ) -> None:
         if not artifact.is_selected_output:
             raise ValueError("UNSELECTED_OUTPUT_PERSISTENCE_FORBIDDEN")
         job = self.jobs[job_id]
+        if job.status != "RUNNING" or job.locked_by != worker_id:
+            raise ValueError("ILLEGAL_JOB_TRANSITION")
         if job.selected_artifact is not None:
+            if (
+                job.selected_artifact.raw_artifact_id == artifact.raw_artifact_id
+                and job.normalized_document == document
+            ):
+                return
             raise ValueError("SELECTED_OUTPUT_ALREADY_PERSISTED")
         job.selected_artifact = artifact
         job.normalized_document = document
 
-    def persist_results(self, job_id: str, results: ReviewResultBundle) -> None:
+    def persist_results(self, job_id: str, results: ReviewResultBundle, *, worker_id: str) -> None:
         job = self.jobs[job_id]
+        if job.status != "RUNNING" or job.locked_by != worker_id:
+            raise ValueError("ILLEGAL_JOB_TRANSITION")
         if job.normalized_document is None or results.review_id != job.review_id:
             raise ValueError("REVIEW_RESULT_SOURCE_NOT_PERSISTED")
         if job.review_results is not None:
+            if job.review_results == results:
+                return
             raise ValueError("REVIEW_RESULTS_ALREADY_PERSISTED")
         job.review_results = results
 
-    def complete(self, job_id: str, *, now: datetime, check_required: bool) -> None:
+    def complete(self, job_id: str, *, worker_id: str, now: datetime, check_required: bool) -> None:
         job = self.jobs[job_id]
-        if job.status != "RUNNING" or job.normalized_document is None:
+        if job.status != "RUNNING" or job.locked_by != worker_id or job.normalized_document is None:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
         job.status = "COMPLETED"
         job.review_status = "CHECK_REQUIRED" if check_required else "REVIEW_COMPLETED"
         job.heartbeat_at = now
 
-    def retry_or_dead_letter(self, job_id: str, *, now: datetime, reason_code: str) -> bool:
+    def retry_or_dead_letter(
+        self, job_id: str, *, worker_id: str, now: datetime, reason_code: str
+    ) -> bool:
         job = self.jobs[job_id]
-        if job.status != "RUNNING":
+        if job.status != "RUNNING" or job.locked_by != worker_id:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
         job.failed_reason_code = reason_code
         job.locked_by = None
@@ -173,9 +235,9 @@ class InMemoryJobRepository:
         job.next_retry_at = now + RETRY_DELAYS[job.retry_count - 1]
         return True
 
-    def fail_final(self, job_id: str, *, now: datetime, reason_code: str) -> None:
+    def fail_final(self, job_id: str, *, worker_id: str, now: datetime, reason_code: str) -> None:
         job = self.jobs[job_id]
-        if job.status != "RUNNING":
+        if job.status != "RUNNING" or job.locked_by != worker_id:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
         job.status = "FAILED_FINAL"
         job.review_status = "REVIEW_FAILED"
@@ -261,7 +323,33 @@ class ParserJobProcessor:
     def process(self, payload: dict[str, object]) -> str:
         message = QueueMessage.parse(payload)
         now = self._now()
-        job = self.repository.claim(message, worker_id=self.worker_id, now=now)
+        try:
+            job = self.repository.claim(message, worker_id=self.worker_id, now=now)
+        except Exception as exc:
+            if isinstance(exc, (KeyError, ValueError)):
+                raise
+            reason_code = "UNEXPECTED_PROCESSING_ERROR"
+            LOGGER.exception(
+                "unexpected job claim failure",
+                extra={"job_id": message.job_id, "review_id": message.review_id},
+            )
+            finalized = self.repository.fail_claim_error(
+                message,
+                worker_id=self.worker_id,
+                now=now,
+                reason_code=reason_code,
+            )
+            if not finalized:
+                raise
+            self.dead_letters.publish(
+                {
+                    "messageVersion": message.message_version,
+                    "jobId": message.job_id,
+                    "reviewId": message.review_id,
+                    "reasonCode": reason_code,
+                }
+            )
+            return "FAILED_FINAL"
         if job is None:
             return "DUPLICATE_IGNORED"
         heartbeat_stop = Event()
@@ -280,7 +368,7 @@ class ParserJobProcessor:
                 raw = self._raw_output(job.document, normalized)
                 artifact = self.artifacts.put(
                     raw,
-                    raw_artifact_id=f"ART-{uuid4()}",
+                    raw_artifact_id=self._artifact_id(job.job_id, attempt.attempt_no),
                     review_id=job.review_id,
                     file_id=job.document.source_file_id,
                     review_step_id=job.review_step_id,
@@ -304,17 +392,34 @@ class ParserJobProcessor:
             if selected_artifact is None:
                 raise ValueError("PARSER_SELECTION_REQUIRES_EXACTLY_ONE_OUTPUT")
             normalized = selection.selected_document
-            self.repository.persist_selected(job.job_id, normalized, selected_artifact)
+            self.repository.persist_selected(
+                job.job_id,
+                normalized,
+                selected_artifact,
+                worker_id=self.worker_id,
+            )
             check_required = normalized.confidence.status.value != "READABLE"
             if self._result_engine is not None:
                 results = self._result_engine.execute(normalized)
-                self.repository.persist_results(job.job_id, results)
+                self.repository.persist_results(
+                    job.job_id,
+                    results,
+                    worker_id=self.worker_id,
+                )
                 check_required = check_required or results.check_required
-            self.repository.complete(job.job_id, now=now, check_required=check_required)
+            self.repository.complete(
+                job.job_id,
+                worker_id=self.worker_id,
+                now=self._now(),
+                check_required=check_required,
+            )
             return "CHECK_REQUIRED" if check_required else "COMPLETED"
         except TransientParserError as exc:
             retrying = self.repository.retry_or_dead_letter(
-                job.job_id, now=now, reason_code=type(exc).__name__.upper()
+                job.job_id,
+                worker_id=self.worker_id,
+                now=self._now(),
+                reason_code=type(exc).__name__.upper(),
             )
             if not retrying:
                 self.dead_letters.publish(
@@ -327,7 +432,12 @@ class ParserJobProcessor:
                 )
             return "RETRY_PENDING" if retrying else "FAILED_FINAL"
         except PermanentParserError as exc:
-            self.repository.fail_final(job.job_id, now=now, reason_code=type(exc).__name__.upper())
+            self.repository.fail_final(
+                job.job_id,
+                worker_id=self.worker_id,
+                now=self._now(),
+                reason_code=type(exc).__name__.upper(),
+            )
             self.dead_letters.publish(
                 {
                     "messageVersion": message.message_version,
@@ -339,7 +449,33 @@ class ParserJobProcessor:
             return "FAILED_FINAL"
         except AdapterNotConfigured:
             reason_code = "PARSER_ADAPTER_NOT_CONFIGURED"
-            self.repository.fail_final(job.job_id, now=now, reason_code=reason_code)
+            self.repository.fail_final(
+                job.job_id,
+                worker_id=self.worker_id,
+                now=self._now(),
+                reason_code=reason_code,
+            )
+            self.dead_letters.publish(
+                {
+                    "messageVersion": message.message_version,
+                    "jobId": message.job_id,
+                    "reviewId": message.review_id,
+                    "reasonCode": reason_code,
+                }
+            )
+            return "FAILED_FINAL"
+        except Exception:
+            reason_code = "UNEXPECTED_PROCESSING_ERROR"
+            LOGGER.exception(
+                "unexpected claimed-job processing failure",
+                extra={"job_id": job.job_id, "review_id": job.review_id},
+            )
+            self.repository.fail_final(
+                job.job_id,
+                worker_id=self.worker_id,
+                now=self._now(),
+                reason_code=reason_code,
+            )
             self.dead_letters.publish(
                 {
                     "messageVersion": message.message_version,
@@ -352,6 +488,11 @@ class ParserJobProcessor:
         finally:
             heartbeat_stop.set()
             heartbeat.join()
+
+    @staticmethod
+    def _artifact_id(job_id: str, attempt_no: int) -> str:
+        digest = hashlib.sha256(f"{job_id}:{attempt_no}".encode()).hexdigest()[:32]
+        return f"ART-{digest}"
 
     def _heartbeat_until_stopped(self, job_id: str, stop: Event) -> None:
         while not stop.wait(self._heartbeat_interval_seconds):

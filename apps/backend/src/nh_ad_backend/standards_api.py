@@ -277,6 +277,7 @@ def install_standard_routes(
             opensearch_analyzer_version=payload.opensearch_analyzer_version or "ko-v1",
             synonym_version=payload.synonym_version or "synonym-v1",
             parser_rule_version=payload.parser_rule_version or "direct-text-v1",
+            target_indexes=payload.target_indexes,
             trace_id=request.state.trace_id,
         )
         return _job(job)

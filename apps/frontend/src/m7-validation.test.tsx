@@ -52,6 +52,22 @@ test("registers a versioned validation dataset and golden judgment through the g
   expect(JSON.parse(String(judgment?.init?.body)).judgments[0]).toMatchObject({ targetText: "원금 보장", expectedStatus: "APPROPRIATE", excluded: false });
 });
 
+test("navigates validation dataset pages using server metadata", async () => {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    const page = Number(new URL(url, "http://test").searchParams.get("page"));
+    return json({ items: [{ ...dataset, datasetId: `VAL-${page}`, datasetName: `검증셋 ${page}` }], page, size: 20, totalElements: 40, totalPages: 2 });
+  }));
+
+  render(<MemoryRouter initialEntries={["/validation/datasets"]}><App initialSession={complianceSession} /></MemoryRouter>);
+  expect((await screen.findAllByText("검증셋 1")).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+  expect((await screen.findAllByText("검증셋 2")).length).toBeGreaterThan(0);
+  expect(urls.at(-1)).toContain("page=2");
+});
+
 test("displays immutable server KPI values, exclusions, and zero-denominator state without recalculation", async () => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);

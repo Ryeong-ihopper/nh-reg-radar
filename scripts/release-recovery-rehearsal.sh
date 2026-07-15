@@ -101,11 +101,11 @@ query_postgres() {
     --username migration --dbname "$database" --command "$sql"
 }
 
-printf '%s\n' 'M8 migration rehearsal: fresh chain to M7, then M7-to-M8 upgrade'
+printf '%s\n' 'Migration rehearsal: fresh chain to M7, then current-head upgrade'
 run_alembic upgrade 0007_m7_validation_kpi
 [[ "$(query_postgres 'SELECT version_num FROM app.alembic_version;')" == "0007_m7_validation_kpi" ]]
 run_alembic upgrade head
-[[ "$(query_postgres 'SELECT version_num FROM app.alembic_version;')" == "0008_m8_support_privileges" ]]
+[[ "$(query_postgres 'SELECT version_num FROM app.alembic_version;')" == "0009_operational_consistency" ]]
 
 query_postgres \
   "CREATE TABLE app.m8_release_restore_probe (id integer PRIMARY KEY, payload text NOT NULL);
@@ -394,7 +394,7 @@ cat "$backup_dir/postgres.dump" | "${compose[@]}" exec -T postgres \
 restored_revision="$(query_postgres 'SELECT version_num FROM app.alembic_version;')"
 restored_payload="$(query_postgres "SELECT id || ':' || payload FROM app.m8_release_restore_probe;")"
 restored_payload_checksum="$(printf '%s' "$restored_payload" | sha256sum | cut -d' ' -f1)"
-if [[ "$restored_revision" != "0008_m8_support_privileges" ]]; then
+if [[ "$restored_revision" != "0009_operational_consistency" ]]; then
   printf 'restored migration revision mismatch: %s\n' "$restored_revision" >&2
   exit 1
 fi

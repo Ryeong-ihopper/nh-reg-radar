@@ -52,7 +52,7 @@ class ArtifactStorage(Protocol):
 
 
 class ArtifactMetadataRepository(Protocol):
-    def add(self, metadata: ArtifactMetadata) -> None: ...
+    def add(self, metadata: ArtifactMetadata) -> ArtifactMetadata: ...
     def get(self, raw_artifact_id: str) -> ArtifactMetadata | None: ...
     def replace(self, metadata: ArtifactMetadata) -> None: ...
 
@@ -75,8 +75,8 @@ class InMemoryArtifactMetadataRepository:
     def __init__(self) -> None:
         self.items: dict[str, ArtifactMetadata] = {}
 
-    def add(self, metadata: ArtifactMetadata) -> None:
-        self.items[metadata.raw_artifact_id] = metadata
+    def add(self, metadata: ArtifactMetadata) -> ArtifactMetadata:
+        return self.items.setdefault(metadata.raw_artifact_id, metadata)
 
     def get(self, raw_artifact_id: str) -> ArtifactMetadata | None:
         return self.items.get(raw_artifact_id)
@@ -128,8 +128,32 @@ class ArtifactStore:
         created_at: datetime,
         retention_until: datetime,
     ) -> ArtifactMetadata:
-        object_key = f"{review_id}/{secrets.token_hex(24)}"
         checksum = hashlib.sha256(body).hexdigest()
+
+        def is_same_artifact(existing: ArtifactMetadata) -> bool:
+            return (
+                existing.review_id == review_id
+                and existing.file_id == file_id
+                and existing.review_step_id == review_step_id
+                and existing.artifact_type == artifact_type
+                and existing.checksum_sha256 == checksum
+                and existing.content_type == content_type
+                and existing.parser_name == parser_name
+                and existing.parser_version == parser_version
+                and existing.parser_rule_version == parser_rule_version
+                and existing.ir_version == ir_version
+                and existing.attempt_no == attempt_no
+                and existing.is_primary_attempt == is_primary_attempt
+                and existing.is_selected_output == is_selected_output
+                and existing.rerun_reason_code == rerun_reason_code
+            )
+
+        existing = self._repository.get(raw_artifact_id)
+        if existing is not None:
+            if not is_same_artifact(existing):
+                raise ValueError("ARTIFACT_IDEMPOTENCY_CONFLICT")
+            return existing
+        object_key = f"{review_id}/{secrets.token_hex(24)}"
         self._storage.put(self._bucket, object_key, body, content_type)
         metadata = ArtifactMetadata(
             raw_artifact_id=raw_artifact_id,
@@ -156,8 +180,12 @@ class ArtifactStore:
             created_at=created_at,
             retention_until=retention_until,
         )
-        self._repository.add(metadata)
-        return metadata
+        canonical = self._repository.add(metadata)
+        if canonical != metadata:
+            self._storage.delete(self._bucket, object_key)
+            if not is_same_artifact(canonical):
+                raise ValueError("ARTIFACT_IDEMPOTENCY_CONFLICT")
+        return canonical
 
     def read_privileged(
         self, raw_artifact_id: str, *, role: str, actor_id: str, purpose: str
