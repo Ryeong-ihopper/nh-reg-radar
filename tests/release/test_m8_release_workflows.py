@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 import textwrap
@@ -17,6 +18,7 @@ def _run_provider_free_junit_gate(
     junit: str,
     *,
     test_exit: int = 0,
+    provider_free_expected: dict[str, object] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     workflow = PROVIDER_FREE.read_text(encoding="utf-8")
     start_marker = "          TEST_EXIT=\"$test_exit\" python3 - <<'PY'\n"
@@ -24,6 +26,15 @@ def _run_provider_free_junit_gate(
     junit_path = tmp_path / "provider-free-junit.xml"
     junit_path.write_text(junit, encoding="utf-8")
     script = textwrap.dedent(script)
+    if provider_free_expected is not None:
+        source_manifest = ROOT / "governance/goal-manifests/G009-m8-release.json"
+        manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
+        manifest["automation"]["provider_free"]["expected"] = provider_free_expected
+        manifest_path = tmp_path / "G009-m8-release.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        workflow_manifest_path = 'Path("governance/goal-manifests/G009-m8-release.json")'
+        assert workflow_manifest_path in script
+        script = script.replace(workflow_manifest_path, f"Path({str(manifest_path)!r})")
     workflow_junit_path = 'Path("/tmp/g009-provider-free-junit.xml")'
     assert workflow_junit_path in script
     script = script.replace(workflow_junit_path, f"Path({str(junit_path)!r})")
@@ -130,6 +141,28 @@ def test_provider_free_junit_gate_rejects_nonzero_pytest_exit(tmp_path: Path) ->
 
     assert result.returncode != 0
     assert "provider-free pytest failed with 42" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_bool_manifest_count(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" skipped="0" />',
+        provider_free_expected={"passed": 4, "failed": False, "skipped": 0},
+    )
+
+    assert result.returncode != 0
+    assert "provider-free manifest counts must be integers" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_float_manifest_count(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" skipped="0" />',
+        provider_free_expected={"passed": 4.0, "failed": 0, "skipped": 0},
+    )
+
+    assert result.returncode != 0
+    assert "provider-free manifest counts must be integers" in result.stderr
 
 
 def test_external_engine_workflow_is_manual_sanitized_and_non_blocking() -> None:

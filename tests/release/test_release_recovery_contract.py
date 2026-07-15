@@ -261,6 +261,82 @@ sleep 30
                     sum("down --volumes --remove-orphans" in call for call in calls), 2
                 )
 
+    def test_release_smoke_owns_log_capture_instead_of_racing_delayed_tee(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            fake_bin = temp / "bin"
+            fake_bin.mkdir()
+            call_log = temp / "docker.log"
+            tee_log = temp / "tee.log"
+            docker = fake_bin / "docker"
+            docker.write_text(
+                """#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
+case " $* " in
+  *" config --quiet "*) exit 42 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+            uv = fake_bin / "uv"
+            uv.write_text(
+                """#!/usr/bin/env bash
+set -eu
+printf 'G011_DELAYED_CONSUMER_DIAGNOSTIC\n'
+printf 'G011_FRESH_VOLUME_SECONDS=1\n'
+""",
+                encoding="utf-8",
+            )
+            uv.chmod(0o755)
+            tee = fake_bin / "tee"
+            tee.write_text(
+                """#!/usr/bin/env bash
+set -eu
+printf 'invoked\n' >"$FAKE_TEE_LOG"
+sleep 1
+/usr/bin/tee "$@"
+""",
+                encoding="utf-8",
+            )
+            tee.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "FAKE_DOCKER_LOG": str(call_log),
+                    "FAKE_TEE_LOG": str(tee_log),
+                    "NH_M8_RELEASE_COMPOSE_PROJECT": "m8-release-owned-log-contract",
+                    "NH_M8_RELEASE_TIMEOUT_SECONDS": "3",
+                    "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
+                    "NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS": "2",
+                    "NH_M8_RELEASE_KILL_AFTER_SECONDS": "1",
+                }
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(SMOKE),
+                    "--env-file",
+                    str(ROOT / ".env.prod.example"),
+                    "--fresh-project",
+                    "--with-restart-and-outages",
+                ],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 42, result.stdout + result.stderr)
+            self.assertIn("G011_DELAYED_CONSUMER_DIAGNOSTIC", result.stdout)
+            self.assertIn("G011_COLD_GATE_SECONDS=1", result.stdout)
+            self.assertFalse(tee_log.exists(), "release smoke still invoked asynchronous tee")
+
     def test_release_smoke_repeated_term_cleans_once_and_allows_clean_rerun(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
