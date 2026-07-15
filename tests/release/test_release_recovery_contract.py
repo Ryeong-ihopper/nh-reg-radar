@@ -99,7 +99,10 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("if ((exit_code == 0)); then", text)
         self.assertIn('exit "$exit_code"', text)
         self.assertNotIn("--resume", text)
-        self.assertIn("assert_fresh_project\nrun_g011_gate\n", text)
+        self.assertIn("cleanup_project_resources=false", text)
+        self.assertIn(
+            "assert_fresh_project\ncleanup_project_resources=true\nrun_g011_gate\n", text
+        )
 
     def test_release_smoke_rejects_dirty_projects_without_compose_down(self) -> None:
         for dirty_suffix in ("", "-g011"):
