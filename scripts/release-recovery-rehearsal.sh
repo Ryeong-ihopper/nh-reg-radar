@@ -203,7 +203,9 @@ with urllib.request.urlopen(
     f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", timeout=30
 ) as response:
     snapshot_path.write_bytes(response.read())
+request_json("DELETE", f"{qdrant}/collections/{collection}")
 print(f"QDRANT_SNAPSHOT_BACKED_UP snapshot={snapshot_name}")
+print("QDRANT_SOURCE_COLLECTION_DELETED before=node-local-copy")
 PY
 
 qdrant_id="$("${compose[@]}" ps -q qdrant)"
@@ -254,7 +256,6 @@ def request_json(method: str, url: str, payload: Any | None = None) -> dict[str,
     return json.loads(data) if data else {}
 
 
-request_json("DELETE", f"{qdrant}/collections/{collection}")
 restored = request_json(
     "PUT",
     f"{qdrant}/collections/{collection}/snapshots/recover?wait=false",

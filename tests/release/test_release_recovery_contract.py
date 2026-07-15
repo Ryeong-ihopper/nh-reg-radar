@@ -99,6 +99,20 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("points/4242", production)
         self.assertIn("provider-free-qdrant-restore", production)
 
+        download = production.index("snapshot_path.write_bytes(response.read())")
+        deleted = production.index("QDRANT_SOURCE_COLLECTION_DELETED")
+        node_copy = production.index("docker cp")
+        recover = production.index("/snapshots/recover?wait=false")
+        self.assertLess(download, deleted)
+        self.assertLess(deleted, node_copy)
+        self.assertLess(node_copy, recover)
+        self.assertEqual(
+            production.count(
+                'request_json("DELETE", f"{qdrant}/collections/{collection}")'
+            ),
+            2,
+        )
+
         def accepted(response: dict[str, object]) -> bool:
             return response.get("result") is True or response.get("status") == "accepted"
 
