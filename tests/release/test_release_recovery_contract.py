@@ -74,14 +74,14 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("qdrant_node_checksum", text)
         self.assertIn("time.monotonic() + 180", text)
         self.assertIn("except (urllib.error.URLError, TimeoutError)", text)
-        self.assertIn('failed: 404', text)
-        self.assertIn('failed: 503', text)
+        self.assertIn("failed: 404", text)
+        self.assertIn("failed: 503", text)
         self.assertIn('"failed: 500" in error', text)
         self.assertIn('"Local shard 0 not found" in error', text)
-        self.assertIn('stop opensearch', text)
-        self.assertIn('up -d --wait --wait-timeout 180 opensearch', text)
-        self.assertIn('logs --no-color --tail=80 qdrant', text)
-        self.assertIn('timeout --signal=TERM 240', text)
+        self.assertIn("stop opensearch", text)
+        self.assertIn("up -d --wait --wait-timeout 180 opensearch", text)
+        self.assertIn("logs --no-color --tail=80 qdrant", text)
+        self.assertIn("timeout --signal=TERM 240", text)
         self.assertIn("OPENSEARCH_REINDEXED", text)
         self.assertIn('"redis":"excluded"', text)
         self.assertNotIn("redis.rdb", text)
@@ -101,8 +101,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertLess(backup_outer, backup_volume)
         self.assertLess(backup_volume, snapshot_create)
         self.assertIn(
-            'f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", '
-            "timeout=30",
+            'f"{qdrant}/collections/{collection}/snapshots/{snapshot_name}", timeout=30',
             production,
         )
         self.assertIn(
@@ -147,7 +146,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         )
         self.assertEqual(production.count("QDRANT_SOURCE_COLLECTION_DELETED"), 1)
         self.assertNotIn(
-            'file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot',
+            "file:///qdrant/snapshots/{collection}/m8-release-backup.snapshot",
             production,
         )
         restore_helper = production[production.index("M8 Qdrant restore:") :]
