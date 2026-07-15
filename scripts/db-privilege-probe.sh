@@ -44,8 +44,10 @@ expect_denied() {
 
 schema_count="$(query "$NH_DB_MIGRATION_URL" "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('app','rag','validation','audit')")"
 [[ "$schema_count" == "4" ]]
-table_count="$(query "$NH_DB_MIGRATION_URL" "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('app','rag','validation','audit') AND NOT (table_schema='app' AND table_name='alembic_version')")"
-[[ "$table_count" == "0" ]]
+migration_revision="$(query "$NH_DB_MIGRATION_URL" 'SELECT version_num FROM app.alembic_version')"
+[[ "$migration_revision" == "0009_operational_consistency" ]]
+expected_relation_count="$(query "$NH_DB_MIGRATION_URL" "SELECT count(*) FROM (VALUES ('app.users'), ('app.ocr_text_blocks'), ('rag.evidences'), ('validation.validation_datasets'), ('audit.audit_logs')) AS expected(relation_name) WHERE to_regclass(relation_name) IS NOT NULL")"
+[[ "$expected_relation_count" == "5" ]]
 
 expect_denied "$NH_DB_MIGRATION_URL" 'CREATE ROLE privilege_probe_migration' 'migration CREATE ROLE'
 expect_denied "$NH_DB_MIGRATION_URL" 'ALTER ROLE app CREATEDB' 'migration ALTER ROLE'

@@ -49,11 +49,11 @@ jobs:
       - name: Check Python types
         run: uv run mypy
 
-      - name: Run deterministic Python tests
-        run: uv run python -m pytest -m "not external_ai and not slow"
-
       - name: Install pinned OpenAPI tooling
         run: npm ci --ignore-scripts
+
+      - name: Run deterministic Python tests
+        run: uv run python -m pytest -m "not external_ai and not slow"
 
       - name: Run OpenAPI contract checks offline
         env:

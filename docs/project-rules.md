@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.10 |
+| 현행 버전 | v1.11 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.11 | 2026-07-16 | Product CI의 Python/OpenAPI 교차 런타임 의존성 설치 순서와 현행 migration 적용 후 DB privilege probe 검증 기준 명시 |
 | v1.10 | 2026-07-16 | Notion 수동 게시의 번호형 문서·ADR 계층, secret·checkout credential 격리, 재시도·실패 정리 및 내용 완전성 검증 기준 통합 |
 | v1.9 | 2026-07-15 | G009 현재 파일 SHA-256과 provider-free E2E 4/0/0 건수를 릴리스 Gate에서 정확히 검증하는 fail-closed 기준 반영 |
 | v1.8 | 2026-07-15 | AC-18 최종 문서·일정 동기화 실행 순서와 provider-free·수동 외부 AI·production recovery 운영 증거 해석 경계 반영 |
@@ -604,6 +605,8 @@ M1 플랫폼 변경은 다음 CI 경계를 추가로 적용한다.
 | DB bootstrap/권한 probe | 일회성 bootstrap 재실행, migration upgrade, seed 분리, 금지 권한 probe | 전용 Job에만 수명이 제한된 bootstrap credential 주입 후 폐기 |
 
 일반 제품 테스트 Job은 bootstrap/admin credential을 상속하지 않는다. Alembic은 migration identity만 사용하고 runtime app/worker는 migration DSN을 받지 않는다. 상세 자동 검증 항목은 `TC-NFR-INFRA-001`~`TC-NFR-INFRA-005`를 따른다.
+
+Python의 runtime/static OpenAPI parity 테스트는 저장소의 Node 기반 OpenAPI loader를 호출하므로, 앱 독립 품질 Job은 root `npm ci --ignore-scripts`를 Python 결정적 테스트보다 먼저 완료해야 한다. DB bootstrap/권한 probe는 전체 migration 적용 후 빈 업무 스키마를 기대하지 않으며, 현행 Alembic revision과 app/rag/validation/audit의 대표 relation 존재를 확인한 뒤 역할별 금지 권한을 검증한다.
 
 ### 10.1.1 M8 릴리스 자동화와 실제 엔진 평가 경계
 

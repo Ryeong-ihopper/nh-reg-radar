@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.27 |
+| 현행 버전 | v1.28 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 현행 0009 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
 | v1.27 | 2026-07-16 | Notion 수동 게시의 93개 Markdown 선별, 번호형 계층, secret 격리, 재시도·실패 정리와 페이지별 내용 검증 회귀 기준 통합 |
 | v1.26 | 2026-07-16 | 운영 교차검증에서 발견된 enum/read-path 500, refresh replay·bootstrap, worker lease·poison replay, targetIndexes, OCR DB 정합성과 frontend 흐름 회귀 Gate 추가 |
 | v1.25 | 2026-07-15 | production recovery의 과거 실제 Docker 수동 증거와 현재 provider-free fake-Docker 회귀 증거를 분리하고 현재 HEAD 운영 복구 주장은 실제 Docker opt-in 재실행 후에만 가능하도록 정정 |
@@ -51,7 +52,7 @@
 | 문서명 | 테스트케이스 |
 | 프로젝트명 | AI 활용 금융상품 광고심의 적정성 검토 에이전트 |
 | 대상 시스템 | 멀티모달 RAG 기반 금융상품 광고심의 적정성 검토 AI 에이전트 PoC |
-| 문서 버전 | v1.27 |
+| 문서 버전 | v1.28 |
 | 작성 목적 | API, DB, 화면, AI 분석 기능의 정상·예외·권한·이력 검증 기준 정의 |
 | 기준 문서 | API 명세서 v1.2, DB 명세서 v1.2 |
 | 테스트 범위 | PoC 기능 기준 |

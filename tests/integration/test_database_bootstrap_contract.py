@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP = ROOT / "infra/postgres/init/010-bootstrap-roles.sh"
 MIGRATION_ENV = ROOT / "apps/backend/migrations/env.py"
 BASE_REVISION = ROOT / "apps/backend/migrations/versions/0001_schema_only_base.py"
+PRODUCT_CI = ROOT / ".github/workflows/ci.yml"
 
 
 class DatabaseBootstrapContractTests(unittest.TestCase):
@@ -78,6 +79,25 @@ class DatabaseBootstrapContractTests(unittest.TestCase):
                 "readonly DDL",
             },
         )
+
+    def test_privilege_probe_checks_migrated_objects_instead_of_empty_database(self) -> None:
+        text = (ROOT / "scripts/db-privilege-probe.sh").read_text()
+        self.assertNotIn('[[ "$table_count" == "0" ]]', text)
+        for relation in (
+            "app.users",
+            "app.ocr_text_blocks",
+            "rag.evidences",
+            "validation.validation_datasets",
+            "audit.audit_logs",
+        ):
+            self.assertIn(relation, text)
+        self.assertIn("0009_operational_consistency", text)
+
+    def test_product_ci_installs_openapi_tooling_before_python_contract_tests(self) -> None:
+        text = PRODUCT_CI.read_text()
+        install = text.index("npm ci --ignore-scripts")
+        tests = text.index('uv run python -m pytest -m "not external_ai and not slow"')
+        self.assertLess(install, tests)
 
     def test_bootstrap_probe_revokes_its_ephemeral_identity(self) -> None:
         text = (ROOT / "scripts/db-bootstrap-privilege-probe.sh").read_text()
