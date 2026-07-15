@@ -12,6 +12,7 @@ timeout_kill_after_seconds="${NH_M8_RELEASE_KILL_AFTER_SECONDS:-10}"
 project="${NH_M8_RELEASE_COMPOSE_PROJECT:-m8-release-$(date -u +%Y%m%d%H%M%S)-$$}"
 backup_dir=""
 cleanup_started=false
+cleanup_project_resources=false
 active_timeout_pid=""
 
 usage() {
@@ -148,8 +149,10 @@ cleanup() {
       minio/mc:RELEASE.2025-07-21T05-28-08Z \
       -ec 'chmod -R a+rwX /cleanup' >/dev/null 2>&1
   fi
-  cleanup_g011_compose_call down --volumes --remove-orphans >/dev/null 2>&1 || true
-  cleanup_compose_call down --volumes --remove-orphans >/dev/null 2>&1 || true
+  if [[ "$cleanup_project_resources" == true ]]; then
+    cleanup_g011_compose_call down --volumes --remove-orphans >/dev/null 2>&1 || true
+    cleanup_compose_call down --volumes --remove-orphans >/dev/null 2>&1 || true
+  fi
   if ! run_with_timeout "$cleanup_timeout_seconds" rm -rf "$backup_dir"; then
     if ((exit_code == 0)); then
       exit_code=1
@@ -161,36 +164,38 @@ cleanup() {
       exit_code=1
     fi
   fi
-  resources="$(project_resources "$project" cleanup_docker_call)"
-  resource_status=$?
-  if ((resource_status != 0)); then
-    printf 'could not verify release recovery cleanup: %s\n' "$project" >&2
-    if ((exit_code == 0)); then
-      exit_code=1
+  if [[ "$cleanup_project_resources" == true ]]; then
+    resources="$(project_resources "$project" cleanup_docker_call)"
+    resource_status=$?
+    if ((resource_status != 0)); then
+      printf 'could not verify release recovery cleanup: %s\n' "$project" >&2
+      if ((exit_code == 0)); then
+        exit_code=1
+      fi
+    elif [[ -n "$resources" ]]; then
+      printf 'release recovery resources remain after cleanup: %s\n' "$project" >&2
+      cleanup_docker_call ps -a --filter "label=com.docker.compose.project=$project" >&2 || true
+      cleanup_docker_call volume ls --filter "label=com.docker.compose.project=$project" >&2 || true
+      cleanup_docker_call network ls --filter "label=com.docker.compose.project=$project" >&2 || true
+      if ((exit_code == 0)); then
+        exit_code=1
+      fi
     fi
-  elif [[ -n "$resources" ]]; then
-    printf 'release recovery resources remain after cleanup: %s\n' "$project" >&2
-    cleanup_docker_call ps -a --filter "label=com.docker.compose.project=$project" >&2 || true
-    cleanup_docker_call volume ls --filter "label=com.docker.compose.project=$project" >&2 || true
-    cleanup_docker_call network ls --filter "label=com.docker.compose.project=$project" >&2 || true
-    if ((exit_code == 0)); then
-      exit_code=1
-    fi
-  fi
-  resources="$(project_resources "$g011_project" cleanup_docker_call)"
-  resource_status=$?
-  if ((resource_status != 0)); then
-    printf 'could not verify G011 cleanup: %s\n' "$g011_project" >&2
-    if ((exit_code == 0)); then
-      exit_code=1
-    fi
-  elif [[ -n "$resources" ]]; then
-    printf 'G011 resources remain after outer cleanup: %s\n' "$g011_project" >&2
-    cleanup_docker_call ps -a --filter "label=com.docker.compose.project=$g011_project" >&2 || true
-    cleanup_docker_call volume ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
-    cleanup_docker_call network ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
-    if ((exit_code == 0)); then
-      exit_code=1
+    resources="$(project_resources "$g011_project" cleanup_docker_call)"
+    resource_status=$?
+    if ((resource_status != 0)); then
+      printf 'could not verify G011 cleanup: %s\n' "$g011_project" >&2
+      if ((exit_code == 0)); then
+        exit_code=1
+      fi
+    elif [[ -n "$resources" ]]; then
+      printf 'G011 resources remain after outer cleanup: %s\n' "$g011_project" >&2
+      cleanup_docker_call ps -a --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+      cleanup_docker_call volume ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+      cleanup_docker_call network ls --filter "label=com.docker.compose.project=$g011_project" >&2 || true
+      if ((exit_code == 0)); then
+        exit_code=1
+      fi
     fi
   fi
   exit "$exit_code"
@@ -274,18 +279,24 @@ PY
 }
 
 run_g011_gate() {
-  local started elapsed fresh_elapsed g011_log
+  local started elapsed fresh_elapsed g011_log g011_status
   g011_log="$backup_dir/g011-regression.log"
   started=$SECONDS
-  if ! run_with_timeout "$timeout_seconds" \
+  if run_with_timeout "$timeout_seconds" \
     env NH_RUN_G011_DOCKER_REGRESSION=1 \
       NH_G011_COMPOSE_PROJECT="$g011_project" \
       NH_G011_TIMEOUT_SECONDS=120 \
       PYTHONPATH=. \
       uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q -s \
     > >(tee "$g011_log"); then
-    printf 'G011 full regression exceeded or failed within %ss\n' "$timeout_seconds" >&2
-    exit 1
+    g011_status=0
+  else
+    g011_status=$?
+  fi
+  if ((g011_status != 0)); then
+    printf 'G011 full regression failed with status %s within %ss\n' \
+      "$g011_status" "$timeout_seconds" >&2
+    exit "$g011_status"
   fi
   elapsed=$((SECONDS - started))
   fresh_elapsed="$(sed -n 's/^G011_FRESH_VOLUME_SECONDS=//p' "$g011_log" | tail -n 1)"
@@ -374,6 +385,7 @@ run_restart_and_outages() {
 }
 
 assert_fresh_project
+cleanup_project_resources=true
 run_g011_gate
 run_fresh_start
 run_restart_and_outages

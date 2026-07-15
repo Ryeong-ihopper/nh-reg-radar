@@ -101,6 +101,156 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertNotIn("--resume", text)
         self.assertIn("assert_fresh_project\nrun_g011_gate\n", text)
 
+    def test_release_smoke_rejects_dirty_projects_without_compose_down(self) -> None:
+        for dirty_suffix in ("", "-g011"):
+            with self.subTest(dirty_suffix=dirty_suffix), tempfile.TemporaryDirectory() as directory:
+                temp = Path(directory)
+                fake_bin = temp / "bin"
+                fake_bin.mkdir()
+                call_log = temp / "docker.log"
+                uv_log = temp / "uv.log"
+                project = "m8-release-dirty-contract"
+                dirty_project = f"{project}{dirty_suffix}"
+                docker = fake_bin / "docker"
+                docker.write_text(
+                    """#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
+case " $* " in
+  *" label=com.docker.compose.project=$FAKE_DIRTY_PROJECT "*)
+    printf 'pre-existing-resource\n'
+    ;;
+esac
+""",
+                    encoding="utf-8",
+                )
+                docker.chmod(0o755)
+                uv = fake_bin / "uv"
+                uv.write_text(
+                    "#!/usr/bin/env bash\nprintf 'unexpected G011 invocation\n' >>\"$FAKE_UV_LOG\"\n",
+                    encoding="utf-8",
+                )
+                uv.chmod(0o755)
+
+                environment = os.environ.copy()
+                environment.update(
+                    {
+                        "PATH": f"{fake_bin}:{environment['PATH']}",
+                        "FAKE_DOCKER_LOG": str(call_log),
+                        "FAKE_DIRTY_PROJECT": dirty_project,
+                        "FAKE_UV_LOG": str(uv_log),
+                        "NH_M8_RELEASE_COMPOSE_PROJECT": project,
+                        "NH_M8_RELEASE_TIMEOUT_SECONDS": "3",
+                        "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
+                        "NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS": "2",
+                        "NH_M8_RELEASE_KILL_AFTER_SECONDS": "1",
+                    }
+                )
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(SMOKE),
+                        "--env-file",
+                        str(ROOT / ".env.prod.example"),
+                        "--fresh-project",
+                        "--with-restart-and-outages",
+                    ],
+                    cwd=ROOT,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    f"fresh release project already has Docker resources: {dirty_project}",
+                    result.stderr,
+                )
+                calls = call_log.read_text(encoding="utf-8").splitlines()
+                self.assertFalse(
+                    any("down --volumes --remove-orphans" in call for call in calls),
+                    calls,
+                )
+                self.assertFalse(uv_log.exists(), result.stdout + result.stderr)
+
+    def test_release_smoke_preserves_g011_failure_and_timeout_status(self) -> None:
+        for mode, expected_status in (("failure", 42), ("timeout", 124)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                temp = Path(directory)
+                fake_bin = temp / "bin"
+                fake_bin.mkdir()
+                call_log = temp / "docker.log"
+                docker = fake_bin / "docker"
+                docker.write_text(
+                    """#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
+""",
+                    encoding="utf-8",
+                )
+                docker.chmod(0o755)
+                uv = fake_bin / "uv"
+                uv.write_text(
+                    """#!/usr/bin/env bash
+set -eu
+printf 'G011_CHILD_DIAGNOSTIC_STDOUT\n'
+printf 'G011_CHILD_DIAGNOSTIC_STDERR\n' >&2
+if [[ "$FAKE_G011_MODE" == failure ]]; then
+  exit 42
+fi
+sleep 30
+""",
+                    encoding="utf-8",
+                )
+                uv.chmod(0o755)
+
+                environment = os.environ.copy()
+                environment.update(
+                    {
+                        "PATH": f"{fake_bin}:{environment['PATH']}",
+                        "FAKE_DOCKER_LOG": str(call_log),
+                        "FAKE_G011_MODE": mode,
+                        "NH_M8_RELEASE_COMPOSE_PROJECT": f"m8-release-g011-{mode}",
+                        "NH_M8_RELEASE_TIMEOUT_SECONDS": "1",
+                        "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
+                        "NH_M8_RELEASE_CLEANUP_TIMEOUT_SECONDS": "2",
+                        "NH_M8_RELEASE_KILL_AFTER_SECONDS": "1",
+                    }
+                )
+                started = time.monotonic()
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(SMOKE),
+                        "--env-file",
+                        str(ROOT / ".env.prod.example"),
+                        "--fresh-project",
+                        "--with-restart-and-outages",
+                    ],
+                    cwd=ROOT,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+
+                self.assertEqual(
+                    result.returncode, expected_status, result.stdout + result.stderr
+                )
+                self.assertLess(time.monotonic() - started, 5)
+                self.assertIn("G011_CHILD_DIAGNOSTIC_STDOUT", result.stdout)
+                self.assertIn("G011_CHILD_DIAGNOSTIC_STDERR", result.stderr)
+                self.assertIn(
+                    f"G011 full regression failed with status {expected_status}", result.stderr
+                )
+                calls = call_log.read_text(encoding="utf-8").splitlines()
+                self.assertEqual(
+                    sum("down --volumes --remove-orphans" in call for call in calls), 2
+                )
+
     def test_release_smoke_repeated_term_cleans_once_and_allows_clean_rerun(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
