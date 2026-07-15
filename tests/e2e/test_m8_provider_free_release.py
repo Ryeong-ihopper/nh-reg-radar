@@ -393,9 +393,7 @@ def test_e2e_001_advertisement_review_result_suggestion_and_report(tmp_path: Pat
         advertisement = _create_advertisement(harness, product)
         review = _request_review(harness, advertisement["advertisementId"], product)
 
-        status = harness.client.get(
-            f"/api/v1/reviews/{review['reviewId']}/status", headers=product
-        )
+        status = harness.client.get(f"/api/v1/reviews/{review['reviewId']}/status", headers=product)
         assert status.status_code == 200
         assert status.json()["jobStatus"] == "PENDING"
         assert harness.queue.messages == [
@@ -418,9 +416,7 @@ def test_e2e_001_advertisement_review_result_suggestion_and_report(tmp_path: Pat
         summary = harness.client.get(
             f"/api/v1/reviews/{review['reviewId']}/summary", headers=product
         )
-        items = harness.client.get(
-            f"/api/v1/reviews/{review['reviewId']}/items", headers=product
-        )
+        items = harness.client.get(f"/api/v1/reviews/{review['reviewId']}/items", headers=product)
         detail = harness.client.get(
             f"/api/v1/reviews/{review['reviewId']}/items/ITEM-M8-0001", headers=product
         )
@@ -453,9 +449,10 @@ def test_e2e_001_advertisement_review_result_suggestion_and_report(tmp_path: Pat
         assert report.json()["sourceReportId"] is not None
         download = harness.client.get(report.json()["downloadUrl"], headers=reviewer)
         assert download.status_code == 200
-        assert f"sha256:{hashlib.sha256(download.content).hexdigest()}" == report.json()[
-            "snapshotHash"
-        ]
+        assert (
+            f"sha256:{hashlib.sha256(download.content).hexdigest()}"
+            == report.json()["snapshotHash"]
+        )
         actions = {event.action_type for event in harness.repository.list_audit_events()}
         assert {
             "ADVERTISEMENT_CREATE",
@@ -537,9 +534,7 @@ def test_e2e_002_standard_reindex_hybrid_evidence_and_version_trace(tmp_path: Pa
             f"/api/v1/reviews/{review['reviewId']}/items/ITEM-M8-0001", headers=product
         )
         assert detail.status_code == 200
-        assert detail.json()["evidences"][0]["standardVersionId"] == standard[
-            "standardVersionId"
-        ]
+        assert detail.json()["evidences"][0]["standardVersionId"] == standard["standardVersionId"]
         assert detail.json()["evidences"][0]["matchSource"] == "HYBRID"
 
 
@@ -588,9 +583,11 @@ def test_e2e_003_revision_comparison_rerun_and_independent_history(tmp_path: Pat
             },
         )
         assert comparison.status_code == 200, comparison.text
-        assert {
-            item["resolutionStatus"] for item in comparison.json()["items"]
-        } == {"RESOLVED", "UNRESOLVED", "NEW_ISSUE"}
+        assert {item["resolutionStatus"] for item in comparison.json()["items"]} == {
+            "RESOLVED",
+            "UNRESOLVED",
+            "NEW_ISSUE",
+        }
 
         rerun = harness.client.post(
             f"/api/v1/reviews/{first['reviewId']}/rerun",
@@ -621,17 +618,21 @@ def test_e2e_003_revision_comparison_rerun_and_independent_history(tmp_path: Pat
 
         unchanged = harness.client.get(first_report.json()["downloadUrl"], headers=reviewer)
         assert unchanged.content == first_download.content
-        assert f"sha256:{hashlib.sha256(unchanged.content).hexdigest()}" == first_report.json()[
-            "snapshotHash"
-        ]
+        assert (
+            f"sha256:{hashlib.sha256(unchanged.content).hexdigest()}"
+            == first_report.json()["snapshotHash"]
+        )
         history = harness.client.get(
             f"/api/v1/advertisements/{advertisement['advertisementId']}/reviews",
             headers=product,
         )
         assert [item["reviewRound"] for item in history.json()] == [2, 1]
-        assert harness.client.get(
-            f"/api/v1/comparisons/{comparison.json()['comparisonId']}", headers=product
-        ).json() == comparison.json()
+        assert (
+            harness.client.get(
+                f"/api/v1/comparisons/{comparison.json()['comparisonId']}", headers=product
+            ).json()
+            == comparison.json()
+        )
 
 
 def test_e2e_004_validation_judgment_snapshot_hash_and_kpi(tmp_path: Path) -> None:
@@ -708,9 +709,12 @@ def test_e2e_004_validation_judgment_snapshot_hash_and_kpi(tmp_path: Path) -> No
         )
         assert changed.status_code == 201
         assert changed.json()["snapshotHash"] != first.json()["snapshotHash"]
-        assert harness.client.get(
-            f"/api/v1/validation/evaluations/{first.json()['evaluationId']}", headers=reviewer
-        ).json() == first.json()
+        assert (
+            harness.client.get(
+                f"/api/v1/validation/evaluations/{first.json()['evaluationId']}", headers=reviewer
+            ).json()
+            == first.json()
+        )
         actions = {event.action_type for event in harness.repository.list_audit_events()}
         assert {
             "VALIDATION_DATASET_CREATE",
