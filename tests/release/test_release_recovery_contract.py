@@ -65,9 +65,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         text = SMOKE.read_text(encoding="utf-8")
 
         self.assertIn("run_with_timeout()", text)
-        self.assertIn(
-            'timeout --signal=TERM --kill-after="$timeout_kill_after_seconds"', text
-        )
+        self.assertIn('timeout --signal=TERM --kill-after="$timeout_kill_after_seconds"', text)
         self.assertIn("compose_call()", text)
         self.assertIn("docker_call()", text)
         self.assertIn("cleanup_compose_call()", text)
@@ -169,9 +167,7 @@ esac
             )
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if call_log.exists() and "config --quiet" in call_log.read_text(
-                    encoding="utf-8"
-                ):
+                if call_log.exists() and "config --quiet" in call_log.read_text(encoding="utf-8"):
                     break
                 time.sleep(0.02)
             else:
