@@ -8,6 +8,19 @@ NH 농협은행 금융상품 광고물의 사전 검토 업무를 보조하기 �
 
 개발 관련 명세 문서는 Git으로 관리되는 `docs/`를 Source of Truth로 사용합니다. Notion은 칸반, 일정, 회의록 중심으로 사용하며, 구현 중 명세가 바뀌면 같은 작업 단위에서 `docs/` 문서를 함께 갱신합니다.
 
+## 현재 구현 및 운영 상태 (2026-07-15)
+
+M0~M8의 provider-free thin slice는 저장소의 실제 backend/worker/frontend 경로와 결정적 fixture를 기준으로 구현·검증되었습니다. 실행 진입점은 `apps/backend/src/nh_ad_backend/main.py`, `apps/worker/src/nh_ad_worker/main.py`, `apps/frontend/src/App.tsx`이며, API 호출은 `apps/frontend/src/api/client.ts`와 생성 계약 `apps/frontend/src/api/generated/openapi.ts`를 사용합니다. 원천 API 계약은 OpenAPI `0.8.0`입니다.
+
+| 구분 | 현재 기준 |
+| --- | --- |
+| Provider-free 자동 Gate | `.github/workflows/release-readiness.yml`, `governance/goal-manifests/G009-m8-release.json`, 고정 fixture 기반 E2E/release 회귀 |
+| 실제 외부 AI 수동 평가 | `.github/workflows/external-ai-evaluation.yml`의 승인된 `workflow_dispatch`; credential과 `external_ai` marker가 필요한 별도 lane |
+| Production recovery | `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`; G011 반복 bootstrap을 먼저 검증 |
+| 문서·일정 동기화 | [기능명세서](docs/functional-specification.md), [테스트케이스](docs/test-cases.md), [프로젝트 규칙](docs/project-rules.md), [개발 일정 및 Kanban](docs/development-schedule-and-notion-kanban.md) |
+
+Provider-free 성공은 실제 OCR/RAG/LLM provider 품질, 고객사 검증, 시연 환경 배포, P0/P1 전체 합계 또는 Critical 결함 0건을 대신 증명하지 않습니다. 해당 항목은 별도 증거가 생길 때까지 일정/Kanban에서 `Backlog` 또는 `Blocked`로 유지합니다.
+
 ## 초기 온보딩
 
 신규 개발자는 저장소를 clone한 뒤 다음 명령을 실행합니다.

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.11 |
+| 현행 버전 | v1.12 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.12 | 2026-07-15 | M8 실제 runtime/generated client 경로와 provider-free 자동 Gate·credentialed `external_ai` 수동 평가 분리, AC-18 문서 동기화 경계 반영 |
 | v1.11 | 2026-07-15 | M8 수정본 등록→비교→재검토, restart-safe M6 산출물, worker lease 복구와 반복 Compose bootstrap 실행 경계 반영 |
 | v1.10 | 2026-07-14 | G006 M5 결정적 Rule→근거 선택→provider-independent structured 실행, 0005 영속화와 결과 조회 handler 경계 반영 |
 | v1.9 | 2026-07-14 | G006 M5 Rule→RAG→structured mock 결과·근거 상태·위험도 근거·Annotation entry gate 반영 |
@@ -298,6 +299,12 @@ M6 추천 판단·Q&A·의견 초안·리포트·비교는 PostgreSQL 원천으�
 Worker runtime은 supervised `JobRunner` 시작/종료, truthful readiness, 처리 중 heartbeat, `PENDING`/`STALE`/기한 도래 `RETRY_PENDING` DB lease reconciliation을 수행한다. Redis publish 실패 시 DB lease를 보존하고 만료 후 정확한 6-field delivery를 재발행하며, parser adapter 미구성은 성공으로 가장하지 않고 `PARSER_ADAPTER_NOT_CONFIGURED` 최종 실패로 정리한다. 실제 PostgreSQL 16.9·Redis 7 회귀가 publish lease 복구와 stale RUNNING 복구를 검증한다.
 
 반복 Compose up에서 `db-bootstrap`은 활성 `$PGDATA/postmaster.pid`가 있으면 별도 postmaster를 시작하지 않고 이미 실행 중인 PostgreSQL과 NOLOGIN bootstrap/product-role 상태를 검증한 뒤 종료한다. 검증 실패는 fail-closed이며, 같은 volume에서 bootstrap 컨테이너만 재생성해도 데이터·role/ACL·PostgreSQL identity가 보존되고 PANIC/invalid checkpoint/interrupted recovery 흔적을 허용하지 않는다.
+
+M8 구현 증거의 실제 경로는 backend `apps/backend/src/nh_ad_backend/main.py`와 capability별 `*_api.py`, worker `apps/worker/src/nh_ad_worker/main.py`·`runtime.py`·`postgres.py`, frontend `apps/frontend/src/App.tsx`·`api/client.ts`·`api/generated/openapi.ts`, additive migration `apps/backend/migrations/versions/0001`~`0008`이다. 원천 `openapi/openapi.yaml`의 현행 metadata version은 `0.8.0`이며 generated client는 이 계약과 clean diff를 유지한다.
+
+자동 릴리스 판단은 `.github/workflows/release-readiness.yml`의 provider-free Gate만 사용한다. 이 Gate는 외부 provider credential, live inference, 고객사 원문 없이 고정 fixture와 G009 trace, deterministic E2E/release 회귀를 실행한다. `.github/workflows/external-ai-evaluation.yml`은 승인 환경에서 credential과 `external_ai` marker를 사용하는 별도 수동 평가이며, 실행 여부나 결과를 provider-free 성공으로 대체하지 않는다.
+
+AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동기화하는 완료 기준이다. 이는 실제 외부 AI 품질, 고객 피드백, 시연 환경 배포, P0/P1 전체 pass 집계 또는 Critical 0건을 새로 증명하는 기준이 아니며, 별도 증거가 없는 항목은 잔여 dependency로 유지한다.
 
 ---
 

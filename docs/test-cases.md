@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.21 |
+| 현행 버전 | v1.22 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.22 | 2026-07-15 | 중복 M2 Gate 제거, Spectral 0 error와 warning 잔여를 정확히 구분하고 AC-18 최종 문서·일정 거버넌스 검증 기준 반영 |
 | v1.21 | 2026-07-15 | M8 production recovery 공개·opt-in 명령의 6/6 terminal PASS와 multi-store 복구·outage·무잔여 정리 증거 반영 |
 | v1.20 | 2026-07-15 | M8 provider-free 릴리스 workflow와 sanitized `external_ai` 수동 workflow 분리, backend/worker 보안·감사·readiness·recovery redaction Gate 반영 |
 | v1.19 | 2026-07-15 | M8 실제 PostgreSQL restart/concurrency, 수정본→비교→재검토 frontend, worker lease reconciliation과 G011 반복 bootstrap 증거 반영 |
@@ -605,17 +606,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | 검증 범위 | 실행/증거 | 기대 결과 |
 | --- | --- | --- |
 | Goal trace | `tests/fixtures/m2/trace-manifest.json` | `G003-m2`, OpenAPI 12 operation/schema, `0002_m2_auth_advertisement_audit`, synthetic fixture hash, 실제 `TC-COM-001..020`/`TC-ADV-001..017` 매핑 일치 |
-| Contract | `npm run openapi:check` | schema/example, `$ref`, operationId, multipart/status, 403 scope, response redaction 검증 통과 및 Spectral 경고 0 |
-| DB static | `python3 -m unittest tests.integration.test_m2_database_contract -v` | M2 owner table/column/grant, active refresh revoke index, seed 분리/guard 검증 통과 |
-| DB/Object Storage integration | 실제 PostgreSQL/MinIO backend integration test | clean upgrade, duplicate seed, private object 저장/조회, 타 부서 preview/download 403, DB/object rollback 및 secret/object-key 비노출 |
-| Browser | frontend test suite | unauth validation, cookie/Bearer 호출, loading/error redaction, login→multipart 등록→목록/상세, 타 부서 상세 403 검증 통과 |
-
-## 19.7 M2 계약·통합 trace Gate
-
-| 검증 범위 | 실행/증거 | 기대 결과 |
-| --- | --- | --- |
-| Goal trace | `tests/fixtures/m2/trace-manifest.json` | `G003-m2`, OpenAPI 12 operation/schema, `0002_m2_auth_advertisement_audit`, synthetic fixture hash, 실제 `TC-COM-001..020`/`TC-ADV-001..017` 매핑 일치 |
-| Contract | `npm run openapi:check` | schema/example, `$ref`, operationId, multipart/status, 403 scope, response redaction 검증 통과 및 Spectral 경고 0 |
+| Contract | `npm run openapi:check` | schema/example, `$ref`, operationId, multipart/status, 403 scope, response redaction 검증과 Spectral 0 error 통과. warning은 비차단 잔여로 출력하며 0건으로 오기하지 않음 |
 | DB static | `python3 -m unittest tests.integration.test_m2_database_contract -v` | M2 owner table/column/grant, active refresh revoke index, seed 분리/guard 검증 통과 |
 | DB/Object Storage integration | 실제 PostgreSQL/MinIO backend integration test | clean upgrade, duplicate seed, private object 저장/조회, 타 부서 preview/download 403, DB/object rollback 및 secret/object-key 비노출 |
 | Browser | frontend test suite | unauth validation, cookie/Bearer 호출, loading/error redaction, login→multipart 등록→목록/상세, 타 부서 상세 403 검증 통과 |
@@ -724,6 +715,16 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | Provider-free release workflow | `.github/workflows/release-readiness.yml`, `tests/release/test_m8_release_workflows.py` | PR/push Gate가 secret 또는 실제 provider 호출 없이 G009 manifest, E2E/release, lint/type/OpenAPI/frontend/docs/governance를 결정적으로 실행하고 `external_ai`를 제외함 |
 | Recovery 선행 안전 Gate | `.github/workflows/release-readiness.yml` | 수동 recovery smoke가 `NH_RUN_G011_DOCKER_REGRESSION=1`인 `test_compose_bootstrap_repeat_up.py`를 먼저 통과한 후에만 `scripts/release-smoke.sh`를 실행함 |
 | Production recovery terminal PASS | `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`, `NH_RUN_M8_RELEASE_DOCKER=1 uv run pytest tests/release/test_release_recovery_contract.py -q -rs` | terminal run이 6 passed in 666.35s로 통과함. G011 fresh/repeat-volume, 0001→0007→0008 및 backup-before-downgrade, PostgreSQL payload/revision·MinIO checksum·Qdrant node-global snapshot green+point payload 복구, OpenSearch 재색인, Redis backup 제외와 strict 503 `not_ready`→recovery, object/search outage, PostgreSQL restart를 fail-closed로 검증하고 production/G011 container·volume·network와 임시 directory가 각각 0개임 |
+
+## 19.17 AC-18 최종 문서·일정 거버넌스 Gate
+
+| 검증 범위 | 실행/증거 | 기대 결과 |
+| --- | --- | --- |
+| 구현 경로 | `README.md`, `docs/functional-specification.md` | backend/worker runtime, frontend client/generated contract, OpenAPI `0.8.0`, migration `0001`~`0008` 경로가 저장소 실제 경로와 일치 |
+| Provider 경계 | release/external-AI workflow와 `-m "not external_ai and not slow"` | provider-free 자동 Gate와 credentialed `external_ai` 수동 평가를 분리하고 서로의 성공을 대체하지 않음 |
+| 일정/Kanban | `docs/development-schedule-and-notion-kanban.md` | 구현 증거가 있는 task만 `Done`; 실제 provider, 고객 검증·피드백, 배포·tag, 미집계 P0/P1/Critical 기준은 `Backlog`/`Blocked` 유지 |
+| 문서 정합성 | `scripts/check-doc-consistency.sh`, `python3 -m scripts.doc_guard validate --scope working`, governance unit test | metadata·변경 이력·링크·traceability 0 error |
+| 완료 해석 | AC-18 final governance report | 문서 동기화 완료를 실제 외부 AI 품질이나 최종 사업 수용 완료로 과장하지 않음 |
 | 외부 엔진 수동 증거 | `.github/workflows/external-ai-evaluation.yml`, `tests/release/test_m8_release_workflows.py` | `workflow_dispatch`와 승인 environment에서만 `external_ai` marker를 실행하고 provider/engine/model/config SHA-256/dataset ID/revision/time/count만 sanitized JSON으로 보존하며 provider-free Gate와 분리됨 |
 | Backend 보안·trace | `tests/release/test_m8_release_operations.py` | `TC-COM-009`, `TC-NFR-SEC-009`, `TC-NFR-SEC-010` 기준 request ID, CSP/HSTS/nosniff/frame 보호, 민감 응답 `no-store`, token 비노출이 재현됨 |
 | 감사 redaction | `tests/release/test_m8_release_operations.py` | `TC-AUD-007`, `TC-NFR-SEC-004` 기준 로그인 audit가 actor/action/result/trace만 보존하고 비밀번호/token/email/name/IP 원문을 저장하지 않음 |
