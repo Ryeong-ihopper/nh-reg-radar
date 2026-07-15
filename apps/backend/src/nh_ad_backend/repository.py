@@ -389,8 +389,7 @@ class PostgresRepository:
                 raise ValueError("ADVERTISEMENT_NOT_FOUND")
             if connection.execute(
                 text(
-                    "SELECT 1 FROM app.advertisement_files "
-                    "WHERE checksum_sha256=:checksum LIMIT 1"
+                    "SELECT 1 FROM app.advertisement_files WHERE checksum_sha256=:checksum LIMIT 1"
                 ),
                 {"checksum": revision.file.checksum},
             ).first():
@@ -456,16 +455,20 @@ class PostgresRepository:
 
     def get_revision(self, revision_id: str) -> AdvertisementRevision | None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                text("""
+            row = (
+                connection.execute(
+                    text("""
                     SELECT r.*,f.file_id,f.file_type,f.original_file_name,f.object_key,
                            f.mime_type,f.file_size,f.checksum_sha256
                       FROM app.advertisement_revisions r
                       JOIN app.advertisement_files f ON f.revision_id=r.revision_id
                      WHERE r.revision_id=:revision_id
                 """),
-                {"revision_id": revision_id},
-            ).mappings().first()
+                    {"revision_id": revision_id},
+                )
+                .mappings()
+                .first()
+            )
         if row is None:
             return None
         return AdvertisementRevision(

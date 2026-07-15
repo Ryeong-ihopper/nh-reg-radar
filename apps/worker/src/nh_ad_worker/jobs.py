@@ -195,13 +195,10 @@ class InMemoryJobRepository:
                 job.status = "STALE"
                 job.locked_by = None
                 job.enqueued_at = None
-            deliverable = (
-                job.status in {"PENDING", "STALE"}
-                or (
-                    job.status == "RETRY_PENDING"
-                    and job.next_retry_at is not None
-                    and job.next_retry_at <= now
-                )
+            deliverable = job.status in {"PENDING", "STALE"} or (
+                job.status == "RETRY_PENDING"
+                and job.next_retry_at is not None
+                and job.next_retry_at <= now
             )
             lease_expired = job.enqueued_at is None or job.enqueued_at <= stale_before
             pending_is_aged = job.status != "PENDING" or job.created_at <= stale_before

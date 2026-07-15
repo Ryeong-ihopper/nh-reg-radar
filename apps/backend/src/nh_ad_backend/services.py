@@ -369,7 +369,9 @@ class AdvertisementService:
         except ValueError as exc:
             self.storage.delete(storage_key)
             if str(exc) == "DUPLICATE_FILE":
-                raise ServiceError(409, "CONFLICT", "동일한 파일이 이미 등록되어 있습니다.") from exc
+                raise ServiceError(
+                    409, "CONFLICT", "동일한 파일이 이미 등록되어 있습니다."
+                ) from exc
             raise
         except Exception:
             self.storage.delete(storage_key)
