@@ -79,6 +79,16 @@ class GoalManifestValidatorTest(unittest.TestCase):
             findings = validate_manifest(root, manifest_path)
         return {finding.code for finding in findings}
 
+    def _validate_g009(self, update: Callable[[Manifest], None]) -> set[str]:
+        source = self.repository / "governance" / "goal-manifests" / "G009-m8-release.json"
+        manifest = cast(Manifest, json.loads(source.read_text(encoding="utf-8")))
+        update(manifest)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest_path = Path(temporary_directory) / "G009-m8-release.json"
+            _ = manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            findings = validate_manifest(self.repository, manifest_path)
+        return {finding.code for finding in findings}
+
     def test_valid_manifest_maps_all_trace_dimensions(self) -> None:
         self.assertEqual(set(), self._validate())
 
@@ -122,6 +132,45 @@ class GoalManifestValidatorTest(unittest.TestCase):
             },
             identifiers,
         )
+
+    def test_g009_m8_repository_manifest_locks_current_release_evidence(self) -> None:
+        manifest = self.repository / "governance" / "goal-manifests" / "G009-m8-release.json"
+
+        self.assertEqual([], validate_manifest(self.repository, manifest))
+
+    def test_g009_m8_rejects_corrupted_declared_sha256(self) -> None:
+        def corrupt_openapi(manifest: Manifest) -> None:
+            self._mapping(manifest, "openapi")["sha256"] = "0" * 64
+
+        def corrupt_artifact(manifest: Manifest) -> None:
+            artifacts = self._list(manifest, "artifacts")
+            first = artifacts[0]
+            if not isinstance(first, dict):
+                raise AssertionError("artifact is not a mapping")
+            first["sha256"] = "0" * 64
+
+        for name, update in (("openapi", corrupt_openapi), ("artifact", corrupt_artifact)):
+            with self.subTest(name=name):
+                self.assertIn("EVIDENCE_SHA_MISMATCH", self._validate_g009(update))
+
+    def test_g009_m8_rejects_non_current_declared_file(self) -> None:
+        def replace_openapi_path(manifest: Manifest) -> None:
+            self._mapping(manifest, "openapi")["path"] = "openapi/missing.yaml"
+
+        self.assertIn("EVIDENCE_FILE_MISSING", self._validate_g009(replace_openapi_path))
+
+    def test_g009_m8_rejects_corrupted_provider_free_counts(self) -> None:
+        def corrupt_expected(manifest: Manifest) -> None:
+            automation = self._mapping(manifest, "automation")
+            provider_free = automation.get("provider_free")
+            if not isinstance(provider_free, dict):
+                raise AssertionError("provider_free is not a mapping")
+            expected = provider_free.get("expected")
+            if not isinstance(expected, dict):
+                raise AssertionError("expected is not a mapping")
+            expected["passed"] = 3
+
+        self.assertIn("PROVIDER_FREE_EXPECTED_MISMATCH", self._validate_g009(corrupt_expected))
 
     def test_missing_trace_dimension_is_rejected(self) -> None:
         def remove_screens(manifest: Manifest) -> None:
