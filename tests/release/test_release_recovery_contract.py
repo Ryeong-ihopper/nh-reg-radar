@@ -95,16 +95,20 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("trap '' INT TERM", text)
         self.assertIn("trap 'handle_signal INT' INT", text)
         self.assertIn("trap 'handle_signal TERM' TERM", text)
-        backup_dir = text.index('backup_dir="$(mktemp -d')
-        self.assertLess(text.index("trap cleanup EXIT"), backup_dir)
-        self.assertLess(text.index("trap 'handle_signal INT' INT"), backup_dir)
-        self.assertLess(text.index("trap 'handle_signal TERM' TERM"), backup_dir)
         self.assertIn("cleanup_started=true", text)
         self.assertIn("if ((exit_code == 0)); then", text)
         self.assertIn('exit "$exit_code"', text)
         self.assertNotIn("--resume", text)
         self.assertIn("cleanup_project_resources=false", text)
         self.assertIn("assert_fresh_project\ncleanup_project_resources=true\nrun_g011_gate\n", text)
+
+    def test_release_smoke_installs_traps_before_backup_directory(self) -> None:
+        text = SMOKE.read_text(encoding="utf-8")
+
+        backup_dir = text.index('backup_dir="$(mktemp -d')
+        self.assertLess(text.index("trap cleanup EXIT"), backup_dir)
+        self.assertLess(text.index("trap 'handle_signal INT' INT"), backup_dir)
+        self.assertLess(text.index("trap 'handle_signal TERM' TERM"), backup_dir)
 
     def test_release_smoke_rejects_dirty_projects_without_compose_down(self) -> None:
         for dirty_suffix in ("", "-g011"):
