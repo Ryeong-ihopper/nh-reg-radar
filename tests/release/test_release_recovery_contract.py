@@ -197,6 +197,8 @@ esac
                 fake_bin = temp / "bin"
                 fake_bin.mkdir()
                 call_log = temp / "docker.log"
+                replay_started = temp / "cat-started"
+                replay_finished = temp / "cat-finished"
                 docker = fake_bin / "docker"
                 docker.write_text(
                     """#!/usr/bin/env bash
@@ -220,11 +222,25 @@ sleep 30
                     encoding="utf-8",
                 )
                 uv.chmod(0o755)
+                cat = fake_bin / "cat"
+                cat.write_text(
+                    """#!/usr/bin/env bash
+set -eu
+: >"$FAKE_CAT_STARTED"
+sleep 0.2
+command -p cat "$@"
+: >"$FAKE_CAT_FINISHED"
+""",
+                    encoding="utf-8",
+                )
+                cat.chmod(0o755)
 
                 environment = os.environ.copy()
                 environment.update(
                     {
                         "PATH": f"{fake_bin}:{environment['PATH']}",
+                        "FAKE_CAT_FINISHED": str(replay_finished),
+                        "FAKE_CAT_STARTED": str(replay_started),
                         "FAKE_DOCKER_LOG": str(call_log),
                         "FAKE_G011_MODE": mode,
                         "NH_M8_RELEASE_COMPOSE_PROJECT": f"m8-release-g011-{mode}",
@@ -259,6 +275,10 @@ sleep 30
                 self.assertIn(
                     f"G011 full regression failed with status {expected_status}", result.stderr
                 )
+                self.assertNotIn("could not replay G011 regression log", result.stderr)
+                self.assertNotIn("replay_status: unbound variable", result.stderr)
+                self.assertTrue(replay_started.exists(), result.stdout + result.stderr)
+                self.assertTrue(replay_finished.exists(), result.stdout + result.stderr)
                 calls = call_log.read_text(encoding="utf-8").splitlines()
                 self.assertEqual(
                     sum("down --volumes --remove-orphans" in call for call in calls), 2
@@ -270,14 +290,21 @@ sleep 30
             fake_bin = temp / "bin"
             fake_bin.mkdir()
             call_log = temp / "docker.log"
-            tee_marker = temp / "tee-invoked"
+            replay_started = temp / "cat-started"
+            replay_finished = temp / "cat-finished"
             docker = fake_bin / "docker"
             docker.write_text(
                 """#!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >>"$FAKE_DOCKER_LOG"
 case " $* " in
-  *" config --quiet "*) exit 43 ;;
+  *" config --quiet "*)
+    if [[ ! -e "$FAKE_CAT_FINISHED" ]]; then
+      printf 'G011 replay consumer was still active before config\n' >&2
+      exit 44
+    fi
+    exit 43
+    ;;
 esac
 """,
                 encoding="utf-8",
@@ -294,24 +321,26 @@ printf 'G011_DELAYED_CONSUMER_STDERR\n' >&2
                 encoding="utf-8",
             )
             uv.chmod(0o755)
-            tee = fake_bin / "tee"
-            tee.write_text(
+            cat = fake_bin / "cat"
+            cat.write_text(
                 """#!/usr/bin/env bash
 set -eu
-: >"$FAKE_TEE_MARKER"
-sleep 1
-command -p tee "$@"
+: >"$FAKE_CAT_STARTED"
+sleep 0.2
+command -p cat "$@"
+: >"$FAKE_CAT_FINISHED"
 """,
                 encoding="utf-8",
             )
-            tee.chmod(0o755)
+            cat.chmod(0o755)
 
             environment = os.environ.copy()
             environment.update(
                 {
                     "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "FAKE_CAT_FINISHED": str(replay_finished),
+                    "FAKE_CAT_STARTED": str(replay_started),
                     "FAKE_DOCKER_LOG": str(call_log),
-                    "FAKE_TEE_MARKER": str(tee_marker),
                     "NH_M8_RELEASE_COMPOSE_PROJECT": "m8-release-g011-owned-log",
                     "NH_M8_RELEASE_TIMEOUT_SECONDS": "3",
                     "NH_M8_RELEASE_PROBE_TIMEOUT_SECONDS": "1",
@@ -342,13 +371,12 @@ command -p tee "$@"
             self.assertIn("G011_COLD_GATE_SECONDS=1", result.stdout)
             self.assertIn("G011_DELAYED_CONSUMER_STDERR", result.stderr)
             self.assertNotIn("timing evidence missing or invalid", result.stderr)
-            self.assertFalse(tee_marker.exists(), result.stdout + result.stderr)
-            self.assertTrue(
-                any(
-                    "config --quiet" in call
-                    for call in call_log.read_text(encoding="utf-8").splitlines()
-                )
-            )
+            self.assertNotIn("replay_status: unbound variable", result.stderr)
+            self.assertTrue(replay_started.exists(), result.stdout + result.stderr)
+            self.assertTrue(replay_finished.exists(), result.stdout + result.stderr)
+            calls = call_log.read_text(encoding="utf-8").splitlines()
+            self.assertTrue(any("config --quiet" in call for call in calls))
+            self.assertEqual(sum("down --volumes --remove-orphans" in call for call in calls), 2)
 
     def test_release_smoke_repeated_term_cleans_once_and_allows_clean_rerun(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
