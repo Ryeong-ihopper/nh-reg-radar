@@ -83,12 +83,40 @@ jobs:
               )
           )
           expected = manifest["automation"]["provider_free"]["expected"]
-          root = ElementTree.parse("/tmp/g009-provider-free-junit.xml").getroot()
-          suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
-          counts = {
-              key: sum(int(suite.attrib.get(key, 0)) for suite in suites)
-              for key in ("tests", "failures", "errors", "skipped")
-          }
+          junit_path = Path("/tmp/g009-provider-free-junit.xml")
+          try:
+              root = ElementTree.parse(junit_path).getroot()
+          except (OSError, ElementTree.ParseError) as error:
+              raise SystemExit(f"provider-free JUnit is unreadable: {error}") from error
+          if root.tag == "testsuite":
+              suites = [root]
+          elif root.tag == "testsuites":
+              suites = root.findall("testsuite")
+          else:
+              raise SystemExit(f"provider-free JUnit has unsupported root: {root.tag}")
+          if not suites:
+              raise SystemExit("provider-free JUnit contains no test suites")
+          count_fields = ("tests", "failures", "errors", "skipped")
+          counts = dict.fromkeys(count_fields, 0)
+          for index, suite in enumerate(suites):
+              missing = [key for key in count_fields if key not in suite.attrib]
+              if missing:
+                  raise SystemExit(
+                      "provider-free JUnit suite "
+                      f"{index} is missing required count attributes: {missing}"
+                  )
+              for key in count_fields:
+                  try:
+                      value = int(suite.attrib[key])
+                  except ValueError as error:
+                      raise SystemExit(
+                          f"provider-free JUnit suite {index} has invalid {key} count"
+                      ) from error
+                  if value < 0:
+                      raise SystemExit(
+                          f"provider-free JUnit suite {index} has negative {key} count"
+                      )
+                  counts[key] += value
           actual = {
               "passed": counts["tests"]
               - counts["failures"]

@@ -1,11 +1,40 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER_FREE = ROOT / ".github/workflows/release-readiness.yml"
 EXTERNAL_MANUAL = ROOT / ".github/workflows/external-ai-evaluation.yml"
+
+
+def _run_provider_free_junit_gate(
+    tmp_path: Path,
+    junit: str,
+    *,
+    test_exit: int = 0,
+) -> subprocess.CompletedProcess[str]:
+    workflow = PROVIDER_FREE.read_text(encoding="utf-8")
+    start_marker = "          TEST_EXIT=\"$test_exit\" python3 - <<'PY'\n"
+    script = workflow.split(start_marker, maxsplit=1)[1].split("\n          PY", maxsplit=1)[0]
+    junit_path = tmp_path / "provider-free-junit.xml"
+    junit_path.write_text(junit, encoding="utf-8")
+    script = textwrap.dedent(script).replace(
+        'Path("/tmp/g009-provider-free-junit.xml")',
+        f"Path({str(junit_path)!r})",
+    )
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        env={**os.environ, "TEST_EXIT": str(test_exit)},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
@@ -40,6 +69,67 @@ def test_provider_free_release_gate_is_deterministic_and_secret_free() -> None:
     repeat_up = workflow.index("test_compose_bootstrap_repeat_up.py")
     recovery = workflow.index("scripts/release-smoke.sh")
     assert repeat_up < recovery
+
+
+def test_provider_free_junit_gate_accepts_exact_manifest_counts(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" skipped="0" />',
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "G009 provider-free counts verified" in result.stdout
+
+
+def test_provider_free_junit_gate_rejects_skipped_tests(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" skipped="1" />',
+    )
+
+    assert result.returncode != 0
+    assert "provider-free count mismatch" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_error_tests(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="1" skipped="0" />',
+    )
+
+    assert result.returncode != 0
+    assert "provider-free count mismatch" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_partial_counts(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" />',
+    )
+
+    assert result.returncode != 0
+    assert "missing required count attributes" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_malformed_xml(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" skipped="0">',
+    )
+
+    assert result.returncode != 0
+    assert "provider-free JUnit is unreadable" in result.stderr
+
+
+def test_provider_free_junit_gate_rejects_nonzero_pytest_exit(tmp_path: Path) -> None:
+    result = _run_provider_free_junit_gate(
+        tmp_path,
+        '<testsuite tests="4" failures="0" errors="0" skipped="0" />',
+        test_exit=42,
+    )
+
+    assert result.returncode != 0
+    assert "provider-free pytest failed with 42" in result.stderr
 
 
 def test_external_engine_workflow_is_manual_sanitized_and_non_blocking() -> None:
