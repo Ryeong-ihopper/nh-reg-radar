@@ -86,6 +86,22 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertNotIn("dump.rdb", text)
         self.assertIn("sha256sum", text)
 
+    def test_qdrant_async_submission_response_allowlist(self) -> None:
+        def accepted(response: dict[str, object]) -> bool:
+            return response.get("result") is True or response.get("status") == "accepted"
+
+        for response in ({"result": True}, {"status": "accepted", "time": 0.001}):
+            self.assertTrue(accepted(response))
+        for response in (
+            {},
+            {"result": False},
+            {"result": 1},
+            {"status": "ok"},
+            {"status": True},
+            {"result": False, "status": "rejected"},
+        ):
+            self.assertFalse(accepted(response))
+
     def test_prod_override_declares_graceful_stop_windows(self) -> None:
         text = PROD_COMPOSE.read_text(encoding="utf-8")
 

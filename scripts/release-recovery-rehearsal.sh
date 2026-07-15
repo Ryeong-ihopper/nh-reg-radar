@@ -263,7 +263,10 @@ restored = request_json(
         "priority": "snapshot",
     },
 )
-if restored.get("result") is not True:
+submission_accepted = (
+    restored.get("result") is True or restored.get("status") == "accepted"
+)
+if not submission_accepted:
     raise RuntimeError(f"Qdrant snapshot restore failed: {restored!r}")
 deadline = time.monotonic() + 180
 point: dict[str, Any] = {}
