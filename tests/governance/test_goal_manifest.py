@@ -227,7 +227,7 @@ class GoalManifestValidatorTest(unittest.TestCase):
                     provider_free = automation.get("provider_free")
                     if not isinstance(provider_free, dict):
                         raise AssertionError("provider_free is not a mapping")
-                    provider_free["expected"] = expected
+                    provider_free["expected"] = cast(JsonValue, expected)
 
                 self.assertIn(
                     "PROVIDER_FREE_EXPECTED_MISMATCH",
