@@ -100,13 +100,14 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn('exit "$exit_code"', text)
         self.assertNotIn("--resume", text)
         self.assertIn("cleanup_project_resources=false", text)
-        self.assertIn(
-            "assert_fresh_project\ncleanup_project_resources=true\nrun_g011_gate\n", text
-        )
+        self.assertIn("assert_fresh_project\ncleanup_project_resources=true\nrun_g011_gate\n", text)
 
     def test_release_smoke_rejects_dirty_projects_without_compose_down(self) -> None:
         for dirty_suffix in ("", "-g011"):
-            with self.subTest(dirty_suffix=dirty_suffix), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(dirty_suffix=dirty_suffix),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 temp = Path(directory)
                 fake_bin = temp / "bin"
                 fake_bin.mkdir()
@@ -240,9 +241,7 @@ sleep 30
                     check=False,
                 )
 
-                self.assertEqual(
-                    result.returncode, expected_status, result.stdout + result.stderr
-                )
+                self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
                 self.assertLess(time.monotonic() - started, 5)
                 self.assertIn("G011_CHILD_DIAGNOSTIC_STDOUT", result.stdout)
                 self.assertIn("G011_CHILD_DIAGNOSTIC_STDERR", result.stderr)
