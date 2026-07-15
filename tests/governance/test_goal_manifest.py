@@ -172,6 +172,44 @@ class GoalManifestValidatorTest(unittest.TestCase):
 
         self.assertIn("PROVIDER_FREE_EXPECTED_MISMATCH", self._validate_g009(corrupt_expected))
 
+    def test_g009_m8_rejects_mismatched_goal_id(self) -> None:
+        def replace_goal_id(manifest: Manifest) -> None:
+            manifest["goal_id"] = "G010-m9"
+
+        self.assertIn("G009_GOAL_ID_MISMATCH", self._validate_g009(replace_goal_id))
+
+    def test_g009_m8_goal_id_mutation_cannot_bypass_sha_lock(self) -> None:
+        def bypass_sha_lock(manifest: Manifest) -> None:
+            manifest["goal_id"] = "G010-m9"
+            self._mapping(manifest, "openapi")["sha256"] = "0" * 64
+
+        self.assertEqual(
+            {"EVIDENCE_SHA_MISMATCH", "G009_GOAL_ID_MISMATCH"},
+            {
+                "EVIDENCE_SHA_MISMATCH",
+                "G009_GOAL_ID_MISMATCH",
+            }
+            & self._validate_g009(bypass_sha_lock),
+        )
+
+    def test_g009_m8_goal_id_mutation_cannot_bypass_exact_provider_free_lock(self) -> None:
+        def bypass_provider_free_lock(manifest: Manifest) -> None:
+            manifest["goal_id"] = "G010-m9"
+            automation = self._mapping(manifest, "automation")
+            provider_free = automation.get("provider_free")
+            if not isinstance(provider_free, dict):
+                raise AssertionError("provider_free is not a mapping")
+            provider_free["expected"] = {"passed": 4, "failed": 0, "skipped": 0, "errors": 0}
+
+        self.assertEqual(
+            {"G009_GOAL_ID_MISMATCH", "PROVIDER_FREE_EXPECTED_MISMATCH"},
+            {
+                "G009_GOAL_ID_MISMATCH",
+                "PROVIDER_FREE_EXPECTED_MISMATCH",
+            }
+            & self._validate_g009(bypass_provider_free_lock),
+        )
+
     def test_missing_trace_dimension_is_rejected(self) -> None:
         def remove_screens(manifest: Manifest) -> None:
             _ = self._mapping(manifest, "trace").pop("screens")
