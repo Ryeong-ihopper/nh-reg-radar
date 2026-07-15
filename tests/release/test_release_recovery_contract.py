@@ -26,7 +26,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("G011_COLD_GATE_SECONDS", text)
         self.assertIn("G011_REGRESSION_SECONDS", text)
         self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
-        self.assertIn('timeout --signal=TERM "$timeout_seconds"', text)
+        self.assertIn('run_with_timeout "$timeout_seconds"', text)
         self.assertIn("G011_FRESH_VOLUME_SECONDS", text)
         self.assertIn("PROD_COLD_START_SECONDS", text)
         self.assertLess(text.index("up -d --wait postgres"), text.index("up -d --wait\n"))
@@ -55,7 +55,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("chmod -R a+rwX /cleanup", text)
         self.assertIn("release backup directory remains", text)
         self.assertIn("release recovery resources remain", text)
-        self.assertIn('g011_compose[@]}" down --volumes --remove-orphans', text)
+        self.assertIn("cleanup_g011_compose_call down --volumes --remove-orphans", text)
         self.assertIn("G011 resources remain after outer cleanup", text)
 
     def test_release_smoke_bounds_compose_and_docker_processes_uniformly(self) -> None:
