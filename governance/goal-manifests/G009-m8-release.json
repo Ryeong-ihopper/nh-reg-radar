@@ -96,7 +96,7 @@
     },
     {
       "path": "tests/e2e/test_m8_provider_free_release.py",
-      "sha256": "c457aea1564854695f314b945331b81a5d0336c43d2c691a5be7ddaaef76d302",
+      "sha256": "30a8c56fb10ac85c82cf5a6a054a1f5113e0df2060f6cd6ce6e9662a77f86923",
       "kind": "executable_release_evidence"
     }
   ],

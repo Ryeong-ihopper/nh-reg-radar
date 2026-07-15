@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.23 |
+| 현행 버전 | v1.24 |
 | 기준일 | 2026-07-15 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.24 | 2026-07-15 | G010 Ruff canonical formatting 반영 후 G009 executable·manifest SHA-256 동기화 |
 | v1.23 | 2026-07-15 | G009 선언 SHA-256 현재 파일 대조와 provider-free E2E 정확한 4/0/0 건수 fail-closed 회귀 기준 반영 |
 | v1.22 | 2026-07-15 | 중복 M2 Gate 제거, Spectral 0 error와 warning 잔여를 정확히 구분하고 AC-18 최종 문서·일정 거버넌스 검증 기준 반영 |
 | v1.21 | 2026-07-15 | M8 production recovery 공개·opt-in 명령의 6/6 terminal PASS와 multi-store 복구·outage·무잔여 정리 증거 반영 |
@@ -712,7 +713,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 | 검증 범위 | 실행/증거 | 기대 결과 |
 | --- | --- | --- |
-| Provider-free E2E 4종 | `uv run pytest tests/e2e -q`, `python3 scripts/validate_goal_manifest.py governance/goal-manifests/G009-m8-release.json` | E2E-001~004가 4 passed/0 failed/0 skipped이고 AC16.1~16.4 및 실제 25개 TC node에 연결됨. G009의 OpenAPI·generated client·migration·artifact 선언 SHA-256은 현재 저장소 파일과 일치해야 하며 불일치·누락 시 실패함. manifest SHA-256 `db7d44419f3e0c90319d2422de5406a934891eca2c341f772a083365cbae148a`, executable SHA-256 `c457aea1564854695f314b945331b81a5d0336c43d2c691a5be7ddaaef76d302`, fixture SHA-256 `b7467261128143d46328b8f0fe81f783ee7bce78d102d35d2d5002be46e74b3a` |
+| Provider-free E2E 4종 | `uv run pytest tests/e2e -q`, `python3 scripts/validate_goal_manifest.py governance/goal-manifests/G009-m8-release.json` | E2E-001~004가 4 passed/0 failed/0 skipped이고 AC16.1~16.4 및 실제 25개 TC node에 연결됨. G009의 OpenAPI·generated client·migration·artifact 선언 SHA-256은 현재 저장소 파일과 일치해야 하며 불일치·누락 시 실패함. manifest SHA-256 `cfb07ea58609abbaa856d32345d69e4154e0c8da5e23e20e4050518496663d09`, executable SHA-256 `30a8c56fb10ac85c82cf5a6a054a1f5113e0df2060f6cd6ce6e9662a77f86923`, fixture SHA-256 `b7467261128143d46328b8f0fe81f783ee7bce78d102d35d2d5002be46e74b3a` |
 | Provider-free release workflow | `.github/workflows/release-readiness.yml`, `tests/release/test_m8_release_workflows.py` | PR/push Gate가 secret 또는 실제 provider 호출 없이 G009 provider-free JUnit 결과를 manifest 고정 기대치 `4 passed/0 failed/0 skipped`와 정확히 비교하고, 이어서 E2E/release, lint/type/OpenAPI/frontend/docs/governance를 결정적으로 실행하며 `external_ai`를 제외함 |
 | Recovery 선행 안전 Gate | `.github/workflows/release-readiness.yml` | 수동 recovery smoke가 `NH_RUN_G011_DOCKER_REGRESSION=1`인 `test_compose_bootstrap_repeat_up.py`를 먼저 통과한 후에만 `scripts/release-smoke.sh`를 실행함 |
 | Production recovery terminal PASS | `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`, `NH_RUN_M8_RELEASE_DOCKER=1 uv run pytest tests/release/test_release_recovery_contract.py -q -rs` | terminal run이 6 passed in 666.35s로 통과함. G011 fresh/repeat-volume, 0001→0007→0008 및 backup-before-downgrade, PostgreSQL payload/revision·MinIO checksum·Qdrant node-global snapshot green+point payload 복구, OpenSearch 재색인, Redis backup 제외와 strict 503 `not_ready`→recovery, object/search outage, PostgreSQL restart를 fail-closed로 검증하고 production/G011 container·volume·network와 임시 directory가 각각 0개임 |
