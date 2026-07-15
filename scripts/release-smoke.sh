@@ -293,11 +293,11 @@ run_g011_gate() {
   else
     g011_status=$?
   fi
-  if ! cat "$g011_log"; then
+  if cat "$g011_log"; then
+    replay_status=0
+  else
+    replay_status=$?
     printf 'could not replay G011 regression log: %s\n' "$g011_log" >&2
-    if ((g011_status == 0)); then
-      g011_status=1
-    fi
   fi
   if ((g011_status != 0)); then
     printf 'G011 full regression failed with status %s within %ss\n' \
