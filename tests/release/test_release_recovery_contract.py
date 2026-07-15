@@ -175,7 +175,7 @@ esac
                 process.kill()
                 self.fail("release smoke did not reach the blocked Compose config call")
 
-            os.killpg(process.pid, signal.SIGTERM)
+            os.kill(process.pid, signal.SIGTERM)
             cleanup_deadline = time.monotonic() + 5
             while time.monotonic() < cleanup_deadline:
                 if "down --volumes --remove-orphans" in call_log.read_text(encoding="utf-8"):
