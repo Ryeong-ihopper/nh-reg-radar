@@ -87,6 +87,18 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("sha256sum", text)
 
     def test_qdrant_async_submission_response_allowlist(self) -> None:
+        production = " ".join(RECOVERY.read_text(encoding="utf-8").split())
+        self.assertIn(
+            'submission_accepted = ( restored.get("result") is True or '
+            'restored.get("status") == "accepted" )',
+            production,
+        )
+        self.assertIn("if not submission_accepted:", production)
+        self.assertIn("time.monotonic() + 180", production)
+        self.assertIn('.get("status") != "green"', production)
+        self.assertIn("points/4242", production)
+        self.assertIn("provider-free-qdrant-restore", production)
+
         def accepted(response: dict[str, object]) -> bool:
             return response.get("result") is True or response.get("status") == "accepted"
 
