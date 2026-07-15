@@ -62,8 +62,10 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         text = SMOKE.read_text(encoding="utf-8")
 
         self.assertIn("run_with_timeout()", text)
+        self.assertIn(
+            'timeout --signal=TERM --kill-after="$timeout_kill_after_seconds"', text
+        )
         self.assertIn("compose_call()", text)
-        self.assertIn("g011_compose_call()", text)
         self.assertIn("docker_call()", text)
         self.assertIn("cleanup_compose_call()", text)
         self.assertIn("cleanup_g011_compose_call()", text)
@@ -96,7 +98,7 @@ class ReleaseRecoveryContractTests(unittest.TestCase):
         self.assertIn("if ((exit_code == 0)); then", text)
         self.assertIn('exit "$exit_code"', text)
         self.assertNotIn("--resume", text)
-        self.assertLess(text.index('project_resources "$project"'), text.index("run_g011_gate\n"))
+        self.assertIn("assert_fresh_project\nrun_g011_gate\n", text)
 
     def test_recovery_rehearses_lossy_migration_restore_and_durable_stores(self) -> None:
         text = RECOVERY.read_text(encoding="utf-8")

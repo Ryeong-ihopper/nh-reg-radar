@@ -95,10 +95,6 @@ compose_probe_call() {
   compose_call_with_timeout "$probe_timeout_seconds" "$@"
 }
 
-g011_compose_call() {
-  run_with_timeout "$timeout_seconds" "${g011_compose[@]}" "$@"
-}
-
 docker_call() {
   run_with_timeout "$timeout_seconds" docker "$@"
 }
@@ -123,9 +119,9 @@ project_resources() {
   local project_name="$1"
   local docker_runner="${2:-docker_call}"
   {
-    "$docker_runner" ps -aq --filter "label=com.docker.compose.project=$project_name"
-    "$docker_runner" volume ls -q --filter "label=com.docker.compose.project=$project_name"
-    "$docker_runner" network ls -q --filter "label=com.docker.compose.project=$project_name"
+    "$docker_runner" ps -aq --filter "label=com.docker.compose.project=$project_name" || return
+    "$docker_runner" volume ls -q --filter "label=com.docker.compose.project=$project_name" || return
+    "$docker_runner" network ls -q --filter "label=com.docker.compose.project=$project_name" || return
   } | sed '/^$/d'
 }
 
@@ -211,7 +207,7 @@ trap 'handle_signal INT' INT
 trap 'handle_signal TERM' TERM
 
 assert_fresh_project() {
-  local resources
+  local project_name resources
   for project_name in "$project" "$g011_project"; do
     resources="$(project_resources "$project_name")"
     if [[ -n "$resources" ]]; then
