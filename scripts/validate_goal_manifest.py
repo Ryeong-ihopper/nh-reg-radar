@@ -74,6 +74,7 @@ REQUIRED_TRACE_FIELDS = {
     "db_objects",
 }
 G009_RELEASE_GOAL_ID = "G009-m8-release"
+G009_RELEASE_MANIFEST_PATH = Path("governance/goal-manifests/G009-m8-release.json")
 G009_EXPECTED_PROVIDER_FREE = {"passed": 4, "failed": 0, "skipped": 0}
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
@@ -325,10 +326,15 @@ def _validate_current_file_sha(
 def _validate_g009_release_evidence(
     root: Path, manifest_path: str, manifest: Manifest
 ) -> list[ManifestFinding]:
-    if manifest.get("goal_id") != G009_RELEASE_GOAL_ID:
-        return []
-
     findings: list[ManifestFinding] = []
+    if manifest.get("goal_id") != G009_RELEASE_GOAL_ID:
+        findings.append(
+            ManifestFinding(
+                "G009_GOAL_ID_MISMATCH",
+                manifest_path,
+                f"canonical G009 manifest goal_id must be {G009_RELEASE_GOAL_ID}",
+            )
+        )
     for field in ("openapi", "generated_client", "migration"):
         findings.extend(_validate_current_file_sha(root, manifest_path, field, manifest.get(field)))
 
@@ -360,6 +366,12 @@ def _validate_g009_release_evidence(
             )
         )
     return findings
+
+
+def _is_g009_release_manifest(root: Path, manifest_path: Path) -> bool:
+    canonical_path = (root / G009_RELEASE_MANIFEST_PATH).resolve()
+    resolved_path = manifest_path.resolve()
+    return resolved_path == canonical_path or manifest_path.name == canonical_path.name
 
 
 def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
@@ -454,7 +466,8 @@ def validate_manifest(root: Path, manifest_path: Path) -> list[ManifestFinding]:
                     f"API contract changes require synchronized document: {missing}",
                 )
             )
-    findings.extend(_validate_g009_release_evidence(root, display_path, manifest))
+    if _is_g009_release_manifest(root, manifest_path):
+        findings.extend(_validate_g009_release_evidence(root, display_path, manifest))
     return findings
 
 
