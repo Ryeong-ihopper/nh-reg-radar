@@ -23,10 +23,10 @@ def _run_provider_free_junit_gate(
     script = workflow.split(start_marker, maxsplit=1)[1].split("\n          PY", maxsplit=1)[0]
     junit_path = tmp_path / "provider-free-junit.xml"
     junit_path.write_text(junit, encoding="utf-8")
-    script = textwrap.dedent(script).replace(
-        'Path("/tmp/g009-provider-free-junit.xml")',
-        f"Path({str(junit_path)!r})",
-    )
+    script = textwrap.dedent(script)
+    workflow_junit_path = 'Path("/tmp/g009-provider-free-junit.xml")'
+    assert workflow_junit_path in script
+    script = script.replace(workflow_junit_path, f"Path({str(junit_path)!r})")
     return subprocess.run(
         [sys.executable, "-c", script],
         cwd=ROOT,
