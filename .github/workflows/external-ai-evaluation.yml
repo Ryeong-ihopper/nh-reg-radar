@@ -1,0 +1,163 @@
+name: M8 Manual External AI Evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider_label:
+        description: Sanitized provider identifier; do not enter credentials or customer data
+        required: true
+        type: string
+      engine_label:
+        description: Sanitized engine identifier
+        required: true
+        type: string
+      model_label:
+        description: Sanitized model identifier
+        required: true
+        type: string
+      config_fingerprint:
+        description: Lowercase SHA-256 of the approved non-secret configuration
+        required: true
+        type: string
+      dataset_id:
+        description: Approved synthetic or customer-approved snapshot identifier only
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  external-ai-manual-evaluation:
+    runs-on: ubuntu-latest
+    environment: external-ai-manual
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python workspace
+        run: uv sync --all-packages --dev
+
+      - name: Validate sanitized evidence metadata
+        id: metadata
+        env:
+          PROVIDER_LABEL: ${{ inputs.provider_label }}
+          ENGINE_LABEL: ${{ inputs.engine_label }}
+          MODEL_LABEL: ${{ inputs.model_label }}
+          CONFIG_FINGERPRINT: ${{ inputs.config_fingerprint }}
+          DATASET_ID: ${{ inputs.dataset_id }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          label = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$")
+          for name in ("PROVIDER_LABEL", "ENGINE_LABEL", "MODEL_LABEL", "DATASET_ID"):
+              if not label.fullmatch(os.environ[name]):
+                  raise SystemExit(f"unsafe sanitized metadata: {name}")
+          if not re.fullmatch(r"[0-9a-f]{64}", os.environ["CONFIG_FINGERPRINT"]):
+              raise SystemExit("CONFIG_FINGERPRINT must be a lowercase SHA-256")
+          PY
+
+      - name: Run explicitly provisioned external evaluation
+        id: evaluate
+        env:
+          NH_EXTERNAL_AI_ENABLED: "true"
+          NH_EXTERNAL_AI_PROVIDER: ${{ inputs.provider_label }}
+          NH_EXTERNAL_AI_ENGINE: ${{ inputs.engine_label }}
+          NH_EXTERNAL_AI_MODEL: ${{ inputs.model_label }}
+          NH_EXTERNAL_AI_CONFIG_FINGERPRINT: ${{ inputs.config_fingerprint }}
+          NH_EXTERNAL_AI_DATASET_ID: ${{ inputs.dataset_id }}
+          NH_EXTERNAL_AI_API_KEY: ${{ secrets.EXTERNAL_AI_API_KEY }}
+        shell: bash
+        run: |
+          set +e
+          uv run python -m pytest -m external_ai -q \
+            --junitxml=/tmp/external-ai-junit.xml \
+            >/dev/null 2>&1
+          exit_code=$?
+          set -e
+          echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
+
+      - name: Create sanitized evidence
+        if: always() && steps.metadata.outcome == 'success'
+        env:
+          PROVIDER_LABEL: ${{ inputs.provider_label }}
+          ENGINE_LABEL: ${{ inputs.engine_label }}
+          MODEL_LABEL: ${{ inputs.model_label }}
+          CONFIG_FINGERPRINT: ${{ inputs.config_fingerprint }}
+          DATASET_ID: ${{ inputs.dataset_id }}
+          EXIT_CODE: ${{ steps.evaluate.outputs.exit_code }}
+          REVISION: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          from datetime import UTC, datetime
+          import json
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          junit = Path("/tmp/external-ai-junit.xml")
+          if junit.is_file():
+              root = ElementTree.parse(junit).getroot()
+              suite = root if root.tag == "testsuite" else root.find("testsuite")
+              if suite is not None:
+                  for key in counts:
+                      counts[key] = int(suite.attrib.get(key, 0))
+
+          exit_code = int(os.environ.get("EXIT_CODE") or 1)
+          summary = {
+              "total": counts["tests"],
+              "passed": max(
+                  counts["tests"]
+                  - counts["failures"]
+                  - counts["errors"]
+                  - counts["skipped"],
+                  0,
+              ),
+              "failed": counts["failures"] + counts["errors"],
+              "skipped": counts["skipped"],
+          }
+          evidence = {
+              "schema_version": 1,
+              "environment_mode": "manual_external_ai",
+              "supplementary_only": True,
+              "revision": os.environ["REVISION"],
+              "run_id": os.environ["RUN_ID"],
+              "executed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+              "provider": os.environ["PROVIDER_LABEL"],
+              "engine": os.environ["ENGINE_LABEL"],
+              "model": os.environ["MODEL_LABEL"],
+              "config_fingerprint": os.environ["CONFIG_FINGERPRINT"],
+              "dataset_id": os.environ["DATASET_ID"],
+              "result": "passed" if exit_code == 0 else "failed",
+              "exit_code": exit_code,
+              "summary": summary,
+          }
+          Path("external-ai-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload sanitized evidence
+        if: always() && steps.metadata.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-ai-evidence-${{ github.run_id }}
+          path: external-ai-evidence.json
+          if-no-files-found: error
+
+      - name: Preserve external evaluation failure
+        if: always() && steps.evaluate.outputs.exit_code != '0'
+        run: exit 1

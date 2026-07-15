@@ -77,7 +77,15 @@ security_snapshot() {
 }
 
 printf 'G011 fresh-volume bootstrap: project=%s\n' "$project"
+fresh_started=$SECONDS
 compose_up_postgres
+fresh_elapsed=$((SECONDS - fresh_started))
+if ((fresh_elapsed > timeout_seconds)); then
+  printf 'G011 fresh-volume startup exceeded %ss: %ss\n' \
+    "$timeout_seconds" "$fresh_elapsed" >&2
+  exit 1
+fi
+printf 'G011_FRESH_VOLUME_SECONDS=%s\n' "$fresh_elapsed"
 
 "${compose[@]}" exec -T postgres \
   createdb --username admin --owner admin g011_repeat_guard

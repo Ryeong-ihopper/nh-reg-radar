@@ -99,11 +99,7 @@ class InMemorySupportRepository:
 
     def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]:
         with self._lock:
-            return [
-                deepcopy(value)
-                for value in self.questions
-                if value["userId"] == actor.user_id
-            ]
+            return [deepcopy(value) for value in self.questions if value["userId"] == actor.user_id]
 
     def save_draft(self, draft: dict[str, Any]) -> None:
         with self._lock:
@@ -112,9 +108,7 @@ class InMemorySupportRepository:
     def list_drafts(self, review_id: str) -> list[dict[str, Any]]:
         with self._lock:
             return [
-                deepcopy(value)
-                for value in self.drafts.values()
-                if value["reviewId"] == review_id
+                deepcopy(value) for value in self.drafts.values() if value["reviewId"] == review_id
             ]
 
     def get_draft(self, draft_id: str) -> dict[str, Any] | None:
@@ -168,21 +162,29 @@ class PostgresSupportRepository:
 
     def list_suggestions(self, review_id: str) -> list[dict[str, Any]]:
         with self._engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT * FROM app.suggestions WHERE review_id=:review_id "
-                    "ORDER BY created_at,suggestion_id"
-                ),
-                {"review_id": review_id},
-            ).mappings().all()
+            rows = (
+                connection.execute(
+                    text(
+                        "SELECT * FROM app.suggestions WHERE review_id=:review_id "
+                        "ORDER BY created_at,suggestion_id"
+                    ),
+                    {"review_id": review_id},
+                )
+                .mappings()
+                .all()
+            )
         return [self._suggestion(row) for row in rows]
 
     def get_suggestion(self, suggestion_id: str) -> dict[str, Any] | None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                text("SELECT * FROM app.suggestions WHERE suggestion_id=:suggestion_id"),
-                {"suggestion_id": suggestion_id},
-            ).mappings().first()
+            row = (
+                connection.execute(
+                    text("SELECT * FROM app.suggestions WHERE suggestion_id=:suggestion_id"),
+                    {"suggestion_id": suggestion_id},
+                )
+                .mappings()
+                .first()
+            )
         return self._suggestion(row) if row else None
 
     def save_decision(self, decision: dict[str, Any]) -> None:
@@ -260,14 +262,18 @@ class PostgresSupportRepository:
 
     def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]:
         with self._engine.connect() as connection:
-            rows = connection.execute(
-                text("""
+            rows = (
+                connection.execute(
+                    text("""
                     SELECT m.raw_response_json
                       FROM rag.qa_messages m JOIN rag.qa_sessions s USING (qa_session_id)
                      WHERE s.user_id=:user_id ORDER BY m.created_at,m.qa_message_id
                 """),
-                {"user_id": actor.user_id},
-            ).scalars().all()
+                    {"user_id": actor.user_id},
+                )
+                .scalars()
+                .all()
+            )
         return [dict(value) for value in rows]
 
     @staticmethod
@@ -306,21 +312,29 @@ class PostgresSupportRepository:
 
     def list_drafts(self, review_id: str) -> list[dict[str, Any]]:
         with self._engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT * FROM app.opinion_drafts WHERE review_id=:review_id "
-                    "ORDER BY created_at,draft_id"
-                ),
-                {"review_id": review_id},
-            ).mappings().all()
+            rows = (
+                connection.execute(
+                    text(
+                        "SELECT * FROM app.opinion_drafts WHERE review_id=:review_id "
+                        "ORDER BY created_at,draft_id"
+                    ),
+                    {"review_id": review_id},
+                )
+                .mappings()
+                .all()
+            )
         return [self._draft(row) for row in rows]
 
     def get_draft(self, draft_id: str) -> dict[str, Any] | None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                text("SELECT * FROM app.opinion_drafts WHERE draft_id=:draft_id"),
-                {"draft_id": draft_id},
-            ).mappings().first()
+            row = (
+                connection.execute(
+                    text("SELECT * FROM app.opinion_drafts WHERE draft_id=:draft_id"),
+                    {"draft_id": draft_id},
+                )
+                .mappings()
+                .first()
+            )
         return self._draft(row) if row else None
 
     def update_draft(self, draft: dict[str, Any]) -> None:
@@ -403,10 +417,14 @@ class PostgresSupportRepository:
 
     def get_report(self, report_id: str) -> dict[str, Any] | None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                text("SELECT * FROM app.reports WHERE report_id=:report_id"),
-                {"report_id": report_id},
-            ).mappings().first()
+            row = (
+                connection.execute(
+                    text("SELECT * FROM app.reports WHERE report_id=:report_id"),
+                    {"report_id": report_id},
+                )
+                .mappings()
+                .first()
+            )
         return self._report(row) if row else None
 
     @staticmethod
@@ -491,21 +509,29 @@ class PostgresSupportRepository:
 
     def get_comparison(self, comparison_id: str) -> dict[str, Any] | None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                text("SELECT * FROM app.comparisons WHERE comparison_id=:comparison_id"),
-                {"comparison_id": comparison_id},
-            ).mappings().first()
+            row = (
+                connection.execute(
+                    text("SELECT * FROM app.comparisons WHERE comparison_id=:comparison_id"),
+                    {"comparison_id": comparison_id},
+                )
+                .mappings()
+                .first()
+            )
             if row is None:
                 return None
-            items = connection.execute(
-                text(
-                    "SELECT * FROM app.comparison_items WHERE comparison_id=:comparison_id "
-                    "ORDER BY CASE resolution_status "
-                    "WHEN 'RESOLVED' THEN 1 WHEN 'UNRESOLVED' THEN 2 "
-                    "WHEN 'NEW_ISSUE' THEN 3 ELSE 4 END,comparison_item_id"
-                ),
-                {"comparison_id": comparison_id},
-            ).mappings().all()
+            items = (
+                connection.execute(
+                    text(
+                        "SELECT * FROM app.comparison_items WHERE comparison_id=:comparison_id "
+                        "ORDER BY CASE resolution_status "
+                        "WHEN 'RESOLVED' THEN 1 WHEN 'UNRESOLVED' THEN 2 "
+                        "WHEN 'NEW_ISSUE' THEN 3 ELSE 4 END,comparison_item_id"
+                    ),
+                    {"comparison_id": comparison_id},
+                )
+                .mappings()
+                .all()
+            )
         return self._comparison(row, list(items))
 
 
@@ -627,9 +653,7 @@ class SupportService:
             )
         }
 
-    def _authorize_review(
-        self, actor: CurrentUser, review_id: str, trace_id: str
-    ) -> None:
+    def _authorize_review(self, actor: CurrentUser, review_id: str, trace_id: str) -> None:
         if self._reviews is not None:
             self._reviews.status(actor, review_id, trace_id)
 
@@ -733,8 +757,7 @@ class SupportService:
 
     def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]:
         return [
-            deepcopy(value.get("answer", value))
-            for value in self.repository.list_questions(actor)
+            deepcopy(value.get("answer", value)) for value in self.repository.list_questions(actor)
         ]
 
     def drafts_for(

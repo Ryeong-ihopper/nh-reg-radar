@@ -30,9 +30,7 @@ def install_support_routes(
         current: Actor,
         suggestion_id: Annotated[str, Path(alias="suggestionId")],
     ) -> dict[str, object]:
-        return service.decide(
-            current, suggestion_id, await request.json(), request.state.trace_id
-        )
+        return service.decide(current, suggestion_id, await request.json(), request.state.trace_id)
 
     @router.post("/qa/questions", operation_id="askComplianceQuestion")
     async def question(request: Request, current: Actor) -> dict[str, object]:
@@ -66,9 +64,7 @@ def install_support_routes(
         current: Actor,
         draft_id: Annotated[str, Path(alias="draftId")],
     ) -> dict[str, object]:
-        return service.update_draft(
-            current, draft_id, await request.json(), request.state.trace_id
-        )
+        return service.update_draft(current, draft_id, await request.json(), request.state.trace_id)
 
     @router.post("/reviews/{reviewId}/reports", operation_id="createReviewReport")
     async def create_report(
@@ -94,9 +90,7 @@ def install_support_routes(
         current: Actor,
         report_id: Annotated[str, Path(alias="reportId")],
     ) -> Response:
-        content, report_format = service.download_report(
-            current, report_id, request.state.trace_id
-        )
+        content, report_format = service.download_report(current, report_id, request.state.trace_id)
         return Response(
             content=content,
             media_type="application/octet-stream",

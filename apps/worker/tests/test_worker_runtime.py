@@ -73,9 +73,7 @@ class OutageRepository(InMemoryJobRepository):
         self.runner: JobRunner | None = None
         self.recovery_calls = 0
 
-    def recover_stale(
-        self, *, now: datetime, stale_before: datetime
-    ) -> list[QueueMessage]:
+    def recover_stale(self, *, now: datetime, stale_before: datetime) -> list[QueueMessage]:
         self.recovery_calls += 1
         if self.recovery_calls == 1:
             raise OSError("postgres unavailable")

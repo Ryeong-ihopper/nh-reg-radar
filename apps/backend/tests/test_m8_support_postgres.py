@@ -117,9 +117,7 @@ def postgres_url() -> Iterator[str]:
                 f"CREATE ROLE {role} {role_options}",
             )
         env = os.environ.copy()
-        env["NH_DB_MIGRATION_URL"] = raw_url.replace(
-            "postgresql://", "postgresql+psycopg://", 1
-        )
+        env["NH_DB_MIGRATION_URL"] = raw_url.replace("postgresql://", "postgresql+psycopg://", 1)
         run(
             sys.executable,
             "-m",
@@ -298,12 +296,13 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
         advertisements=advertisements,
         now=lambda: now,
     )
-    assert restarted.list_suggestions(actor, review.review.review_id)[0][
-        "decisionStatus"
-    ] == "REJECTED"
-    assert restarted.drafts_for(actor, review.review.review_id)[0][
-        "finalContent"
-    ] == "최종 검토 의견"
+    assert (
+        restarted.list_suggestions(actor, review.review.review_id)[0]["decisionStatus"]
+        == "REJECTED"
+    )
+    assert (
+        restarted.drafts_for(actor, review.review.review_id)[0]["finalContent"] == "최종 검토 의견"
+    )
     stored_pdf = restarted.get_report(actor, pdf["reportId"])
     source = restarted.get_report(actor, stored_pdf["sourceReportId"])
     assert source["snapshotHash"] == stored_pdf["snapshotHash"] == pdf["snapshotHash"]
@@ -316,18 +315,22 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
     assert report_format == "PDF"
     assert f"sha256:{hashlib.sha256(canonical).hexdigest()}" == stored_pdf["snapshotHash"]
     assert restarted.get_comparison(actor, comparison["comparisonId"]) == comparison
-    assert base_repository.get_revision(revision.revision_id).advertisement_id == advertisement.advertisement_id  # type: ignore[union-attr]
+    assert (
+        base_repository.get_revision(revision.revision_id).advertisement_id
+        == advertisement.advertisement_id
+    )  # type: ignore[union-attr]
     with engine.connect() as connection:
-        assert connection.execute(
-            text("SELECT COUNT(*) FROM app.suggestion_decisions WHERE suggestion_id='SUG-M8'")
-        ).scalar_one() == 2
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM app.suggestion_decisions WHERE suggestion_id='SUG-M8'")
+            ).scalar_one()
+            == 2
+        )
         assert connection.execute(text("SELECT COUNT(*) FROM app.reports")).scalar_one() == 2
         assert connection.execute(text("SELECT COUNT(*) FROM app.comparisons")).scalar_one() == 1
 
     def fresh_services() -> ApplicationServices:
-        fresh_repository = PostgresRepository(
-            engine, storage_provider="local", bucket="test"
-        )
+        fresh_repository = PostgresRepository(engine, storage_provider="local", bucket="test")
         fresh_advertisements = AdvertisementService(
             fresh_repository, PrivateFileStorage(tmp_path / "objects")
         )
@@ -359,9 +362,7 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
 
     settings = Settings(
         app_env="test",
-        jwt_secret=SecretStr(
-            "m8-test-jwt-secret-with-more-than-thirty-two-characters"
-        ),
+        jwt_secret=SecretStr("m8-test-jwt-secret-with-more-than-thirty-two-characters"),
         cors_allowed_origins="http://localhost:5173",
         refresh_cookie_secure=False,
     )
@@ -371,9 +372,12 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
             json={"email": "m8@example.com", "password": "SecurePassword!42"},
         ).json()["accessToken"]
         headers = {"Authorization": f"Bearer {token}"}
-        assert first_app.get(
-            f"/api/v1/reports/{pdf['reportId']}", headers=headers
-        ).json()["snapshotHash"] == pdf["snapshotHash"]
+        assert (
+            first_app.get(f"/api/v1/reports/{pdf['reportId']}", headers=headers).json()[
+                "snapshotHash"
+            ]
+            == pdf["snapshotHash"]
+        )
     with TestClient(create_app(settings, fresh_services())) as restarted_app:
         token = restarted_app.post(
             "/api/v1/auth/login",
@@ -384,9 +388,12 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
             f"/api/v1/reports/{pdf['reportId']}/download", headers=headers
         )
         assert downloaded.status_code == 200 and downloaded.content == payload
-        assert restarted_app.get(
-            f"/api/v1/comparisons/{comparison['comparisonId']}", headers=headers
-        ).json() == comparison
+        assert (
+            restarted_app.get(
+                f"/api/v1/comparisons/{comparison['comparisonId']}", headers=headers
+            ).json()
+            == comparison
+        )
 
     def concurrent_revision(index: int) -> int:
         stored = advertisements.create_revision(
@@ -396,9 +403,7 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
             upload=(
                 f"concurrent-{index}.png",
                 "image/png",
-                __import__("io").BytesIO(
-                    png_with_payload(f"concurrent-{index}".encode())
-                ),
+                __import__("io").BytesIO(png_with_payload(f"concurrent-{index}".encode())),
             ),
             trace_id=f"req-m8-concurrent-{index}",
         )

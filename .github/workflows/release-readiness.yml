@@ -1,0 +1,109 @@
+name: M8 Provider-Free Release Readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      run_recovery_smoke:
+        description: Run the provider-free fresh/restart/outage recovery rehearsal
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  provider-free-release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/frontend/package-lock.json
+
+      - name: Install deterministic dependencies
+        run: |
+          uv sync --all-packages --dev
+          npm ci --ignore-scripts
+          npm --prefix apps/frontend ci
+
+      - name: Check static contracts
+        run: |
+          uv run ruff check .
+          uv run ruff format --check tests/release
+          uv run mypy
+          npm run openapi:check
+          npm --prefix apps/frontend run lint
+          npm --prefix apps/frontend run typecheck
+          npm --prefix apps/frontend run test
+          npm --prefix apps/frontend run build
+
+      - name: Validate G009 evidence trace
+        run: >-
+          python3 scripts/validate_goal_manifest.py
+          governance/goal-manifests/G009-m8-release.json
+
+      - name: Run deterministic product regressions
+        run: uv run python -m pytest -m "not external_ai and not slow" -q
+
+      - name: Run deterministic M8 E2E and release gates
+        run: uv run python -m pytest tests/e2e tests/release -m "not external_ai" -q
+
+      - name: Validate documentation governance
+        run: |
+          scripts/check-doc-consistency.sh
+          python3 -m scripts.doc_guard validate --scope all
+          python3 -m unittest discover -s tests/governance -v
+
+  provider-free-recovery-smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run_recovery_smoke
+    needs: provider-free-release-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python workspace
+        run: uv sync --all-packages --dev
+
+      - name: Prove live-volume repeat-up safety first
+        env:
+          NH_RUN_G011_DOCKER_REGRESSION: "1"
+        run: uv run pytest tests/integration/test_compose_bootstrap_repeat_up.py -q
+
+      - name: Run provider-free migration and recovery rehearsal
+        run: >-
+          bash scripts/release-smoke.sh
+          --env-file .env.prod.example
+          --fresh-project
+          --with-restart-and-outages

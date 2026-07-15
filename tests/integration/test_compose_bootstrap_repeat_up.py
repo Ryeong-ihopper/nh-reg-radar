@@ -32,7 +32,7 @@ class DatabaseBootstrapRepeatUpTests(unittest.TestCase):
     def test_regression_exercises_fresh_and_repeat_up_with_integrity_checks(self) -> None:
         text = REGRESSION.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count('up -d --wait postgres'), 1)
+        self.assertEqual(text.count("up -d --wait postgres"), 1)
         self.assertGreaterEqual(text.count("\ncompose_up_postgres\n"), 2)
         self.assertIn("rm --force --stop db-bootstrap", text)
         self.assertIn('"$bootstrap_id" == "$fresh_bootstrap_id"', text)

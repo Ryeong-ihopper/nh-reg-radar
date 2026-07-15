@@ -163,18 +163,25 @@ def test_actual_postgres_redis_reconciles_publish_failure_and_stale_job() -> Non
         assert runner.recover_stale(stale_now) == 1
         assert queue.pop(timeout=1)["jobId"] == job_id  # type: ignore[index]
         with engine.connect() as connection:
-            assert connection.execute(
-                text("SELECT job_status FROM app.review_jobs WHERE job_id=:job"),
-                {"job": job_id},
-            ).scalar_one() == "STALE"
+            assert (
+                connection.execute(
+                    text("SELECT job_status FROM app.review_jobs WHERE job_id=:job"),
+                    {"job": job_id},
+                ).scalar_one()
+                == "STALE"
+            )
     finally:
         redis.delete(queue_name)
         with engine.begin() as connection:
             connection.execute(
-                text("UPDATE app.advertisements SET latest_review_id=NULL WHERE advertisement_id=:id"),
+                text(
+                    "UPDATE app.advertisements SET latest_review_id=NULL WHERE advertisement_id=:id"
+                ),
                 {"id": advertisement_id},
             )
-            connection.execute(text("DELETE FROM app.reviews WHERE review_id=:id"), {"id": review_id})
+            connection.execute(
+                text("DELETE FROM app.reviews WHERE review_id=:id"), {"id": review_id}
+            )
             connection.execute(
                 text("DELETE FROM app.advertisements WHERE advertisement_id=:id"),
                 {"id": advertisement_id},

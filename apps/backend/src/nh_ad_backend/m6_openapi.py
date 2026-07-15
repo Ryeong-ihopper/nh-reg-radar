@@ -420,9 +420,7 @@ M6_OPENAPI: dict[str, Any] = {
                     "required": True,
                     "content": {
                         "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/AdvertisementRevisionRequest"
-                            }
+                            "schema": {"$ref": "#/components/schemas/AdvertisementRevisionRequest"}
                         }
                     },
                 },
@@ -431,9 +429,7 @@ M6_OPENAPI: dict[str, Any] = {
                         "description": "Stored advertisement revision registered.",
                         "content": {
                             "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/AdvertisementRevision"
-                                }
+                                "schema": {"$ref": "#/components/schemas/AdvertisementRevision"}
                             }
                         },
                     },
