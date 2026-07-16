@@ -106,6 +106,7 @@ services:
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
       OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?OBJECT_STORAGE_ACCESS_KEY is required}
       OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+      REDIS_URL: redis://redis:6379/0
       REVIEW_QUEUE_NAME: ${REDIS_QUEUE_PREFIX:?REDIS_QUEUE_PREFIX is required}review-jobs-v1
       # Used only by the explicit one-shot local reference-ingestion command.
       NH_EXTERNAL_AI_ENABLED: ${NH_EXTERNAL_AI_ENABLED:-false}

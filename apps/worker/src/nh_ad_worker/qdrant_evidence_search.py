@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -86,7 +87,7 @@ class QdrantEvidenceSearch:
                 continue
             try:
                 candidates.append(
-                    _candidate(source, float(hit.get("score") or 0.0), "QDRANT_VECTOR")
+                    _candidate(source, _bounded_vector_score(hit.get("score")), "QDRANT_VECTOR")
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise EvidenceSearchFailure("RAG_SEARCH_FAILED") from exc
@@ -135,7 +136,9 @@ def _candidate(source: dict[str, Any], score: float, source_name: str) -> Eviden
         title=str(source["title"]),
         matched_text=str(source["chunk_text"]),
         relevance_score=score,
-        match_source=source_name,
+        # ``review_item_evidences.match_source`` is a closed, provider-neutral
+        # database contract (KEYWORD/VECTOR/HYBRID/RULE_METADATA).
+        match_source="VECTOR" if source_name == "QDRANT_VECTOR" else source_name,
         evidence_chunk_id=str(source["evidence_chunk_id"]),
         article_no=str(source["article_no"]) if source.get("article_no") else None,
     )
@@ -147,3 +150,17 @@ def _is_effective(source: dict[str, Any], today: str) -> bool:
     return (effective is None or str(effective) <= today) and (
         expired is None or str(expired) >= today
     )
+
+
+def _bounded_vector_score(value: object) -> float:
+    """Protect the [0, 1] persistence contract from a non-positive cosine hit."""
+
+    if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+        raise EvidenceSearchFailure("RAG_SEARCH_FAILED")
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise EvidenceSearchFailure("RAG_SEARCH_FAILED") from exc
+    if not isfinite(score):
+        raise EvidenceSearchFailure("RAG_SEARCH_FAILED")
+    return min(max(score, 0.0), 1.0)

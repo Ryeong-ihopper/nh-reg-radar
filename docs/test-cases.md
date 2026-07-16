@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.32 |
+| 현행 버전 | v1.33 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.33 | 2026-07-16 | paid provider PDF E2E의 Redis delivery·provider 정규화·DB 근거 source/score 계약과 ADR-0072 실제 엔진 미구현 범위를 명시 |
 | v1.32 | 2026-07-16 | OpenAI-compatible embedding의 Qdrant 적재·hybrid 근거 조회 및 model/endpoint 교체 재색인 검증을 추가 |
 | v1.31 | 2026-07-16 | 신규 개발자 로컬 Compose 진입점의 설정 검증, migration·seed·health 순서, frontend API 주소, 재실행·중지·volume 초기화 검증 기준 추가 |
 | v1.30 | 2026-07-16 | Git `main` Markdown 변경의 Notion 자동 증분 갱신, page ID 보존, mapping fail-closed, 페이지별 rollback·재실행·secret 격리 검증 기준 추가 |
@@ -272,6 +273,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-LIVE-003 | live provider fail-closed | `NH_EXTERNAL_AI_ENABLED=true` 이고 key 없음, 또는 HWP/HWPX 업로드 | worker 검토 실행 | `OPENAI_API_KEY_NOT_CONFIGURED` 또는 비지원 adapter 오류로 최종 실패하고 성공 결과·DB fallback 검색이 생성되지 않는다. | review/jobs/audit | P0 |
 | TC-LIVE-004 | 실제 hybrid 근거 조회 | TC-LIVE-001 완료, `OPENAI_EMBEDDING_MODEL`과 1536 차원 Qdrant collection 설정 | 샘플 광고를 검토 요청 | 규정 chunk가 실제 vector로 Qdrant에 저장되고, OpenSearch 및 Qdrant가 모두 결과를 반환한 경우에만 `HYBRID` 근거가 결과 item에 연결된다. | Qdrant/OpenSearch/review items | P0/manual |
 | TC-LIVE-005 | embedding endpoint/model 교체 | 새 OpenAI-compatible endpoint/model/dimension 및 새 Qdrant collection 설정 | 기존 collection을 재사용하지 않고 기준자료 재적재/재색인 | 새 vector dimension과 model metadata로만 검색하며, dimension 불일치/endpoint 오류는 `SEARCH_UNAVAILABLE` 또는 적재 실패로 종료된다. | Qdrant/reindex jobs | P1/manual |
+| TC-LIVE-006 | 승인 PDF paid provider 종단간 검토 | TC-LIVE-001 완료, 동일 Redis URL/queue를 사용하는 backend·worker Compose, 유효한 opt-in key | 승인 PDF를 업로드하고 검토 요청 후 job 종료까지 조회 | `OCR_EXTRACTION`→근거 검색→결과 저장이 완료되고 review는 `CHECK_REQUIRED` 또는 정책상 최종 상태, job은 `COMPLETED`가 된다. OCR ID는 review별로 유일하고 근거 score는 0~1, source는 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA` 중 하나다. key/raw provider 응답은 노출되지 않는다. | review/jobs/ocr/results | P0/manual |
+| TC-LIVE-007 | ADR-0072 실제 엔진 검증 분리 | `opendataloader-pdf`, `PaddleOCR`, `rhwp` adapter와 service가 실제 구성됨 | 유형별 PDF/스캔 PDF/이미지/HWP/HWPX 샘플로 실행 | TC-OCR-016~018의 실제 adapter 선택과 `NormalizedDocument` contract를 검증한다. `openai-responses` live adapter만 존재하는 동안은 미실행 상태로 유지하며 성공으로 대체하지 않는다. | parser adapters/services | P0/manual/blocked |
 | TC-LAY-001 | 제목/본문/유의사항 영역 분리 | 레이아웃 있는 광고 등록 | AI 검토 실행 | `layout_blocks`에 TITLE, BODY, NOTICE 저장 | `layout_blocks` | P1 |
 | TC-LAY-002 | 버튼/배너 영역 인식 | 모바일 배너 등록 | AI 검토 실행 | BUTTON, BANNER 영역 저장 | `layout_blocks` | P2 |
 | TC-LAY-003 | 레이아웃 신뢰도 저장 | 레이아웃 분석 실행 | 결과 확인 | confidence_score 저장 | `layout_blocks` | P2 |

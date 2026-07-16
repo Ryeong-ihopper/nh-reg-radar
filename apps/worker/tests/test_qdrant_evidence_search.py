@@ -46,7 +46,20 @@ def test_qdrant_vector_query_uses_openai_compatible_embedding() -> None:
     assert captured["url"] == "http://qdrant.invalid:6333/collections/reference-v2/points/search"
     assert captured["payload"]["vector"] == [0.1, 0.2]  # type: ignore[index]
     assert result[0].relevance_score == 0.93
-    assert result[0].match_source == "QDRANT_VECTOR"
+    assert result[0].match_source == "VECTOR"
+
+
+def test_qdrant_vector_scores_are_bounded_for_persistence() -> None:
+    result = QdrantEvidenceSearch(
+        "http://qdrant.invalid:6333",
+        "reference-v2",
+        embeddings(),
+        transport=lambda _request, _timeout: json.dumps(
+            {"result": [{"score": -0.2, "payload": payload("CHUNK-1")}]}
+        ).encode(),
+    )("금리")
+
+    assert result[0].relevance_score == 0.0
 
 
 def test_hybrid_search_requires_and_merges_keyword_and_vector_hits() -> None:

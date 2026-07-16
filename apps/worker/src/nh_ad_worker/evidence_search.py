@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -112,8 +113,11 @@ class OpenSearchEvidenceSearch:
                         evidence_type=str(source["evidence_type"]),
                         title=str(source["title"]),
                         matched_text=str(source["chunk_text"]),
-                        relevance_score=float(hit.get("_score") or 0.0),
-                        match_source="OPENSEARCH_KEYWORD",
+                        relevance_score=_bounded_keyword_score(hit.get("_score")),
+                        # The persisted database contract intentionally uses a
+                        # provider-neutral source vocabulary.  Keep the search
+                        # engine implementation detail out of this field.
+                        match_source="KEYWORD",
                         evidence_chunk_id=str(source["evidence_chunk_id"]),
                         article_no=(
                             str(source["article_no"]) if source.get("article_no") else None
@@ -128,3 +132,19 @@ class OpenSearchEvidenceSearch:
     def _send(request: Request, timeout_seconds: float) -> bytes:
         with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
             return cast(bytes, response.read())
+
+
+def _bounded_keyword_score(value: object) -> float:
+    """Map unbounded BM25 output into the persisted [0, 1] relevance contract."""
+
+    if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+        raise ValueError("OPENSEARCH_SCORE_INVALID")
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("OPENSEARCH_SCORE_INVALID") from exc
+    if not isfinite(score):
+        raise ValueError("OPENSEARCH_SCORE_INVALID")
+    if score <= 0:
+        return 0.0
+    return score / (score + 1.0)

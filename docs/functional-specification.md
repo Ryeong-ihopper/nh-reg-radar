@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.15 |
+| 현행 버전 | v1.16 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.16 | 2026-07-16 | 실제 provider E2E의 Compose Redis delivery, provider 입력 정규화·근거 저장 계약 및 ADR-0072 엔진 구현 잔여 범위를 명시 |
 | v1.15 | 2026-07-16 | OpenAI-compatible 실제 embedding/Qdrant+OpenSearch hybrid 근거 검색과 폐쇄망 endpoint/model 교체 경계를 보강 |
 | v1.14 | 2026-07-16 | 승인된 로컬 샘플 PDF/이미지의 OpenAI opt-in 추출·구조화 검토와 기준자료 PDF 적재/동일 OpenSearch 근거 조회 경계를 보강 |
 | v1.13 | 2026-07-16 | 운영 교차검증 결함에 따라 광고 상태 계약, refresh 단일사용, worker lease/idempotency/dead-letter, 재색인 대상 준수와 0009 DB 정합성 경계를 보강 |
@@ -277,6 +278,8 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
 실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. 이때 PDF/PNG/JPEG 광고와 `/reference-documents`로 읽기 전용 마운트한 승인 샘플 규정 PDF만 OpenAI Responses API와 OpenAI-compatible `/embeddings` API에 전송하며, 요청은 provider 저장을 비활성화하고 key·원문·raw provider 응답을 로그/결과 API에 남기지 않는다. 규정 PDF는 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. HWP/HWPX·설정 누락·검색 backend/embedding 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
+
+현재 live opt-in의 문서 추출은 `openai-responses` adapter가 provider 원시 응답 대신 server-owned identity·좌표·confidence를 가진 `NormalizedDocument` v1을 생성하는 한시적 구현이다. 이에 따라 OpenAI PDF input은 MIME data URI로 전송하고, provider에는 원시 primitive block만 요청한다. `opendataloader-pdf`, `PaddleOCR`, `rhwp`의 실제 adapter·서비스와 파일별 라우팅은 ADR-0072의 미완료 후속 조치이며, 이 경로의 성공은 해당 엔진이 기동·품질 검증되었다는 주장이 아니다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
 
 ### M5 근거 기반 결과·Annotation entry gate
 

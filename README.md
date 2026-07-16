@@ -130,6 +130,8 @@ curl --fail http://localhost:8001/ready
 
 worker는 OpenAI Responses API의 추출/구조화 JSON과 OpenAI-compatible `/embeddings` API를 사용하고 provider 저장을 요청하지 않습니다. 결과에는 원문 provider payload나 API key를 보관하지 않습니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. key가 없거나 기능이 꺼져 있거나 HWP/HWPX를 올리면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
 
+> **현재 구현 범위:** 이 opt-in 경로의 PDF/이미지 추출은 `openai-responses` adapter가 `NormalizedDocument` v1로 정규화하는 임시 live adapter입니다. [ADR-0072](docs/adr/ADR-0072-parser-ocr-engine-routing-policy.md)가 정한 `opendataloader-pdf`, `rhwp`, `PaddleOCR` adapter/Compose 서비스는 아직 구현·기동되지 않았습니다. 따라서 별도 OCR/파서 컨테이너를 미리 띄울 필요는 없지만, 이 경로는 ADR-0072의 실제 엔진 품질 검증을 충족하지 않습니다.
+
 #### 폐쇄망/vLLM 전환
 
 생성 LLM과 임베딩은 각각 endpoint/model을 바꿀 수 있습니다. vLLM은 OpenAI-compatible `/v1/responses`와 `/v1/embeddings` API를 제공하므로, 지원되는 생성·임베딩 모델을 별도 서버로 서빙한 뒤 다음처럼 설정합니다. 내부 HTTP endpoint는 명시적으로만 허용합니다.

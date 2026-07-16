@@ -46,8 +46,9 @@ def test_live_evidence_search_uses_active_opensearch_contract() -> None:
     assert isinstance(payload, dict)
     filters = payload["query"]["bool"]["filter"]  # type: ignore[index]
     assert {"term": {"index_status": "ACTIVE"}} in filters
-    assert result[0].match_source == "OPENSEARCH_KEYWORD"
+    assert result[0].match_source == "KEYWORD"
     assert result[0].evidence_chunk_id == "CHUNK-1"
+    assert result[0].relevance_score == pytest.approx(1.3 / 2.3)
 
 
 def test_live_evidence_search_fails_closed_when_opensearch_is_unavailable() -> None:

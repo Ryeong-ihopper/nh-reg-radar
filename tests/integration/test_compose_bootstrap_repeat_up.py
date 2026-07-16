@@ -19,6 +19,15 @@ def _bootstrap_command() -> str:
 
 
 class DatabaseBootstrapRepeatUpTests(unittest.TestCase):
+    def test_backend_uses_the_compose_redis_service_for_review_delivery(self) -> None:
+        compose = COMPOSE.read_text(encoding="utf-8")
+        start = compose.index("  backend:")
+        end = compose.index("\n  worker:", start)
+        backend = compose[start:end]
+
+        self.assertIn("REDIS_URL: redis://redis:6379/0", backend)
+        self.assertIn("REVIEW_QUEUE_NAME:", backend)
+
     def test_running_volume_guard_precedes_local_postgres_launch(self) -> None:
         command = _bootstrap_command()
         guard = command.index('"$$PGDATA/postmaster.pid"')

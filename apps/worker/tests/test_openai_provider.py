@@ -111,7 +111,23 @@ def test_document_adapter_converts_structured_pdf_and_image_response(
     expected_type: str,
 ) -> None:
     fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
-    transport = CapturedTransport(fixture.model_dump(by_alias=True, mode="json"))
+    transport = CapturedTransport(
+        {
+            "textBlocks": [
+                {
+                    "text": "우대금리 연 3.0%",
+                    "pageNo": 1,
+                    "sourceWidth": 100,
+                    "sourceHeight": 200,
+                    "x": 10,
+                    "y": 20,
+                    "width": 60,
+                    "height": 30,
+                    "confidence": 0.9,
+                }
+            ]
+        }
+    )
     source = DocumentInput(
         source_file_id=fixture.source_file_id,
         review_id=fixture.review_id,
@@ -123,7 +139,13 @@ def test_document_adapter_converts_structured_pdf_and_image_response(
 
     result = OpenAIDocumentAdapter(client(transport)).parse(source)
 
-    assert result == fixture
+    assert result.review_id == fixture.review_id
+    assert result.source_file_id == fixture.source_file_id
+    assert result.parser_name == "openai-responses"
+    assert result.text_blocks[0].text_block_id == f"{fixture.review_id}-ocr-1"
+    assert result.text_blocks[0].normalized_text == "우대금리 연 3.0%"
+    assert result.text_blocks[0].coordinate is not None
+    assert result.text_blocks[0].coordinate.normalized_x == 0.1
     payload = request_payload(transport)
     content = payload["input"][0]["content"]  # type: ignore[index]
     binary = content[1]
@@ -134,15 +156,72 @@ def test_document_adapter_converts_structured_pdf_and_image_response(
         )
     else:
         assert binary["filename"] == file_name
-        assert binary["file_data"] == base64.b64encode(source.body).decode("ascii")
-    assert payload["text"]["format"]["strict"] is False  # type: ignore[index]
+        assert binary["file_data"] == (
+            "data:application/pdf;base64," + base64.b64encode(source.body).decode("ascii")
+        )
+    assert payload["text"]["format"] == {  # type: ignore[index]
+        "type": "json_schema",
+        "name": "document_extraction_v1",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "textBlocks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "text": {"type": "string", "minLength": 1},
+                            "pageNo": {"type": "integer", "minimum": 1},
+                            "sourceWidth": {"type": "number", "exclusiveMinimum": 0},
+                            "sourceHeight": {"type": "number", "exclusiveMinimum": 0},
+                            "x": {"type": "number", "minimum": 0},
+                            "y": {"type": "number", "minimum": 0},
+                            "width": {"type": "number", "exclusiveMinimum": 0},
+                            "height": {"type": "number", "exclusiveMinimum": 0},
+                            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                        },
+                        "required": [
+                            "text",
+                            "pageNo",
+                            "sourceWidth",
+                            "sourceHeight",
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "confidence",
+                        ],
+                    },
+                }
+            },
+            "required": ["textBlocks"],
+        },
+        "strict": True,
+    }
 
 
-def test_document_adapter_rejects_response_for_another_review() -> None:
+def test_document_adapter_owns_document_identity_not_provider_output() -> None:
     fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
-    value = fixture.model_dump(by_alias=True, mode="json")
-    value["reviewId"] = "REV-OTHER"
-    transport = CapturedTransport(value)
+    transport = CapturedTransport(
+        {
+            "textBlocks": [
+                {
+                    "text": "문구",
+                    "pageNo": 1,
+                    "sourceWidth": 100,
+                    "sourceHeight": 100,
+                    "x": 0,
+                    "y": 0,
+                    "width": 50,
+                    "height": 10,
+                    "confidence": 0.8,
+                }
+            ]
+        }
+    )
     source = DocumentInput(
         source_file_id=fixture.source_file_id,
         review_id=fixture.review_id,
@@ -152,8 +231,10 @@ def test_document_adapter_rejects_response_for_another_review() -> None:
         external_ai_allowed=True,
     )
 
-    with pytest.raises(OpenAIProviderError, match="OPENAI_DOCUMENT_IDENTITY_MISMATCH"):
-        OpenAIDocumentAdapter(client(transport)).parse(source)
+    result = OpenAIDocumentAdapter(client(transport)).parse(source)
+
+    assert result.review_id == source.review_id
+    assert result.source_file_id == source.source_file_id
 
 
 def test_provider_rejects_missing_structured_output() -> None:

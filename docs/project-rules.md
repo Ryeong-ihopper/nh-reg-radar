@@ -509,6 +509,10 @@ AI 분석 비동기 작업은 [ADR-0035: Redis Queue 및 PostgreSQL Job 상태 �
 
 M4 Redis delivery queue/dead-letter 이름은 `REDIS_QUEUE_PREFIX` 아래에서 환경별로 분리한다. delivery payload는 frozen `ReviewQueueMessageV1` 식별자만 포함하며 원문, 정규화 본문, raw provider output, bucket/object key를 포함하지 않는다.
 
+Compose backend와 worker는 반드시 동일한 `REDIS_URL` 및 review queue 이름을 설정한다. backend가 host 기본값으로 fallback하면 요청은 영속화되어도 worker로 전달되지 않으므로, Compose bootstrap 회귀는 backend Redis URL/queue 주입을 정적으로 검증하고 실제 provider E2E는 완료 상태까지 확인한다.
+
+ADR-0072의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`는 목표 기본 엔진이며, 실제 adapter·서비스가 구성되기 전에는 `openai-responses` live adapter를 해당 엔진 구현 또는 품질 검증 성공으로 표시하지 않는다. 현재 live opt-in은 별도 OCR/파서 컨테이너를 요구하지 않으며 지원하지 않는 HWP/HWPX는 fail-closed 처리한다.
+
 Compose 파일 변경 시 다음 조합의 설정 검증을 수행한다.
 
 ```bash
