@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.16 |
+| 현행 버전 | v1.18 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.18 | 2026-07-16 | rhwp 페이지 단위 Text IR의 `textPath`·raw/normalized offset 보존과 실제 3개 엔진 E2E 완료 기준을 명시 |
+| v1.17 | 2026-07-16 | ADR-0072 OpenDataLoader PDF·PaddleOCR·rhwp private Compose service와 worker adapter, 파일별 live E2E 경계를 반영 |
 | v1.16 | 2026-07-16 | 실제 provider E2E의 Compose Redis delivery, provider 입력 정규화·근거 저장 계약 및 ADR-0072 엔진 구현 잔여 범위를 명시 |
 | v1.15 | 2026-07-16 | OpenAI-compatible 실제 embedding/Qdrant+OpenSearch hybrid 근거 검색과 폐쇄망 endpoint/model 교체 경계를 보강 |
 | v1.14 | 2026-07-16 | 승인된 로컬 샘플 PDF/이미지의 OpenAI opt-in 추출·구조화 검토와 기준자료 PDF 적재/동일 OpenSearch 근거 조회 경계를 보강 |
@@ -40,7 +42,7 @@
 | 대상 시스템 | 멀티모달 RAG Engine 기반 금융상품 광고심의 자동화 에이전트 PoC |
 | 수요기업 | NH농협은행 |
 | 수행기업 | ㈜씨지인사이드 |
-| 문서 버전 | v1.15 |
+| 문서 버전 | v1.18 |
 | 기준일 | 2026-07-16 |
 | 작성일 | 2026-07-02 |
 | 작성 목적 | 요구사항 정의서를 기반으로 화면, 기능, 입력값, 처리규칙, 출력값, 예외처리, 권한, 수용기준을 정의 |
@@ -279,7 +281,7 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 
 실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. 이때 PDF/PNG/JPEG 광고와 `/reference-documents`로 읽기 전용 마운트한 승인 샘플 규정 PDF만 OpenAI Responses API와 OpenAI-compatible `/embeddings` API에 전송하며, 요청은 provider 저장을 비활성화하고 key·원문·raw provider 응답을 로그/결과 API에 남기지 않는다. 규정 PDF는 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. HWP/HWPX·설정 누락·검색 backend/embedding 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
 
-현재 live opt-in의 문서 추출은 `openai-responses` adapter가 provider 원시 응답 대신 server-owned identity·좌표·confidence를 가진 `NormalizedDocument` v1을 생성하는 한시적 구현이다. 이에 따라 OpenAI PDF input은 MIME data URI로 전송하고, provider에는 원시 primitive block만 요청한다. `opendataloader-pdf`, `PaddleOCR`, `rhwp`의 실제 adapter·서비스와 파일별 라우팅은 ADR-0072의 미완료 후속 조치이며, 이 경로의 성공은 해당 엔진이 기동·품질 검증되었다는 주장이 아니다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
+live opt-in의 문서 추출은 private Compose engine service와 worker adapter로 수행한다. PDF/복합 PDF는 `opendataloader-pdf`, 스캔 PDF·PNG/JPEG는 `paddleocr`, HWP/HWPX는 `rhwp` service가 실제 엔진을 실행하고 `NormalizedDocument` v1을 반환한다. worker는 identity·IR contract를 검증하고 parser 원시 output은 서비스 경계 밖으로 노출하지 않는다. OpenAI Responses API는 이 경로에서 구조화 검토 판단에만 사용하며, 문서 추출의 대체 경로가 아니다. engine service는 Compose 네트워크 내부 URL로만 연결하고 local dev에서만 loopback 포트를 선택적으로 공개한다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
 
 ### M5 근거 기반 결과·Annotation entry gate
 

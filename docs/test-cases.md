@@ -6,13 +6,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.33 |
+| 현행 버전 | v1.37 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.37 | 2026-07-16 | HWP/HWPX 파일 상세에서 브라우저 preview 호출을 차단하고 다운로드·Text IR 안내를 표시하는 회귀 기준을 추가 |
+| v1.36 | 2026-07-16 | 권한 검증된 PDF 원본 preview proxy와 frontend PDF object 표시 회귀 기준을 추가 |
+| v1.35 | 2026-07-16 | `opendataloader-pdf`·`paddleocr`·`rhwp` 실제 service adapter의 provider E2E와 rhwp Text IR offset 저장 증거 기준을 보강 |
+| v1.34 | 2026-07-16 | ADR-0072 실제 Compose engine service와 PDF·이미지·HWP credentialed E2E 검증 기준을 반영 |
 | v1.33 | 2026-07-16 | paid provider PDF E2E의 Redis delivery·provider 정규화·DB 근거 source/score 계약과 ADR-0072 실제 엔진 미구현 범위를 명시 |
 | v1.32 | 2026-07-16 | OpenAI-compatible embedding의 Qdrant 적재·hybrid 근거 조회 및 model/endpoint 교체 재색인 검증을 추가 |
 | v1.31 | 2026-07-16 | 신규 개발자 로컬 Compose 진입점의 설정 검증, migration·seed·health 순서, frontend API 주소, 재실행·중지·volume 초기화 검증 기준 추가 |
@@ -274,7 +278,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-LIVE-004 | 실제 hybrid 근거 조회 | TC-LIVE-001 완료, `OPENAI_EMBEDDING_MODEL`과 1536 차원 Qdrant collection 설정 | 샘플 광고를 검토 요청 | 규정 chunk가 실제 vector로 Qdrant에 저장되고, OpenSearch 및 Qdrant가 모두 결과를 반환한 경우에만 `HYBRID` 근거가 결과 item에 연결된다. | Qdrant/OpenSearch/review items | P0/manual |
 | TC-LIVE-005 | embedding endpoint/model 교체 | 새 OpenAI-compatible endpoint/model/dimension 및 새 Qdrant collection 설정 | 기존 collection을 재사용하지 않고 기준자료 재적재/재색인 | 새 vector dimension과 model metadata로만 검색하며, dimension 불일치/endpoint 오류는 `SEARCH_UNAVAILABLE` 또는 적재 실패로 종료된다. | Qdrant/reindex jobs | P1/manual |
 | TC-LIVE-006 | 승인 PDF paid provider 종단간 검토 | TC-LIVE-001 완료, 동일 Redis URL/queue를 사용하는 backend·worker Compose, 유효한 opt-in key | 승인 PDF를 업로드하고 검토 요청 후 job 종료까지 조회 | `OCR_EXTRACTION`→근거 검색→결과 저장이 완료되고 review는 `CHECK_REQUIRED` 또는 정책상 최종 상태, job은 `COMPLETED`가 된다. OCR ID는 review별로 유일하고 근거 score는 0~1, source는 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA` 중 하나다. key/raw provider 응답은 노출되지 않는다. | review/jobs/ocr/results | P0/manual |
-| TC-LIVE-007 | ADR-0072 실제 엔진 검증 분리 | `opendataloader-pdf`, `PaddleOCR`, `rhwp` adapter와 service가 실제 구성됨 | 유형별 PDF/스캔 PDF/이미지/HWP/HWPX 샘플로 실행 | TC-OCR-016~018의 실제 adapter 선택과 `NormalizedDocument` contract를 검증한다. `openai-responses` live adapter만 존재하는 동안은 미실행 상태로 유지하며 성공으로 대체하지 않는다. | parser adapters/services | P0/manual/blocked |
+| TC-LIVE-007 | ADR-0072 실제 엔진 E2E | `opendataloader-pdf`, `PaddleOCR`, `rhwp` private Compose service 및 유효한 opt-in key | 일반 PDF, 스캔 PDF/PNG, HWP/HWPX 승인 샘플을 각각 업로드·검토 요청하고 완료 상태까지 조회 | 각 job의 선택 parser가 `opendataloader-pdf`, `paddleocr`, `rhwp`이며 service health·`NormalizedDocument` contract·최종 결과 저장이 확인된다. OpenAI는 구조화 판단에만 사용한다. | parser services/review/jobs/results | P0/manual |
 | TC-LAY-001 | 제목/본문/유의사항 영역 분리 | 레이아웃 있는 광고 등록 | AI 검토 실행 | `layout_blocks`에 TITLE, BODY, NOTICE 저장 | `layout_blocks` | P1 |
 | TC-LAY-002 | 버튼/배너 영역 인식 | 모바일 배너 등록 | AI 검토 실행 | BUTTON, BANNER 영역 저장 | `layout_blocks` | P2 |
 | TC-LAY-003 | 레이아웃 신뢰도 저장 | 레이아웃 분석 실행 | 결과 확인 | confidence_score 저장 | `layout_blocks` | P2 |
@@ -363,7 +367,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ANN-009 | 문서 단위 이슈 표시 | 위치 없는 문서 전체 이슈 존재 | Annotation 조회 | `DOCUMENT_LEVEL_ISSUE` 상태로 목록/상세 표시 | `review_items`, `annotations` | P1 |
 | TC-ANN-010 | Annotation 위치 신뢰도 임계값 적용 | location confidence 0.80, 0.79, 0.49 fixture 준비 | Annotation 조회 | LOCATED, LOW_CONFIDENCE/PARTIALLY_LOCATED, NOT_LOCATED 상태 분리 | `annotations` | P1 |
 | TC-ANN-011 | Annotation Coordinate object 응답 | BOX Annotation 존재 | `/reviews/{id}/annotations` 호출 | `coordinate` object에 source/원본/정규화 좌표, rotation, coordinateConfidence 반환 | `/reviews/{id}/annotations` | P0 |
-| TC-FILE-001 | 파일 미리보기 조회 | fileId 존재 | `/files/{id}/preview` 호출 | previewUrl, width, height 반환 | `advertisement_files` | P0 |
+| TC-FILE-001 | 파일 미리보기 조회 | PNG/JPEG/PDF/HWP fileId 존재 | 상세의 미리보기 선택 | 권한 검증된 backend proxy가 이미지 또는 `application/pdf` 원본 bytes를 반환하고, PDF는 browser object로 표시한다. HWP/HWPX는 미리보기 요청을 보내지 않고 다운로드·Text IR 안내를 표시한다. | `advertisement_files` | P0 |
 | TC-FILE-002 | 존재하지 않는 파일 미리보기 | 잘못된 fileId | preview API 호출 | 404 NOT_FOUND 반환 | - | P1 |
 
 ---

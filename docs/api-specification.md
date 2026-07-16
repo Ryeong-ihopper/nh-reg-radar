@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.12 |
+| 현행 버전 | v1.13 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.13 | 2026-07-16 | 권한 검증된 file preview content가 PNG/JPEG뿐 아니라 원본 PDF도 backend proxy로 반환하는 계약을 반영 |
 | v1.12 | 2026-07-16 | 광고 목록·상세의 전체 persisted review lifecycle 상태, 멀티파트 enum 검증, refresh replay/CAS 단일사용과 targetIndexes 실행 일치를 보강 |
 | v1.11 | 2026-07-15 | M8 OpenAPI v0.8.0 수정본 multipart 등록, 생성 client 비교·재검토 연계와 restart-safe M6 runtime 계약 반영 |
 | v1.10 | 2026-07-15 | G008 M7 provider-free Validation backend의 정확히 5개 runtime route, 권한·감사, 불변 snapshot/hash 및 저장 KPI 응답 실행 증거 반영 |
@@ -535,7 +536,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 }
 ```
 
-`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다.
+`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다. content는 PNG/JPEG 또는 원본 PDF를 동일한 backend proxy로 반환한다. HWP/HWPX는 브라우저 미리보기 대상이 아니므로 다운로드 또는 검토 결과의 Text IR을 사용한다.
 
 ---
 

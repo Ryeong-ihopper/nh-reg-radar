@@ -19,9 +19,9 @@ from nh_ad_worker.evidence_search import OpenSearchEvidenceSearch
 from nh_ad_worker.jobs import ParserJobProcessor
 from nh_ad_worker.object_storage import S3ArtifactStorage
 from nh_ad_worker.openai_provider import (
-    OpenAIDocumentAdapter,
     OpenAIResponsesClient,
 )
+from nh_ad_worker.parser_services import parser_service_adapters
 from nh_ad_worker.postgres import (
     PostgresArtifactAudit,
     PostgresArtifactMetadataRepository,
@@ -153,14 +153,15 @@ def production_runner(settings: Settings) -> Runner:
         base_url=settings.openai_base_url,
         timeout_seconds=settings.openai_timeout_seconds,
     )
-    adapter = OpenAIDocumentAdapter(client)
     return compose_job_runner(
         settings,
         ParserRouter(
-            {
-                "opendataloader-pdf": adapter,
-                "paddleocr": adapter,
-            }
+            parser_service_adapters(
+                opendataloader_endpoint=settings.opendataloader_pdf_endpoint,
+                paddleocr_endpoint=settings.paddleocr_endpoint,
+                rhwp_endpoint=settings.rhwp_endpoint,
+                timeout_seconds=settings.parser_service_timeout_seconds,
+            )
         ),
         response_client=client,
     )

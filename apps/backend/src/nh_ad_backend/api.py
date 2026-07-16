@@ -660,7 +660,13 @@ def install_routes(
         operation_id="getFilePreviewContent",
         response_class=StreamingResponse,
         responses={
-            200: {"content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}},
+            200: {
+                "content": {
+                    "image/png": {"schema": {"type": "string", "format": "binary"}},
+                    "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+                    "application/pdf": {"schema": {"type": "string", "format": "binary"}},
+                }
+            },
             **error_models(401, 403, 404),
         },
     )
@@ -674,11 +680,11 @@ def install_routes(
         file, stream = services.advertisements.open_file(
             current, file_id, request.state.trace_id, "FILE_PREVIEW"
         )
-        if file.mime_type != "image/png":
+        if file.mime_type not in {"image/png", "image/jpeg", "application/pdf"}:
             stream.close()
             raise ServiceError(400, "FILE_READ_FAILED", "미리보기를 생성할 수 없습니다.")
         return StreamingResponse(
-            stream, media_type="image/png", headers={"Cache-Control": "no-store"}
+            stream, media_type=file.mime_type, headers={"Cache-Control": "no-store"}
         )
 
     @router.get(

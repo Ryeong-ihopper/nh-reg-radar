@@ -177,7 +177,10 @@ jobs:
             fi
           }
           trap cleanup EXIT
-          timeout 600s "${compose[@]}" up -d --build --wait --wait-timeout 240
+          # Fresh GitHub runners must pull the parser/OCR images before the
+          # health wait starts.  Keep the readiness limit strict, but allow
+          # enough wall-clock time for that one-time image acquisition.
+          timeout 900s "${compose[@]}" up -d --build --wait --wait-timeout 240
 
           bootstrap_id=$("${compose[@]}" ps -aq db-bootstrap)
           test -n "$bootstrap_id"

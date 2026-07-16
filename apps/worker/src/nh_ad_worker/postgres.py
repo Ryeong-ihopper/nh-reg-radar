@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 import json
 from collections.abc import Callable
 from dataclasses import replace
@@ -12,6 +13,7 @@ from uuid import uuid4
 
 from nh_ad_parser_contracts import ArtifactMetadata, DocumentInput, NormalizedDocument
 from sqlalchemy import Engine, text
+from pypdf import PdfReader
 
 from nh_ad_worker.jobs import QueueMessage, RETRY_DELAYS, WorkerJob
 from nh_ad_worker.results import ReviewResultBundle
@@ -216,6 +218,11 @@ class PostgresJobRepository:
                 file_name=source["original_file_name"],
                 mime_type=source["mime_type"],
                 body=body,
+                scanned_pdf=_is_scanned_pdf(
+                    file_name=str(source["original_file_name"]),
+                    mime_type=str(source["mime_type"]),
+                    body=body,
+                ),
                 external_ai_allowed=self._external_ai_allowed,
             ),
             review_step_id=str(step),
@@ -812,3 +819,16 @@ class PostgresJobRepository:
 
     def close(self) -> None:
         self._engine.dispose()
+
+
+def _is_scanned_pdf(*, file_name: str, mime_type: str, body: bytes) -> bool:
+    """Route image-only PDFs to PaddleOCR before the parser selection is made."""
+
+    if not (file_name.casefold().endswith(".pdf") or mime_type == "application/pdf"):
+        return False
+    try:
+        reader = PdfReader(BytesIO(body))
+        return not any((page.extract_text() or "").strip() for page in reader.pages)
+    except Exception:
+        # The primary PDF adapter owns malformed-PDF errors and their retry policy.
+        return False

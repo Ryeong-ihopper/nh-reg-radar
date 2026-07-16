@@ -51,6 +51,18 @@ services:
     volumes:
       - ./apps/worker:/app
 
+  opendataloader-pdf:
+    ports:
+      - "127.0.0.1:${OPENDATALOADER_PDF_PORT:-8091}:8091"
+
+  paddleocr:
+    ports:
+      - "127.0.0.1:${PADDLEOCR_PORT:-8092}:8092"
+
+  rhwp:
+    ports:
+      - "127.0.0.1:${RHWP_PORT:-8093}:8093"
+
   postgres:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

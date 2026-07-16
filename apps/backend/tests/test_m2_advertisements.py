@@ -13,6 +13,7 @@ from nh_ad_backend.storage import MAX_FILE_SIZE, UploadValidationError, validate
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
 
 
 def png_with_payload(payload_size: int) -> bytes:
@@ -110,6 +111,34 @@ def test_upload_list_detail_preview_download_and_scope(
         for event in repository.audit_events
         for json_value in event.metadata.values()
     )
+
+
+def test_preview_returns_the_authorized_pdf_without_reinterpreting_its_bytes(
+    client: TestClient,
+) -> None:
+    token, _ = login(client)
+    created = client.post(
+        "/api/v1/advertisements",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "advertisementName": "PDF 미리보기",
+            "productGroup": "SAVINGS",
+            "advertisementType": "MOBILE_BANNER",
+            "departmentId": "DPT-A",
+        },
+        files={"advertisementFile": ("banner.pdf", PDF, "application/pdf")},
+    )
+    assert created.status_code == 201, created.text
+    file_id = created.json()["files"][0]["fileId"]
+
+    content = client.get(
+        f"/api/v1/files/{file_id}/preview/content?pageNo=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert content.status_code == 200
+    assert content.headers["content-type"] == "application/pdf"
+    assert content.content == PDF
 
 
 def test_file_error_statuses_and_duplicates(client: TestClient) -> None:

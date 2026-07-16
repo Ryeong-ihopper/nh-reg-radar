@@ -8,6 +8,7 @@ dependencies = [
   "nh-ad-ai-providers",
   "nh-ad-parser-contracts",
   "pydantic-settings>=2.10,<3",
+  "pypdf>=5.9,<6",
   "psycopg[binary]==3.2.10",
   "redis>=6,<7",
   "SQLAlchemy==2.0.43",

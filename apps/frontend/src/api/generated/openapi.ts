@@ -3031,6 +3031,8 @@ export interface operations {
                 };
                 content: {
                     "image/png": string;
+                    "image/jpeg": string;
+                    "application/pdf": string;
                 };
             };
             /** @description Unauthorized */

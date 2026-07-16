@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float | None = Field(default=None, gt=0, le=300)
     embedding_dimensions: int = Field(default=1536, gt=0, le=8192)
     embedding_allow_insecure_http: bool = False
+    parser_service_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
+    opendataloader_pdf_endpoint: str = "http://opendataloader-pdf:8091"
+    paddleocr_endpoint: str = "http://paddleocr:8092"
+    rhwp_endpoint: str = "http://rhwp:8093"
 
     @property
     def resolved_embedding_api_key(self) -> SecretStr | None:

@@ -7,6 +7,7 @@ export function FileActions({ accessToken, file }: { accessToken: string; file: 
   const [pending, setPending] = useState<"preview" | "download" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const previewSupported = ["image/png", "image/jpeg", "application/pdf"].includes(file.mimeType);
 
   useEffect(() => () => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -49,10 +50,12 @@ export function FileActions({ accessToken, file }: { accessToken: string; file: 
   return (
     <div className="file-actions">
       <span>{file.fileName} ({file.fileType}, {file.fileSize.toLocaleString("ko-KR")} bytes)</span>
-      <button type="button" className="button-secondary" disabled={pending !== null} onClick={() => void preview()}>{pending === "preview" ? "미리보기 중..." : "미리보기"}</button>
+      <button type="button" className="button-secondary" disabled={pending !== null || !previewSupported} onClick={() => void preview()}>{pending === "preview" ? "미리보기 중..." : "미리보기"}</button>
       <button type="button" className="button-secondary" disabled={pending !== null} onClick={() => void download()}>{pending === "download" ? "다운로드 중..." : "다운로드"}</button>
       {error ? <p role="alert" className="field-error">{error}</p> : null}
-      {previewUrl ? <img className="file-preview" src={previewUrl} alt={`${file.fileName} 미리보기`} /> : null}
+      {!previewSupported ? <p className="state-message">HWP/HWPX는 원본 다운로드 또는 검토 결과의 텍스트 위치에서 확인할 수 있습니다.</p> : null}
+      {previewUrl && file.fileName.toLowerCase().endsWith(".pdf") ? <object className="file-preview" data={previewUrl} type="application/pdf" aria-label={`${file.fileName} 미리보기`} /> : null}
+      {previewUrl && !file.fileName.toLowerCase().endsWith(".pdf") ? <img className="file-preview" src={previewUrl} alt={`${file.fileName} 미리보기`} /> : null}
     </div>
   );
 }

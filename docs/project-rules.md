@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.14 |
+| 현행 버전 | v1.15 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.15 | 2026-07-16 | ADR-0072 private parser/OCR service 이미지, health와 실제 provider E2E를 별도 수동 증거로 유지하는 기준을 추가 |
 | v1.14 | 2026-07-16 | 신규 개발자용 provider-free 로컬 Compose 진입점, migration·dev seed·health 대기 순서, 브라우저 API 주소와 안전한 중지·초기화 기준 반영 |
 | v1.13 | 2026-07-16 | ADR-0077에 따라 `main` Markdown 변경의 Notion 단방향 자동 동기화, 기존 page ID 보존, 페이지별 검증·rollback과 fail-closed mapping 기준 반영 |
 | v1.12 | 2026-07-16 | `main`/`dev`/`feature/*`/`hotfix/*` 브랜치, PR·보호 브랜치, Conventional Commits, release tag 및 GitOps 승격·롤백 규칙을 기존 중복 없이 통합 |
@@ -511,7 +512,7 @@ M4 Redis delivery queue/dead-letter 이름은 `REDIS_QUEUE_PREFIX` 아래에서 
 
 Compose backend와 worker는 반드시 동일한 `REDIS_URL` 및 review queue 이름을 설정한다. backend가 host 기본값으로 fallback하면 요청은 영속화되어도 worker로 전달되지 않으므로, Compose bootstrap 회귀는 backend Redis URL/queue 주입을 정적으로 검증하고 실제 provider E2E는 완료 상태까지 확인한다.
 
-ADR-0072의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`는 목표 기본 엔진이며, 실제 adapter·서비스가 구성되기 전에는 `openai-responses` live adapter를 해당 엔진 구현 또는 품질 검증 성공으로 표시하지 않는다. 현재 live opt-in은 별도 OCR/파서 컨테이너를 요구하지 않으며 지원하지 않는 HWP/HWPX는 fail-closed 처리한다.
+ADR-0072의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`는 private Compose service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. PDF/복합 PDF, 이미지·스캔 PDF, HWP/HWPX는 각각 해당 service로 라우팅한다. 이 engine service는 운영 Compose 네트워크 내부에만 두고, local dev의 loopback port는 디버깅 목적 외 사용하지 않는다. 엔진 container build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
 
 Compose 파일 변경 시 다음 조합의 설정 검증을 수행한다.
 

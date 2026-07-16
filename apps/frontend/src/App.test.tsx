@@ -63,6 +63,7 @@ test("restores an httpOnly refresh-cookie session before rendering a protected d
 
   expect(screen.getByRole("status")).toHaveTextContent("로그인 상태를 확인하는 중입니다.");
   expect(await screen.findByRole("heading", { name: "광고물 목록" })).toBeInTheDocument();
+  await waitFor(() => expect(calls).toHaveLength(2));
   expect(calls.map((call) => new URL(call.url, "http://test").pathname)).toEqual([
     "/api/v1/auth/refresh",
     "/api/v1/advertisements",
@@ -280,6 +281,38 @@ test("renders a dedicated forbidden state for an unauthorized file preview", asy
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("파일 미리보기 권한이 없습니다.");
   expect(alert).not.toHaveTextContent("object-key");
+});
+
+test("renders an authorized PDF preview as a browser PDF object", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:pdf-preview") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/preview/content")) return new Response(new Blob(["%PDF-1.4"], { type: "application/pdf" }), { status: 200, headers: { "Content-Type": "application/pdf" } });
+    if (url.includes("/preview?")) return response({ fileId: "FILE-PDF", pageNo: 1, totalPages: 1, previewPath: "/api/v1/files/FILE-PDF/preview/content", width: null, height: null });
+    if (url.endsWith("/advertisements/ADV-PDF")) return response({ advertisementId: "ADV-PDF", advertisementName: "PDF 광고", productGroup: "SAVINGS", advertisementType: "MOBILE_BANNER", departmentId: "DPT-001", registeredBy: "user001", registeredAt: "2026-07-16T10:00:00+09:00", reviewStatus: "UPLOADED", files: [{ fileId: "FILE-PDF", fileType: "ADVERTISEMENT", fileName: "banner.pdf", mimeType: "application/pdf", fileSize: 10 }] });
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-PDF"]}><App initialSession={productSession} /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button", { name: "미리보기" }));
+
+  expect(await screen.findByLabelText("banner.pdf 미리보기")).toHaveAttribute("data", "blob:pdf-preview");
+});
+
+test("does not request an unsupported HWP browser preview", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/advertisements/ADV-HWP")) return response({ advertisementId: "ADV-HWP", advertisementName: "HWP 광고", productGroup: "SAVINGS", advertisementType: "MOBILE_BANNER", departmentId: "DPT-001", registeredBy: "user001", registeredAt: "2026-07-16T10:00:00+09:00", reviewStatus: "UPLOADED", files: [{ fileId: "FILE-HWP", fileType: "ADVERTISEMENT", fileName: "banner.hwp", mimeType: "application/x-hwp", fileSize: 10 }] });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-HWP"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  expect(await screen.findByText("HWP/HWPX는 원본 다운로드 또는 검토 결과의 텍스트 위치에서 확인할 수 있습니다.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "미리보기" })).toBeDisabled();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
 test("rejects an untrusted preview path without requesting storage or foreign URLs", async () => {

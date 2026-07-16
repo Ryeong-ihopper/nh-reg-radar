@@ -128,9 +128,9 @@ curl --fail http://localhost:8001/ready
 
 3. <http://localhost:5173>에서 `product@example.invalid`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
 
-worker는 OpenAI Responses API의 추출/구조화 JSON과 OpenAI-compatible `/embeddings` API를 사용하고 provider 저장을 요청하지 않습니다. 결과에는 원문 provider payload나 API key를 보관하지 않습니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. key가 없거나 기능이 꺼져 있거나 HWP/HWPX를 올리면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
+worker는 OpenAI Responses API를 **구조화 검토 판단**에만, OpenAI-compatible `/embeddings` API를 근거 검색에 사용하며 provider 원문 응답이나 API key는 저장하지 않습니다. 문서 추출은 private parser/OCR 서비스가 담당합니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. 구조화 판단 또는 임베딩 key가 없거나 기능이 꺼져 있으면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
 
-> **현재 구현 범위:** 이 opt-in 경로의 PDF/이미지 추출은 `openai-responses` adapter가 `NormalizedDocument` v1로 정규화하는 임시 live adapter입니다. [ADR-0072](docs/adr/ADR-0072-parser-ocr-engine-routing-policy.md)가 정한 `opendataloader-pdf`, `rhwp`, `PaddleOCR` adapter/Compose 서비스는 아직 구현·기동되지 않았습니다. 따라서 별도 OCR/파서 컨테이너를 미리 띄울 필요는 없지만, 이 경로는 ADR-0072의 실제 엔진 품질 검증을 충족하지 않습니다.
+> **실제 Parser/OCR 서비스:** `scripts/local-dev.sh up`은 private Compose 서비스 `opendataloader-pdf`, `paddleocr`, `rhwp`를 함께 기동합니다. PDF/복합 PDF는 OpenDataLoader PDF, 이미지·스캔 PDF는 PaddleOCR, HWP/HWPX는 rhwp가 추출하고 worker adapter가 `NormalizedDocument` v1만 수용합니다. 개발자가 별도 엔진을 수동으로 띄울 필요는 없습니다. 첫 기동은 이미지 build와 PaddleOCR 한국어 모델 다운로드 때문에 시간이 걸릴 수 있습니다. 각 엔진은 `127.0.0.1:8091`~`8093`으로만 노출되며, 운영에서는 Compose 네트워크 내부만 사용합니다.
 
 #### 폐쇄망/vLLM 전환
 

@@ -165,6 +165,10 @@ services:
       EMBEDDING_TIMEOUT_SECONDS: ${EMBEDDING_TIMEOUT_SECONDS:-}
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
       EMBEDDING_ALLOW_INSECURE_HTTP: ${EMBEDDING_ALLOW_INSECURE_HTTP:-false}
+      PARSER_SERVICE_TIMEOUT_SECONDS: ${PARSER_SERVICE_TIMEOUT_SECONDS:-120}
+      OPENDATALOADER_PDF_ENDPOINT: http://opendataloader-pdf:8091
+      PADDLEOCR_ENDPOINT: http://paddleocr:8092
+      RHWP_ENDPOINT: http://rhwp:8093
     depends_on:
       postgres:
         condition: service_healthy
@@ -172,6 +176,12 @@ services:
         condition: service_healthy
       minio-bootstrap:
         condition: service_completed_successfully
+      opendataloader-pdf:
+        condition: service_healthy
+      paddleocr:
+        condition: service_healthy
+      rhwp:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -211,6 +221,45 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    networks: [application]
+
+  opendataloader-pdf:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/opendataloader-pdf:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/parser-services/Dockerfile.opendataloader
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [application]
+
+  paddleocr:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/paddleocr:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/parser-services/Dockerfile.paddleocr
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+    networks: [application]
+
+  rhwp:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/rhwp:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/parser-services/Dockerfile.rhwp
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks: [application]
 
   minio:
