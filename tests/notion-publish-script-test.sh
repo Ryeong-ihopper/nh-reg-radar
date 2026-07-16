@@ -19,6 +19,12 @@ if grep -q 'NOTION_API_TOKEN' <<<"$job_environment"; then
   echo "Notion API token must not be exposed to every workflow step" >&2
   exit 1
 fi
+grep -q '^  push:$' "$workflow_path"
+grep -q '      - main' "$workflow_path"
+grep -q 'SYNC_DEV_DOCS' "$workflow_path"
+grep -q 'scripts/publish-notion-docs-test.sh --sync' "$workflow_path"
+grep -q 'gh run list' "$workflow_path"
+grep -q -- '--status success' "$workflow_path"
 
 checkout_step="$(
   awk '
@@ -33,20 +39,22 @@ if ! grep -q 'persist-credentials: false' <<<"$checkout_step"; then
 fi
 
 dry_run_output="$(scripts/publish-notion-docs-test.sh --dry-run)"
-grep -q '^selected_markdown_count=93$' <<<"$dry_run_output"
+grep -q '^selected_markdown_count=94$' <<<"$dry_run_output"
 grep -q '^general_markdown_count=15$' <<<"$dry_run_output"
-grep -q '^adr_markdown_count=78$' <<<"$dry_run_output"
+grep -q '^adr_markdown_count=79$' <<<"$dry_run_output"
 grep -q '^excluded_non_markdown_count=33$' <<<"$dry_run_output"
 
 manifest="$(scripts/publish-notion-docs-test.sh --manifest)"
 test "$(awk -F '\t' '$1 == "general" {count++} END {print count + 0}' <<<"$manifest")" -eq 15
-test "$(awk -F '\t' '$1 == "adr" {count++} END {print count + 0}' <<<"$manifest")" -eq 78
+test "$(awk -F '\t' '$1 == "adr" {count++} END {print count + 0}' <<<"$manifest")" -eq 79
 grep -q $'^general\t00\tdocs/project-rules.md\t프로젝트 규칙$' <<<"$manifest"
 grep -q $'^general\t01\tdocs/requirements-definition.md\t01. 요구사항 정의서$' <<<"$manifest"
 grep -q $'^general\t14\tdocs/risk-assessment-criteria.md\t14. 위험도 산정 기준표$' <<<"$manifest"
 grep -q $'^adr\t00\tdocs/adr/README.md\t00. ADR 목록$' <<<"$manifest"
 grep -q $'^adr\t01\tdocs/adr/decision-questions.md\t01. ADR 의사결정 질문지$' <<<"$manifest"
 grep -q $'^adr\tADR-0076\tdocs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md\tADR-0076: AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층$' <<<"$manifest"
+grep -q $'^adr\tADR-0077\tdocs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md\tADR-0077: Git-Notion 단방향 문서 자동 동기화 정책$' <<<"$manifest"
+scripts/publish-notion-docs-test.sh --validate-map
 
 rendered="$(scripts/publish-notion-docs-test.sh --render docs/project-rules.md)"
 grep -q '^# 프로젝트 규칙$' <<<"$(sed -n '1p' <<<"$rendered")"
@@ -64,12 +72,13 @@ fi
 
 mock_dir="$(mktemp -d)"
 result_path="$ROOT/notion-publish-test-result.json"
+sync_result_path="$ROOT/notion-sync-result.json"
 cleanup() {
   rm -rf "$mock_dir"
-  rm -f "$result_path"
+  rm -f "$result_path" "$sync_result_path"
 }
 trap cleanup EXIT
-mkdir -p "$mock_dir/markdown" "$mock_dir/titles"
+mkdir -p "$mock_dir/markdown" "$mock_dir/titles" "$mock_dir/parents"
 printf '0' >"$mock_dir/counter"
 printf '0' >"$mock_dir/divider-counter"
 : >"$mock_dir/events"
@@ -99,12 +108,26 @@ case "${1:-}:${2:-}" in
     page_id="mock-page-$count"
     first_line="$(sed -n '1p' <<<"$markdown")"
     printf '%s' "$markdown" >"$MOCK_NTN_STATE_DIR/markdown/$page_id"
+    printf '%s' "$parent" >"$MOCK_NTN_STATE_DIR/parents/$page_id"
     printf 'create\t%s\t%s\t%s\n' "$page_id" "$parent" "$first_line" >>"$event_log"
     jq -n --arg id "$page_id" --arg url "https://notion.example/$page_id" '{id:$id,url:$url}'
+    ;;
+  pages:update)
+    page_id="$3"
+    markdown="$(cat)"
+    printf '%s' "$markdown" >"$MOCK_NTN_STATE_DIR/markdown/$page_id"
+    printf 'update\t%s\n' "$page_id" >>"$event_log"
+    jq -n --arg id "$page_id" --arg markdown "$markdown" \
+      '{object:"page_markdown",id:$id,markdown:$markdown,truncated:false,unknown_block_ids:[]}'
     ;;
   pages:get)
     page_id="$3"
     if [ "${MOCK_NTN_PERMANENT_GET_PAGE:-}" = "$page_id" ]; then
+      echo 'error: Public API request failed: 502 Bad Gateway' >&2
+      exit 5
+    fi
+    if [ "${MOCK_NTN_FAIL_GET_AFTER_UPDATE_PAGE:-}" = "$page_id" ] \
+      && grep -q $'^update\t'"$page_id"'$' "$event_log"; then
       echo 'error: Public API request failed: 502 Bad Gateway' >&2
       exit 5
     fi
@@ -114,8 +137,9 @@ case "${1:-}:${2:-}" in
       exit 5
     fi
     title="$(cat "$MOCK_NTN_STATE_DIR/titles/$page_id")"
-    jq -n --rawfile markdown "$MOCK_NTN_STATE_DIR/markdown/$page_id" --arg title "$title" \
-      '{page:{is_locked:true,properties:{title:{title:[{plain_text:$title}]}}},markdown:{truncated:false,unknown_block_ids:[],markdown:$markdown}}'
+    parent="$(cat "$MOCK_NTN_STATE_DIR/parents/$page_id")"
+    jq -n --rawfile markdown "$MOCK_NTN_STATE_DIR/markdown/$page_id" --arg id "$page_id" --arg parent "$parent" --arg title "$title" \
+      '{page:{id:$id,url:("https://notion.example/" + $id),in_trash:false,is_locked:true,parent:{page_id:$parent},properties:{title:{title:[{plain_text:$title}]}}},markdown:{truncated:false,unknown_block_ids:[],markdown:$markdown}}'
     ;;
   pages:edit)
     echo 'pages edit must not be used for hierarchical publication' >&2
@@ -128,6 +152,15 @@ case "${1:-}:${2:-}" in
     if [ -z "$request" ] && [ "$endpoint" = "v1/pages/test-parent" ]; then
       printf '{"url":"https://notion.example/test-parent","in_trash":false,"properties":{"title":{"title":[{"plain_text":"개발 문서"}]}}}\n'
       exit 0
+    fi
+
+    if [ -z "$request" ] && [[ "$endpoint" == v1/pages/* ]]; then
+      page_id="${endpoint##*/}"
+      if [ -f "$MOCK_NTN_STATE_DIR/titles/$page_id" ]; then
+        title="$(cat "$MOCK_NTN_STATE_DIR/titles/$page_id")"
+        printf '{"id":"%s","url":"https://notion.example/%s","in_trash":false,"is_locked":true,"properties":{"title":{"title":[{"plain_text":"%s"}]}}}\n' "$page_id" "$page_id" "$title"
+        exit 0
+      fi
     fi
 
     if [ -z "$request" ] && [[ "$endpoint" == v1/blocks/*/children ]]; then
@@ -155,6 +188,7 @@ case "${1:-}:${2:-}" in
       parent="$(jq -er '.parent.page_id' <<<"$request")"
       title="$(jq -er '.properties.title.title[0].text.content' <<<"$request")"
       printf '%s' "$title" >"$MOCK_NTN_STATE_DIR/titles/$page_id"
+      printf '%s' "$parent" >"$MOCK_NTN_STATE_DIR/parents/$page_id"
       printf 'container\t%s\t%s\t%s\n' "$page_id" "$parent" "$title" >>"$event_log"
       jq -n --arg id "$page_id" --arg url "https://notion.example/$page_id" --arg title "$title" \
         '{id:$id,url:$url,properties:{title:{title:[{plain_text:$title}]}}}'
@@ -205,33 +239,120 @@ PATH="$mock_dir:$PATH" \
 jq -e '
   .root_page_id == "test-parent"
   and .adr_page_id == "mock-page-16"
-  and .published_count == 93
+  and .published_count == 94
   and .general_count == 15
-  and .adr_count == 78
-  and (.pages | length == 93)
+  and .adr_count == 79
+  and (.pages | length == 94)
   and .pages[0].display_title == "프로젝트 규칙"
   and .pages[1].display_title == "01. 요구사항 정의서"
   and .pages[14].display_title == "14. 위험도 산정 기준표"
   and .pages[15].display_title == "00. ADR 목록"
   and .pages[16].display_title == "01. ADR 의사결정 질문지"
-  and .pages[-1].display_title == "ADR-0076: AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층"
+  and .pages[-1].display_title == "ADR-0077: Git-Notion 단방향 문서 자동 동기화 정책"
 ' "$result_path" >/dev/null
 
 test "$(awk -F '\t' '$1 == "create" && $3 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 15
-test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 78
+test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 79
 grep -q $'^container\tmock-page-16\ttest-parent\t15. ADR$' "$mock_dir/events"
 if grep -q $'^create\t.*\ttest-parent\t# 15. ADR$' "$mock_dir/events"; then
   echo "ADR container contains an unnecessary heading block" >&2
   exit 1
 fi
 test "$(awk -F '\t' '$1 == "divider" && $2 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 2
-test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 95
+test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 96
 grep -q $'^lock\ttest-parent$' "$mock_dir/events"
 grep -q $'^lock\tmock-page-16$' "$mock_dir/events"
 
-rm -f "$result_path" "$mock_dir/transient-get-failed"
-rm -rf "$mock_dir/markdown" "$mock_dir/titles"
-mkdir -p "$mock_dir/markdown" "$mock_dir/titles"
+mock_map="$mock_dir/notion-page-map.json"
+jq '{version:1,root_page_id,adr_page_id,last_published_commit:.commit_sha,pages:[.pages[] | {source_path,section,page_id,state:"active"}]}' \
+  "$result_path" >"$mock_map"
+: >"$mock_dir/events"
+
+PATH="$mock_dir:$PATH" \
+  MOCK_NTN_STATE_DIR="$mock_dir" \
+  NOTION_API_TOKEN=test-token \
+  NOTION_PARENT_PAGE_ID=test-parent \
+  NOTION_PAGE_MAP_PATH="$mock_map" \
+  NOTION_SYNC_PATHS=docs/project-rules.md \
+  NOTION_REQUEST_INTERVAL_SECONDS=0 \
+  NOTION_RETRY_DELAY_SECONDS=0 \
+  scripts/publish-notion-docs-test.sh --sync >/dev/null
+
+jq -e '
+  .synced_count == 1
+  and .pages[0].action == "updated"
+  and .pages[0].source_path == "docs/project-rules.md"
+  and .pages[0].page_id == "mock-page-1"
+  and .pages[0].verified == true
+' "$sync_result_path" >/dev/null
+test "$(awk -F '\t' '$1 == "update" && $2 == "mock-page-1" {count++} END {print count + 0}' "$mock_dir/events")" -eq 1
+test "$(awk -F '\t' '$1 == "create" {count++} END {print count + 0}' "$mock_dir/events")" -eq 0
+grep -q $'^unlock\tmock-page-1$' "$mock_dir/events"
+grep -q $'^lock\tmock-page-1$' "$mock_dir/events"
+
+create_map="$mock_dir/notion-page-map-create.json"
+jq '(.pages[] | select(.source_path == "docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md") | .page_id) = null' \
+  "$mock_map" >"$create_map"
+adr_0077_page_id="$(jq -r '.pages[] | select(.source_path == "docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md") | .page_id' "$mock_map")"
+rm -f "$mock_dir/markdown/$adr_0077_page_id" "$mock_dir/titles/$adr_0077_page_id" "$mock_dir/parents/$adr_0077_page_id"
+rm -f "$sync_result_path"
+: >"$mock_dir/events"
+if PATH="$mock_dir:$PATH" \
+  MOCK_NTN_STATE_DIR="$mock_dir" \
+  NOTION_API_TOKEN=test-token \
+  NOTION_PARENT_PAGE_ID=test-parent \
+  NOTION_PAGE_MAP_PATH="$create_map" \
+  NOTION_SYNC_PATHS=docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md \
+  NOTION_REQUEST_INTERVAL_SECONDS=0 \
+  NOTION_RETRY_DELAY_SECONDS=0 \
+  scripts/publish-notion-docs-test.sh --sync >/dev/null 2>&1; then
+  echo "synchronization must reject an unmapped page unless creation is explicitly allowed" >&2
+  exit 1
+fi
+test "$(awk -F '\t' '$1 == "create" {count++} END {print count + 0}' "$mock_dir/events")" -eq 0
+
+: >"$mock_dir/events"
+PATH="$mock_dir:$PATH" \
+  MOCK_NTN_STATE_DIR="$mock_dir" \
+  NOTION_API_TOKEN=test-token \
+  NOTION_PARENT_PAGE_ID=test-parent \
+  NOTION_PAGE_MAP_PATH="$create_map" \
+  NOTION_SYNC_PATHS=docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md \
+  NOTION_ALLOW_CREATE=1 \
+  NOTION_REQUEST_INTERVAL_SECONDS=0 \
+  NOTION_RETRY_DELAY_SECONDS=0 \
+  scripts/publish-notion-docs-test.sh --sync >/dev/null
+jq -e '
+  .synced_count == 1
+  and .pages[0].action == "created"
+  and .pages[0].source_path == "docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md"
+  and .pages[0].page_id != null
+' "$sync_result_path" >/dev/null
+test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 1
+
+rm -f "$sync_result_path"
+: >"$mock_dir/events"
+if PATH="$mock_dir:$PATH" \
+  MOCK_NTN_STATE_DIR="$mock_dir" \
+  MOCK_NTN_FAIL_GET_AFTER_UPDATE_PAGE=mock-page-1 \
+  NOTION_API_TOKEN=test-token \
+  NOTION_PARENT_PAGE_ID=test-parent \
+  NOTION_PAGE_MAP_PATH="$mock_map" \
+  NOTION_SYNC_PATHS=docs/project-rules.md \
+  NOTION_REQUEST_INTERVAL_SECONDS=0 \
+  NOTION_RETRY_ATTEMPTS=2 \
+  NOTION_RETRY_DELAY_SECONDS=0 \
+  scripts/publish-notion-docs-test.sh --sync >/dev/null 2>&1; then
+  echo "synchronization must fail when updated content cannot be verified" >&2
+  exit 1
+fi
+test ! -e "$sync_result_path"
+test "$(awk -F '\t' '$1 == "update" && $2 == "mock-page-1" {count++} END {print count + 0}' "$mock_dir/events")" -eq 2
+grep -q $'^lock\tmock-page-1$' "$mock_dir/events"
+
+rm -f "$result_path" "$sync_result_path" "$mock_dir/transient-get-failed"
+rm -rf "$mock_dir/markdown" "$mock_dir/titles" "$mock_dir/parents"
+mkdir -p "$mock_dir/markdown" "$mock_dir/titles" "$mock_dir/parents"
 printf '0' >"$mock_dir/counter"
 printf '0' >"$mock_dir/divider-counter"
 : >"$mock_dir/events"

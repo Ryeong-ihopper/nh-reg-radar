@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.29 |
+| 현행 버전 | v1.30 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.30 | 2026-07-16 | Git `main` Markdown 변경의 Notion 자동 증분 갱신, page ID 보존, mapping fail-closed, 페이지별 rollback·재실행·secret 격리 검증 기준 추가 |
 | v1.29 | 2026-07-16 | 팀 Git 브랜치·PR·Conventional Commits·release/hotfix 역반영과 GitOps immutable 승격·rollback 정책의 수동 검증 기준 추가 |
 | v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 현행 0009 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
 | v1.27 | 2026-07-16 | Notion 수동 게시의 93개 Markdown 선별, 번호형 계층, secret 격리, 재시도·실패 정리와 페이지별 내용 검증 회귀 기준 통합 |
@@ -739,22 +740,24 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 이 Gate의 외부 엔진 workflow는 실제 엔진 성공을 provider-free 완료 조건으로 주장하지 않는다. 수동 실행 결과는 `supplementary_only=true`로 기록하며 secret, 고객 원문, raw test log는 artifact에서 제외한다.
 
-## 19.18 Notion 문서 게시 수동 테스트
+## 19.18 Notion 문서 단방향 동기화 테스트
 
-이 절의 기대 개수 93개와 제외 개수 33개는 2026-07-14 테스트 대상 commit 기준이다. 운영 자동화 정책과 기존 페이지 갱신 방식은 별도 ADR 확정 전까지 테스트 범위에 포함하지 않는다.
+이 절의 기대 개수 94개와 제외 개수 33개는 ADR-0077 적용 commit 기준이다. Git `main`이 원본이며 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
 
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
-| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 93개가 선택되고 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
-| TC-NFR-DOC-002 | 대상 페이지 사전조건 | 하위 block이 있거나 제목이 다른 부모 페이지로 게시 실행 | 제목이 `개발 문서`이고 비어 있는 페이지가 아니면 게시 전 실패함 | P0 |
-| TC-NFR-DOC-003 | 번호와 ADR 계층 | 게시 후 `개발 문서`와 `15. ADR` 하위 block 조회 | 최상단에 번호 없는 `프로젝트 규칙`이 표시되고 구분선 다음 일반 문서 14개가 `01`~`14` 순서로 표시되며, 두 번째 구분선 다음 마지막 `15. ADR` 아래에 ADR 문서 78개가 표시됨 | P0 |
-| TC-NFR-DOC-004 | 문서 본문과 링크 | 게시된 임의 문서의 본문과 링크 확인 | Git 문서 내용만 표시되고 배포 안내·별도 목록이 없으며 상대 Markdown 링크는 대상 commit GitHub 절대 링크로 변환됨 | P0 |
-| TC-NFR-DOC-005 | 페이지 잠금 | 게시 완료 후 전체 페이지 API 조회 | 문서 93개, `15. ADR`, `개발 문서`의 `is_locked`가 모두 `true`임 | P0 |
-| TC-NFR-DOC-006 | 게시 내용 완전성 | 게시 후 각 문서를 Markdown으로 재조회 | 모든 문서의 번호형 제목과 본문 대표 구문이 일치하고 `truncated=false`, 알 수 없는 block 0건임 | P0 |
-| TC-NFR-DOC-007 | Secret 비노출 및 최소 범위 | GitHub Actions 환경 범위, checkout 설정, 로그와 결과 artifact 점검 | `NOTION_API_TOKEN`은 설정 검증·연결 확인·게시 단계에만 주입되고 외부 CLI 설치 단계, 로그, Markdown 페이지, JSON artifact에 노출되지 않으며 checkout credential도 설치 단계에서 사용할 수 없음 | P0 |
-| TC-NFR-DOC-008 | 결과 추적 | GitHub Actions 완료 후 summary와 JSON artifact 확인 | 대상 commit, 일반/ADR 게시 수, 원본 경로·SHA-256, page ID/URL, 잠금 상태를 확인할 수 있음 | P1 |
-| TC-NFR-DOC-009 | 실패 실행 생성물 정리 | ADR 게시 중 영구 `502`를 Mock으로 발생 | 제한 재시도 후 실패하고 이번 실행이 만든 프로젝트 규칙·일반 문서, `15. ADR` 및 구분선만 제거되며 부모 `개발 문서`는 유지됨 | P0 |
-| TC-NFR-DOC-010 | 페이지별 본문 검증 | 서로 다른 Markdown을 게시한 Mock 페이지를 각각 재조회 | 각 페이지 검증은 해당 페이지에 게시한 본문만 사용하며 다른 문서의 대표 구문으로 통과하지 않음 | P1 |
+| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 94개가 선택되고 일반 15개·ADR 79개로 완전히 분류되며 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
+| TC-NFR-DOC-002 | page map 완전성 | manifest와 `governance/notion-page-map.json`을 비교 | 모든 source path가 중복 없이 하나의 올바른 parent/page ID에 매핑되고 누락·중복은 동기화 전에 실패함 | P0 |
+| TC-NFR-DOC-003 | 자동 실행 범위·실패 수렴 | `main`에 Markdown과 비문서 파일을 각각 push하고 중간 동기화 실패 후 다음 문서 변경을 push | 게시 대상 Markdown 변경에만 실행되고 마지막 성공 동기화 commit부터 현재까지를 선택하여 이전 실패 문서도 다음 실행에 다시 포함됨 | P0 |
+| TC-NFR-DOC-004 | 기존 페이지 증분 갱신 | 매핑된 문서 하나를 변경하고 동기화 | 기존 page ID·URL을 유지한 채 공식 CLI page update로 본문과 제목이 Git 원본으로 교체됨 | P0 |
+| TC-NFR-DOC-005 | 본문과 링크 | 갱신된 문서의 Notion Markdown을 재조회 | Git 문서 내용만 표시되고 게시 메타데이터가 없으며 상대 Markdown 링크는 대상 commit GitHub 절대 링크로 변환됨 | P0 |
+| TC-NFR-DOC-006 | 잠금·내용 완전성 | 갱신 완료 페이지를 API로 재조회 | `is_locked=true`, 제목·대표 본문 일치, `truncated=false`, unknown block 0건임 | P0 |
+| TC-NFR-DOC-007 | Secret 비노출 및 최소 범위 | GitHub Actions 환경 범위, checkout 설정, log와 artifact 점검 | `NOTION_API_TOKEN`은 연결·동기화 단계에만 주입되고 설치 단계, log, Markdown, JSON artifact에 노출되지 않으며 checkout credential도 유지하지 않음 | P0 |
+| TC-NFR-DOC-008 | 결과 추적 | Actions summary와 JSON artifact 확인 | 기준/대상 commit, source path·SHA-256, page ID/URL, action, 검증 결과를 확인할 수 있음 | P1 |
+| TC-NFR-DOC-009 | 페이지별 rollback | update 후 검증 단계에 영구 오류를 Mock으로 발생 | 갱신 전 Markdown·제목이 복구되고 페이지가 다시 잠긴 뒤 workflow가 실패함 | P0 |
+| TC-NFR-DOC-010 | 멱등 재실행 | 동일 before/after와 문서로 동기화를 두 번 실행 | 동일 page ID만 반복 갱신하고 중복 페이지를 만들지 않으며 최종 본문이 Git 원본과 일치함 | P0 |
+| TC-NFR-DOC-011 | mapping fail-closed | source path 누락·중복·잘못된 parent map으로 동기화 | Notion 변경 전에 실패하고 제목 추측으로 임의 페이지를 생성·삭제하지 않음 | P0 |
+| TC-NFR-DOC-012 | 수동 복구 실행 | 확인 문자열과 기준 commit을 지정해 `workflow_dispatch` 실행 | 자동 실행과 같은 검증·rollback 경로로 기준 commit 이후 변경 문서만 재동기화함 | P1 |
 
 ## 19.19 Git 협업 및 GitOps 정책 수동 테스트
 

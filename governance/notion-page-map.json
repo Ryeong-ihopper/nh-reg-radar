@@ -1,0 +1,572 @@
+{
+  "version": 1,
+  "root_page_id": "39c1847f-058f-80de-9c3f-d66ebe8b906f",
+  "adr_page_id": "39d1847f-058f-812d-ab3c-c2673803724d",
+  "last_published_commit": "deb54fc31421aac5d5847ed660667039a0029338",
+  "pages": [
+    {
+      "source_path": "docs/project-rules.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-81f7-9a60-ec8ec4a2c010",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/requirements-definition.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-8161-8e7a-e2da6db80bdb",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/functional-specification.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-8112-8aba-fdd4ca0e9484",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/screen-specification.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-819d-a0fc-eb357df641e7",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/screen-api-mapping.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-81b2-bc09-cac2037e99f4",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/api-specification.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-812c-8c13-e300c1bb3cdb",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/api-contract-sync-policy.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-8185-abcf-d48404de285f",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/database-specification.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-81b6-a389-e53db7390be3",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/test-cases.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-811f-a465-cb27385d4b17",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr-candidates.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-8188-ac7f-ddd4d93f053a",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/development-schedule-and-notion-kanban.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-8103-8009-c6ac4c064905",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/reference-repositories.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-81f2-a8df-e18be7921557",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/poc-kpi-formulas.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-817e-9c35-e305451f5ede",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/poc-evaluation-exclusion-criteria.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-815f-85db-ca398bfefc11",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/risk-assessment-criteria.md",
+      "section": "general",
+      "page_id": "39d1847f-058f-8177-a985-ea141c4e768d",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/README.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-814a-ac87-cfd8308d832b",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/decision-questions.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8178-9228-cb3d268db5a5",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0001-spec-driven-development.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8183-81b5-d7864e161533",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0002-customer-sample-data-ai-input-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-819c-b78b-d2043d0c559b",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0003-monorepo-structure.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8125-81eb-d205b8e02f7a",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0004-git-notion-wiki-roles.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81c8-9be6-d46c00b9e9f2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0005-fastapi-backend-framework.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-812e-9b2b-fab8fa16cd76",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0006-postgresql-primary-database.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81fd-9cb7-f42568d87f4f",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0007-docker-compose-build-deploy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8165-81c3-cff19a2a5b77",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0008-tdd-and-test-scope.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8127-9d26-e3228a358579",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0009-qdrant-vector-database.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81a9-8e82-ec338d3a0491",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0010-opensearch-keyword-search.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-813d-a7e4-e80c08edcca7",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0011-hybrid-search-strategy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81cb-875b-ccb33d6fe51b",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0012-reference-chunking-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-819b-b433-c75e4af6ae6b",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0013-rule-rag-llm-responsibility.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81d1-8fb0-f3c8908fa4e2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0014-pluggable-document-parser-ocr.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8152-880c-f1db285aa70d",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0015-ad-coordinate-system.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8156-a9d5-d7c5bed27fd7",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0016-prompt-agent-config-versioning.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8101-94ba-c0a7c0853f88",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0017-s3-compatible-object-storage.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-810b-8642-cc758441ce4f",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0018-risk-level-decision-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8182-9c9e-fe536dfc99fd",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0019-self-hosted-runner-deployment.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8148-b467-f75791f5a0a2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0020-dev-prod-environment-separation.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81da-a7bb-c936c72d27c5",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0021-file-access-download-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8195-bb3f-c5d4cbf38b7c",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0022-audit-log-scope.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81ae-885e-cf5fb8cb94fb",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0023-poc-kpi-formulas.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81df-8fcf-e2454589fa9b",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0024-evaluation-exclusion-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8167-9f83-f3e3f44c0188",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0025-defer-qualitative-evaluation.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8136-ae12-de54bcd2ca71",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0026-api-contract-management.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-818b-a103-dc52093461ec",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0027-api-response-standard.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-810f-b174-f03671a48f76",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0028-id-generation-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81ff-8085-f6ea163e8e80",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0029-postgresql-schema-separation.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81ae-ac4a-c967b11b5cd2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0030-frontend-stack.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-813c-a462-df60e450457f",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0031-ai-assisted-development-responsibility.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81a4-83da-f5a02e78d49e",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0032-frontend-first-implementation-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-814b-89ab-dd62c555ef8f",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0033-local-and-shared-dev-vm.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8176-9631-dac7ceb66d22",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0034-codex-claude-skills-standardization.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8193-bb57-fe05007da913",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0035-redis-queue-postgresql-job-state.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-818f-9921-ea569982ca9d",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0036-jwt-auth-sso-ready-authorization.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8152-b5e4-c53ab6b978b6",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0037-file-upload-allowlist-and-size-limit.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-814f-9c9f-ce1b6502c6fc",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0038-report-output-format-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-815d-9d3b-f0c5ea9bd942",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0039-suggestion-decision-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8190-87ee-c27de1fd6c24",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0040-standard-versioning-and-effective-date-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8155-b2cc-cab9e0a21729",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0041-alembic-migration-and-seed-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81a0-9b44-d91ce94faf83",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0042-poc-runtime-performance-targets.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-817d-b17c-e77382149a74",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0043-rag-evidence-selection-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8150-8dbc-d3a410985208",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0044-ai-mock-fixture-test-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8150-86df-d26be3f09365",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0045-user-error-message-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-810b-b07b-ea230d2d14e5",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0046-postgresql-db-account-separation.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8113-b366-d8bd9c773e5e",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0047-poc-backup-and-restore-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8110-8f69-d7e68ed893c3",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0048-poc-personal-sensitive-data-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81d6-b7f6-f00eb2067c21",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0049-poc-table-partitioning-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8164-8eee-ca89b02d90a8",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0050-reference-metadata-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-812a-b60f-e727f71925fd",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0051-annotation-display-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-813e-b34c-c5be40dac9fa",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0052-text-ir-offset-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81cb-8a33-fa18d98cbe80",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0053-confidence-threshold-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81d9-8ee1-d89ced61dbbd",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0054-report-snapshot-hwpx-pdf-conversion.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81e1-bd0b-d38c78c753fb",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0055-api-authorization-scope-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81c8-aa2e-e137fd5791c2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0056-jwt-session-token-lifetime-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-816a-92a7-cf41cd79b601",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0057-browser-security-cors-csrf-headers.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8113-bdd8-fa7fdb5718e9",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0058-login-failure-lockout-password-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-819b-a123-f05ae4659f70",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0059-ai-job-timeout-retry-deadletter-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81c7-a26f-ee212ca204e0",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0060-poc-core-screen-ui-detail-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8195-b32b-e22f709916df",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0061-rag-search-infra-failure-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-813b-bf90-e381fec35399",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0062-openapi-initial-contract-scope-and-validation.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-812c-99aa-fe5477d70427",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0063-compose-base-dev-prod-override-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81a8-9d12-dfd7ff483320",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0064-ci-cd-quality-gate-test-split-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81c8-8a6e-da428058560b",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0065-normalized-document-schema-and-adapter-contract.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81d5-9b97-ef84d6d348ab",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0066-coordinate-persistence-and-api-response-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-819d-8013-c83b76052c5a",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0067-parser-ocr-raw-artifact-storage-retention-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81ba-be38-ee4599baa47c",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0068-risk-rationale-persistence-and-api-response-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81db-a55e-d76db54891e7",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0069-standard-reindex-and-chunk-query-api-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8150-b9a0-d7d7468dbed2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0070-search-index-idempotent-sync-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81a5-a968-f089bf1abb00",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0071-search-index-schema-analyzer-payload-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8145-adad-c4348041cdd4",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0072-parser-ocr-engine-routing-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8169-bed8-e203dd4be19c",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0073-parser-ocr-quality-rerun-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-81e1-9787-ccb9a933c486",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0074-validation-dataset-golden-label-snapshot-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-816a-a9fd-edb3b4e1f269",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0075-project-scoped-skills-distribution.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8139-842a-ce0c12541422",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md",
+      "section": "adr",
+      "page_id": "39d1847f-058f-8123-acd7-c4af902791a2",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md",
+      "section": "adr",
+      "page_id": "39e1847f-058f-81f6-8519-d40110e21c79",
+      "state": "active"
+    }
+  ]
+}

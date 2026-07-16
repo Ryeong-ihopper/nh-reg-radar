@@ -101,6 +101,7 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0074](ADR-0074-validation-dataset-golden-label-snapshot-policy.md) | Accepted | PoC 검증 데이터셋, 정답지 및 평가 Snapshot 관리 정책 | 후속 구현 결정 |
 | [ADR-0075](ADR-0075-project-scoped-skills-distribution.md) | Accepted | 프로젝트 범위 Skills 배포 및 온보딩 설치 정책 | ADR 후보 041 |
 | [ADR-0076](ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md) | Accepted | AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층 | ADR 후보 042 |
+| [ADR-0077](ADR-0077-git-notion-one-way-document-sync-policy.md) | Accepted | Git-Notion 단방향 문서 자동 동기화 정책 | ADR 후보 043 |
 
 ## 결정 대기 질문지
 

@@ -1,37 +1,57 @@
-name: Notion Docs Publish Test
+name: Notion Docs Sync
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/*.md"
+      - "docs/**/*.md"
+      - "governance/notion-page-map.json"
+      - "scripts/publish-notion-docs-test.sh"
+      - ".github/workflows/notion-docs-publish-test.yml"
   workflow_dispatch:
     inputs:
       confirmation:
-        description: Type PUBLISH_DEV_DOCS to publish into the empty Development Documents page
+        description: Type SYNC_DEV_DOCS to synchronize the Development Documents page
         required: true
         type: string
+      base_sha:
+        description: Required base commit for a reviewed manual synchronization
+        required: true
+        type: string
+      allow_create:
+        description: Allow creation only for reviewed null page-map entries
+        required: false
+        default: false
+        type: boolean
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: notion-docs-publish-test
+  group: notion-docs-sync
   cancel-in-progress: false
 
 jobs:
   publish:
-    if: inputs.confirmation == 'PUBLISH_DEV_DOCS'
+    if: github.event_name == 'push' || inputs.confirmation == 'SYNC_DEV_DOCS'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       NOTION_PARENT_PAGE_ID: ${{ vars.NOTION_PARENT_PAGE_ID }}
       NOTION_WORKSPACE_ID: ${{ vars.NOTION_WORKSPACE_ID }}
-      EXPECTED_MARKDOWN_COUNT: "93"
+      EXPECTED_MARKDOWN_COUNT: "94"
       EXPECTED_GENERAL_COUNT: "15"
-      EXPECTED_ADR_COUNT: "78"
+      EXPECTED_ADR_COUNT: "79"
       EXPECTED_NOTION_PARENT_TITLE: "개발 문서"
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Validate configured scope
@@ -42,6 +62,33 @@ jobs:
           test -n "$NOTION_PARENT_PAGE_ID"
           test -n "$NOTION_WORKSPACE_ID"
           bash tests/notion-publish-script-test.sh
+
+      - name: Select synchronization base
+        id: sync-base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_BASE_SHA: ${{ inputs.base_sha }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            base_sha="$(
+              gh run list \
+                --workflow .github/workflows/notion-docs-publish-test.yml \
+                --branch main \
+                --status success \
+                --limit 1 \
+                --json headSha \
+                --jq '.[0].headSha // empty'
+            )"
+            if [ -z "$base_sha" ]; then
+              base_sha="$(jq -er '.last_published_commit' governance/notion-page-map.json)"
+            fi
+          else
+            test -n "$INPUT_BASE_SHA"
+            base_sha="$INPUT_BASE_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
 
       - name: Install official Notion CLI
         run: |
@@ -54,24 +101,25 @@ jobs:
           NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
         run: ntn api v1/users/me | jq -e '.id and .name'
 
-      - name: Publish and verify Markdown documents
+      - name: Synchronize and verify Markdown documents
         id: publish
         env:
           NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
-        run: scripts/publish-notion-docs-test.sh --publish
+          NOTION_SYNC_BASE_SHA: ${{ steps.sync-base.outputs.base_sha }}
+          NOTION_ALLOW_CREATE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_create && '1' || '0' }}
+        run: scripts/publish-notion-docs-test.sh --sync
 
       - name: Upload test result
-        if: always() && hashFiles('notion-publish-test-result.json') != ''
+        if: always() && hashFiles('notion-sync-result.json') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: notion-publish-test-result-${{ github.run_id }}
-          path: notion-publish-test-result.json
+          name: notion-sync-result-${{ github.run_id }}
+          path: notion-sync-result.json
           if-no-files-found: error
           retention-days: 14
 
       - name: Report result
         if: success()
         run: |
-          echo "Published ${{ steps.publish.outputs.published_count }} Markdown documents"
+          echo "Synchronized ${{ steps.publish.outputs.synced_count }} Markdown documents"
           echo "Root page: ${{ steps.publish.outputs.root_page_url }}"
-          echo "ADR page: ${{ steps.publish.outputs.adr_page_url }}"

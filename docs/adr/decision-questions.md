@@ -1936,3 +1936,22 @@
 추천: A. PoC에서는 Git hook과 CI만 결정적 강제 계층으로 둔다. AI 도구 지침은 편집 전 예방, pre-commit/pre-push는 로컬 차단, CI는 우회 불가능한 merge 차단을 담당한다. 도구별 lifecycle hook은 실제 누락 빈도와 팀 표준 도구가 확정된 뒤 도입 여부를 재검토한다.
 
 결정 결과: A안. PoC에서는 `AGENTS.md`, `CLAUDE.md`, Skills를 작업 지침·예방 계층으로 사용하고, Git pre-commit/pre-push와 CI를 공통 강제 계층으로 확정한다. Claude/Codex의 도구별 lifecycle hook은 필수 설치하지 않으며, 반복적인 누락이 관찰되거나 팀 표준 도구가 확정되면 새 ADR 후보로 재검토한다. 상세 기준은 ADR-0076으로 기록한다.
+
+---
+
+## Q72. Git-Notion 문서 동기화 운영 방식
+
+관련 후보: ADR 후보 043, ADR-0004 후속 운영 결정
+
+질문: Git 문서 변경을 기존 Notion 공유본에 어떤 방식으로 반영할 것인가?
+
+| 선택지 | 내용 | 장점 | 리스크 |
+| --- | --- | --- | --- |
+| A | 수동 전체 게시 유지 | 구현 단순 | 게시 누락과 공유본 drift 지속 |
+| B | `main` 변경 문서만 기존 page ID에 단방향 자동 갱신 | URL·댓글 보존, Git 원천 유지, API 호출 최소화 | mapping과 실패 복구 운영 필요 |
+| C | 매번 Notion 전체 계층 삭제·재생성 | 구조 단순 | URL·댓글 손실, 부분 실패 영향 확대 |
+| D | Git-Notion 양방향 동기화 | Notion 직접 편집 반영 가능 | 충돌 해결, 권한, 감사 원천 불명확 |
+
+추천: B. Git `main`을 유일한 원천으로 유지하고 source path-page ID mapping, 기존 page Markdown update, 페이지별 검증·rollback·재잠금으로 운영한다. 신규·삭제·이름 변경은 자동 추측하지 않고 mapping 변경을 별도 검토한다.
+
+결정 결과: B안. 이번 Git convention 변경분은 수동 증분 동기화하고, 이후 `main` Markdown 변경은 GitHub Actions가 자동으로 기존 Notion 페이지에 반영한다. Notion 장애는 post-merge 공유본 최신성 장애로 처리하며 수동 재실행으로 복구한다. 상세 기준은 ADR-0077로 기록한다.
