@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.13 |
+| 현행 버전 | v1.14 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.14 | 2026-07-16 | 신규 개발자용 provider-free 로컬 Compose 진입점, migration·dev seed·health 대기 순서, 브라우저 API 주소와 안전한 중지·초기화 기준 반영 |
 | v1.13 | 2026-07-16 | ADR-0077에 따라 `main` Markdown 변경의 Notion 단방향 자동 동기화, 기존 page ID 보존, 페이지별 검증·rollback과 fail-closed mapping 기준 반영 |
 | v1.12 | 2026-07-16 | `main`/`dev`/`feature/*`/`hotfix/*` 브랜치, PR·보호 브랜치, Conventional Commits, release tag 및 GitOps 승격·롤백 규칙을 기존 중복 없이 통합 |
 | v1.11 | 2026-07-16 | Product CI의 Python/OpenAPI 교차 런타임 의존성 설치 순서와 현행 migration 적용 후 DB privilege probe 검증 기준 명시 |
@@ -516,6 +517,10 @@ docker compose -f compose.yml -f compose.prod.yml --env-file .env.prod.example c
 ```
 
 dev 환경은 source mount, hot reload, mock/fixture, dev seed를 허용한다. `prod(main)` 환경은 빌드된 image 또는 release tag, restart policy, 영속 volume, healthcheck, smoke test를 기준으로 하며 실제 비밀값 파일은 Git에 커밋하지 않는다.
+
+신규 개발자의 표준 로컬 실행 진입점은 `scripts/local-dev.sh up`이다. 이 명령은 `.env.dev`의 격리된 Compose project에서 PostgreSQL bootstrap 완료 후 migration identity로 Alembic `head`를 적용하고, app identity로 공통·synthetic dev seed를 적용한 다음 전체 서비스 health/readiness 완료까지 기다린다. 브라우저가 사용하는 `VITE_API_BASE_URL`은 `CORS_ALLOWED_ORIGINS` 및 공개 backend port와 일치해야 한다.
+
+`scripts/local-dev.sh down`은 volume을 보존하고, `scripts/local-dev.sh reset`은 해당 Compose project의 local volume을 삭제한 뒤 빈 DB부터 다시 구성한다. dev 예제 credential은 개인 로컬 전용이며 공유 VM·stage·prod에서 재사용하지 않는다. 기본 로컬 경로는 provider-free이며 외부 LLM/OCR/RAG credential을 요구하거나 실제 엔진 성공을 주장하지 않는다.
 
 ---
 

@@ -21,15 +21,111 @@ M0~M8의 provider-free thin slice는 저장소의 실제 backend/worker/frontend
 
 Provider-free 성공은 실제 OCR/RAG/LLM provider 품질, 고객사 검증, 시연 환경 배포, P0/P1 전체 합계 또는 Critical 결함 0건을 대신 증명하지 않습니다. 해당 항목은 별도 증거가 생길 때까지 일정/Kanban에서 `Backlog` 또는 `Blocked`로 유지합니다.
 
-## 초기 온보딩
+## 로컬 개발 환경 빠른 시작
 
-신규 개발자는 저장소를 clone한 뒤 다음 명령을 실행합니다.
+처음 저장소를 받은 개발자는 아래 순서대로 실행하면 provider-free 전체 스택을 로컬에 띄울 수 있습니다. 이 경로는 Docker Compose로 frontend, backend, worker, PostgreSQL, Redis, MinIO, Qdrant, OpenSearch를 실행하고 DB migration과 synthetic dev seed까지 적용합니다. 실제 LLM/OCR/RAG API key는 필요하지 않습니다.
+
+### 1. 사전 요구사항
+
+| 도구 | 용도 | 확인 명령 |
+| --- | --- | --- |
+| Git | 저장소 clone 및 협업 | `git --version` |
+| Python 3.12 | 온보딩·거버넌스 스크립트 | `python3 --version` |
+| Docker Engine + Compose v2 | 전체 로컬 스택 | `docker version`, `docker compose version` |
+| `uv` | Python 의존성·품질 검사. 서비스 기동 자체에는 선택 | `uv --version` |
+| Node.js 22 + npm | OpenAPI·frontend 품질 검사. 서비스 기동 자체에는 선택 | `node --version`, `npm --version` |
+
+Docker에는 전체 스택을 실행할 수 있는 충분한 메모리와 디스크를 할당해야 합니다. 특히 OpenSearch가 시작되지 않는 Linux 환경은 [문제 해결](#문제-해결)의 `vm.max_map_count` 항목을 확인합니다.
+
+### 2. 저장소 clone과 개발 도구 설정
 
 ```bash
+git clone https://github.com/bhjeon-cginside/nh-ad-compliance.git
+cd nh-ad-compliance
 scripts/setup-dev-tools.sh
 ```
 
 이 스크립트는 프로젝트 Claude/Codex Skills adapter를 저장소 내부의 `.agents/skills`, `.claude/skills`에 설치하고, Git pre-commit/pre-push hook을 활성화하며, 거버넌스 단위 테스트와 문서 정합성 검사를 실행합니다. `skills/`가 사람이 수정하는 유일한 원본이며 사용자 홈에는 설치하지 않습니다. 상세 기준은 [ADR-0075](docs/adr/ADR-0075-project-scoped-skills-distribution.md)를 따릅니다.
+
+### 3. dev 환경 파일 생성
+
+```bash
+cp .env.dev.example .env.dev
+```
+
+`.env.dev`는 Git에 포함되지 않습니다. 예제의 비밀번호와 secret은 개인 로컬 개발 전용이며 공유 VM이나 운영 환경에서 재사용하지 않습니다. 포트를 변경하면 `FRONTEND_PORT`/`BACKEND_PORT`와 함께 `CORS_ALLOWED_ORIGINS`/`VITE_API_BASE_URL`도 같은 주소로 맞춥니다.
+
+### 4. 전체 스택 초기화 및 실행
+
+```bash
+scripts/local-dev.sh up
+```
+
+최초 실행은 이미지를 내려받고 빌드하므로 시간이 걸릴 수 있습니다. 스크립트는 다음 순서를 자동으로 수행하며 재실행해도 같은 migration과 seed를 안전하게 적용합니다.
+
+1. Compose 설정과 dev 환경을 검증합니다.
+2. PostgreSQL 역할/bootstrap과 database health를 확인합니다.
+3. migration identity로 Alembic `head`를 적용합니다.
+4. app identity로 공통 코드와 synthetic dev 사용자만 seed합니다.
+5. 전체 서비스를 빌드하고 health/readiness 완료까지 기다립니다.
+
+기본 synthetic 로그인 계정은 다음과 같습니다.
+
+| 역할 | 이메일 | 비밀번호 |
+| --- | --- | --- |
+| 상품부서 사용자 | `product@example.invalid` | `LocalDevPassword!42` |
+| 준법감시 사용자 | `compliance@example.invalid` | `LocalDevPassword!42` |
+
+개인 로컬 비밀번호를 바꾸려면 시작 시에만 다음처럼 전달합니다. 평문 비밀번호는 DB에 저장되지 않으며 scrypt hash만 dev seed에 전달됩니다.
+
+```bash
+NH_LOCAL_DEV_PASSWORD='다른-로컬-비밀번호-10자-이상' scripts/local-dev.sh up
+```
+
+### 5. 접속 및 정상 동작 확인
+
+| 대상 | 기본 주소 |
+| --- | --- |
+| 웹 화면 | <http://localhost:5173> |
+| Backend health | <http://localhost:8000/health> |
+| Backend OpenAPI | <http://localhost:8000/openapi.json> |
+| Worker readiness | <http://localhost:8001/ready> |
+| MinIO console | <http://localhost:9001> |
+
+브라우저는 CORS/refresh-cookie 기준과 일치하도록 `127.0.0.1` 대신 위 `localhost` 주소를 사용합니다. 터미널에서는 다음 명령으로 기본 상태를 확인합니다.
+
+```bash
+scripts/local-dev.sh status
+curl --fail http://localhost:8000/health
+curl --fail http://localhost:8001/ready
+```
+
+### 6. 로그, 중지, 완전 초기화
+
+```bash
+# 전체 또는 특정 서비스 로그
+scripts/local-dev.sh logs
+scripts/local-dev.sh logs backend worker
+
+# 컨테이너만 중지하고 로컬 데이터 volume은 보존
+scripts/local-dev.sh down
+
+# 컨테이너와 로컬 volume을 삭제한 뒤 빈 DB부터 다시 기동
+scripts/local-dev.sh reset
+```
+
+`reset`은 해당 `.env.dev`의 `COMPOSE_PROJECT_NAME`에 속한 PostgreSQL, MinIO, Redis, Qdrant, OpenSearch 로컬 데이터를 삭제합니다. 공유 프로젝트 이름을 사용하지 않습니다.
+
+### 문제 해결
+
+- **포트가 이미 사용 중임**: `.env.dev`의 `FRONTEND_PORT`, `BACKEND_PORT` 등 충돌 포트를 변경합니다. frontend/backend 포트를 바꿀 때는 `CORS_ALLOWED_ORIGINS`와 `VITE_API_BASE_URL`도 함께 변경합니다.
+- **DB/DSN 일치 오류**: `POSTGRES_DB`를 변경했다면 `NH_DB_RUNTIME_URL`과 `NH_DB_MIGRATION_URL` 마지막 database 이름도 동일하게 변경합니다.
+- **OpenSearch가 기동하지 않음**: Linux host에서 `vm.max_map_count`가 낮다면 `sudo sysctl -w vm.max_map_count=262144` 적용 후 다시 실행합니다.
+- **서비스가 unhealthy임**: `scripts/local-dev.sh status`와 `scripts/local-dev.sh logs <service>`로 원인을 확인합니다.
+- **DB schema 또는 seed를 처음부터 재현해야 함**: `scripts/local-dev.sh reset`을 실행합니다.
+- **외부 AI 기능을 기대했으나 동작하지 않음**: 기본 로컬 경로는 고정 fixture와 provider-free adapter만 사용합니다. 실제 외부 엔진 평가는 별도의 승인된 수동 workflow와 credential이 필요합니다.
+
+## 개발 도구 및 문서 거버넌스
 
 PoC의 문서 거버넌스는 AI 도구별 lifecycle hook을 필수 설치하지 않습니다. `AGENTS.md`, `CLAUDE.md`, Skills는 작업 지침으로 사용하고, Git pre-commit/pre-push와 CI를 공통 강제 계층으로 사용합니다. 상세 기준은 [ADR-0076](docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md)을 따릅니다.
 
@@ -42,6 +138,23 @@ python3 -m scripts.doc_guard validate --scope working
 ```
 
 정책 설정과 문서 템플릿은 [문서 거버넌스 가이드](governance/README.md)를 기준으로 사용합니다.
+
+로컬에서 CI와 가까운 품질 검사를 직접 실행하려면 다음 의존성을 설치한 뒤 검사합니다.
+
+```bash
+uv sync --all-packages --dev
+npm ci --ignore-scripts
+npm --prefix apps/frontend ci
+
+uv run ruff check .
+uv run mypy
+uv run python -m pytest -m "not external_ai and not slow"
+npm run openapi:check
+npm --prefix apps/frontend run lint
+npm --prefix apps/frontend run typecheck
+npm --prefix apps/frontend run test
+npm --prefix apps/frontend run build
+```
 
 ## 문서 참조 가이드
 

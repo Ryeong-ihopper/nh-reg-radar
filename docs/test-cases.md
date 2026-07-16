@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.30 |
+| 현행 버전 | v1.31 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.31 | 2026-07-16 | 신규 개발자 로컬 Compose 진입점의 설정 검증, migration·seed·health 순서, frontend API 주소, 재실행·중지·volume 초기화 검증 기준 추가 |
 | v1.30 | 2026-07-16 | Git `main` Markdown 변경의 Notion 자동 증분 갱신, page ID 보존, mapping fail-closed, 페이지별 rollback·재실행·secret 격리 검증 기준 추가 |
 | v1.29 | 2026-07-16 | 팀 Git 브랜치·PR·Conventional Commits·release/hotfix 역반영과 GitOps immutable 승격·rollback 정책의 수동 검증 기준 추가 |
 | v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 현행 0009 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
@@ -608,6 +609,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-INFRA-003 | DB bootstrap, migration 및 seed 경계 | bootstrap 전용 identity로 초기화를 두 번 실행하고 같은 volume의 `db-bootstrap`만 강제 재생성하며 migration/seed를 반복 실행 | active postmaster 검증 후 별도 launch 없이 종료, sentinel/data/PostgreSQL ID/role·DB·public schema ACL 불변, PANIC·invalid checkpoint·interrupted recovery·잔여물 0 | P0 |
 | TC-NFR-INFRA-004 | DB 최소권한 및 privileged credential 격리 | migration role 관리, app DDL, readonly write를 실제 DB에서 시도하고 workflow/config/image/artifact에서 bootstrap/admin 자격증명 주입을 검사 | 모든 금지 SQL이 거부되고 privileged 자격증명은 일회성 bootstrap/probe 경계 밖에 존재하지 않으며 runtime DSN과 migration DSN identity가 다름 | P0 |
 | TC-NFR-INFRA-005 | dev/prod namespace 격리 | env example과 rendered Compose에서 PostgreSQL DB, MinIO bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 비교하고 교차 환경 접근 probe 실행 | 모든 namespace 값이 환경별로 다르고 dev 자격증명으로 prod namespace 접근이 거부됨 | P0 |
+| TC-NFR-INFRA-006 | 신규 개발자 로컬 전체 기동 | `.env.dev.example`을 복사하고 `scripts/local-dev.sh up` 실행 후 migration·공통/dev seed·전체 health와 브라우저 API 주소를 확인하며 `down`/`reset`을 재실행 | 외부 provider credential 없이 두 synthetic 계정 로그인과 frontend/backend/worker 접근이 가능하고, `down`은 volume 보존, `reset`은 해당 Compose project volume만 삭제 후 빈 DB부터 재구성 | P0 |
 
 ## 19.7 M2 계약·통합 trace Gate
 
