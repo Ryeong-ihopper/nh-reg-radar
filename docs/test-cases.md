@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.37 |
+| 현행 버전 | v1.38 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.38 | 2026-07-16 | 로그인 UI에서 내부 마일스톤 문구를 노출하지 않는 회귀 기준을 추가 |
 | v1.37 | 2026-07-16 | HWP/HWPX 파일 상세에서 브라우저 preview 호출을 차단하고 다운로드·Text IR 안내를 표시하는 회귀 기준을 추가 |
 | v1.36 | 2026-07-16 | 권한 검증된 PDF 원본 preview proxy와 frontend PDF object 표시 회귀 기준을 추가 |
 | v1.35 | 2026-07-16 | `opendataloader-pdf`·`paddleocr`·`rhwp` 실제 service adapter의 provider E2E와 rhwp Text IR offset 저장 증거 기준을 보강 |
@@ -613,6 +614,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-UI-003 | PC 기준 핵심 레이아웃 | 1280px 이상 viewport에서 핵심 화면 확인 | ADR-0060 기준 레이아웃 패턴과 주요 액션 영역이 유지됨 | P1 |
 | TC-NFR-UI-004 | Tablet/Mobile fallback | 768px, 375px viewport에서 핵심 화면 확인 | 텍스트 겹침, 버튼 잘림, 필수 상태 확인 불가가 없음 | P2 |
 | TC-NFR-UI-005 | Annotation 화면 반응형 제한 안내 | 모바일 viewport에서 S-007 진입 | 정밀 검토는 PC 사용 권장 안내 또는 제한된 fallback 표시 | P2 |
+| TC-NFR-UI-006 | 로그인 내부 개발 용어 미노출 | 비인증 상태에서 `/login` 진입 | 사용자용 제목 `로그인`만 표시하고 `M2` 등 내부 마일스톤 문구를 표시하지 않음 | P1 |
 
 ## 19.6 M1 플랫폼 및 CI
 

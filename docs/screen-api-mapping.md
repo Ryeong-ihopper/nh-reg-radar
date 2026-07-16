@@ -8,13 +8,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.9 |
+| 현행 버전 | v1.10 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.10 | 2026-07-16 | 로그인 UI에서 내부 마일스톤 표기를 제거하고 사용자용 제목만 유지하는 화면 반영 기준을 추가 |
 | v1.9 | 2026-07-16 | 앱 시작·401 refresh 복구, collection pagination, S-006 광고 상세 병합과 S-013 prefill, 복수 suggestion 판단 호출을 화면 흐름에 동기화 |
 | v1.8 | 2026-07-15 | OpenAPI v0.7.0의 정확히 다섯 Validation operation으로 S-015 데이터셋/판단과 S-016 불변 KPI 실행/조회를 연결하고 권한·평가 제외·분모 0 미적용 표시 경계를 동기화 |
 | v1.7 | 2026-07-15 | OpenAPI v0.6.0 S-009~S-013 생성 client route, 문구 판단 검증, 비단정 Q&A, 초안 이력, 불변 HWPX/PDF snapshot과 구조 비교 화면 상태 동기화 |
@@ -67,7 +68,7 @@
 
 | 구분 | API | Method | 설명 | 비고 |
 | --- | --- | --- | --- | --- |
-| 로그인 | `/auth/login` | POST | access token과 사용자 context 수신 | `credentials: include`, `refreshToken` httpOnly cookie는 브라우저가 관리 |
+| 로그인 | `/auth/login` | POST | access token과 사용자 context 수신 | `credentials: include`, `refreshToken` httpOnly cookie는 브라우저가 관리. UI는 `로그인`만 표시하며 내부 마일스톤 명칭을 노출하지 않음 |
 | 로그아웃 | `/auth/logout` | POST | refresh session revoke와 cookie 삭제 | 화면은 성공/실패와 무관하게 메모리 access token 제거 |
 | 사용자 정보 | `/users/me` | GET | 로그인 사용자 정보 조회 | API 명세서 정의됨 |
 | 공통 코드 | `/codes/product-groups` | GET | 상품군 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |

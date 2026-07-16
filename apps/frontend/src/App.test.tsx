@@ -43,6 +43,7 @@ test("rejects passwords shorter than the locked 10-character minimum before call
 test("redirects an unauthenticated root route to login and validates required credentials", () => {
   render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "로그인" })).toBeInTheDocument();
+  expect(screen.queryByText("M2 보안 로그인")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
   expect(screen.getByRole("alert")).toHaveTextContent("이메일과 비밀번호를 입력해 주세요.");
 });

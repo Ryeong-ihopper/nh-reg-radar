@@ -38,7 +38,6 @@ export function LoginPage() {
 
   return (
     <section className="login-card" aria-labelledby="login-heading">
-      <p className="eyebrow">M2 보안 로그인</p>
       <h2 id="login-heading">로그인</h2>
       <form onSubmit={submit} noValidate>
         <label htmlFor="email">이메일</label>
