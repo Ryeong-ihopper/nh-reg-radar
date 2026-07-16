@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -44,8 +44,27 @@ test("redirects an unauthenticated root route to login and validates required cr
   render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "로그인" })).toBeInTheDocument();
   expect(screen.queryByText("M2 보안 로그인")).not.toBeInTheDocument();
+  expect(document.querySelector(".app-workspace")).toHaveClass("app-workspace--public");
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
   expect(screen.getByRole("alert")).toHaveTextContent("이메일과 비밀번호를 입력해 주세요.");
+});
+
+test("renders the role-based workspace navigation defined by the screen plan", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => response(emptyList())));
+  render(<MemoryRouter initialEntries={["/advertisements"]}><App initialSession={productSession} /></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "광고물 목록" })).toBeInTheDocument();
+  const navigation = screen.getByRole("navigation", { name: "주 탐색" });
+  expect(navigation).toHaveTextContent("광고물 목록");
+  expect(navigation).toHaveTextContent("광고물 등록");
+  expect(screen.getByText("테스트 사용자")).toBeInTheDocument();
+});
+
+test("marks only the current advertisement route as active in workspace navigation", async () => {
+  render(<MemoryRouter initialEntries={["/advertisements/new"]}><App initialSession={productSession} /></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "광고물 등록" })).toBeInTheDocument();
+  const navigation = screen.getByRole("navigation", { name: "주 탐색" });
+  expect(within(navigation).getByRole("link", { name: "광고물 목록" })).not.toHaveClass("active");
+  expect(within(navigation).getByRole("link", { name: "광고물 등록" })).toHaveClass("active");
 });
 
 test("restores an httpOnly refresh-cookie session before rendering a protected deep link", async () => {

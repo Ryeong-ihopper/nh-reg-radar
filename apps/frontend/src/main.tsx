@@ -4,6 +4,9 @@ import { BrowserRouter } from "react-router-dom";
 
 import { App } from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
+import "@fontsource/noto-sans-kr/korean-400.css";
+import "@fontsource/noto-sans-kr/korean-600.css";
+import "@fontsource/noto-sans-kr/korean-700.css";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");

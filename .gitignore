@@ -26,3 +26,7 @@ temp/
 
 # Reproducible generated contract output (regenerate with npm scripts)
 generated/
+
+# Local browser visual-verification artifacts
+visual-artifacts/
+apps/frontend/visual-artifacts/

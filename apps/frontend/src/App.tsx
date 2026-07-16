@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "./auth/AuthProvider";
 import type { AuthSession } from "./auth/context";
@@ -39,18 +39,23 @@ function ProtectedRoute({ allowedRoles }: { allowedRoles: Set<string> }) {
 
 function Shell() {
   const { session, logout } = useAuth();
+  const canCreate = session?.user.roles.some((role) => CREATE_ROLES.has(role));
+  const canManageStandards = session?.user.roles.some((role) => STANDARD_ROLES.has(role));
+  const canValidate = session?.user.roles.some((role) => VALIDATION_ROLES.has(role));
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div><span className="brand-mark" aria-hidden="true">NH</span><h1>광고심의 적정성 검토</h1></div>
-        <nav aria-label="주 탐색">
-          {session ? <Link to="/advertisements">광고물 목록</Link> : <Link to="/login">로그인</Link>}
-          {session?.user.roles.some((role) => CREATE_ROLES.has(role)) ? <Link to="/advertisements/new">광고물 등록</Link> : null}
-          {session?.user.roles.some((role) => STANDARD_ROLES.has(role)) ? <Link to="/standards">기준자료 관리</Link> : null}
-          {session?.user.roles.some((role) => VALIDATION_ROLES.has(role)) ? <Link to="/validation/datasets">PoC 검증</Link> : null}
-          {session ? <button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button> : null}
-        </nav>
+        <Link className="brand" to={session ? homePath(session.user.roles) : "/login"}><span className="brand-mark" aria-hidden="true">NH</span><span><strong>광고심의 적정성 검토</strong><small>AI Compliance Workspace</small></span></Link>
+        {session ? <div className="account-context"><span><strong>{session.user.userName}</strong><small>{session.user.departmentName}</small></span><button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button></div> : null}
       </header>
+      <div className={session ? "app-workspace" : "app-workspace app-workspace--public"}>
+        {session ? <aside className="app-sidebar"><nav aria-label="주 탐색">
+          <p className="nav-group-label">광고물 관리</p>
+          <NavLink to="/advertisements" end>광고물 목록</NavLink>
+          {canCreate ? <NavLink to="/advertisements/new">광고물 등록</NavLink> : null}
+          {canManageStandards ? <><p className="nav-group-label">기준 및 검증</p><NavLink to="/standards">기준자료 관리</NavLink></> : null}
+          {canValidate ? <NavLink to="/validation/datasets">PoC 검증</NavLink> : null}
+        </nav><p className="sidebar-note">AI 결과는 담당자 검토를 지원하며, 최종 판단을 대신하지 않습니다.</p></aside> : null}
       <main><Routes>
         <Route path="/login" element={session ? <Navigate to={homePath(session.user.roles)} replace /> : <LoginPage />} />
         <Route element={<ProtectedRoute allowedRoles={ADVERTISEMENT_ROLES} />}>
@@ -71,7 +76,7 @@ function Shell() {
         <Route element={<ProtectedRoute allowedRoles={VALIDATION_ROLES} />}><Route path="/validation/datasets" element={<ValidationDatasetsPage />} /><Route path="/validation/evaluations" element={<ValidationEvaluationPage />} /></Route>
         <Route path="/" element={<Navigate to={session ? homePath(session.user.roles) : "/login"} replace />} />
         <Route path="*" element={<section><h2>페이지를 찾을 수 없습니다.</h2><Link to="/">홈으로 이동</Link></section>} />
-      </Routes></main>
+      </Routes></main></div>
     </div>
   );
 }
