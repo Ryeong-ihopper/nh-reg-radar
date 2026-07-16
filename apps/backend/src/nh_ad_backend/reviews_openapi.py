@@ -40,7 +40,7 @@ def _normalized_document_schemas() -> dict[str, Any]:
     return cast(dict[str, Any], _as_openapi_30({**definitions, "NormalizedDocument": root}))
 
 
-M4_OPENAPI: dict[str, Any] = {
+REVIEWS_OPENAPI: dict[str, Any] = {
     "components": {
         "parameters": {
             "AdvertisementId": {

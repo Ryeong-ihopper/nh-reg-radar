@@ -312,7 +312,7 @@
   ],
   "changed_paths": [
     "openapi/openapi.yaml",
-    "apps/backend/src/nh_ad_backend/m4_openapi.py",
+    "apps/backend/src/nh_ad_backend/reviews_openapi.py",
     "apps/backend/src/nh_ad_backend/openapi_runtime.py",
     "apps/backend/migrations/versions/0004_m4_parser_ocr_jobs.py",
     "packages/parser-contracts",

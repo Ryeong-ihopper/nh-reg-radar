@@ -107,7 +107,7 @@
     {"id": "TC-NFR-HIS-004", "nodes": ["tests/integration/test_m6_database_contract.py::test_m6_migration_locks_history_snapshot_and_comparison_invariants"]}
   ],
   "changed_paths": [
-    "openapi/openapi.yaml", "apps/backend/src/nh_ad_backend/m6_openapi.py",
+    "openapi/openapi.yaml", "apps/backend/src/nh_ad_backend/support_openapi.py",
     "apps/backend/src/nh_ad_backend/openapi_runtime.py", "apps/backend/migrations/versions/0006_m6_support_outputs.py",
     "apps/frontend/src/api/generated/openapi.ts", "tests/fixtures/m6/support-outputs-v1.json",
     "tests/api_contract/m6_contract.test.mjs", "tests/integration/test_m6_database_contract.py",

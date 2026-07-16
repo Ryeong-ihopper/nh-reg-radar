@@ -1,11 +1,11 @@
-"""Frozen M3 OpenAPI fragments used to document the implemented runtime routes.
+"""Standards, evidence, and search OpenAPI fragment frozen at milestone M3.
 
 This backend-owned projection is guarded against the governed source contract by tests.
 """
 
 from typing import Any
 
-M3_OPENAPI: dict[str, Any] = {
+STANDARDS_OPENAPI: dict[str, Any] = {
     "components": {
         "parameters": {
             "AdvertisementTypeQuery": {

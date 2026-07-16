@@ -212,7 +212,7 @@
   ],
   "changed_paths": [
     "openapi/openapi.yaml",
-    "apps/backend/src/nh_ad_backend/m7_openapi.py",
+    "apps/backend/src/nh_ad_backend/validation_openapi.py",
     "apps/backend/src/nh_ad_backend/openapi_runtime.py",
     "apps/backend/migrations/versions/0007_m7_validation_kpi.py",
     "apps/frontend/src/api/generated/openapi.ts",

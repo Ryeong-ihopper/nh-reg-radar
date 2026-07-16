@@ -7,7 +7,7 @@ implements the deterministic repositories and KPI evaluation.
 from typing import Any
 
 
-M7_OPENAPI: dict[str, Any] = {
+VALIDATION_OPENAPI: dict[str, Any] = {
     "components": {
         "schemas": {
             "ExcludeReasonCode": {

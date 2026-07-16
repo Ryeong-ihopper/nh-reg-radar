@@ -20,7 +20,7 @@ def _read_responses(schema: str) -> dict[str, Any]:
     }
 
 
-M5_OPENAPI: dict[str, Any] = {
+RESULTS_OPENAPI: dict[str, Any] = {
     "components": {
         "parameters": {
             "ReviewItemId": {

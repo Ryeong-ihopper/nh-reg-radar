@@ -7,11 +7,20 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from nh_ad_backend.api import CreateAdvertisementRequest
-from nh_ad_backend.m3_openapi import M3_OPENAPI
-from nh_ad_backend.m4_openapi import M4_OPENAPI
-from nh_ad_backend.m5_openapi import M5_OPENAPI
-from nh_ad_backend.m6_openapi import M6_OPENAPI
-from nh_ad_backend.m7_openapi import M7_OPENAPI
+from nh_ad_backend.results_openapi import RESULTS_OPENAPI
+from nh_ad_backend.reviews_openapi import REVIEWS_OPENAPI
+from nh_ad_backend.standards_openapi import STANDARDS_OPENAPI
+from nh_ad_backend.support_openapi import SUPPORT_OPENAPI
+from nh_ad_backend.validation_openapi import VALIDATION_OPENAPI
+
+
+_GOVERNED_OPENAPI_FRAGMENTS = (
+    STANDARDS_OPENAPI,
+    REVIEWS_OPENAPI,
+    RESULTS_OPENAPI,
+    SUPPORT_OPENAPI,
+    VALIDATION_OPENAPI,
+)
 
 
 def _without_null_branch(value: dict[str, Any]) -> dict[str, Any]:
@@ -87,45 +96,20 @@ def generated_openapi(app: FastAPI) -> dict[str, Any]:
     components["CreateAdvertisementRequest"] = create_schema
     components.pop("HTTPValidationError", None)
     components.pop("ValidationError", None)
-    # M3 handlers return deliberately lightweight dictionaries, while the governed
+    # Some handlers return deliberately lightweight dictionaries, while the governed
     # boundary has strict response, error, parameter, and multipart schemas. Publish
-    # those backend-owned fragments explicitly and keep them parity-tested against
-    # the repository source contract.
-    schema["paths"].update(deepcopy(M3_OPENAPI["paths"]))
-    for path in M3_OPENAPI["paths"]:
-        for operation in schema["paths"][path].values():
-            if isinstance(operation, dict):
-                operation.setdefault("security", [{"BearerAuth": []}])
-    for component_kind, values in M3_OPENAPI["components"].items():
-        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
-    schema["paths"].update(deepcopy(M4_OPENAPI["paths"]))
-    for path in M4_OPENAPI["paths"]:
-        for operation in schema["paths"][path].values():
-            if isinstance(operation, dict):
-                operation.setdefault("security", [{"BearerAuth": []}])
-    for component_kind, values in M4_OPENAPI["components"].items():
-        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
-    schema["paths"].update(deepcopy(M5_OPENAPI["paths"]))
-    for path in M5_OPENAPI["paths"]:
-        for operation in schema["paths"][path].values():
-            if isinstance(operation, dict):
-                operation.setdefault("security", [{"BearerAuth": []}])
-    for component_kind, values in M5_OPENAPI["components"].items():
-        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
-    schema["paths"].update(deepcopy(M6_OPENAPI["paths"]))
-    for path in M6_OPENAPI["paths"]:
-        for operation in schema["paths"][path].values():
-            if isinstance(operation, dict):
-                operation.setdefault("security", [{"BearerAuth": []}])
-    for component_kind, values in M6_OPENAPI["components"].items():
-        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
-    schema["paths"].update(deepcopy(M7_OPENAPI["paths"]))
-    for path in M7_OPENAPI["paths"]:
-        for operation in schema["paths"][path].values():
-            if isinstance(operation, dict):
-                operation.setdefault("security", [{"BearerAuth": []}])
-    for component_kind, values in M7_OPENAPI["components"].items():
-        schema.setdefault("components", {}).setdefault(component_kind, {}).update(deepcopy(values))
+    # the backend-owned capability fragments explicitly and keep them parity-tested
+    # against the repository source contract.
+    for fragment in _GOVERNED_OPENAPI_FRAGMENTS:
+        schema["paths"].update(deepcopy(fragment["paths"]))
+        for path in fragment["paths"]:
+            for operation in schema["paths"][path].values():
+                if isinstance(operation, dict):
+                    operation.setdefault("security", [{"BearerAuth": []}])
+        for component_kind, values in fragment["components"].items():
+            schema.setdefault("components", {}).setdefault(component_kind, {}).update(
+                deepcopy(values)
+            )
     schema = cast(dict[str, Any], _normalize_integral_numbers(schema))
     app.openapi_schema = schema
     return schema

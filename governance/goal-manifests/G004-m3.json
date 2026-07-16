@@ -73,6 +73,7 @@
   ],
   "changed_paths": [
     "openapi/openapi.yaml",
+    "apps/backend/src/nh_ad_backend/standards_openapi.py",
     "apps/backend/migrations/versions/0003_m3_standards_search.py",
     "apps/backend/seeds/m3_test.sql",
     "tests/api_contract",

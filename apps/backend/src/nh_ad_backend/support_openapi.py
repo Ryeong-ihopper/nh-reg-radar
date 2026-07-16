@@ -43,7 +43,7 @@ def _body(schema: str) -> dict[str, Any]:
     }
 
 
-M6_OPENAPI: dict[str, Any] = {
+SUPPORT_OPENAPI: dict[str, Any] = {
     "components": {
         "parameters": {
             "SuggestionId": {
