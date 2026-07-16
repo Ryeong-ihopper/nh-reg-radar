@@ -75,6 +75,7 @@ scripts/local-dev.sh up
 | --- | --- | --- |
 | 상품부서 사용자 | `product@example.invalid` | `LocalDevPassword!42` |
 | 준법감시 사용자 | `compliance@example.invalid` | `LocalDevPassword!42` |
+| 기준자료 관리자 | `standard@example.invalid` | `LocalDevPassword!42` |
 
 개인 로컬 비밀번호를 바꾸려면 시작 시에만 다음처럼 전달합니다. 평문 비밀번호는 DB에 저장되지 않으며 scrypt hash만 dev seed에 전달됩니다.
 
@@ -100,7 +101,52 @@ curl --fail http://localhost:8000/health
 curl --fail http://localhost:8001/ready
 ```
 
-### 6. 로그, 중지, 완전 초기화
+### 6. 실제 샘플 광고 결과 확인 (OpenAI opt-in)
+
+기본 경로는 결정적(provider-free) 테스트용입니다. 실제로 광고 파일을 올려 OCR/문서 추출, 근거 검색, 구조화 LLM 판단 결과까지 확인하려면 **현재 저장소의 승인 샘플 자료만** 사용하여 아래 opt-in 절차를 실행합니다. 이는 [ADR-0002](docs/adr/ADR-0002-customer-sample-data-ai-input-policy.md)의 범위이며, 신규 고객 자료·운영 자료·개인정보/민감정보는 별도 승인이 없으면 업로드하거나 provider에 보내면 안 됩니다.
+
+1. `.env.dev`에 실제 key를 넣고 opt-in합니다. `.env.dev`는 Git ignore 대상이므로 commit하지 않습니다.
+
+   ```dotenv
+   NH_EXTERNAL_AI_ENABLED=true
+   OPENAI_API_KEY=sk-...
+   OPENAI_MODEL=gpt-4.1-mini
+   OPENAI_BASE_URL=https://api.openai.com/v1
+   OPENAI_TIMEOUT_SECONDS=120
+   OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+   EMBEDDING_DIMENSIONS=1536
+   ```
+
+2. 서비스를 다시 빌드·기동하고 규정 PDF를 적재합니다.
+
+   ```bash
+   scripts/local-dev.sh up
+   scripts/ingest-reference-regulations.sh
+   ```
+
+   적재기는 `docs/규정 및 가이드라인/` 아래의 PDF만 읽고, 표준·버전·근거 chunk를 만든 뒤 **OpenAI-compatible embedding과 Qdrant + OpenSearch hybrid index**에 재색인합니다. HWP/HWPX 규정은 이 최초 live 경로의 대상이 아닙니다. 동일 PDF는 SHA-256으로 식별되어 재실행 시 표준을 중복 생성하지 않고 재색인만 수행합니다.
+
+3. <http://localhost:5173>에서 `product@example.invalid`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
+
+worker는 OpenAI Responses API의 추출/구조화 JSON과 OpenAI-compatible `/embeddings` API를 사용하고 provider 저장을 요청하지 않습니다. 결과에는 원문 provider payload나 API key를 보관하지 않습니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. key가 없거나 기능이 꺼져 있거나 HWP/HWPX를 올리면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
+
+#### 폐쇄망/vLLM 전환
+
+생성 LLM과 임베딩은 각각 endpoint/model을 바꿀 수 있습니다. vLLM은 OpenAI-compatible `/v1/responses`와 `/v1/embeddings` API를 제공하므로, 지원되는 생성·임베딩 모델을 별도 서버로 서빙한 뒤 다음처럼 설정합니다. 내부 HTTP endpoint는 명시적으로만 허용합니다.
+
+```dotenv
+OPENAI_BASE_URL=http://vllm-llm.internal:8000/v1
+OPENAI_MODEL=your-generation-model
+EMBEDDING_BASE_URL=http://vllm-embedding.internal:8001/v1
+OPENAI_EMBEDDING_MODEL=your-embedding-model
+EMBEDDING_API_KEY=EMPTY
+EMBEDDING_DIMENSIONS=<served-model-vector-dimension>
+EMBEDDING_ALLOW_INSECURE_HTTP=true
+```
+
+임베딩 model·dimension·collection을 바꾸면 기존 Qdrant vector와 호환되지 않습니다. 새 `QDRANT_COLLECTION`을 지정하고 기준자료를 다시 적재/재색인해야 합니다. 개발 예제의 기본 collection은 이전 3차원 fixture 데이터를 재사용하지 않도록 `_v2`입니다.
+
+### 7. 로그, 중지, 완전 초기화
 
 ```bash
 # 전체 또는 특정 서비스 로그

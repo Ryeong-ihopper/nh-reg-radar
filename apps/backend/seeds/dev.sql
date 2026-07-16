@@ -20,6 +20,9 @@ VALUES
    'DPT-SYNTH-PRODUCT', 'ACTIVE', 1, 0, now()),
   ('USR-SYNTH-COMPLIANCE', 'LOCAL', 'Synthetic Compliance User', 'compliance@example.invalid',
    convert_from(decode(:'dev_password_hash_b64', 'base64'), 'UTF8'),
+   'DPT-SYNTH-COMPLIANCE', 'ACTIVE', 1, 0, now()),
+  ('USR-SYNTH-STANDARD', 'LOCAL', 'Synthetic Standard Manager', 'standard@example.invalid',
+   convert_from(decode(:'dev_password_hash_b64', 'base64'), 'UTF8'),
    'DPT-SYNTH-COMPLIANCE', 'ACTIVE', 1, 0, now())
 ON CONFLICT (user_id) DO UPDATE SET
   user_name = EXCLUDED.user_name,
@@ -32,7 +35,8 @@ ON CONFLICT (user_id) DO UPDATE SET
 INSERT INTO app.user_roles (user_role_id, user_id, role_id)
 VALUES
   ('10000000-0000-4000-8000-000000000001', 'USR-SYNTH-PRODUCT', 'PRODUCT_DEPARTMENT_USER'),
-  ('10000000-0000-4000-8000-000000000002', 'USR-SYNTH-COMPLIANCE', 'COMPLIANCE_REVIEWER')
+  ('10000000-0000-4000-8000-000000000002', 'USR-SYNTH-COMPLIANCE', 'COMPLIANCE_REVIEWER'),
+  ('10000000-0000-4000-8000-000000000003', 'USR-SYNTH-STANDARD', 'STANDARD_MANAGER')
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 COMMIT;

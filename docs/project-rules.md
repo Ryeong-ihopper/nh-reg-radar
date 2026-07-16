@@ -629,6 +629,14 @@ M8 릴리스 후보 검증은 [ADR-0044](adr/ADR-0044-ai-mock-fixture-test-polic
 
 수동 실제 엔진 평가는 릴리스 판단을 보조하는 별도 증거이며 provider-free Gate를 대체하거나 약화하지 않는다. 수동 workflow가 실행되지 않았거나 실패해도 이를 provider-free 성공으로 오인하지 않고 별도 잔여 위험 또는 결함으로 기록한다.
 
+### 10.1.3 OpenAI live 개발·배포 secret 경계
+
+실제 광고 결과 확인은 `feature/*` 또는 로컬 dev 환경의 명시적 opt-in으로만 수행한다. `.env.dev`에는 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, 선택적으로 generation/embedding별 base URL·key·timeout·dimension을 설정할 수 있으나 `.env.dev`와 실 key는 Git에 커밋하지 않는다. 개발 Compose는 해당 key를 worker, embedding을 수행하는 backend, 명시적으로 실행한 one-shot 기준자료 적재 command에만 전달한다. 규정 PDF 적재는 읽기 전용 `/reference-documents`의 ADR-0002 승인 샘플에 한정한다.
+
+임베딩 endpoint는 OpenAI-compatible `/v1/embeddings` 계약을 사용한다. 폐쇄망 vLLM 전환은 `EMBEDDING_BASE_URL`, `OPENAI_EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, 필요 시 `EMBEDDING_API_KEY`와 `EMBEDDING_ALLOW_INSECURE_HTTP=true`를 명시하여 수행한다. model·dimension·endpoint를 바꾸면 기존 vector collection을 재사용하지 않고 새 `QDRANT_COLLECTION`과 전체 기준자료 재색인을 사용한다. OpenSearch와 Qdrant 중 하나라도 사용할 수 없으면 DB scan/단일 backend 성공으로 우회하지 않는다.
+
+배포/수동 GitHub Actions 평가는 repository 또는 environment secret `OPENAI_API_KEY`만 사용하며, PR CI·artifact·로그·Notion 동기화에는 key, 광고 원문, provider raw response를 포함하지 않는다. `NH_EXTERNAL_AI_ENABLED=false` 또는 key 누락은 fallback 성공이 아니라 fail-closed 구성 오류다. 새로운 고객/운영/민감 자료를 provider에 보내기 전에는 ADR-0002의 별도 승인 기록이 필요하다.
+
 M8 production recovery rehearsal의 공개 실행 경계는 `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`이며, 자동 회귀는 `NH_RUN_M8_RELEASE_DOCKER=1 uv run pytest tests/release/test_release_recovery_contract.py -q -rs`로 opt-in 한다. 이 Gate는 G011 fresh/repeat-volume, 0001→0007→0008 migration, backup 이후 downgrade와 PostgreSQL payload/revision 복구, MinIO checksum 복구, Qdrant snapshot download→waited delete→node-global copy→async restore의 green collection·point payload 확인, OpenSearch 재색인, Redis backup 제외와 503 `not_ready`→recovery, object/search outage, PostgreSQL restart를 모두 통과해야 한다. 성공과 실패 모두 production/G011 project의 container·volume·network와 임시 backup directory가 0개로 정리되어야 한다.
 
 ### 10.1.2 AC-18 최종 문서·일정 동기화 운영 경계

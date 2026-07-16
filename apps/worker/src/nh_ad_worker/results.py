@@ -266,20 +266,17 @@ class ReviewResultEngine:
     def _structured(self, item: ReviewResultItem) -> ReviewResultItem:
         if self._structured_output is None:
             return item
-        output = self._structured_output(item)
+        try:
+            output = self._structured_output(item)
+        except Exception:  # provider boundary is advisory and must not erase Rule results
+            return self._invalid_structured(item)
         if not isinstance(output, dict) or set(output) != {
             "decision",
             "confidence",
             "reasonCode",
             "explanation",
         }:
-            llm: dict[str, object] = {
-                "schemaVersion": "review-structured-output-v1",
-                "status": "INVALID_SCHEMA",
-                "decision": None,
-                "confidence": None,
-            }
-            return replace(item, score_detail={**item.score_detail, "llm": llm})
+            return self._invalid_structured(item)
         confidence = output["confidence"]
         has_valid_strings = all(
             isinstance(output[field], str) for field in ("decision", "reasonCode", "explanation")
@@ -291,18 +288,22 @@ class ReviewResultEngine:
             and 0 <= confidence <= 1
         )
         if not has_valid_strings or not has_valid_confidence:
-            llm = {
-                "schemaVersion": "review-structured-output-v1",
-                "status": "INVALID_SCHEMA",
-                "decision": None,
-                "confidence": None,
-            }
-            return replace(item, score_detail={**item.score_detail, "llm": llm})
+            return self._invalid_structured(item)
         llm = {
             "schemaVersion": "review-structured-output-v1",
             "status": "VALID",
             "decision": output["decision"],
             "confidence": float(confidence),
+        }
+        return replace(item, score_detail={**item.score_detail, "llm": llm})
+
+    @staticmethod
+    def _invalid_structured(item: ReviewResultItem) -> ReviewResultItem:
+        llm: dict[str, object] = {
+            "schemaVersion": "review-structured-output-v1",
+            "status": "INVALID_SCHEMA",
+            "decision": None,
+            "confidence": None,
         }
         return replace(item, score_detail={**item.score_detail, "llm": llm})
 

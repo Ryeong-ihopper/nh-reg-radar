@@ -1,6 +1,7 @@
 """FastAPI application factory for health and the M2 vertical slice."""
 
 import secrets
+from collections.abc import Callable, Sequence
 from typing import Literal
 
 from fastapi import APIRouter, FastAPI, Request
@@ -9,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine
+
+from nh_ad_ai_providers import OpenAICompatibleEmbeddings
 
 from nh_ad_backend.api import ApplicationServices, error_response, install_routes
 from nh_ad_backend.openapi_runtime import generated_openapi
@@ -35,6 +38,7 @@ from nh_ad_backend.search import (
     HybridSearch,
     InMemorySearchBackend,
     SearchBackend,
+    SearchDocument,
     SearchInfrastructureError,
 )
 from nh_ad_backend.search_http import OpenSearchBackend, QdrantBackend
@@ -107,25 +111,53 @@ def build_services(settings: Settings) -> ApplicationServices:
         validation_repository: ValidationRepository = PostgresValidationRepository(engine)
         support_repository: SupportRepository = PostgresSupportRepository(engine)
         review_queue: ReviewQueue = RedisReviewQueue(settings.redis_url, settings.review_queue_name)
+        configured_embedding_model = (
+            settings.openai_embedding_model if settings.embedding_enabled else "fixed-fixture-v1"
+        )
         keyword_search: SearchBackend = OpenSearchBackend(
             settings.opensearch_endpoint,
             settings.opensearch_index,
             environment=settings.app_env,
-            embedding_model="fixed-fixture-v1",
+            embedding_model=configured_embedding_model or "fixed-fixture-v1",
             chunking_policy_version="reference-chunking-v1",
         )
 
-        vector = (
-            unavailable_production_vector if settings.app_env == "prod" else fixed_fixture_vector
-        )
+        vector: Callable[[object], Sequence[float]]
+        if settings.embedding_enabled:
+            embedding_key = settings.resolved_embedding_api_key
+            if embedding_key is None:
+                raise ValueError("OPENAI_EMBEDDING_API_KEY is required when embeddings are enabled")
+            embeddings = OpenAICompatibleEmbeddings(
+                api_key=embedding_key.get_secret_value(),
+                model=settings.openai_embedding_model or "",
+                base_url=settings.resolved_embedding_base_url,
+                dimensions=settings.embedding_dimensions,
+                timeout_seconds=settings.resolved_embedding_timeout_seconds,
+                allow_insecure_http=settings.embedding_allow_insecure_http,
+            )
+
+            def vector(value: object) -> tuple[float, ...]:
+                text = value.chunk_text if isinstance(value, SearchDocument) else value
+                if not isinstance(text, str):
+                    raise TypeError("embedding input must be text")
+                return embeddings.embed([text])[0]
+
+            embedding_model = embeddings.model
+        else:
+            vector = (
+                unavailable_production_vector
+                if settings.app_env == "prod"
+                else fixed_fixture_vector
+            )
+            embedding_model = "fixed-fixture-v1"
 
         vector_search: SearchBackend = QdrantBackend(
             settings.qdrant_endpoint,
             settings.qdrant_collection,
             environment=settings.app_env,
-            embedding_model="fixed-fixture-v1",
+            embedding_model=embedding_model,
             chunking_policy_version="reference-chunking-v1",
-            dimensions=3,
+            dimensions=settings.embedding_dimensions if settings.embedding_enabled else 3,
             document_vector=vector,
             query_vector=vector,
         )

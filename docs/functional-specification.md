@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.13 |
+| 현행 버전 | v1.15 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.15 | 2026-07-16 | OpenAI-compatible 실제 embedding/Qdrant+OpenSearch hybrid 근거 검색과 폐쇄망 endpoint/model 교체 경계를 보강 |
+| v1.14 | 2026-07-16 | 승인된 로컬 샘플 PDF/이미지의 OpenAI opt-in 추출·구조화 검토와 기준자료 PDF 적재/동일 OpenSearch 근거 조회 경계를 보강 |
 | v1.13 | 2026-07-16 | 운영 교차검증 결함에 따라 광고 상태 계약, refresh 단일사용, worker lease/idempotency/dead-letter, 재색인 대상 준수와 0009 DB 정합성 경계를 보강 |
 | v1.12 | 2026-07-15 | M8 실제 runtime/generated client 경로와 provider-free 자동 Gate·credentialed `external_ai` 수동 평가 분리, AC-18 문서 동기화 경계 반영 |
 | v1.11 | 2026-07-15 | M8 수정본 등록→비교→재검토, restart-safe M6 산출물, worker lease 복구와 반복 Compose bootstrap 실행 경계 반영 |
@@ -37,8 +39,8 @@
 | 대상 시스템 | 멀티모달 RAG Engine 기반 금융상품 광고심의 자동화 에이전트 PoC |
 | 수요기업 | NH농협은행 |
 | 수행기업 | ㈜씨지인사이드 |
-| 문서 버전 | v1.8 |
-| 기준일 | 2026-07-14 |
+| 문서 버전 | v1.15 |
+| 기준일 | 2026-07-16 |
 | 작성일 | 2026-07-02 |
 | 작성 목적 | 요구사항 정의서를 기반으로 화면, 기능, 입력값, 처리규칙, 출력값, 예외처리, 권한, 수용기준을 정의 |
 
@@ -274,6 +276,8 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
+실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. 이때 PDF/PNG/JPEG 광고와 `/reference-documents`로 읽기 전용 마운트한 승인 샘플 규정 PDF만 OpenAI Responses API와 OpenAI-compatible `/embeddings` API에 전송하며, 요청은 provider 저장을 비활성화하고 key·원문·raw provider 응답을 로그/결과 API에 남기지 않는다. 규정 PDF는 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. HWP/HWPX·설정 누락·검색 backend/embedding 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
+
 ### M5 근거 기반 결과·Annotation entry gate
 
 | 경계 | M5 계약 기준 |
@@ -283,11 +287,12 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 | 근거 불변조건 | evidence 연결 또는 `NOT_REQUIRED`/`INSUFFICIENT`/`SEARCH_UNAVAILABLE` 명시 상태를 반드시 포함 |
 | 실패 분리 | 정상 검색의 근거 부족과 `RAG_SEARCH_UNAVAILABLE`/`RAG_SEARCH_FAILED` 기술 장애를 분리 |
 | Rule 보존 | M5b/M5c 실패가 M5a Rule 결과를 무근거 정상이나 덮어쓰기 상태로 변경하지 않음 |
-| Structured output | `review-structured-output-v1` fixture만 사용하고 provider/model/credential/network 선택 금지 |
+| Structured output | PR 자동 Gate에서는 `review-structured-output-v1` fixture만 사용한다. 승인된 수동 개발 lane에서는 OpenAI Responses JSON schema를 동일 shape로 검증하되 Rule 최종 판정을 덮어쓰지 않는다. |
+| Live provider opt-in | `NH_EXTERNAL_AI_ENABLED=true`, non-empty `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`, 승인 샘플 PDF/이미지 및 적재된 기준자료가 모두 필요하다. 키워드·vector search 및 provider 오류·미구성·비지원 형식은 fail-closed이고 PR CI는 호출하지 않는다. |
 | Annotation | 이미지/PDF BOX, HWP/HWPX TEXT_HIGHLIGHT, 좌표·offset 미확정 LIST_ONLY/UNAVAILABLE |
 | Snapshot | effective date, standard/evidence/chunk version, rank/score/match source를 결과와 함께 고정 |
 
-이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계의 Top-K를 0.70 이상 최대 3개로 선택하며, 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. structured 경계는 fixture callable만 허용하며 provider/model/credential/network adapter를 구성하지 않는다.
+이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계의 Top-K를 0.70 이상 최대 3개로 선택하며, 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. PR 자동 Gate의 structured 경계는 fixture callable만 허용한다. 승인된 수동 개발 lane은 OpenAI adapter를 구성할 수 있으나, provider 출력은 schema-valid advisory score로만 보존하고 Rule 판정·위험도를 변경하지 않는다.
 
 backend의 summary/items/detail/annotations handler는 기존 Review 부서 scope를 재사용하고 위험도 우선 정렬, evidence 필터, frozen standard version, BOX/TEXT_HIGHLIGHT/LIST_ONLY 정보를 반환한다. frontend runtime은 같은 frozen 계약을 소비하는 별도 lane이며 backend 구현은 OpenAPI, migration 또는 기존 M0~M4 revision을 재작성하지 않는다.
 

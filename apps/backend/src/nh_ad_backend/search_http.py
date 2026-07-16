@@ -344,7 +344,7 @@ class QdrantBackend:
             )
             vector = list(self._document_vector(document))
             if len(vector) != self._dimensions:
-                raise ValueError("fixed document vector dimension mismatch")
+                raise ValueError("document vector dimension mismatch")
             payload: JsonObject = _payload(document)
             payload["deterministic_index_id"] = logical_id
             points.append(
@@ -384,7 +384,7 @@ class QdrantBackend:
     ) -> list[BackendHit]:
         vector = list(self._query_vector(keyword))
         if len(vector) != self._dimensions:
-            raise ValueError("fixed query vector dimension mismatch")
+            raise ValueError("query vector dimension mismatch")
         must: list[JsonObject] = [
             {"key": "index_status", "match": {"value": "ACTIVE"}},
             {"key": "is_active", "match": {"value": True}},

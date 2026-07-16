@@ -140,9 +140,12 @@ class PostgresJobRepository:
         self,
         engine: Engine,
         source_loader: Callable[[str, str], bytes],
+        *,
+        external_ai_allowed: bool = False,
     ) -> None:
         self._engine = engine
         self._source_loader = source_loader
+        self._external_ai_allowed = external_ai_allowed
 
     def claim(self, message: QueueMessage, *, worker_id: str, now: datetime) -> WorkerJob | None:
         if message.idempotency_key != message.job_id:
@@ -213,7 +216,7 @@ class PostgresJobRepository:
                 file_name=source["original_file_name"],
                 mime_type=source["mime_type"],
                 body=body,
-                external_ai_allowed=False,
+                external_ai_allowed=self._external_ai_allowed,
             ),
             review_step_id=str(step),
             status="RUNNING",

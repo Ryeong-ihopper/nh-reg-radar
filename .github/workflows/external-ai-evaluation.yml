@@ -15,6 +15,10 @@ on:
         description: Sanitized model identifier
         required: true
         type: string
+      embedding_model:
+        description: Sanitized OpenAI-compatible embedding model identifier
+        required: true
+        type: string
       config_fingerprint:
         description: Lowercase SHA-256 of the approved non-secret configuration
         required: true
@@ -52,6 +56,7 @@ jobs:
           PROVIDER_LABEL: ${{ inputs.provider_label }}
           ENGINE_LABEL: ${{ inputs.engine_label }}
           MODEL_LABEL: ${{ inputs.model_label }}
+          EMBEDDING_MODEL: ${{ inputs.embedding_model }}
           CONFIG_FINGERPRINT: ${{ inputs.config_fingerprint }}
           DATASET_ID: ${{ inputs.dataset_id }}
         run: |
@@ -60,7 +65,7 @@ jobs:
           import re
 
           label = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$")
-          for name in ("PROVIDER_LABEL", "ENGINE_LABEL", "MODEL_LABEL", "DATASET_ID"):
+          for name in ("PROVIDER_LABEL", "ENGINE_LABEL", "MODEL_LABEL", "EMBEDDING_MODEL", "DATASET_ID"):
               if not label.fullmatch(os.environ[name]):
                   raise SystemExit(f"unsafe sanitized metadata: {name}")
           if not re.fullmatch(r"[0-9a-f]{64}", os.environ["CONFIG_FINGERPRINT"]):
@@ -71,12 +76,14 @@ jobs:
         id: evaluate
         env:
           NH_EXTERNAL_AI_ENABLED: "true"
-          NH_EXTERNAL_AI_PROVIDER: ${{ inputs.provider_label }}
-          NH_EXTERNAL_AI_ENGINE: ${{ inputs.engine_label }}
-          NH_EXTERNAL_AI_MODEL: ${{ inputs.model_label }}
+          NH_RUN_EXTERNAL_AI: "1"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ inputs.model_label }}
+          OPENAI_EMBEDDING_MODEL: ${{ inputs.embedding_model }}
+          OPENAI_BASE_URL: https://api.openai.com/v1
+          OPENAI_TIMEOUT_SECONDS: "120"
           NH_EXTERNAL_AI_CONFIG_FINGERPRINT: ${{ inputs.config_fingerprint }}
           NH_EXTERNAL_AI_DATASET_ID: ${{ inputs.dataset_id }}
-          NH_EXTERNAL_AI_API_KEY: ${{ secrets.EXTERNAL_AI_API_KEY }}
         shell: bash
         run: |
           set +e

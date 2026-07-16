@@ -13,8 +13,15 @@ from nh_ad_parser_contracts import ArtifactStore, ParserRouter
 from pydantic import BaseModel
 from sqlalchemy import create_engine
 
+from nh_ad_ai_providers import OpenAICompatibleEmbeddings
+
+from nh_ad_worker.evidence_search import OpenSearchEvidenceSearch
 from nh_ad_worker.jobs import ParserJobProcessor
 from nh_ad_worker.object_storage import S3ArtifactStorage
+from nh_ad_worker.openai_provider import (
+    OpenAIDocumentAdapter,
+    OpenAIResponsesClient,
+)
 from nh_ad_worker.postgres import (
     PostgresArtifactAudit,
     PostgresArtifactMetadataRepository,
@@ -26,6 +33,7 @@ from nh_ad_worker.queue import (
     RedisJobQueue,
     RedisQueueReadiness,
 )
+from nh_ad_worker.qdrant_evidence_search import HybridEvidenceSearch, QdrantEvidenceSearch
 from nh_ad_worker.results import ReviewResultEngine
 from nh_ad_worker.runtime import JobRunner, Runner
 from nh_ad_worker.settings import Settings, get_settings
@@ -60,7 +68,11 @@ class ReadinessResponse(BaseModel):
     consumer: Literal["ready", "not_ready"]
 
 
-def compose_job_runner(settings: Settings, router: ParserRouter) -> JobRunner:
+def compose_job_runner(
+    settings: Settings,
+    router: ParserRouter,
+    response_client: OpenAIResponsesClient | None = None,
+) -> JobRunner:
     """Compose the provider-independent runtime around explicitly supplied adapters."""
 
     database_url = (
@@ -90,7 +102,11 @@ def compose_job_runner(settings: Settings, router: ParserRouter) -> JobRunner:
         secret_key,
         region=settings.object_storage_region,
     )
-    repository = PostgresJobRepository(engine, storage.get)
+    repository = PostgresJobRepository(
+        engine,
+        storage.get,
+        external_ai_allowed=response_client is not None,
+    )
     queue = RedisJobQueue(
         settings.redis_url,
         queue_name=settings.review_queue_name,
@@ -108,15 +124,68 @@ def compose_job_runner(settings: Settings, router: ParserRouter) -> JobRunner:
         artifacts,
         RedisDeadLetterSink(queue),
         worker_id=settings.worker_id,
-        result_engine=ReviewResultEngine(),
+        result_engine=ReviewResultEngine(
+            search=_live_evidence_search(settings) if response_client else None,
+            structured_output=response_client.review_decision if response_client else None,
+        ),
     )
     return JobRunner(queue, processor, repository)
 
 
 def production_runner(settings: Settings) -> Runner:
-    """Start infrastructure consumption without pretending a provider is configured."""
+    """Enable the external provider only through explicit, complete configuration."""
 
-    return compose_job_runner(settings, ParserRouter())
+    if not settings.nh_external_ai_enabled:
+        return compose_job_runner(settings, ParserRouter())
+    api_key = (
+        settings.openai_api_key.get_secret_value() if settings.openai_api_key is not None else None
+    )
+    if not api_key:
+        raise RunnerConfigurationError("OPENAI_API_KEY_NOT_CONFIGURED")
+    if not settings.openai_model:
+        raise RunnerConfigurationError("OPENAI_MODEL_NOT_CONFIGURED")
+    embedding_key = settings.resolved_embedding_api_key
+    if not embedding_key or not settings.openai_embedding_model:
+        raise RunnerConfigurationError("OPENAI_EMBEDDING_NOT_CONFIGURED")
+    client = OpenAIResponsesClient(
+        api_key=api_key,
+        model=settings.openai_model,
+        base_url=settings.openai_base_url,
+        timeout_seconds=settings.openai_timeout_seconds,
+    )
+    adapter = OpenAIDocumentAdapter(client)
+    return compose_job_runner(
+        settings,
+        ParserRouter(
+            {
+                "opendataloader-pdf": adapter,
+                "paddleocr": adapter,
+            }
+        ),
+        response_client=client,
+    )
+
+
+def _live_evidence_search(settings: Settings) -> HybridEvidenceSearch:
+    embedding_key = settings.resolved_embedding_api_key
+    if embedding_key is None or not settings.openai_embedding_model:
+        raise RunnerConfigurationError("OPENAI_EMBEDDING_NOT_CONFIGURED")
+    embeddings = OpenAICompatibleEmbeddings(
+        api_key=embedding_key.get_secret_value(),
+        model=settings.openai_embedding_model,
+        base_url=settings.resolved_embedding_base_url,
+        dimensions=settings.embedding_dimensions,
+        timeout_seconds=settings.resolved_embedding_timeout_seconds,
+        allow_insecure_http=settings.embedding_allow_insecure_http,
+    )
+    return HybridEvidenceSearch(
+        keyword=OpenSearchEvidenceSearch(settings.opensearch_endpoint, settings.opensearch_index),
+        vector=QdrantEvidenceSearch(
+            settings.qdrant_endpoint,
+            settings.qdrant_collection,
+            embeddings,
+        ),
+    )
 
 
 def create_app(

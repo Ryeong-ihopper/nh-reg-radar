@@ -6,18 +6,20 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.31 |
+| 현행 버전 | v1.32 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.32 | 2026-07-16 | OpenAI-compatible embedding의 Qdrant 적재·hybrid 근거 조회 및 model/endpoint 교체 재색인 검증을 추가 |
 | v1.31 | 2026-07-16 | 신규 개발자 로컬 Compose 진입점의 설정 검증, migration·seed·health 순서, frontend API 주소, 재실행·중지·volume 초기화 검증 기준 추가 |
 | v1.30 | 2026-07-16 | Git `main` Markdown 변경의 Notion 자동 증분 갱신, page ID 보존, mapping fail-closed, 페이지별 rollback·재실행·secret 격리 검증 기준 추가 |
 | v1.29 | 2026-07-16 | 팀 Git 브랜치·PR·Conventional Commits·release/hotfix 역반영과 GitOps immutable 승격·rollback 정책의 수동 검증 기준 추가 |
 | v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 현행 0009 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
 | v1.27 | 2026-07-16 | Notion 수동 게시의 93개 Markdown 선별, 번호형 계층, secret 격리, 재시도·실패 정리와 페이지별 내용 검증 회귀 기준 통합 |
+| v1.27 | 2026-07-16 | 승인 샘플 PDF/이미지의 OpenAI opt-in 추출·구조화 결과와 규정 PDF 적재/OpenSearch 근거 조회 수동 검증을 추가 |
 | v1.26 | 2026-07-16 | 운영 교차검증에서 발견된 enum/read-path 500, refresh replay·bootstrap, worker lease·poison replay, targetIndexes, OCR DB 정합성과 frontend 흐름 회귀 Gate 추가 |
 | v1.25 | 2026-07-15 | production recovery의 과거 실제 Docker 수동 증거와 현재 provider-free fake-Docker 회귀 증거를 분리하고 현재 HEAD 운영 복구 주장은 실제 Docker opt-in 재실행 후에만 가능하도록 정정 |
 | v1.24 | 2026-07-15 | G010 Ruff canonical formatting 반영 후 G009 executable·manifest SHA-256 동기화 |
@@ -265,6 +267,11 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-OCR-022 | 최종 채택 산출물만 후속 전달 | confidence·필수 필드·Text IR/Coordinate·warning·판정 문구 판독성이 다른 1차/보조 NormalizedDocument fixture 준비 | ReviewPipeline 실행 | ADR-0073 순서와 앞선 시도 우선 tie-break로 후보를 결정하고 정확히 하나의 `isSelectedOutput=true` 산출물만 `ocr_text_blocks`, `layout_blocks`, 후속 검토에 반영 | `parser_artifacts`, `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-023 | OCR 판독 불가 자동 retry 제외 | 판정 대상 문구 confidence `< 0.50` fixture 준비 | AI 검토 실행 | 자동 retry 없이 `OCR_UNREADABLE` 확인 필요/평가 제외 후보 기록 | `review_items`, `evaluations` | P1 |
 | TC-OCR-024 | VLM OCR 보조 재처리 제한 | 외부 AI 입력 불가 파일과 이미지 OCR 누락 fixture 준비 | 보조 재처리 판단 | VLM OCR을 실행하지 않고 확인 필요로 처리 | `review_steps`, `audit_logs` | P1 |
+| TC-LIVE-001 | 승인 샘플 규정 PDF 적재 | dev Compose, `NH_EXTERNAL_AI_ENABLED=true`, 유효한 `OPENAI_API_KEY`, ADR-0002 승인 문서 | `scripts/ingest-reference-regulations.sh` 실행 | 각 PDF가 표준/version/evidence/chunk로 생성 또는 재사용되고 Qdrant/OpenSearch 재색인이 완료된다. key/원문은 출력되지 않는다. | standards/evidence/search index | P0/manual |
+| TC-LIVE-002 | 승인 샘플 PDF/PNG 광고 실제 검토 | TC-LIVE-001 완료, product 계정으로 광고 업로드·검토 요청 | supplied sample PDF 또는 PNG를 업로드하고 완료 상태까지 조회 | 선택 산출물, 결과 item, 구조화 LLM score와 OpenSearch 근거 상태가 저장·조회된다. Rule 판정은 provider 출력으로 덮어쓰지 않는다. | review/jobs/results | P0/manual |
+| TC-LIVE-003 | live provider fail-closed | `NH_EXTERNAL_AI_ENABLED=true` 이고 key 없음, 또는 HWP/HWPX 업로드 | worker 검토 실행 | `OPENAI_API_KEY_NOT_CONFIGURED` 또는 비지원 adapter 오류로 최종 실패하고 성공 결과·DB fallback 검색이 생성되지 않는다. | review/jobs/audit | P0 |
+| TC-LIVE-004 | 실제 hybrid 근거 조회 | TC-LIVE-001 완료, `OPENAI_EMBEDDING_MODEL`과 1536 차원 Qdrant collection 설정 | 샘플 광고를 검토 요청 | 규정 chunk가 실제 vector로 Qdrant에 저장되고, OpenSearch 및 Qdrant가 모두 결과를 반환한 경우에만 `HYBRID` 근거가 결과 item에 연결된다. | Qdrant/OpenSearch/review items | P0/manual |
+| TC-LIVE-005 | embedding endpoint/model 교체 | 새 OpenAI-compatible endpoint/model/dimension 및 새 Qdrant collection 설정 | 기존 collection을 재사용하지 않고 기준자료 재적재/재색인 | 새 vector dimension과 model metadata로만 검색하며, dimension 불일치/endpoint 오류는 `SEARCH_UNAVAILABLE` 또는 적재 실패로 종료된다. | Qdrant/reindex jobs | P1/manual |
 | TC-LAY-001 | 제목/본문/유의사항 영역 분리 | 레이아웃 있는 광고 등록 | AI 검토 실행 | `layout_blocks`에 TITLE, BODY, NOTICE 저장 | `layout_blocks` | P1 |
 | TC-LAY-002 | 버튼/배너 영역 인식 | 모바일 배너 등록 | AI 검토 실행 | BUTTON, BANNER 영역 저장 | `layout_blocks` | P2 |
 | TC-LAY-003 | 레이아웃 신뢰도 저장 | 레이아웃 분석 실행 | 결과 확인 | confidence_score 저장 | `layout_blocks` | P2 |

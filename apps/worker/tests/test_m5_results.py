@@ -20,6 +20,7 @@ from nh_ad_worker.results import (
     EvidenceCandidate,
     EvidenceSearchFailure,
     ReviewResultEngine,
+    ReviewResultItem,
 )
 
 
@@ -123,6 +124,24 @@ def test_m5c_invalid_provider_independent_schema_preserves_rule_and_rag() -> Non
         "decision": None,
         "confidence": None,
     }
+
+
+def test_m5c_provider_failure_preserves_rule_and_rag() -> None:
+    def unavailable(_item: ReviewResultItem) -> object:
+        raise RuntimeError("provider unavailable")
+
+    item = (
+        ReviewResultEngine(search=lambda _query: [evidence()], structured_output=unavailable)
+        .execute(document())
+        .items[0]
+    )
+
+    assert (item.result_status, item.risk_level, item.evidence_status) == (
+        "NEEDS_REVISION",
+        "HIGH",
+        "CONNECTED",
+    )
+    assert item.score_detail["llm"]["status"] == "INVALID_SCHEMA"
 
 
 @pytest.mark.parametrize(
