@@ -15,7 +15,7 @@ INSERT INTO app.users
   (user_id, auth_provider, user_name, email, password_hash, department_id, user_status,
    auth_token_version, failed_login_count, password_changed_at)
 VALUES
-  ('USR-SYNTH-PRODUCT', 'LOCAL', 'Synthetic Product User', 'product@example.invalid',
+  ('USR-SYNTH-PRODUCT', 'LOCAL', 'Synthetic Product User', 'test@ihopper.co.kr',
    convert_from(decode(:'dev_password_hash_b64', 'base64'), 'UTF8'),
    'DPT-SYNTH-PRODUCT', 'ACTIVE', 1, 0, now()),
   ('USR-SYNTH-COMPLIANCE', 'LOCAL', 'Synthetic Compliance User', 'compliance@example.invalid',

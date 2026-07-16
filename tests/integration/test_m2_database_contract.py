@@ -78,7 +78,7 @@ class M2DatabaseContractTests(unittest.TestCase):
         self.assertIn("ON CONFLICT", common)
         self.assertIn("ON CONFLICT", dev)
         self.assertNotIn("USR-SYNTH", common)
-        self.assertNotIn("product@example.invalid", migration)
+        self.assertNotIn("test@ihopper.co.kr", migration)
         self.assertNotRegex(common + dev, r"(?i)(customer|client)[-_ ]?(secret|token|password)")
 
     def test_seed_entrypoints_parse_and_dev_seed_refuses_prod(self) -> None:

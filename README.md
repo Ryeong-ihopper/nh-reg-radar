@@ -73,9 +73,9 @@ scripts/local-dev.sh up
 
 | 역할 | 이메일 | 비밀번호 |
 | --- | --- | --- |
-| 상품부서 사용자 | `product@example.invalid` | `LocalDevPassword!42` |
-| 준법감시 사용자 | `compliance@example.invalid` | `LocalDevPassword!42` |
-| 기준자료 관리자 | `standard@example.invalid` | `LocalDevPassword!42` |
+| 상품부서 사용자 | `test@ihopper.co.kr` | `Testihopper12#$` |
+| 준법감시 사용자 | `compliance@example.invalid` | `Testihopper12#$` |
+| 기준자료 관리자 | `standard@example.invalid` | `Testihopper12#$` |
 
 개인 로컬 비밀번호를 바꾸려면 시작 시에만 다음처럼 전달합니다. 평문 비밀번호는 DB에 저장되지 않으며 scrypt hash만 dev seed에 전달됩니다.
 
@@ -126,7 +126,7 @@ curl --fail http://localhost:8001/ready
 
    적재기는 `docs/규정 및 가이드라인/` 아래의 PDF만 읽고, 표준·버전·근거 chunk를 만든 뒤 **OpenAI-compatible embedding과 Qdrant + OpenSearch hybrid index**에 재색인합니다. HWP/HWPX 규정은 이 최초 live 경로의 대상이 아닙니다. 동일 PDF는 SHA-256으로 식별되어 재실행 시 표준을 중복 생성하지 않고 재색인만 수행합니다.
 
-3. <http://localhost:5173>에서 `product@example.invalid`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
+3. <http://localhost:5173>에서 `test@ihopper.co.kr`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
 
 worker는 OpenAI Responses API를 **구조화 검토 판단**에만, OpenAI-compatible `/embeddings` API를 근거 검색에 사용하며 provider 원문 응답이나 API key는 저장하지 않습니다. 문서 추출은 private parser/OCR 서비스가 담당합니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. 구조화 판단 또는 임베딩 key가 없거나 기능이 꺼져 있으면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
 

@@ -55,7 +55,8 @@ class DatabaseBootstrapContractTests(unittest.TestCase):
         self.assertIn("VITE_API_BASE_URL=http://localhost:8000/api/v1", environment)
         self.assertIn("scripts/local-dev.sh up", readme)
         self.assertIn("scripts/local-dev.sh reset", readme)
-        self.assertIn("product@example.invalid", readme)
+        self.assertIn("test@ihopper.co.kr", readme)
+        self.assertIn("Testihopper12#$", script)
 
     def test_bootstrap_owns_only_fixed_roles_and_database_grants(self) -> None:
         text = BOOTSTRAP.read_text()

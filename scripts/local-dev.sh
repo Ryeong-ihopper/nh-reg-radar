@@ -19,7 +19,7 @@ Commands:
   help     Show this help
 
 Environment:
-  NH_LOCAL_DEV_PASSWORD  Synthetic dev-user password (default: LocalDevPassword!42)
+  NH_LOCAL_DEV_PASSWORD  Synthetic dev-user password (default: Testihopper12#$)
   NH_LOCAL_DEV_ENV_FILE  Alternative to --env-file (default: .env.dev)
 EOF
 }
@@ -105,7 +105,7 @@ frontend_port="$(env_value FRONTEND_PORT)"
 backend_port="$(env_value BACKEND_PORT)"
 worker_port="$(env_value WORKER_PORT)"
 minio_console_port="$(env_value MINIO_CONSOLE_PORT)"
-local_password="${NH_LOCAL_DEV_PASSWORD:-LocalDevPassword!42}"
+local_password="${NH_LOCAL_DEV_PASSWORD:-Testihopper12#$}"
 using_default_password=true
 if [[ -n "${NH_LOCAL_DEV_PASSWORD:-}" ]]; then
   using_default_password=false
@@ -169,11 +169,11 @@ Local development stack is ready.
   MinIO console:  http://localhost:${minio_console_port}
 
 Synthetic users:
-  product@example.invalid
+  test@ihopper.co.kr
   compliance@example.invalid
 EOF
 if [[ "$using_default_password" == true ]]; then
-  printf '%s\n' '  Password: LocalDevPassword!42'
+  printf '%s\n' '  Password: Testihopper12#$'
 else
   printf '%s\n' '  Password: the value supplied through NH_LOCAL_DEV_PASSWORD'
 fi
