@@ -250,6 +250,8 @@ def test_actual_postgres_redis_minio_review_worker_vertical() -> None:
                 text("""
                 SELECT j.job_status,r.review_status,
                        (SELECT COUNT(*) FROM app.ocr_text_blocks b WHERE b.review_id=r.review_id) blocks,
+                       (SELECT COUNT(*) FROM app.review_steps s WHERE s.job_id=j.job_id
+                         AND s.step_status <> 'COMPLETED') incomplete_steps,
                        (SELECT COUNT(*) FROM app.parser_artifacts a WHERE a.review_id=r.review_id
                         AND a.is_selected_output) selected,
                        (SELECT COUNT(*) FROM app.parser_artifacts a
@@ -263,6 +265,7 @@ def test_actual_postgres_redis_minio_review_worker_vertical() -> None:
             ._mapping
         )
         assert (row["job_status"], row["review_status"]) == ("COMPLETED", "REVIEW_COMPLETED")
+        assert row["incomplete_steps"] == 0
         assert row["blocks"] > 0 and row["selected"] == 1 and row["attempts"] == 2
         attempts = connection.execute(
             text("""

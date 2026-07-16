@@ -14,12 +14,19 @@ const REVIEW_TYPES: ReadonlyArray<{ value: ReviewType; label: string }> = [
   { value: "VISIBILITY", label: "위치·크기·강조·시인성" },
 ];
 
+function localDateInputValue(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function ReviewRequestPage() {
   const { advertisementId = "" } = useParams();
   const { session } = useAuth();
   const navigate = useNavigate();
   const [reviewTypes, setReviewTypes] = useState<ReviewType[]>(REVIEW_TYPES.map(({ value }) => value));
-  const [standardEffectiveDate, setStandardEffectiveDate] = useState("");
+  const [standardEffectiveDate, setStandardEffectiveDate] = useState(() => localDateInputValue());
   const [includeSuggestion, setIncludeSuggestion] = useState(true);
   const [includeOpinionDraft, setIncludeOpinionDraft] = useState(false);
   const [requestMemo, setRequestMemo] = useState("");

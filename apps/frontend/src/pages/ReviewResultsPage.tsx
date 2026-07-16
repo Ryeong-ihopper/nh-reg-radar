@@ -211,10 +211,14 @@ export function ReviewAnnotationsPage() {
     enabled: Boolean(reviewId),
     retry: false,
   });
+  const previewSupported = Boolean(
+    annotations.data?.fileId
+    && ["IMAGE", "PDF", "PNG", "JPG", "JPEG"].includes(annotations.data.fileType.toUpperCase()),
+  );
   const preview = useQuery({
     queryKey: ["review-annotation-preview", annotations.data?.fileId, filters.pageNo],
     queryFn: () => api.getFilePreviewContent(session?.accessToken ?? "", annotations.data?.fileId ?? "", filters.pageNo ?? 1),
-    enabled: Boolean(annotations.data?.fileId && ["IMAGE", "PDF", "PNG", "JPG", "JPEG"].includes(annotations.data.fileType.toUpperCase())),
+    enabled: previewSupported,
     retry: false,
   });
   const previewUrl = useObjectUrl(preview.data);
@@ -239,13 +243,14 @@ export function ReviewAnnotationsPage() {
       {annotations.data && annotations.data.annotations.length > 0 ? <>
         {lowConfidence.length > 0 ? <aside className="state-message state-warning" aria-label="위치 신뢰도 확인 필요"><strong>위치 확인 필요 {lowConfidence.length}건</strong><ul>{lowConfidence.map((annotation) => <li key={annotation.annotationId}>{annotation.targetText} · {annotation.annotationStatus}</li>)}</ul></aside> : null}
         <div className="annotation-layout"><div className="annotation-preview-panel">
-          {preview.isPending ? <LoadingState label="광고 원본을 불러오는 중입니다." /> : null}
+          {preview.isFetching ? <LoadingState label="광고 원본을 불러오는 중입니다." /> : null}
           {preview.isError ? <ErrorState error={preview.error} onRetry={() => void preview.refetch()} /> : null}
           {previewUrl ? <div className="annotation-canvas">
             {annotations.data.fileType.toUpperCase() === "PDF" ? <object data={previewUrl} type="application/pdf" aria-label="PDF 광고 원본 미리보기" /> : <img src={previewUrl} alt="광고 원본 미리보기" />}
             {boxes.map((annotation) => <button key={annotation.annotationId} type="button" className="annotation-box" aria-label={`${annotation.targetText} Annotation`} data-risk={annotation.riskLevel} aria-pressed={annotation.reviewItemId === selectedId} onClick={() => setSelectedId(annotation.reviewItemId)} style={{ left: `${(annotation.coordinate?.normalizedX ?? 0) * 100}%`, top: `${(annotation.coordinate?.normalizedY ?? 0) * 100}%`, width: `${(annotation.coordinate?.normalizedWidth ?? 0) * 100}%`, height: `${(annotation.coordinate?.normalizedHeight ?? 0) * 100}%` }} />)}
           </div> : null}
           {textHighlights.length > 0 ? <div className="text-highlight-view"><h3>HWP/HWPX 텍스트 위치</h3>{textHighlights.map((annotation) => <button type="button" key={annotation.annotationId} aria-pressed={annotation.reviewItemId === selectedId} onClick={() => setSelectedId(annotation.reviewItemId)}><mark>{annotation.matchedText ?? annotation.targetText}</mark><span>{annotation.textBlockId} · offset {annotation.normalizedStartOffset}–{annotation.normalizedEndOffset}</span></button>)}</div> : null}
+          {!previewSupported ? <p className="state-message">HWP/HWPX 원본은 브라우저에서 직접 미리보기로 열지 않습니다. 추출된 텍스트 위치와 원본 다운로드로 확인해 주세요.</p> : null}
           {fallbacks.length > 0 ? <div className="annotation-fallback"><h3>위치 미확정 항목</h3>{fallbacks.map((annotation) => <AnnotationButton key={annotation.annotationId} annotation={annotation} selected={annotation.reviewItemId === selectedId} onSelect={() => setSelectedId(annotation.reviewItemId)} />)}</div> : null}
         </div><aside className="result-detail" aria-label="선택 Annotation 상세">
           {selected ? <><h3>{selected.targetText}</h3><dl className="compact-detail"><div><dt>검토 유형</dt><dd>{selected.reviewType}</dd></div><div><dt>위험도</dt><dd>{RISK_LABELS[selected.riskLevel]}</dd></div><div><dt>표시 상태</dt><dd>{selected.annotationStatus}</dd></div><div><dt>표시 사유</dt><dd>{selected.displayReason}</dd></div></dl><Link to={`/reviews/${encodeURIComponent(reviewId)}/results/items?reviewItemId=${encodeURIComponent(selected.reviewItemId)}`}>판단 사유와 근거 보기</Link></> : <p>Annotation 또는 위치 미확정 항목을 선택하면 상세 정보가 표시됩니다.</p>}

@@ -82,7 +82,11 @@ def progress(bundle: ReviewBundle) -> dict[str, object]:
             {
                 "stepCode": step.step_code,
                 "stepName": step.step_name,
-                "status": step.status,
+                # A completed job is authoritative for the progress projection.
+                # This also makes progress responses from jobs completed before
+                # the worker began persisting FILE_PREPROCESSING completion
+                # internally consistent.
+                "status": "COMPLETED" if job.status == "COMPLETED" else step.status,
                 "timeoutAt": step.timeout_at,
                 "failedReasonCode": step.failed_reason_code,
             }

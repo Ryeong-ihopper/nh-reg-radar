@@ -102,6 +102,17 @@ def test_review_request_progress_queue_minimality_and_scope(
         assert status.json()["maxRetries"] == 3
         assert len(status.json()["steps"]) == 6
 
+        bundle = reviews.get(payload["reviewId"])
+        assert bundle is not None
+        bundle.job.status = "COMPLETED"
+        bundle.review.status = "REVIEW_COMPLETED"
+        completed = client.get(
+            f"/api/v1/reviews/{payload['reviewId']}/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert completed.status_code == 200
+        assert {step["status"] for step in completed.json()["steps"]} == {"COMPLETED"}
+
         other, _ = login(client, "b@example.com")
         denied = client.get(
             f"/api/v1/reviews/{payload['reviewId']}/status",

@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.15 |
+| 현행 버전 | v1.16 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.16 | 2026-07-16 | Conventional Commit 제목을 type 접두어와 한글 요약으로 통일하는 기준을 추가 |
 | v1.15 | 2026-07-16 | ADR-0072 private parser/OCR service 이미지, health와 실제 provider E2E를 별도 수동 증거로 유지하는 기준을 추가 |
 | v1.14 | 2026-07-16 | 신규 개발자용 provider-free 로컬 Compose 진입점, migration·dev seed·health 대기 순서, 브라우저 API 주소와 안전한 중지·초기화 기준 반영 |
 | v1.13 | 2026-07-16 | ADR-0077에 따라 `main` Markdown 변경의 Notion 단방향 자동 동기화, 기존 page ID 보존, 페이지별 검증·rollback과 fail-closed mapping 기준 반영 |
@@ -763,10 +764,10 @@ CI 실패 상태에서는 병합하지 않는다. `hotfix/*`를 `main`에만 반
 커밋 제목은 Conventional Commits 형식을 사용한다.
 
 ```text
-<type>(<scope>): <summary>
+<type>: <한글 요약>
 ```
 
-허용 type은 `feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`이다. 한 커밋에는 하나의 논리적 변경만 담고 `WIP`, `final`, `test` 같은 의미 없는 제목은 사용하지 않는다. 예: `fix(auth): prevent refresh token replay`, `ci(database): verify current migration head`.
+허용 type은 `feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`이다. 제목의 요약은 한글로 작성하며 scope는 사용하지 않는다. 한 커밋에는 하나의 논리적 변경만 담고 `WIP`, `final`, `test` 같은 의미 없는 제목은 사용하지 않는다. 예: `fix: 갱신 토큰 재사용 방지`, `ci: 현행 마이그레이션 head 검증`.
 
 ## 11.4 PR 및 리뷰 기준
 

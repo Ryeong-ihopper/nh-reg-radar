@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.38 |
+| 현행 버전 | v1.39 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.39 | 2026-07-16 | terminal Job의 전체 단계 완료, 검토 기준일 로컬 오늘 기본값 및 HWP/HWPX Annotation 화면의 무한 loading 방지 회귀 기준을 추가 |
 | --- | --- | --- |
 | v1.38 | 2026-07-16 | 로그인 UI에서 내부 마일스톤 문구를 노출하지 않는 회귀 기준을 추가 |
 | v1.37 | 2026-07-16 | HWP/HWPX 파일 상세에서 브라우저 preview 호출을 차단하고 다운로드·Text IR 안내를 표시하는 회귀 기준을 추가 |
@@ -233,7 +234,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-003 | 이미 분석 중인 광고물 재요청 | 기존 상태 `ANALYZING` | 검토 요청 API 재호출 | `REVIEW_ALREADY_RUNNING` 반환 | `reviews` | P0 |
 | TC-REV-004 | 존재하지 않는 광고물 검토 요청 | 잘못된 광고물 ID | 검토 요청 API 호출 | 404 NOT_FOUND 반환 | - | P0 |
 | TC-REV-005 | 검토 진행 상태 조회 | reviewId 존재 | 상태 조회 API 호출 | currentStep, progressRate, steps 반환 | `review_jobs`, `review_steps` | P0 |
-| TC-REV-006 | 검토 완료 상태 조회 | 분석 완료됨 | 상태 조회 API 호출 | 상태 `REVIEW_COMPLETED`, progressRate 100 반환 | `reviews` | P0 |
+| TC-REV-006 | 검토 완료 상태 조회 | 분석 완료됨 | 상태 조회 API 호출 | 상태 `REVIEW_COMPLETED`, progressRate 100 및 모든 `review_steps`가 `COMPLETED`로 반환 | `reviews`, `review_steps` | P0 |
 | TC-REV-007 | 검토 실패 상태 조회 | 분석 실패 발생 | 상태 조회 API 호출 | 상태 `REVIEW_FAILED`, failedReason 반환 | `reviews`, `review_jobs` | P1 |
 | TC-REV-008 | AI 재분석 요청 | 기존 reviewId 존재 | rerun API 호출 | newReviewId 생성, 이전 review 유지 | `reviews`, `review_jobs` | P1 |
 | TC-REV-009 | 일시 오류 자동 재시도 | 외부 AI timeout fixture 준비 | AI 검토 실행 | jobStatus `RETRY_PENDING`, retryCount 증가, nextRetryAt 저장 | `review_jobs`, `review_steps` | P0 |
@@ -242,6 +243,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-012 | Worker heartbeat 장애 복구 | RUNNING job의 heartbeat 만료 | stale detector 실행 | jobStatus `STALE` 기록 후 retry 가능 시 `RETRY_PENDING` 전환 | `review_jobs`, `audit_logs` | P1 |
 | TC-REV-013 | 재시도 한도 초과 최종 실패 | retryCount가 maxRetries에 도달 | 추가 실패 발생 | jobStatus `FAILED_FINAL`, dead_lettered_at, failedReasonCode 저장 | `review_jobs`, `audit_logs` | P0 |
 | TC-REV-014 | 상태 조회 retry 필드 반환 | `RETRY_PENDING` job 존재 | 상태 조회 API 호출 | retryCount, maxRetries, nextRetryAt, isRetryable, failedReasonCode 반환 | `review_jobs`, `review_steps` | P0 |
+| TC-REV-015 | 기준 적용일 기본값 | S-004 진입 | 검토 요청 폼 표시 | date 입력값이 사용자의 로컬 오늘 날짜이며 수정 가능 | frontend | P1 |
+| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | preview API를 호출하지 않고 loading을 끝내며 Text IR·원본 다운로드 안내 표시 | frontend | P0 |
 
 ---
 

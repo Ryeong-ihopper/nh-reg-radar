@@ -77,6 +77,9 @@ test("loads advertisement data, submits the frozen review contract, and opens pr
   render(<MemoryRouter initialEntries={["/advertisements/ADV-001/reviews/new"]}><App initialSession={productSession} /></MemoryRouter>);
   expect(screen.getByRole("status")).toHaveTextContent("광고물 정보를 불러오는 중입니다.");
   expect(await screen.findByText("예금 광고")).toBeInTheDocument();
+  const today = new Date();
+  const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  expect(screen.getByLabelText("기준 적용일")).toHaveValue(localToday);
   fireEvent.change(screen.getByLabelText("기준 적용일"), { target: { value: "2026-07-14" } });
   fireEvent.change(screen.getByLabelText("요청 메모"), { target: { value: "우대금리 확인" } });
   fireEvent.click(screen.getByRole("button", { name: "분석 요청" }));

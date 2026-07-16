@@ -661,7 +661,7 @@ class PostgresJobRepository:
                 text("""
                     UPDATE app.review_steps SET step_status='COMPLETED',completed_at=:now
                      WHERE job_id=:job_id AND step_code IN
-                           ('OCR_EXTRACTION','LAYOUT_ANALYSIS','RULE_REVIEW','RAG_REVIEW',
+                           ('FILE_PREPROCESSING','OCR_EXTRACTION','LAYOUT_ANALYSIS','RULE_REVIEW','RAG_REVIEW',
                             'RESULT_GENERATION')
                 """),
                 {"now": now, "job_id": job_id},

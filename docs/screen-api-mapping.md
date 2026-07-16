@@ -8,12 +8,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.10 |
+| 현행 버전 | v1.11 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.11 | 2026-07-16 | S-004 로컬 오늘 기준일 기본값, S-005 완료 단계 정합성, S-007 HWP/HWPX preview 비호출과 Text IR 안내를 반영 |
 | --- | --- | --- |
 | v1.10 | 2026-07-16 | 로그인 UI에서 내부 마일스톤 표기를 제거하고 사용자용 제목만 유지하는 화면 반영 기준을 추가 |
 | v1.9 | 2026-07-16 | 앱 시작·401 refresh 복구, collection pagination, S-006 광고 상세 병합과 S-013 prefill, 복수 suggestion 판단 호출을 화면 흐름에 동기화 |
@@ -226,7 +227,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 광고명, 상품군, 광고유형, 파일 목록 | 광고물 기본정보 영역 |
 | 화면 진입 | 검토유형 코드 조회 | `/codes/review-types` | GET | 없음 | 검토유형 코드 목록 | 검토 항목 선택 영역 |
-| 분석 요청 클릭 | AI 검토 요청 | `/advertisements/{advertisementId}/reviews` | POST | `CreateReviewRequest`: `standardEffectiveDate`, `reviewTypes`, `includeSuggestion`, `includeOpinionDraft`, `requestMemo` | `ReviewAccepted`: `reviewId`, `jobId`, `reviewStatus`, `standardVersionIds`, `requestedAt` | 응답 `reviewId`로 S-005 이동 |
+| 분석 요청 클릭 | AI 검토 요청 | `/advertisements/{advertisementId}/reviews` | POST | `CreateReviewRequest`: `standardEffectiveDate`(사용자 로컬 오늘 날짜 기본값, 변경 가능), `reviewTypes`, `includeSuggestion`, `includeOpinionDraft`, `requestMemo` | `ReviewAccepted`: `reviewId`, `jobId`, `reviewStatus`, `standardVersionIds`, `requestedAt` | 응답 `reviewId`로 S-005 이동 |
 | 이전 클릭 | 화면 이동 | - | - | - | - | S-002 이동 |
 
 ---
@@ -248,7 +249,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입/비 terminal 자동 갱신 | 검토 진행 상태 조회 | `/reviews/{reviewId}/status` | GET | `reviewId` | `ReviewProgress`: `reviewStatus`, `jobStatus`, `currentStep`, `progressRate`, retry/실패 필드, `steps` | 진행률·단계와 running/retry pending/stale/final failure/quality warning 상태 표시 |
+| 화면 진입/비 terminal 자동 갱신 | 검토 진행 상태 조회 | `/reviews/{reviewId}/status` | GET | `reviewId` | `ReviewProgress`: `reviewStatus`, `jobStatus`, `currentStep`, `progressRate`, retry/실패 필드, `steps` | 진행률·단계와 running/retry pending/stale/final failure/quality warning 상태 표시. `COMPLETED` Job은 모든 정의된 step을 완료로 표시 |
 | 새로고침 클릭 | 상태 갱신 | `/reviews/{reviewId}/status` | GET | `reviewId` | 최신 `ReviewProgress` | 진행률 및 단계 갱신. terminal 상태에서는 자동 갱신 중지 |
 | 결과 보기 클릭 | 검토 결과 요약 이동 | `/reviews/{reviewId}/summary` | GET | `reviewId` | 검토 요약 | S-006 이동 |
 | `isRetryable=true` 실패/stale에서 재분석 클릭 | AI 재분석 요청 | `/reviews/{reviewId}/rerun` | POST | `RerunReviewRequest`: `reason`, `reviewTypes` | `RerunReviewAccepted`: `newReviewId`, `previousReviewId`, `jobId`, `reviewStatus` | 이력을 덮어쓰지 않고 `newReviewId`의 S-005 표시 |
@@ -301,8 +302,8 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 파일 ID, 광고 기본정보 | 상단 정보 영역 |
-| 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 광고 원본 미리보기 영역 |
-| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시 |
+| 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 이미지/PDF에서만 광고 원본 미리보기 영역에 호출 |
+| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 preview API를 호출하지 않고 Text IR 및 원본 다운로드 안내를 표시 |
 | Annotation 또는 목록 항목 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 원문, 문제유형, 판단사유, 근거, 추천문구 | 선택 항목 상세 패널 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준명, 조항, 내용, 적용일 | 근거 상세 팝업 |
 | 필터 선택 | Annotation 필터링 | `/reviews/{reviewId}/annotations` | GET | `reviewType`, `riskLevel`, `pageNo` | 필터링된 Annotation 목록 | 화면 표시 갱신 |

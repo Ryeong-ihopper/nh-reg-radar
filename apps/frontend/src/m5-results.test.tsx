@@ -219,6 +219,26 @@ test("renders image boxes, HWP offsets, low-confidence warnings, and list fallba
   expect(screen.getByLabelText("선택 Annotation 상세")).toHaveTextContent("MATCHED_BOX");
 });
 
+test("does not leave an unsupported HWP preview in a loading state", async () => {
+  const hwpAnnotations: ReviewAnnotationCollection = {
+    ...annotations,
+    fileType: "HWP",
+  };
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.includes("/annotations")) return response(hwpAnnotations);
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-M5/results/annotations"]}><App initialSession={session} /></MemoryRouter>);
+  expect(await screen.findByText("HWP/HWPX 텍스트 위치")).toBeInTheDocument();
+  expect(screen.getByText("HWP/HWPX 원본은 브라우저에서 직접 미리보기로 열지 않습니다. 추출된 텍스트 위치와 원본 다운로드로 확인해 주세요.")).toBeInTheDocument();
+  expect(screen.queryByText("광고 원본을 불러오는 중입니다.")).not.toBeInTheDocument();
+  expect(urls.some((url) => url.includes("/preview"))).toBe(false);
+});
+
 test("continues advertisement analysis polling into summary and Annotation without exposing forbidden details", async () => {
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:m5-e2e") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });

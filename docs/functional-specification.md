@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.18 |
+| 현행 버전 | v1.19 |
 | 기준일 | 2026-07-16 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.19 | 2026-07-16 | 완료 Job의 모든 진행 단계를 완료로 투영하고, 검토 요청 기준 적용일의 로컬 오늘 기본값 및 HWP/HWPX Text IR 전용 화면 표시 기준을 명시 |
 | --- | --- | --- |
 | v1.18 | 2026-07-16 | rhwp 페이지 단위 Text IR의 `textPath`·raw/normalized offset 보존과 실제 3개 엔진 E2E 완료 기준을 명시 |
 | v1.17 | 2026-07-16 | ADR-0072 OpenDataLoader PDF·PaddleOCR·rhwp private Compose service와 worker adapter, 파일별 live E2E 경계를 반영 |
@@ -420,7 +421,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 | 광고물 ID | 필수 | 분석 대상 광고물 |
 | 검토 상품군 | 필수 | 기준 DB 매칭에 사용 |
 | 검토 항목 | 선택 | 필수 문구, 위험 표현, 금리 표시, 시인성, 정합성 등 |
-| 기준 적용일 | 선택 | 법령 및 내부 기준 적용 시점 |
+| 기준 적용일 | 선택 | 법령 및 내부 기준 적용 시점. 검토 요청 화면은 사용자 로컬 오늘 날짜를 기본값으로 채우며 변경할 수 있다. |
 | 검토 요청 메모 | 선택 | 담당자 참고사항 |
 
 ---
@@ -435,6 +436,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 6. 비동기 Job은 ADR-0059 기준 전체 timeout 30분, 단계별 timeout, 최대 retry 3회, backoff 1분/3분/10분을 적용한다.
 7. 일시 오류는 `RETRY_PENDING`으로 표시하고 자동 재시도하며, worker heartbeat 장애는 `STALE`로 표시한 뒤 복구 대상으로 관리한다.
 8. 파일 손상, 미지원 파일, OCR 판독 불가, 상품조건 불명확, 기준자료 미제공, 권한 오류, 요청값 검증 오류는 자동 retry하지 않고 담당자 확인 또는 최종 실패로 처리한다.
+9. Job이 `COMPLETED`이면 진행 상태 응답의 모든 정의된 단계는 `COMPLETED`로 표시하며, worker는 이를 영속 상태에도 반영한다.
 
 ```
 파일 전처리
@@ -1101,7 +1103,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 ### 2) 처리 규칙
 
 1. 시스템은 ADR-0065 기준 `NormalizedDocument`의 좌표 또는 ADR-0052 기준 Text IR 위치 정보를 기반으로 문제 문구 위치를 표시한다.
-2. 이미지/PDF는 Bounding Box로 표시하고, HWP/HWPX는 `textBlockId + normalized offset` 기준으로 텍스트 뷰에서 하이라이트한다.
+2. 이미지/PDF는 Bounding Box로 표시하고, HWP/HWPX는 `textBlockId + normalized offset` 기준으로 텍스트 뷰에서 하이라이트한다. HWP/HWPX는 브라우저 원본 preview를 요청하지 않고 Text IR과 원본 다운로드 안내를 표시한다.
 3. 일부 문구만 특정된 경우 특정된 부분만 표시하고 “일부 표시” 상태로 관리한다.
 4. 위치를 특정하지 못한 검토 항목도 목록과 상세 패널에 표시하며 “위치 확인 필요” 또는 “문서 전체 이슈” 상태로 관리한다.
 5. Annotation 위치 신뢰도는 ADR-0053 기준 `>= 0.80` `LOCATED`, `0.50~0.79` `LOW_CONFIDENCE` 또는 `PARTIALLY_LOCATED`, `< 0.50` `NOT_LOCATED`로 처리한다.
