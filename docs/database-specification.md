@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.14 |
+| 현행 버전 | v1.15 |
 | 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.15 | 2026-07-20 | HWP hybrid 실행 시 rhwp·document-processor를 미선택 `PARSER_RAW`, aligner 병합본을 선택 `NORMALIZED_DOCUMENT`로 보존하는 구현 기준을 확정 |
 | v1.14 | 2026-07-20 | ADR-0079 HWP/HWPX hybrid parser의 구성요소 raw artifact와 단일 병합 산출물 provenance 영속화 기준을 추가 |
 | v1.13 | 2026-07-20 | 규정·가이드라인 초기 적재 시 standard version metadata에 parser provenance와 구조 통계를 보존하는 기준을 추가 |
 | v1.12 | 2026-07-16 | 0009 운영 정합성 revision으로 OCR/layout 좌표 물리명·정밀도와 normalized text GIN 인덱스를 명세에 맞추고 현행 migration head를 동기화 |

@@ -6,12 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.66 |
+| 현행 버전 | v1.67 |
 | 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| --- | --- | --- |
+| v1.67 | 2026-07-20 | `hwp-hybrid` 라우팅·공백 허용 정렬·미정렬 보존·구조 서비스 재시도/저신뢰 fallback·구성요소 artifact·기준자료 공용 경로와 document-processor 계약 회귀를 구현 |
 | v1.66 | 2026-07-20 | ADR-0079 hybrid parser·Notion 신규 페이지 회귀 기준을 추가하고 Python Ruff canonical formatting의 기존 관련 47개 회귀 성공을 확인 |
 | v1.65 | 2026-07-20 | OCR 판독 불가와 일반 검토 확인 필요 상태가 자동 재시도 범위와 원인을 혼동하지 않도록 진행 화면 회귀 기준을 추가 |
 | v1.64 | 2026-07-20 | HWP 검토 입력이 glyph SVG가 아닌 rhwp semantic text export를 사용해 원래 공백·줄 구조를 보존하는 회귀 기준으로 정정 |
@@ -20,7 +22,6 @@
 | v1.61 | 2026-07-20 | 대출 상품군의 공통 코드 조회와 광고물 등록 허용 회귀 기준을 추가 |
 | v1.60 | 2026-07-20 | 로그인 공개 화면의 헤더 제외 뷰포트 중앙 배치와 불필요한 세로 스크롤 비발생 회귀 기준을 추가 |
 | v1.59 | 2026-07-20 | S-003 등록 액션을 폼 최하단 일반 행으로 배치하고 sticky 장식 컨테이너를 제거하는 회귀 기준을 추가 |
-| --- | --- | --- |
 | v1.58 | 2026-07-20 | Rule 기반 추천 생성·근거 연결, LLM 보강 실패 폴백 및 `includeSuggestion` 제외 회귀 기준을 추가 |
 | v1.57 | 2026-07-20 | OpenSearch·Qdrant 원점수 차이에도 RRF 순위 융합과 vector 근거 source coverage를 보장하는 RAG 회귀 기준을 추가 |
 | v1.56 | 2026-07-20 | S-005 완료 상태 후 지연된 진행 중 응답에도 결과 이동과 진행률을 유지하고 정적 액션의 위치가 바뀌지 않는 회귀 기준을 추가 |
@@ -313,9 +314,9 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-OCR-027 | HWP 구조 정렬과 표 셀 복원 | 제목·본문·병합 셀·표가 포함된 HWP/HWPX fixture 준비 | hybrid parse 실행 | document-processor node가 rhwp 기준 offset에 정렬되고 문단·표 셀별 TextBlock, 관련 LayoutBlock과 Table이 결정적으로 생성됨 | `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-028 | HWP 구조 보강 실패 처리 | rhwp 성공, document-processor timeout/저품질 fixture 준비 | hybrid parse 실행 | 구성요소 기술 retry 후에도 실패하면 rhwp 텍스트를 보존하고 구조 warning·저신뢰 상태·확인 필요를 남기며 정상 구조 완료로 가장하지 않음 | `review_steps`, parser artifacts | P0 |
 | TC-OCR-029 | HWP 병합 산출물 단일 전달과 provenance | 두 구성요소 정상 fixture 준비 | hybrid parse 후 ReviewPipeline 실행 | rhwp/document-processor/aligner raw artifact·버전·confidence를 추적하고 `hwp-hybrid` 병합 NormalizedDocument 하나만 선택·영속화·후속 전달 | parser artifacts, `ocr_text_blocks`, `layout_blocks` | P0 |
-| TC-LIVE-001 | 승인 샘플 규정 PDF 적재 | dev Compose, `NH_EXTERNAL_AI_ENABLED=true`, 유효한 `OPENAI_API_KEY`, ADR-0002 승인 문서 | `scripts/ingest-reference-regulations.sh` 실행 | 각 PDF가 표준/version/evidence/chunk로 생성 또는 재사용되고 Qdrant/OpenSearch 재색인이 완료된다. key/원문은 출력되지 않는다. | standards/evidence/search index | P0/manual |
+| TC-LIVE-001 | 승인 샘플 규정·가이드라인 적재 | dev Compose, `NH_EXTERNAL_AI_ENABLED=true`, 유효한 `OPENAI_API_KEY`, ADR-0002 승인 PDF/HWP/HWPX | `scripts/ingest-reference-regulations.sh` 실행 | 각 파일이 표준/version/evidence/chunk로 생성 또는 재사용되고 HWP/HWPX는 `hwp-hybrid` parser provenance를 보존한 뒤 Qdrant/OpenSearch 재색인이 완료된다. key/원문은 출력되지 않는다. | standards/evidence/search index | P0/manual |
 | TC-LIVE-002 | 승인 샘플 PDF/PNG 광고 실제 검토 | TC-LIVE-001 완료, product 계정으로 광고 업로드·검토 요청 | supplied sample PDF 또는 PNG를 업로드하고 완료 상태까지 조회 | 선택 산출물, 결과 item, 구조화 LLM score와 OpenSearch 근거 상태가 저장·조회된다. Rule 판정은 provider 출력으로 덮어쓰지 않는다. | review/jobs/results | P0/manual |
-| TC-LIVE-003 | live provider fail-closed | `NH_EXTERNAL_AI_ENABLED=true` 이고 key 없음, 또는 HWP/HWPX 업로드 | worker 검토 실행 | `OPENAI_API_KEY_NOT_CONFIGURED` 또는 비지원 adapter 오류로 최종 실패하고 성공 결과·DB fallback 검색이 생성되지 않는다. | review/jobs/audit | P0 |
+| TC-LIVE-003 | live provider fail-closed | `NH_EXTERNAL_AI_ENABLED=true` 이고 key 없음, 또는 필수 parser service 미구성 | worker 검토 실행 | `OPENAI_API_KEY_NOT_CONFIGURED` 또는 parser adapter/service 오류로 최종 실패하고 성공 결과·DB fallback 검색이 생성되지 않는다. document-processor만 실패한 경우는 rhwp 텍스트를 보존한 확인 필요 결과로 분리한다. | review/jobs/audit | P0 |
 | TC-LIVE-004 | 실제 hybrid 근거 조회 | TC-LIVE-001 완료, `OPENAI_EMBEDDING_MODEL`과 1536 차원 Qdrant collection 설정 | 샘플 광고를 검토 요청 | 규정 chunk가 실제 vector로 Qdrant에 저장되고, OpenSearch·Qdrant 결과는 RRF(`k=60`)로 융합된다. 중복 chunk는 `HYBRID`, 서로 다른 후보가 있으면 `KEYWORD`와 `VECTOR` 근거가 모두 상위 결과에 포함된다. | Qdrant/OpenSearch/review items | P0/manual |
 | TC-LIVE-005 | embedding endpoint/model 교체 | 새 OpenAI-compatible endpoint/model/dimension 및 새 Qdrant collection 설정 | 기존 collection을 재사용하지 않고 기준자료 재적재/재색인 | 새 vector dimension과 model metadata로만 검색하며, dimension 불일치/endpoint 오류는 `SEARCH_UNAVAILABLE` 또는 적재 실패로 종료된다. | Qdrant/reindex jobs | P1/manual |
 | TC-LIVE-006 | 승인 PDF paid provider 종단간 검토 | TC-LIVE-001 완료, 동일 Redis URL/queue를 사용하는 backend·worker Compose, 유효한 opt-in key | 승인 PDF를 업로드하고 검토 요청 후 job 종료까지 조회 | `OCR_EXTRACTION`→근거 검색→결과 저장이 완료되고 review는 `CHECK_REQUIRED` 또는 정책상 최종 상태, job은 `COMPLETED`가 된다. OCR ID는 review별로 유일하고 근거 score는 0~1, source는 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA` 중 하나다. key/raw provider 응답은 노출되지 않는다. | review/jobs/ocr/results | P0/manual |

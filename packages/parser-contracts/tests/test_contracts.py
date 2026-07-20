@@ -65,7 +65,9 @@ def test_parser_router_selects_primary_engines_and_guards_vlm() -> None:
         "body": b"synthetic",
     }
 
-    assert router.route(DocumentInput(file_name="a.hwpx", **base)).primary_adapter == "rhwp"
+    hwp = router.route(DocumentInput(file_name="a.hwpx", **base))
+    assert hwp.primary_adapter == "hwp-hybrid"
+    assert hwp.secondary_adapters == ()
     assert (
         router.route(DocumentInput(file_name="a.pdf", scanned_pdf=True, **base)).primary_adapter
         == "paddleocr"

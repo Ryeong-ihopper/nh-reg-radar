@@ -161,7 +161,9 @@ def production_runner(settings: Settings) -> Runner:
                 opendataloader_endpoint=settings.opendataloader_pdf_endpoint,
                 paddleocr_endpoint=settings.paddleocr_endpoint,
                 rhwp_endpoint=settings.rhwp_endpoint,
+                document_processor_endpoint=settings.document_processor_endpoint,
                 timeout_seconds=settings.parser_service_timeout_seconds,
+                hwp_structure_attempts=settings.hwp_structure_attempts,
             )
         ),
         response_client=client,

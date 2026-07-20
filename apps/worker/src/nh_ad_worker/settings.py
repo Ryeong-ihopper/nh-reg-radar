@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     opendataloader_pdf_endpoint: str = "http://opendataloader-pdf:8091"
     paddleocr_endpoint: str = "http://paddleocr:8092"
     rhwp_endpoint: str = "http://rhwp:8093"
+    document_processor_endpoint: str = "http://document-processor:8094"
+    hwp_structure_attempts: int = Field(default=3, ge=1, le=5)
 
     @property
     def resolved_embedding_api_key(self) -> SecretStr | None:

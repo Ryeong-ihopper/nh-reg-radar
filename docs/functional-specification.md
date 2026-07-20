@@ -6,19 +6,20 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.29 |
+| 현행 버전 | v1.30 |
 | 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| --- | --- | --- |
+| v1.30 | 2026-07-20 | ADR-0079를 실제 `hwp-hybrid` 라우팅, Python 3.13/OpenJDK 25 document-processor private service, 구성요소 artifact 보존과 광고·기준자료 공용 계약으로 구현 |
 | v1.29 | 2026-07-20 | ADR-0079의 HWP/HWPX hybrid parser 기준을 반영하고, CI 복구를 위한 Ruff canonical formatting은 기존 업무·AI/RAG 동작을 변경하지 않는 경계를 명시 |
 | v1.28 | 2026-07-20 | 검토 진행 화면에서 기술 일시 오류 자동 재시도와 판독 불가·검토 확인 필요 상태를 구분해 안내하도록 정정 |
 | v1.27 | 2026-07-20 | HWP 검토 입력은 SVG glyph 좌표 추정이 아니라 rhwp의 semantic text export를 원천으로 사용해 원래 공백·문단 구조를 보존하도록 정정 |
 | v1.26 | 2026-07-20 | rhwp가 글자 단위 SVG 노드를 반환하는 HWP에서 시각적 행과 단어 경계를 재조합해 검토 입력이 글자별 줄바꿈으로 훼손되지 않도록 보강 |
 | v1.25 | 2026-07-20 | 승인된 규정·가이드라인 PDF/HWP/HWPX 전체를 private parser service로 정규화한 뒤 메타데이터 추출·Hybrid 색인하고 parser provenance를 보존하는 초기 적재 경로를 반영 |
 | v1.24 | 2026-07-20 | 상품군 공통 코드에 대출을 추가하고 대출 전용 기준자료가 없는 상태에서는 등록 분류만 지원한다는 심의 범위를 명시 |
-| --- | --- | --- |
 | v1.23 | 2026-07-20 | 위험 Rule 결과의 결정적 추천 생성, 근거가 있을 때만 수행하는 선택적 LLM 문장 보강, 실패 폴백·재시도 멱등성·`includeSuggestion` 제외 경계를 반영 |
 | v1.22 | 2026-07-20 | 실제 Hybrid RAG는 OpenSearch·Qdrant 원점수를 직접 비교하지 않고 RRF(`k=60`) 순위 융합과 source coverage로 근거를 선정하도록 정정 |
 | v1.21 | 2026-07-18 | Worker의 단계별 영속 진행률과 화면 이탈 후에도 지속되는 서버 작업, 검토 화면의 원본 병행 표시 기준을 반영 |
@@ -283,17 +284,17 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 | 상태 원천 | Redis는 최소 식별자 전달만 담당하고 Job/Step 진행·retry·heartbeat·dead-letter는 PostgreSQL이 원천 |
 | Delivery claim | Worker는 `review-job-v1`의 정확한 6개 필드만 수용하고 `idempotencyKey == jobId`를 실행 전에 검증하여 교차 Job delivery를 거부 |
 | Parser 출력 | 모든 adapter는 `normalized-document-v1`을 반환하고 후속 업무는 provider raw 구조를 읽지 않음 |
-| 라우팅 | PDF/복합 PDF `opendataloader-pdf`, 이미지/스캔 PDF `PaddleOCR`, HWP/HWPX `rhwp` 우선 |
+| 라우팅 | PDF/복합 PDF `opendataloader-pdf`, 이미지/스캔 PDF `PaddleOCR`, HWP/HWPX `hwp-hybrid` |
 | 품질/재시도 | 기술 retry(1/3/10분, 최대 3회)와 정책 기반 품질 재처리를 분리한다. 품질 재처리 사유와 허용·구성된 보조 adapter가 함께 있을 때만 보조 엔진을 실행하고 OCR `<0.50`은 자동 retry하지 않음 |
 | 후보 선택 | 1차·보조 결과를 confidence, 필수 필드, Text IR/Coordinate 완전성, warning 수, 판정 문구 판독성을 순서대로 비교하고 동률은 앞선 시도를 선택하여 재현 가능한 단일 결과를 확정 |
 | 위치/신뢰도 | Coordinate 원본/정규화 값, HWP/HWPX raw/normalized offset, 0.80/0.79/0.49 경계를 손실 없이 보존 |
-| Raw artifact | 모든 1차·보조 시도의 engine, 재처리 사유, confidence, raw artifact 참조와 선택 여부를 기록하되 Text/Layout block은 정확히 하나의 선택 산출물만 영속화. bucket 본문과 DB metadata/checksum을 분리하고 일반 사용자 접근 금지, 예외 접근·삭제 redacted audit, retention hold/승인 삭제 적용 |
+| Raw artifact | 모든 1차·보조 시도의 engine, 재처리 사유, confidence, raw artifact 참조와 선택 여부를 기록한다. HWP/HWPX는 rhwp·document-processor 구성요소를 미선택 `PARSER_RAW`, 병합 결과를 선택 `NORMALIZED_DOCUMENT`로 보존하고 Text/Layout block은 정확히 하나의 선택 산출물만 영속화한다. bucket 본문과 DB metadata/checksum을 분리하고 일반 사용자 접근 금지, 예외 접근·삭제 redacted audit, retention hold/승인 삭제 적용 |
 
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
 실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. `/reference-documents`로 읽기 전용 마운트한 ADR-0002 승인 규정·가이드라인 PDF/HWP/HWPX는 private parser service로 먼저 `NormalizedDocument` v1로 정규화한다. 정규화 텍스트만 OpenAI Responses API에 전달해 기준자료 메타데이터를 추출하고, 원문/파서 구조는 provider에 직접 전달하지 않는다. 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. parser 이름·버전·rule/IR 버전·text/layout/table block 수·구조 경로는 standard version metadata에 보존한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. 설정 누락·검색 backend/embedding·parser 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
 
-live opt-in의 문서 추출은 private Compose engine service와 worker adapter로 수행한다. PDF/복합 PDF는 `opendataloader-pdf`, 스캔 PDF·PNG/JPEG는 `paddleocr`, HWP/HWPX는 `rhwp` service가 실제 엔진을 실행하고 `NormalizedDocument` v1을 반환한다. worker는 identity·IR contract를 검증하고 parser 원시 output은 서비스 경계 밖으로 노출하지 않는다. OpenAI Responses API는 이 경로에서 구조화 검토 판단에만 사용하며, 문서 추출의 대체 경로가 아니다. engine service는 Compose 네트워크 내부 URL로만 연결하고 local dev에서만 loopback 포트를 선택적으로 공개한다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
+live opt-in의 문서 추출은 private Compose engine service와 worker adapter로 수행한다. PDF/복합 PDF는 `opendataloader-pdf`, 스캔 PDF·PNG/JPEG는 `paddleocr`를 사용한다. HWP/HWPX는 `rhwp` service의 기준 텍스트와 별도 Python 3.13/OpenJDK 25 `document-processor` service의 문단·표 구조를 `HwpHybridParserAdapter`가 공백 차이를 허용해 결정적으로 정렬한다. 비공백 미정렬 범위는 `UNALIGNED` TextBlock과 warning으로 보존하고, 구조 서비스는 최대 `HWP_STRUCTURE_ATTEMPTS`회 호출 후 rhwp 기반 `UNSTRUCTURED` 저신뢰 결과로 닫는다. worker는 두 구성요소를 미선택 raw artifact로, `hwp-hybrid` 병합본 하나를 선택 산출물로 저장한다. 기준자료 HWP/HWPX 적재도 같은 aligner를 사용한다. OpenAI Responses API는 이 경로에서 구조화 검토 판단에만 사용하며 문서 추출의 대체 경로가 아니다. engine service는 Compose 네트워크 내부 URL로만 연결하고 local dev에서만 loopback 포트를 선택적으로 공개한다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
 
 ### M5 근거 기반 결과·Annotation entry gate
 

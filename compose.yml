@@ -122,6 +122,8 @@ services:
       EMBEDDING_ALLOW_INSECURE_HTTP: ${EMBEDDING_ALLOW_INSECURE_HTTP:-false}
       OPENDATALOADER_PDF_ENDPOINT: http://opendataloader-pdf:8091
       RHWP_ENDPOINT: http://rhwp:8093
+      DOCUMENT_PROCESSOR_ENDPOINT: http://document-processor:8094
+      HWP_STRUCTURE_ATTEMPTS: ${HWP_STRUCTURE_ATTEMPTS:-3}
       REFERENCE_PARSER_TIMEOUT_SECONDS: ${PARSER_SERVICE_TIMEOUT_SECONDS:-120}
     depends_on:
       postgres:
@@ -130,6 +132,12 @@ services:
         condition: service_healthy
       minio-bootstrap:
         condition: service_completed_successfully
+      opendataloader-pdf:
+        condition: service_healthy
+      rhwp:
+        condition: service_healthy
+      document-processor:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -172,6 +180,8 @@ services:
       OPENDATALOADER_PDF_ENDPOINT: http://opendataloader-pdf:8091
       PADDLEOCR_ENDPOINT: http://paddleocr:8092
       RHWP_ENDPOINT: http://rhwp:8093
+      DOCUMENT_PROCESSOR_ENDPOINT: http://document-processor:8094
+      HWP_STRUCTURE_ATTEMPTS: ${HWP_STRUCTURE_ATTEMPTS:-3}
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,6 +194,8 @@ services:
       paddleocr:
         condition: service_healthy
       rhwp:
+        condition: service_healthy
+      document-processor:
         condition: service_healthy
     healthcheck:
       test:
@@ -259,6 +271,19 @@ services:
       dockerfile: apps/parser-services/Dockerfile.rhwp
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [application]
+
+  document-processor:
+    image: ${IMAGE_PREFIX:-nh-ad-compliance}/document-processor:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/parser-services/Dockerfile.document-processor
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8094/health', timeout=2)"]
       interval: 15s
       timeout: 5s
       retries: 10

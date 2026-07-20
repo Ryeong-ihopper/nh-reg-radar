@@ -63,6 +63,10 @@ services:
     ports:
       - "127.0.0.1:${RHWP_PORT:-8093}:8093"
 
+  document-processor:
+    ports:
+      - "127.0.0.1:${DOCUMENT_PROCESSOR_PORT:-8094}:8094"
+
   postgres:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

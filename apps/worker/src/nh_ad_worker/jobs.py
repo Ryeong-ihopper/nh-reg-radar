@@ -17,6 +17,7 @@ from nh_ad_parser_contracts import (
     ArtifactMetadata,
     ArtifactStore,
     DocumentInput,
+    HwpHybridDocument,
     NormalizedDocument,
     ParserRouter,
 )
@@ -420,6 +421,33 @@ class ParserJobProcessor:
             selected_artifact: ArtifactMetadata | None = None
             for attempt in selection.attempts:
                 normalized = attempt.normalized_document
+                if isinstance(normalized, HwpHybridDocument):
+                    for component_index, component in enumerate(
+                        normalized.component_documents, start=1
+                    ):
+                        self.artifacts.put(
+                            self._raw_output(job.document, component),
+                            raw_artifact_id=self._component_artifact_id(
+                                job.job_id, attempt.attempt_no, component_index
+                            ),
+                            review_id=job.review_id,
+                            file_id=job.document.source_file_id,
+                            review_step_id=job.review_step_id,
+                            artifact_type="PARSER_RAW",
+                            content_type="application/json",
+                            parser_name=component.parser_name,
+                            parser_version=component.parser_version,
+                            parser_rule_version=component.parser_rule_version,
+                            ir_version=component.ir_version,
+                            attempt_no=attempt.attempt_no,
+                            is_primary_attempt=component.parser_name == "rhwp",
+                            is_selected_output=False,
+                            rerun_reason_code="HWP_HYBRID_COMPONENT",
+                            confidence_score=component.confidence.score,
+                            confidence_status=component.confidence.status.value,
+                            created_at=now,
+                            retention_until=now + timedelta(days=14),
+                        )
                 raw = self._raw_output(job.document, normalized)
                 artifact = self.artifacts.put(
                     raw,
@@ -427,7 +455,11 @@ class ParserJobProcessor:
                     review_id=job.review_id,
                     file_id=job.document.source_file_id,
                     review_step_id=job.review_step_id,
-                    artifact_type="PROVIDER_RAW",
+                    artifact_type=(
+                        "NORMALIZED_DOCUMENT"
+                        if isinstance(normalized, HwpHybridDocument)
+                        else "PROVIDER_RAW"
+                    ),
                     content_type="application/json",
                     parser_name=attempt.adapter_name,
                     parser_version=normalized.parser_version,
@@ -563,6 +595,13 @@ class ParserJobProcessor:
     @staticmethod
     def _artifact_id(job_id: str, attempt_no: int) -> str:
         digest = hashlib.sha256(f"{job_id}:{attempt_no}".encode()).hexdigest()[:32]
+        return f"ART-{digest}"
+
+    @staticmethod
+    def _component_artifact_id(job_id: str, attempt_no: int, component_index: int) -> str:
+        digest = hashlib.sha256(
+            f"{job_id}:{attempt_no}:component:{component_index}".encode()
+        ).hexdigest()[:32]
         return f"ART-{digest}"
 
     def _heartbeat_until_stopped(self, job_id: str, stop: Event) -> None:

@@ -55,7 +55,10 @@ def normalized_document(
     version: str,
     pages: list[dict[str, object]],
     blocks: list[dict[str, object]],
+    layout_blocks: list[dict[str, object]] | None = None,
+    tables: list[dict[str, object]] | None = None,
     warnings: list[dict[str, object]] | None = None,
+    raw_artifact_ref: str | None = None,
 ) -> dict[str, object]:
     """Return the repository-owned NormalizedDocument v1 wire representation."""
 
@@ -71,15 +74,15 @@ def normalized_document(
         "irVersion": "normalized-document-v1",
         "pages": pages,
         "textBlocks": blocks,
-        "layoutBlocks": [],
-        "tables": [],
+        "layoutBlocks": layout_blocks or [],
+        "tables": tables or [],
         "warnings": warnings or [],
         "confidence": {
             "score": confidence,
             "status": _confidence_status(confidence),
             "policyVersion": "confidence-thresholds-v1",
         },
-        "rawArtifactRef": f"{engine}-service-v1",
+        "rawArtifactRef": raw_artifact_ref or f"{engine}-service-v1",
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
 

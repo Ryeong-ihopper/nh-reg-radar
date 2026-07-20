@@ -9,6 +9,7 @@ from nh_ad_parser_contracts import (
     DocumentInput,
     InMemoryArtifactMetadataRepository,
     InMemoryArtifactStorage,
+    HwpHybridDocument,
     NormalizedDocument,
     ParserRouter,
 )
@@ -502,6 +503,49 @@ def candidate(parser_name: str, score: float) -> NormalizedDocument:
         block["confidenceScore"] = score
         block["confidenceStatus"] = status
     return NormalizedDocument.model_validate(data)
+
+
+def test_hwp_hybrid_persists_both_components_before_the_selected_document() -> None:
+    rhwp = candidate("rhwp", 0.95)
+    document_processor = candidate("document-processor", 0.90)
+    final = candidate("hwp-hybrid", 0.90)
+    hybrid = HwpHybridDocument.model_validate(
+        {
+            **final.model_dump(mode="python"),
+            "component_documents": (rhwp, document_processor),
+        }
+    )
+    source = DocumentInput(
+        source_file_id=hybrid.source_file_id,
+        review_id=hybrid.review_id,
+        file_name="advertisement.hwp",
+        mime_type="application/x-hwp",
+        body=b"hwp",
+    )
+    job = WorkerJob("JOB-M4-HYBRID", hybrid.review_id, source)
+    repository = InMemoryJobRepository([job])
+    metadata = InMemoryArtifactMetadataRepository()
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter({"hwp-hybrid": FixtureAdapter(hybrid)}),
+        ArtifactStore(InMemoryArtifactStorage(), metadata, bucket="parser-artifacts"),
+        InMemoryDeadLetterSink(),
+        worker_id="worker-m4",
+        now=Clock(),
+    )
+
+    assert processor.process(message(job)) == "COMPLETED"
+    artifacts = list(metadata.items.values())
+    assert {item.parser_name for item in artifacts} == {
+        "rhwp",
+        "document-processor",
+        "hwp-hybrid",
+    }
+    assert [item.parser_name for item in artifacts if item.is_selected_output] == ["hwp-hybrid"]
+    assert {item.parser_name for item in artifacts if item.artifact_type == "PARSER_RAW"} == {
+        "rhwp",
+        "document-processor",
+    }
 
 
 def test_quality_rerun_executes_secondary_and_persists_exactly_one_selected_output() -> None:

@@ -1,0 +1,25 @@
+FROM python:3.13-slim AS build
+
+ARG DOCUMENT_PROCESSOR_COMMIT=07c679086d80e674880dbad88c21757d8ae7dcf1
+COPY apps/parser-services/requirements-document-processor.txt /tmp/requirements-document-processor.txt
+RUN pip wheel --wheel-dir /wheels \
+    -r /tmp/requirements-document-processor.txt \
+    "document-processor @ https://github.com/CGINSIDE-ROOKIES/document-processor/archive/${DOCUMENT_PROCESSOR_COMMIT}.tar.gz"
+
+FROM python:3.13-slim
+
+ARG DOCUMENT_PROCESSOR_COMMIT=07c679086d80e674880dbad88c21757d8ae7dcf1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DOCUMENT_PROCESSOR_VERSION=${DOCUMENT_PROCESSOR_COMMIT}
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-25-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links /wheels \
+    document-processor fastapi uvicorn \
+    && rm -rf /wheels
+COPY apps/parser-services/service.py apps/parser-services/document_processor_app.py ./
+EXPOSE 8094
+CMD ["uvicorn", "document_processor_app:app", "--host", "0.0.0.0", "--port", "8094"]

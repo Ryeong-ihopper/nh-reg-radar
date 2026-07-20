@@ -20,6 +20,11 @@ from nh_ad_parser_contracts.models import (
     Warning,
     confidence_status,
 )
+from nh_ad_parser_contracts.hybrid import (
+    HwpHybridDocument,
+    HwpHybridParserAdapter,
+    HwpStructureAligner,
+)
 from nh_ad_parser_contracts.routing import (
     AdapterNotConfigured,
     DocumentInput,
@@ -42,6 +47,9 @@ __all__ = [
     "DocumentInput",
     "InMemoryArtifactMetadataRepository",
     "InMemoryArtifactStorage",
+    "HwpHybridParserAdapter",
+    "HwpHybridDocument",
+    "HwpStructureAligner",
     "LayoutBlock",
     "NormalizedDocument",
     "Page",

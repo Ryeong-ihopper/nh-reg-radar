@@ -91,12 +91,24 @@ HWP/HWPX
 
 ## 후속 조치
 
-- Python 3.13과 Java runtime이 필요한 `document-processor`를 현재 Python 3.12 worker/rhwp 이미지와 분리한 private service로 구성한다.
+- Python 3.13과 OpenJDK 25 runtime이 필요한 `document-processor`를 현재 Python 3.12 worker/rhwp 이미지와 분리한 private service로 구성한다.
 - `DocumentProcessorServiceAdapter`, `HwpHybridParserAdapter`, `HwpStructureAligner`의 계약과 fixture를 구현한다.
 - `NormalizedDocument` v1에서 구성요소별 provenance를 표현할 수 있는지 검토하고, 부족하면 하위 호환 optional metadata 또는 후속 IR 버전을 별도 ADR로 결정한다.
 - 승인된 HWP/HWPX 광고 샘플로 텍스트 누락, 문단·표 셀 복원, offset 정렬, 미정렬 범위 보존, Annotation 위치를 검증한다.
 - 구조화 블록을 대출금리·우대금리·대상·한도·기간·상환·비용·위험고지 등 금융광고 검토 단위로 변환하는 도메인 세그먼터 계약은 별도 명세와 테스트로 확정한다.
 - 기준자료 HWP/HWPX 적재도 동일 hybrid parser를 재사용하되, 광고 검토 단위와 규정 조문 chunking의 도메인 정책은 분리한다.
+
+## 구현 상태
+
+2026-07-20 기준으로 본 결정의 parser 조합 경계와 실행 인프라를 구현했다.
+
+- `HwpHybridParserAdapter`와 `HwpStructureAligner`가 `rhwp` 기준 텍스트를 `document-processor` 문단·표 구조에 결정적으로 정렬하고, 미정렬 텍스트를 별도 블록으로 보존한다.
+- 광고 worker와 기준자료 적재가 모두 `parserName=hwp-hybrid`인 단일 `NormalizedDocument`를 후속 처리에 전달한다.
+- worker는 `rhwp`, `document-processor` 구성요소 산출물을 감사용 `PARSER_RAW` artifact로 보존하고 최종 병합 산출물만 선택 상태로 저장한다.
+- `document-processor`는 고정 commit, Python 3.13, OpenJDK 25 기반 private Compose 서비스로 격리했다.
+- 실제 HWP 광고 샘플에서 `rhwp` 비공백 텍스트 전량 보존, 20개 병합 TextBlock, 7개 LayoutBlock, 4개 Table 생성을 확인했다.
+
+금융광고 항목별 도메인 세그먼터와 구성요소별 구조 confidence의 독립 표현은 별도 명세·ADR에서 다룬다.
 
 ## 관련 문서
 

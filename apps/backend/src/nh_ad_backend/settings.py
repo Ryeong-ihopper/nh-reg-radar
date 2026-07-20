@@ -33,8 +33,10 @@ class Settings(BaseSettings):
     review_queue_name: str = "review-jobs-v1"
     parser_artifacts_bucket: str = "parser-artifacts"
     rhwp_endpoint: str = "http://rhwp:8093"
+    document_processor_endpoint: str = "http://document-processor:8094"
     opendataloader_pdf_endpoint: str = "http://opendataloader-pdf:8091"
     reference_parser_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+    hwp_structure_attempts: int = Field(default=3, ge=1, le=5)
     hwp_preview_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     nh_external_ai_enabled: bool = False
     openai_api_key: SecretStr | None = None

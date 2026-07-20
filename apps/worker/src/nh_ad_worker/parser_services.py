@@ -1,4 +1,4 @@
-"""Private HTTP adapters for ADR-0072 parser/OCR engine services."""
+"""Private HTTP adapters for ADR-0079 parser/OCR engine services."""
 
 from __future__ import annotations
 
@@ -7,11 +7,25 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from nh_ad_parser_contracts import DocumentInput, NormalizedDocument, ParserAdapter
+from nh_ad_parser_contracts import (
+    DocumentInput,
+    HwpHybridParserAdapter,
+    NormalizedDocument,
+    ParserAdapter,
+)
+from nh_ad_worker.jobs import PermanentParserError, TransientParserError
 
 
 class ParserServiceError(RuntimeError):
     """An engine service did not return a usable normalized document."""
+
+
+class ParserServiceUnavailableError(ParserServiceError, TransientParserError):
+    """A private parser service can be retried by the durable job policy."""
+
+
+class ParserServiceInvalidResponseError(ParserServiceError, PermanentParserError):
+    """A parser response violated the fixed service/IR identity contract."""
 
 
 class ParserServiceAdapter:
@@ -40,18 +54,22 @@ class ParserServiceAdapter:
             with urlopen(request, timeout=self._timeout_seconds) as response:  # noqa: S310
                 body = bytes(response.read())
         except (HTTPError, URLError, TimeoutError) as exc:
-            raise ParserServiceError(f"{self.name.upper()}_SERVICE_UNAVAILABLE") from exc
+            raise ParserServiceUnavailableError(f"{self.name.upper()}_SERVICE_UNAVAILABLE") from exc
         try:
             value = json.loads(body)
             normalized = NormalizedDocument.model_validate(value)
         except (TypeError, ValueError) as exc:
-            raise ParserServiceError(f"{self.name.upper()}_SERVICE_INVALID_RESPONSE") from exc
+            raise ParserServiceInvalidResponseError(
+                f"{self.name.upper()}_SERVICE_INVALID_RESPONSE"
+            ) from exc
         if (
             normalized.review_id != document.review_id
             or normalized.source_file_id != document.source_file_id
             or normalized.parser_name != self.name
         ):
-            raise ParserServiceError(f"{self.name.upper()}_SERVICE_IDENTITY_MISMATCH")
+            raise ParserServiceInvalidResponseError(
+                f"{self.name.upper()}_SERVICE_IDENTITY_MISMATCH"
+            )
         return normalized
 
 
@@ -60,9 +78,18 @@ def parser_service_adapters(
     opendataloader_endpoint: str,
     paddleocr_endpoint: str,
     rhwp_endpoint: str,
+    document_processor_endpoint: str,
     timeout_seconds: float,
+    hwp_structure_attempts: int = 3,
 ) -> dict[str, ParserAdapter]:
-    """Build the only ADR-0072 engine adapters exposed to the router."""
+    """Build the ADR-0079 adapters exposed to the router."""
+
+    rhwp = ParserServiceAdapter("rhwp", rhwp_endpoint, timeout_seconds=timeout_seconds)
+    document_processor = ParserServiceAdapter(
+        "document-processor",
+        document_processor_endpoint,
+        timeout_seconds=timeout_seconds,
+    )
 
     return {
         "opendataloader-pdf": ParserServiceAdapter(
@@ -71,5 +98,9 @@ def parser_service_adapters(
         "paddleocr": ParserServiceAdapter(
             "paddleocr", paddleocr_endpoint, timeout_seconds=timeout_seconds
         ),
-        "rhwp": ParserServiceAdapter("rhwp", rhwp_endpoint, timeout_seconds=timeout_seconds),
+        "hwp-hybrid": HwpHybridParserAdapter(
+            rhwp,
+            document_processor,
+            structure_attempts=hwp_structure_attempts,
+        ),
     }

@@ -8,7 +8,13 @@ from unittest.mock import patch
 import pytest
 from nh_ad_parser_contracts import DocumentInput
 
-from nh_ad_worker.parser_services import ParserServiceAdapter, ParserServiceError
+from nh_ad_worker.parser_services import (
+    ParserServiceAdapter,
+    ParserServiceError,
+    ParserServiceUnavailableError,
+    parser_service_adapters,
+)
+from nh_ad_worker.jobs import TransientParserError
 
 
 def _document() -> DocumentInput:
@@ -112,3 +118,25 @@ def test_adapter_rejects_cross_engine_identity() -> None:
     ):
         with pytest.raises(ParserServiceError, match="RHWP_SERVICE_IDENTITY_MISMATCH"):
             adapter.parse(_document())
+
+
+def test_service_transport_failure_is_a_durable_job_retry_error() -> None:
+    adapter = ParserServiceAdapter("rhwp", "http://engine:8093", timeout_seconds=1)
+    with patch("nh_ad_worker.parser_services.urlopen", side_effect=TimeoutError("timeout")):
+        with pytest.raises(ParserServiceUnavailableError) as raised:
+            adapter.parse(_document())
+
+    assert isinstance(raised.value, TransientParserError)
+
+
+def test_factory_exposes_one_hybrid_adapter_instead_of_component_engines() -> None:
+    adapters = parser_service_adapters(
+        opendataloader_endpoint="http://opendataloader:8091",
+        paddleocr_endpoint="http://paddleocr:8092",
+        rhwp_endpoint="http://rhwp:8093",
+        document_processor_endpoint="http://document-processor:8094",
+        timeout_seconds=1,
+    )
+
+    assert set(adapters) == {"opendataloader-pdf", "paddleocr", "hwp-hybrid"}
+    assert adapters["hwp-hybrid"].name == "hwp-hybrid"

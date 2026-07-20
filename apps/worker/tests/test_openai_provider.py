@@ -297,7 +297,7 @@ def test_production_runner_fails_closed_when_external_ai_config_is_incomplete() 
         )
 
 
-def test_production_runner_registers_adr_0072_services_and_shared_review_client(
+def test_production_runner_registers_adr_0079_services_and_shared_review_client(
     monkeypatch: MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -326,7 +326,11 @@ def test_production_runner_registers_adr_0072_services_and_shared_review_client(
 
     assert worker_main.production_runner(settings) is sentinel
     router = captured["router"]
-    assert set(router._adapters) == {"opendataloader-pdf", "paddleocr", "rhwp"}  # type: ignore[attr-defined]
+    assert set(router._adapters) == {  # type: ignore[attr-defined]
+        "opendataloader-pdf",
+        "paddleocr",
+        "hwp-hybrid",
+    }
     assert isinstance(captured["response_client"], OpenAIResponsesClient)
 
 

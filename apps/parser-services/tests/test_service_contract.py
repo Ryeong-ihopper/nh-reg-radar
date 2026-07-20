@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+
+from nh_ad_parser_contracts import NormalizedDocument
 
 from service import ParseRequest, normalized_document, page, text_block
 
@@ -117,3 +120,57 @@ class _TemporaryDirectory:
 
     def __exit__(self, *_args) -> None:
         return None
+
+
+def test_document_processor_projects_paragraphs_and_table_cells_to_contract() -> None:
+    from document_processor_app import normalize_doc_ir
+
+    request = ParseRequest(
+        sourceFileId="FILE-1",
+        reviewId="REV-1",
+        fileName="ad.hwp",
+        mimeType="application/x-hwp",
+        contentBase64="aHdw",
+    )
+
+    def anchor(path: str) -> SimpleNamespace:
+        return SimpleNamespace(structural_path=path, debug_path=path)
+
+    cell = SimpleNamespace(
+        text="연 4.45%",
+        paragraphs=[],
+        bbox=None,
+        node_id="cell-1",
+        native_anchor=anchor("s1.p2.tbl1.tr1.tc1"),
+    )
+    table = SimpleNamespace(
+        cells=[[cell]],
+        bbox=None,
+        node_id="table-1",
+        native_anchor=anchor("s1.p2.tbl1"),
+    )
+    paragraph = SimpleNamespace(
+        text="대출 대상 공무원",
+        runs=[SimpleNamespace(text="대출 대상 공무원")],
+        tables=[table],
+        bbox=None,
+        page_number=1,
+        node_id="paragraph-1",
+        native_anchor=anchor("s1.p1"),
+    )
+    document = SimpleNamespace(
+        pages=[SimpleNamespace(page_number=1, width_pt=595.0, height_pt=842.0)],
+        paragraphs=[paragraph],
+    )
+
+    value = normalize_doc_ir(request, document, b"hwp")
+    normalized = NormalizedDocument.model_validate(value)
+
+    assert normalized.parser_name == "document-processor"
+    assert [block.text_block_type for block in normalized.text_blocks] == [
+        "PARAGRAPH",
+        "TABLE_CELL",
+    ]
+    assert normalized.text_blocks[1].text_path == "s1.p2.tbl1.tr1.tc1"
+    assert normalized.tables[0].cells == [["연 4.45%"]]
+    assert len(normalized.layout_blocks) == 2

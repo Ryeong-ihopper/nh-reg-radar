@@ -59,7 +59,7 @@ class AdapterNotConfigured(LookupError):
 
 
 class ParserRouter:
-    """ADR-0072 routing without importing any provider SDK."""
+    """ADR-0079 routing without importing any provider SDK."""
 
     def __init__(self, adapters: dict[str, ParserAdapter] | None = None) -> None:
         self._adapters = adapters or {}
@@ -67,7 +67,7 @@ class ParserRouter:
     def route(self, document: DocumentInput) -> ParserRoute:
         extension = PurePath(document.file_name).suffix.casefold()
         if extension in {".hwp", ".hwpx"}:
-            return ParserRoute("rhwp", ("document-processor",))
+            return ParserRoute("hwp-hybrid", ())
         if extension == ".pdf":
             if document.scanned_pdf:
                 return ParserRoute("paddleocr", ("opendataloader-pdf", "mineru"))

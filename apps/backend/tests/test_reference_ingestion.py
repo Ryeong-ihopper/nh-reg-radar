@@ -15,8 +15,13 @@ from nh_ad_backend.reference_ingestion import (
     _metadata_input,
 )
 from nh_ad_backend.reference_document_parser import ParsedReferenceDocument
+from nh_ad_backend.reference_document_parser import (
+    ParserServiceReferenceParser,
+    _ParserServiceAdapter,
+)
 from nh_ad_backend.search import HybridSearch, InMemorySearchBackend, SearchDocument
 from nh_ad_backend.standards import InMemoryStandardRepository, StandardService
+from nh_ad_parser_contracts import NormalizedDocument
 
 
 PDF = b"%PDF-1.7\nsynthetic regulation\n%%EOF"
@@ -193,3 +198,75 @@ def test_metadata_input_is_bounded_without_changing_indexed_source_contract() ->
     assert value.startswith("a" * 48_000)
     assert value.endswith("a" * 12_000)
     assert "omitted only for metadata classification" in value
+
+
+def test_hwp_reference_ingestion_uses_the_same_hybrid_contract(monkeypatch) -> None:
+    def parse_service(adapter: _ParserServiceAdapter, document) -> NormalizedDocument:
+        text = "대출 대상\n공무원"
+        parser_name = adapter.name
+        block_text = text if parser_name == "rhwp" else "대출대상 공무원"
+        path = "pages/1" if parser_name == "rhwp" else "s1.p1"
+        return NormalizedDocument.model_validate(
+            {
+                "documentId": f"doc-{document.source_file_id}",
+                "sourceFileId": document.source_file_id,
+                "reviewId": document.review_id,
+                "sourceFileType": "hwp",
+                "parserName": parser_name,
+                "parserVersion": "v1",
+                "parserRuleVersion": f"{parser_name}-normalized-v1",
+                "irVersion": "normalized-document-v1",
+                "pages": [{"pageNo": 1}],
+                "textBlocks": [
+                    {
+                        "textBlockId": f"{parser_name}-1",
+                        "fileId": document.source_file_id,
+                        "pageNo": 1,
+                        "textPath": path,
+                        "textBlockType": "BODY",
+                        "rawText": block_text,
+                        "normalizedText": block_text,
+                        "rawStartOffset": 0,
+                        "rawEndOffset": len(block_text),
+                        "normalizedStartOffset": 0,
+                        "normalizedEndOffset": len(block_text),
+                        "parserName": parser_name,
+                        "parserVersion": "v1",
+                        "parserRuleVersion": f"{parser_name}-normalized-v1",
+                        "irVersion": "normalized-document-v1",
+                        "confidenceScore": 0.95,
+                        "confidenceStatus": "READABLE",
+                        "confidencePolicyVersion": "confidence-thresholds-v1",
+                    }
+                ],
+                "layoutBlocks": [],
+                "tables": [],
+                "warnings": [],
+                "confidence": {
+                    "score": 0.95,
+                    "status": "READABLE",
+                    "policyVersion": "confidence-thresholds-v1",
+                },
+                "rawArtifactRef": f"{parser_name}-raw",
+                "createdAt": "2026-07-20T00:00:00Z",
+            }
+        )
+
+    monkeypatch.setattr(_ParserServiceAdapter, "parse", parse_service)
+    parser = ParserServiceReferenceParser(
+        opendataloader_endpoint="http://opendataloader:8091",
+        rhwp_endpoint="http://rhwp:8093",
+        document_processor_endpoint="http://document-processor:8094",
+        timeout_seconds=1,
+    )
+
+    parsed = parser.parse(
+        file_name="regulation.hwp",
+        source_file_id="REFSRC-1",
+        source_hash="a" * 64,
+        body=b"hwp",
+    )
+
+    assert parsed.parser_name == "hwp-hybrid"
+    assert parsed.content == "대출 대상\n공무원"
+    assert parsed.text_block_count == 1

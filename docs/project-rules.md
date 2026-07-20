@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.18 |
+| 현행 버전 | v1.19 |
 | 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.19 | 2026-07-20 | document-processor를 Python 3.13/OpenJDK 25 private Compose service로 고정하고 HWP/HWPX 광고·기준자료가 공용 hybrid 계약과 구성요소 artifact 경계를 사용하도록 운영 기준을 구체화 |
 | v1.18 | 2026-07-20 | ADR-0079에 따라 HWP/HWPX hybrid parser 기준을 추가하고, 신규 ADR·프론트엔드 감사 문서의 Notion 게시 범위와 최초 페이지 생성 절차를 동기화 |
 | v1.17 | 2026-07-20 | 개발 Compose 기준자료 초기 적재는 PDF/HWP/HWPX parser service와 단일 writer lock을 사용하고 완료 후 두 검색 인덱스 상태를 확인하는 기준을 추가 |
 | v1.16 | 2026-07-16 | Conventional Commit 제목을 type 접두어와 한글 요약으로 통일하는 기준을 추가 |
@@ -517,7 +518,7 @@ M4 Redis delivery queue/dead-letter 이름은 `REDIS_QUEUE_PREFIX` 아래에서 
 
 Compose backend와 worker는 반드시 동일한 `REDIS_URL` 및 review queue 이름을 설정한다. backend가 host 기본값으로 fallback하면 요청은 영속화되어도 worker로 전달되지 않으므로, Compose bootstrap 회귀는 backend Redis URL/queue 주입을 정적으로 검증하고 실제 provider E2E는 완료 상태까지 확인한다.
 
-ADR-0079의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`/`document-processor`는 private Compose service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. PDF/복합 PDF와 이미지·스캔 PDF는 해당 service로 라우팅하며, HWP/HWPX는 rhwp 텍스트와 document-processor 구조를 병합한 `hwp-hybrid` 산출물을 사용한다. 이 engine service는 운영 Compose 네트워크 내부에만 두고, local dev의 loopback port는 디버깅 목적 외 사용하지 않는다. 엔진 container build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
+ADR-0079의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`/`document-processor`는 private Compose service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. `document-processor`는 worker의 Python 3.12 의존성과 분리한 Python 3.13/OpenJDK 25 이미지로 운영하고 승인된 Git commit을 고정한다. PDF/복합 PDF와 이미지·스캔 PDF는 해당 service로 라우팅하며, HWP/HWPX 광고와 기준자료는 rhwp 텍스트와 document-processor 구조를 병합한 공용 `hwp-hybrid` 산출물을 사용한다. 구성요소 artifact는 미선택 상태로, 병합본 하나만 선택 상태로 보존한다. 이 engine service는 운영 Compose 네트워크 내부에만 두고, local dev의 loopback port는 디버깅 목적 외 사용하지 않는다. 엔진 container build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
 
 Compose 파일 변경 시 다음 조합의 설정 검증을 수행한다.
 
@@ -641,7 +642,7 @@ M8 릴리스 후보 검증은 [ADR-0044](adr/ADR-0044-ai-mock-fixture-test-polic
 
 ### 10.1.3 OpenAI live 개발·배포 secret 경계
 
-실제 광고 결과 확인은 `feature/*` 또는 로컬 dev 환경의 명시적 opt-in으로만 수행한다. `.env.dev`에는 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, 선택적으로 generation/embedding별 base URL·key·timeout·dimension을 설정할 수 있으나 `.env.dev`와 실 key는 Git에 커밋하지 않는다. 개발 Compose는 해당 key를 worker, embedding을 수행하는 backend, 명시적으로 실행한 one-shot 기준자료 적재 command에만 전달한다. 규정 PDF 적재는 읽기 전용 `/reference-documents`의 ADR-0002 승인 샘플에 한정한다.
+실제 광고 결과 확인은 `feature/*` 또는 로컬 dev 환경의 명시적 opt-in으로만 수행한다. `.env.dev`에는 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, 선택적으로 generation/embedding별 base URL·key·timeout·dimension을 설정할 수 있으나 `.env.dev`와 실 key는 Git에 커밋하지 않는다. 개발 Compose는 해당 key를 worker, embedding을 수행하는 backend, 명시적으로 실행한 one-shot 기준자료 적재 command에만 전달한다. PDF/HWP/HWPX 규정 적재는 읽기 전용 `/reference-documents`의 ADR-0002 승인 샘플에 한정한다.
 
 임베딩 endpoint는 OpenAI-compatible `/v1/embeddings` 계약을 사용한다. 폐쇄망 vLLM 전환은 `EMBEDDING_BASE_URL`, `OPENAI_EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, 필요 시 `EMBEDDING_API_KEY`와 `EMBEDDING_ALLOW_INSECURE_HTTP=true`를 명시하여 수행한다. model·dimension·endpoint를 바꾸면 기존 vector collection을 재사용하지 않고 새 `QDRANT_COLLECTION`과 전체 기준자료 재색인을 사용한다. OpenSearch와 Qdrant 중 하나라도 사용할 수 없으면 DB scan/단일 backend 성공으로 우회하지 않는다.
 

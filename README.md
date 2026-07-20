@@ -8,7 +8,7 @@ NH 농협은행 금융상품 광고물의 사전 검토 업무를 보조하기 �
 
 개발 관련 명세 문서는 Git으로 관리되는 `docs/`를 Source of Truth로 사용합니다. Notion은 칸반, 일정, 회의록과 읽기용 공유본으로 사용하며, 구현 중 명세가 바뀌면 같은 작업 단위에서 `docs/` 문서를 함께 갱신합니다. `main`의 게시 대상 Markdown 변경은 ADR-0077에 따라 기존 Notion page ID를 유지하는 단방향 자동 동기화로 공유본에 반영합니다.
 
-## 현재 구현 및 운영 상태 (2026-07-15)
+## 현재 구현 및 운영 상태 (2026-07-20)
 
 M0~M8의 provider-free thin slice는 저장소의 실제 backend/worker/frontend 경로와 결정적 fixture를 기준으로 구현·검증되었습니다. 실행 진입점은 `apps/backend/src/nh_ad_backend/main.py`, `apps/worker/src/nh_ad_worker/main.py`, `apps/frontend/src/App.tsx`이며, API 호출은 `apps/frontend/src/api/client.ts`와 생성 계약 `apps/frontend/src/api/generated/openapi.ts`를 사용합니다. 원천 API 계약은 OpenAPI `0.8.0`입니다.
 
@@ -23,7 +23,7 @@ Provider-free 성공은 실제 OCR/RAG/LLM provider 품질, 고객사 검증, �
 
 ## 로컬 개발 환경 빠른 시작
 
-처음 저장소를 받은 개발자는 아래 순서대로 실행하면 provider-free 전체 스택을 로컬에 띄울 수 있습니다. 이 경로는 Docker Compose로 frontend, backend, worker, PostgreSQL, Redis, MinIO, Qdrant, OpenSearch를 실행하고 DB migration과 synthetic dev seed까지 적용합니다. 실제 LLM/OCR/RAG API key는 필요하지 않습니다.
+처음 저장소를 받은 개발자는 아래 순서대로 실행하면 provider-free 전체 스택을 로컬에 띄울 수 있습니다. 이 경로는 Docker Compose로 frontend, backend, worker, PostgreSQL, Redis, MinIO, Qdrant, OpenSearch와 private parser/OCR 서비스를 실행하고 DB migration과 synthetic dev seed까지 적용합니다. 실제 LLM/OCR/RAG API key는 필요하지 않습니다.
 
 ### 1. 사전 요구사항
 
@@ -91,6 +91,10 @@ NH_LOCAL_DEV_PASSWORD='다른-로컬-비밀번호-10자-이상' scripts/local-de
 | Backend OpenAPI | <http://localhost:8000/openapi.json> |
 | Worker readiness | <http://localhost:8001/ready> |
 | MinIO console | <http://localhost:9001> |
+| OpenDataLoader PDF health | <http://localhost:8091/health> |
+| PaddleOCR health | <http://localhost:8092/health> |
+| rhwp health | <http://localhost:8093/health> |
+| document-processor health | <http://localhost:8094/health> |
 
 브라우저는 CORS/refresh-cookie 기준과 일치하도록 `127.0.0.1` 대신 위 `localhost` 주소를 사용합니다. 터미널에서는 다음 명령으로 기본 상태를 확인합니다.
 
@@ -116,20 +120,20 @@ curl --fail http://localhost:8001/ready
    EMBEDDING_DIMENSIONS=1536
    ```
 
-2. 서비스를 다시 빌드·기동하고 규정 PDF를 적재합니다.
+2. 서비스를 다시 빌드·기동하고 승인된 규정·가이드라인을 적재합니다.
 
    ```bash
    scripts/local-dev.sh up
    scripts/ingest-reference-regulations.sh
    ```
 
-   적재기는 `docs/규정 및 가이드라인/` 아래의 PDF만 읽고, 표준·버전·근거 chunk를 만든 뒤 **OpenAI-compatible embedding과 Qdrant + OpenSearch hybrid index**에 재색인합니다. HWP/HWPX 규정은 이 최초 live 경로의 대상이 아닙니다. 동일 PDF는 SHA-256으로 식별되어 재실행 시 표준을 중복 생성하지 않고 재색인만 수행합니다.
+   적재기는 `docs/규정 및 가이드라인/` 아래의 PDF/HWP/HWPX를 읽고, 표준·버전·근거 chunk를 만든 뒤 **OpenAI-compatible embedding과 Qdrant + OpenSearch hybrid index**에 재색인합니다. HWP/HWPX도 광고 검토와 같은 `hwp-hybrid` 계약을 사용합니다. 동일 파일은 SHA-256으로 식별되어 재실행 시 표준을 중복 생성하지 않고 재색인만 수행합니다.
 
-3. <http://localhost:5173>에서 `test@ihopper.co.kr`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 같은 계정으로 **기준자료 관리**에서 법령·가이드라인·내부 기준도 등록할 수 있습니다. `admin@ihopper.co.kr`는 시스템 관리자 기능 확인에 사용합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
+3. <http://localhost:5173>에서 `test@ihopper.co.kr`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG/HWP/HWPX 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 같은 계정으로 **기준자료 관리**에서 법령·가이드라인·내부 기준도 등록할 수 있습니다. `admin@ihopper.co.kr`는 시스템 관리자 기능 확인에 사용합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/` 아래의 예금성·대출성 파일입니다.
 
 worker는 OpenAI Responses API를 **구조화 검토 판단**에만, OpenAI-compatible `/embeddings` API를 근거 검색에 사용하며 provider 원문 응답이나 API key는 저장하지 않습니다. 문서 추출은 private parser/OCR 서비스가 담당합니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. 구조화 판단 또는 임베딩 key가 없거나 기능이 꺼져 있으면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
 
-> **실제 Parser/OCR 서비스:** `scripts/local-dev.sh up`은 private Compose 서비스 `opendataloader-pdf`, `paddleocr`, `rhwp`를 함께 기동합니다. PDF/복합 PDF는 OpenDataLoader PDF, 이미지·스캔 PDF는 PaddleOCR, HWP/HWPX는 rhwp가 추출하고 worker adapter가 `NormalizedDocument` v1만 수용합니다. 개발자가 별도 엔진을 수동으로 띄울 필요는 없습니다. 첫 기동은 이미지 build와 PaddleOCR 한국어 모델 다운로드 때문에 시간이 걸릴 수 있습니다. 각 엔진은 `127.0.0.1:8091`~`8093`으로만 노출되며, 운영에서는 Compose 네트워크 내부만 사용합니다.
+> **실제 Parser/OCR 서비스:** `scripts/local-dev.sh up`은 private Compose 서비스 `opendataloader-pdf`, `paddleocr`, `rhwp`, `document-processor`를 함께 기동합니다. PDF/복합 PDF는 OpenDataLoader PDF, 이미지·스캔 PDF는 PaddleOCR를 사용합니다. HWP/HWPX는 rhwp 원문 텍스트와 document-processor의 문단·표 구조를 `HwpHybridParserAdapter`가 정렬해 `parserName=hwp-hybrid`인 `NormalizedDocument` v1 하나만 후속 검토에 전달합니다. 개발자가 별도 엔진을 수동으로 띄울 필요는 없습니다. 첫 기동은 이미지 build, PaddleOCR 한국어 모델, document-processor Python 3.13/OpenJDK 25 이미지 준비 때문에 시간이 걸릴 수 있습니다. 각 엔진은 개발 환경에서만 `127.0.0.1:8091`~`8094`로 노출되며, 운영에서는 Compose 네트워크 내부만 사용합니다. 구조 서비스 장애가 설정된 3회 시도 후에도 계속되면 rhwp 텍스트를 버리지 않고 확인 필요 warning과 낮은 구조 신뢰도로 완료합니다.
 
 #### 폐쇄망/vLLM 전환
 

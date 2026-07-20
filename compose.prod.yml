@@ -27,6 +27,14 @@ services:
         limits:
           memory: 1G
 
+  document-processor:
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
   postgres:
     restart: unless-stopped
     deploy:

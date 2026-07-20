@@ -380,7 +380,9 @@ def run_cli(
         document_parser=ParserServiceReferenceParser(
             opendataloader_endpoint=resolved_settings.opendataloader_pdf_endpoint,
             rhwp_endpoint=resolved_settings.rhwp_endpoint,
+            document_processor_endpoint=resolved_settings.document_processor_endpoint,
             timeout_seconds=resolved_settings.reference_parser_timeout_seconds,
+            hwp_structure_attempts=resolved_settings.hwp_structure_attempts,
         ),
         actor=DEV_STANDARD_MANAGER,
         source_dir=cast(Path, options.source_dir),
