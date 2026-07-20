@@ -15,6 +15,7 @@ from nh_ad_ai_providers import OpenAICompatibleEmbeddings
 
 from nh_ad_backend.api import ApplicationServices, error_response, install_routes
 from nh_ad_backend.openapi_runtime import generated_openapi
+from nh_ad_backend.hwp_preview import RhwpPreviewAdapter
 from nh_ad_backend.repository import InMemoryRepository, PostgresRepository, Repository
 from nh_ad_backend.reviews import (
     InMemoryReviewQueue,
@@ -123,6 +124,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         )
 
         vector: Callable[[object], Sequence[float]]
+        document_vectors: Callable[[Sequence[SearchDocument]], Sequence[Sequence[float]]] | None
         if settings.embedding_enabled:
             embedding_key = settings.resolved_embedding_api_key
             if embedding_key is None:
@@ -142,6 +144,11 @@ def build_services(settings: Settings) -> ApplicationServices:
                     raise TypeError("embedding input must be text")
                 return embeddings.embed([text])[0]
 
+            def document_vectors(
+                documents: Sequence[SearchDocument],
+            ) -> Sequence[Sequence[float]]:
+                return embeddings.embed([document.chunk_text for document in documents])
+
             embedding_model = embeddings.model
         else:
             vector = (
@@ -150,6 +157,7 @@ def build_services(settings: Settings) -> ApplicationServices:
                 else fixed_fixture_vector
             )
             embedding_model = "fixed-fixture-v1"
+            document_vectors = None
 
         vector_search: SearchBackend = QdrantBackend(
             settings.qdrant_endpoint,
@@ -160,6 +168,7 @@ def build_services(settings: Settings) -> ApplicationServices:
             dimensions=settings.embedding_dimensions if settings.embedding_enabled else 3,
             document_vector=vector,
             query_vector=vector,
+            document_vectors=document_vectors,
         )
     else:
         repository = InMemoryRepository()
@@ -211,6 +220,9 @@ def build_services(settings: Settings) -> ApplicationServices:
             reviews=reviews,
             advertisements=advertisements,
         ),
+        hwp_preview=RhwpPreviewAdapter(
+            settings.rhwp_endpoint, timeout_seconds=settings.hwp_preview_timeout_seconds
+        ),
         validation=ValidationService(
             validation_repository,
             reviews=reviews,
@@ -256,7 +268,10 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+        if "Content-Security-Policy" not in response.headers:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; frame-ancestors 'none'"
+            )
         if request.url.path != "/health":
             response.headers["Cache-Control"] = "no-store"
         if resolved_settings.app_env == "prod":

@@ -66,10 +66,10 @@ function fillInternalStandardCreateForm(sectionPath = validInternalMetadata.sect
   fireEvent.change(screen.getByLabelText(/상품군 \*/), { target: { value: validInternalMetadata.productGroup } });
   fireEvent.change(screen.getByLabelText(/소관 부서 \*/), { target: { value: validInternalMetadata.owningDepartment } });
   fireEvent.change(screen.getByLabelText(/문서명 \*/), { target: { value: validInternalMetadata.documentName } });
-  fireEvent.change(screen.getByLabelText(/섹션 경로 \*/), { target: { value: sectionPath } });
+  fireEvent.change(screen.getByLabelText(/조항·섹션 위치 \*/), { target: { value: sectionPath } });
   fireEvent.change(screen.getByLabelText(/문서 버전 \*/), { target: { value: validInternalMetadata.version } });
-  fireEvent.change(screen.getByLabelText(/적용일 \*/), { target: { value: validInternalMetadata.effectiveDate } });
-  fireEvent.change(screen.getByLabelText(/직접 입력 본문 \*/), { target: { value: "새 합성 기준 본문" } });
+  fireEvent.change(screen.getByLabelText(/적용 시작일 \*/), { target: { value: validInternalMetadata.effectiveDate } });
+  fireEvent.change(screen.getByLabelText(/검토에 사용할 본문 \*/), { target: { value: "새 합성 기준 본문" } });
 }
 
 afterEach(() => {
@@ -87,7 +87,7 @@ test("loads S-014 for a standard manager, searches deterministically, and keeps 
   render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
 
   expect(screen.getByRole("status")).toHaveTextContent("기준자료 목록을 불러오는 중입니다.");
-  expect(await screen.findByRole("heading", { name: "기준자료 관리" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "검토 기준자료 관리" })).toBeInTheDocument();
   expect(await screen.findByText(standard.title)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("기준명"), { target: { value: "합성 기준" } });
   fireEvent.change(screen.getByLabelText("기준 유형"), { target: { value: "INTERNAL_STANDARD" } });
@@ -98,6 +98,20 @@ test("loads S-014 for a standard manager, searches deterministically, and keeps 
   expect(calls[1].url).toContain("keyword=%ED%95%A9%EC%84%B1+%EA%B8%B0%EC%A4%80");
   expect(calls[1].url).toContain("evidenceType=INTERNAL_STANDARD");
   expect(new Headers(calls[1].init?.headers).get("Authorization")).toBe("Bearer standards-token");
+});
+
+test("guides a standard manager through rule and guideline registration with localized choices", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => response(standardPage())));
+
+  render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
+  expect(await screen.findByText("4. 광고 검토 적용")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "기준자료 등록" }));
+
+  expect(screen.getByRole("heading", { name: "규정·가이드라인 등록" })).toBeInTheDocument();
+  expect(screen.getByLabelText("적용 시작일 *")).toHaveValue(new Date().toLocaleDateString("en-CA"));
+  expect(screen.getAllByRole("option", { name: "가이드라인" })).not.toHaveLength(0);
+  expect(screen.getAllByRole("option", { name: "금지" })).not.toHaveLength(0);
+  expect(screen.getByText(/본문은 검색·AI 검토의 근거로 사용됩니다/)).toBeInTheDocument();
 });
 
 test("navigates standard pages using response metadata", async () => {
@@ -126,7 +140,7 @@ test("renders empty and redacted failure states without leaking server or index 
 
   render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
   expect(await screen.findByText("등록된 기준자료가 없습니다.")).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("근거 검색어"), { target: { value: "우대금리" } });
+  fireEvent.change(screen.getByLabelText("검색어"), { target: { value: "우대금리" } });
   fireEvent.click(screen.getByRole("button", { name: "근거 검색" }));
 
   const alert = await screen.findByRole("alert");
@@ -153,22 +167,23 @@ test("shows version history, redacted chunk metadata, evidence ranking, and rein
   render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
   expect(await screen.findByText(standard.title)).toBeInTheDocument();
 
-  const row = screen.getByRole("row", { name: new RegExp(standard.standardId) });
-  fireEvent.click(within(row).getByRole("button", { name: "이력 보기" }));
+  const row = screen.getByRole("row", { name: new RegExp(standard.title) });
+  expect(within(row).getByTitle(standard.title)).toBeInTheDocument();
+  fireEvent.click(within(row).getByRole("button", { name: "버전 이력" }));
   expect(await screen.findByText("합성 개정")).toBeInTheDocument();
 
-  fireEvent.click(within(row).getByRole("button", { name: "Chunk 확인" }));
+  fireEvent.click(within(row).getByRole("button", { name: "청크 확인" }));
   expect(await screen.findByText("합성 우대금리 근거")).toBeInTheDocument();
   expect(screen.queryByText("secret-point")).not.toBeInTheDocument();
   expect(screen.queryByText("secret-doc")).not.toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("근거 검색어"), { target: { value: "우대금리" } });
+  fireEvent.change(screen.getByLabelText("검색어"), { target: { value: "우대금리" } });
   fireEvent.click(screen.getByRole("button", { name: "근거 검색" }));
-  expect(await screen.findByText("HYBRID · 1위 · 0.9100")).toBeInTheDocument();
+  expect(await screen.findByText("검색 결과 1위 · 관련도 0.9100")).toBeInTheDocument();
 
-  fireEvent.click(within(row).getByRole("button", { name: "재색인" }));
-  fireEvent.change(await screen.findByLabelText(/재색인 사유/), { target: { value: "정기 합성 검증" } });
-  fireEvent.click(screen.getByRole("button", { name: "재색인 요청" }));
+  fireEvent.click(within(row).getByRole("button", { name: "검색 데이터 갱신" }));
+  fireEvent.change(await screen.findByLabelText(/검색 데이터 갱신 사유/), { target: { value: "정기 합성 검증" } });
+  fireEvent.click(screen.getByRole("button", { name: "검색 데이터 갱신 요청" }));
   expect(await screen.findByText("SUCCEEDED")).toBeInTheDocument();
   const reindex = requests.find((request) => request.url.includes("/reindex") && request.init?.method === "POST");
   expect(JSON.parse(String(reindex?.init?.body))).toMatchObject({
@@ -211,9 +226,9 @@ test("creates direct-text standards, appends immutable versions, and soft-deacti
   render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
   expect(await screen.findByText(standard.title)).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "신규 등록" }));
+  fireEvent.click(screen.getByRole("button", { name: "기준자료 등록" }));
   fillInternalStandardCreateForm();
-  fireEvent.click(screen.getByRole("button", { name: "등록" }));
+  fireEvent.click(screen.getByRole("button", { name: "기준자료 등록" }));
   await waitFor(() => expect(requests.some((request) => request.url.endsWith("/standards") && request.init?.method === "POST")).toBe(true));
   const createBody = requests.find((request) => request.url.endsWith("/standards") && request.init?.method === "POST")?.init?.body as FormData;
   expect(createBody.get("content")).toBe("새 합성 기준 본문");
@@ -221,8 +236,8 @@ test("creates direct-text standards, appends immutable versions, and soft-deacti
   expect(createBody.get("effectiveDate")).toBe(validInternalMetadata.effectiveDate);
   expect(JSON.parse(String(createBody.get("metadata")))).toEqual(validInternalMetadata);
 
-  const row = await screen.findByRole("row", { name: new RegExp(standard.standardId) });
-  fireEvent.click(within(row).getByRole("button", { name: "수정" }));
+  const row = await screen.findByRole("row", { name: new RegExp(standard.title) });
+  fireEvent.click(within(row).getByRole("button", { name: "개정" }));
   fireEvent.change(await screen.findByLabelText(/변경 사유/), { target: { value: "합성 개정" } });
   fireEvent.change(screen.getByLabelText(/직접 입력 본문/), { target: { value: "개정된 합성 기준 본문" } });
   fireEvent.click(screen.getByRole("button", { name: "새 버전 저장" }));
@@ -230,9 +245,9 @@ test("creates direct-text standards, appends immutable versions, and soft-deacti
   const update = requests.find((request) => request.url.endsWith(`/standards/${standard.standardId}`) && request.init?.method === "PATCH");
   expect(JSON.parse(String(update?.init?.body))).toMatchObject({ content: "개정된 합성 기준 본문", changeReason: "합성 개정" });
 
-  fireEvent.click(within(screen.getByRole("row", { name: new RegExp(standard.standardId) })).getByRole("button", { name: "비활성화" }));
-  fireEvent.change(await screen.findByLabelText(/비활성화 사유/), { target: { value: "합성 만료" } });
-  fireEvent.click(screen.getByRole("button", { name: "비활성화 확인" }));
+  fireEvent.click(within(screen.getByRole("row", { name: new RegExp(standard.title) })).getByRole("button", { name: "검토 적용 중지" }));
+  fireEvent.change(await screen.findByLabelText(/적용 중지 사유/), { target: { value: "합성 만료" } });
+  fireEvent.click(screen.getByRole("button", { name: "적용 중지 확인" }));
   await waitFor(() => expect(requests.some((request) => request.url.includes("/deactivate") && request.init?.method === "PATCH")).toBe(true));
   const deactivate = requests.find((request) => request.url.includes("/deactivate") && request.init?.method === "PATCH");
   expect(JSON.parse(String(deactivate?.init?.body))).toEqual({ reason: "합성 만료" });
@@ -254,9 +269,9 @@ test("shows the backend metadata validation failure without echoing its internal
 
   render(<MemoryRouter initialEntries={["/standards"]}><App initialSession={standardManagerSession} /></MemoryRouter>);
   expect(await screen.findByText(standard.title)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "신규 등록" }));
+  fireEvent.click(screen.getByRole("button", { name: "기준자료 등록" }));
   fillInternalStandardCreateForm(" ");
-  fireEvent.click(screen.getByRole("button", { name: "등록" }));
+  fireEvent.click(screen.getByRole("button", { name: "기준자료 등록" }));
 
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("기준 유형에 필요한 메타데이터를 확인해 주세요.");

@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.4 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.5 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.5 | 2026-07-20 | ADR 후보 044를 PoC 2계정 운영 프로필로 확정하고 ADR-0078 반영 |
 | v1.4 | 2026-07-16 | ADR 후보 043을 Git `main` 원본의 기존 Notion page ID 보존 단방향 자동 동기화로 확정하고 ADR-0077 반영 |
 | v1.3 | 2026-07-14 | ADR 후보 042를 A안으로 확정하고 ADR-0076 AI 도구 lifecycle hook 및 문서 거버넌스 강제 계층 정책 반영 |
 | v1.2 | 2026-07-14 | ADR 후보 041을 B안으로 확정하고 ADR-0075 프로젝트 범위 Skills 배포 정책 반영 |
@@ -925,22 +926,25 @@ ADR 관련 문서는 다음 역할로 분리한다. 같은 내용을 여러 문�
 | [ADR-0069](adr/ADR-0069-standard-reindex-and-chunk-query-api-policy.md) | 기준자료 재색인 및 Chunk 조회 API 정책 |
 | [ADR-0070](adr/ADR-0070-search-index-idempotent-sync-policy.md) | Qdrant/OpenSearch 인덱스 동기화 및 Idempotent Upsert/Delete 정책 |
 | [ADR-0071](adr/ADR-0071-search-index-schema-analyzer-payload-policy.md) | 검색 인덱스 스키마, Analyzer/Synonym/Highlight 및 Payload 표준화 정책 |
-| [ADR-0072](adr/ADR-0072-parser-ocr-engine-routing-policy.md) | Parser/OCR 기본 엔진 선택 및 파일 유형별 라우팅 정책 |
+| [ADR-0072](adr/ADR-0072-parser-ocr-engine-routing-policy.md) | Parser/OCR 기본 엔진 선택 및 파일 유형별 라우팅 정책(Superseded) |
 | [ADR-0073](adr/ADR-0073-parser-ocr-quality-rerun-policy.md) | Parser/OCR 품질 미달 시 재처리 및 보조 엔진 사용 정책 |
 | [ADR-0074](adr/ADR-0074-validation-dataset-golden-label-snapshot-policy.md) | PoC 검증 데이터셋, 정답지 및 평가 Snapshot 관리 정책 |
 | [ADR-0075](adr/ADR-0075-project-scoped-skills-distribution.md) | 프로젝트 범위 Skills 배포 및 온보딩 설치 정책 |
 | [ADR-0076](adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md) | AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층 |
+| [ADR-0077](adr/ADR-0077-git-notion-one-way-document-sync-policy.md) | Git-Notion 단방향 문서 자동 동기화 정책 |
+| [ADR-0078](adr/ADR-0078-poc-two-account-operation-profile.md) | PoC 2계정 운영 프로필 정책 |
+| [ADR-0079](adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md) | HWP/HWPX 이중 원천 Hybrid Parser 구성 정책 |
 
 ---
 
 ## 17.6 ADR 검토 현황 및 종료 기준
 
-현재 최초 후보 목록과 후속 구현 ADR 검토 과정에서 도출된 결정사항은 ADR-0077까지 문서화했다. 문서 거버넌스와 Notion 공유본 운영 과정에서 도출된 후보 041~043도 모두 결정되었다.
+현재 최초 후보 목록과 후속 구현 ADR 검토 과정에서 도출된 결정사항은 ADR-0079까지 문서화했다. 문서 거버넌스, Notion 공유본, PoC 계정과 HWP/HWPX 구조화 과정에서 도출된 후보 041~045도 모두 결정되었다.
 
 | 항목 | 현황 |
 | --- | --- |
-| 작성 완료 ADR | ADR-0001 ~ ADR-0077, 총 77건 |
-| 의사결정 질문지 | Q1 ~ Q72 모두 결정 결과 기록 완료 |
+| 작성 완료 ADR | ADR-0001 ~ ADR-0079, 총 79건 |
+| 의사결정 질문지 | Q1 ~ Q74 모두 결정 결과 기록 완료 |
 | 현재 대기 중인 ADR 후보 | 없음 |
 | 남은 재검토 항목 | 본사업 전환, 고객사 보안 요구, 운영 데이터 확대, 성능 병목 확인 시 재검토할 항목만 존재 |
 
@@ -948,10 +952,10 @@ ADR 관련 문서는 다음 역할로 분리한다. 같은 내용을 여러 문�
 
 - ADR 번호, 제목, 상태의 공식 원장은 `docs/adr/README.md`이다.
 - 본 문서의 후보 상세 항목은 최초 후보 001~040의 이력이며, ADR-0035 이후 후속 구현 ADR과 1:1 후보 번호를 맞추지 않는다.
-- 사용자 질의 번호인 Q1~Q72는 ADR 번호와 일치하지 않는다. 예를 들어 Q70은 ADR-0075, Q71은 ADR-0076, Q72는 ADR-0077의 검토 질문이다.
+- 사용자 질의 번호는 ADR 번호와 일치하지 않는다. 예를 들어 Q70은 ADR-0075, Q71은 ADR-0076, Q72는 ADR-0077, Q73은 ADR-0078, Q74는 ADR-0079의 검토 질문이다.
 - 후속 구현 ADR은 본 문서 17.5에서 누락 없이 참조하고, 신규 결정이 생길 때만 별도 후보 또는 후속 구현 ADR로 추가한다.
 
-PoC 구현 착수 기준의 제품 기술·업무·보안·품질 결정과 개발자 온보딩·AI 도구 거버넌스·Notion 공유본 운영 재검토는 완료되었다. 후보 041은 ADR-0075, 후보 042는 ADR-0076, 후보 043은 ADR-0077로 확정했다. 이후 ADR은 정해진 목록을 계속 순회하지 않고, 다음 조건 중 하나가 발생할 때만 신규 후보로 추가한다.
+PoC 구현 착수 기준의 제품 기술·업무·보안·품질 결정과 개발자 온보딩·AI 도구 거버넌스·Notion 공유본·HWP/HWPX hybrid parser 재검토는 완료되었다. 후보 041은 ADR-0075, 후보 042는 ADR-0076, 후보 043은 ADR-0077, 후보 044는 ADR-0078, 후보 045는 ADR-0079로 확정했다. 이후 ADR은 정해진 목록을 계속 순회하지 않고, 다음 조건 중 하나가 발생할 때만 신규 후보로 추가한다.
 
 1. 기존 ADR과 충돌하는 구현 제약이 발견된 경우
 2. 고객사 요구나 보안 정책이 변경된 경우
@@ -1006,6 +1010,38 @@ Claude/Codex의 도구별 lifecycle hook은 AI가 파일을 편집하거나 작�
 기존 Notion publisher는 비어 있는 부모 페이지에 전체 문서를 만드는 수동 테스트이므로 Git 문서 변경 후 공유본 drift를 방지하지 못한다. 전체 재생성은 page URL과 댓글을 잃고, 양방향 동기화는 공식 원천과 충돌 해결 책임을 불명확하게 만든다.
 
 결정 결과 Git `main`을 원천으로 유지하고 변경된 Markdown만 기존 Notion page ID에 자동 갱신한다. source path-page ID mapping을 Git에서 관리하고 페이지별 잠금 해제, update, 내용 검증, 실패 rollback, 재잠금 순서로 실행한다. 신규·삭제·이름 변경은 mapping과 공유 URL 영향을 검토하지 않은 상태에서 자동 추론하지 않는다. 상세 기준은 ADR-0077을 따른다.
+
+---
+
+### ADR 후보 044. PoC 로그인 계정 운영 프로필
+
+| 항목 | 내용 |
+| --- | --- |
+| 상태 | 결정 완료(ADR-0078 Accepted) |
+| 관련 질문 | Q73 |
+| 관련 ADR | ADR-0036, ADR-0055, ADR-0058 |
+| 승인 ADR | [ADR-0078](adr/ADR-0078-poc-two-account-operation-profile.md) |
+| 권고안 | 역할 모델은 유지하고 활성 PoC 로그인 계정만 test/admin 두 개로 운영 |
+
+PoC 데모와 수동 검증에 역할별 별도 계정을 여러 개 사용하면 온보딩과 계정 선택이 복잡해진다. 반대로 권한 모델까지 두 역할로 축소하면 API 인가와 향후 본사업 역할 분리 검증이 약해진다.
+
+결정 결과 `test@ihopper.co.kr`에는 광고 업무·검토와 기준자료 관리를 함께 검증할 수 있도록 `PRODUCT_DEPARTMENT_USER`, `COMPLIANCE_REVIEWER`, `STANDARD_MANAGER`를 부여한다. `admin@ihopper.co.kr`는 `SYSTEM_ADMIN`으로 운영한다. 기존 역할과 ADR-0055 인가 정책은 유지하며, 최소 권한과 거부 검증은 자동 fixture로 계속 수행한다.
+
+---
+
+### ADR 후보 045. HWP/HWPX 이중 원천 Hybrid Parser 구성
+
+| 항목 | 내용 |
+| --- | --- |
+| 상태 | 결정 완료(ADR-0079 Accepted) |
+| 관련 질문 | Q74 |
+| 관련 ADR | ADR-0014, ADR-0065, ADR-0072, ADR-0073 |
+| 승인 ADR | [ADR-0079](adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md) |
+| 권고안 | `rhwp` 기준 텍스트와 `document-processor` 구조를 병합한 단일 `NormalizedDocument` 사용 |
+
+`rhwp export-text`는 HWP/HWPX 원문을 안정적으로 보존하지만 현행 구현은 페이지 전체를 하나의 `BODY` 블록으로 만들어 문단·표·항목 구조를 후속 검토에 전달하지 못한다. `document-processor`는 구조 IR을 제공하지만 단독 텍스트 원천으로 교체하면 검증된 원문 완전성 기준이 흔들릴 수 있다.
+
+결정 결과 두 엔진을 경쟁 후보로 선택하지 않고 `HwpHybridParserAdapter` 안에서 결합한다. `rhwp` 텍스트를 기준 원천, `document-processor`를 문단·표·스타일 구조 원천으로 사용하고 정렬되지 않은 기준 텍스트도 누락 없이 보존한다. 후속 파이프라인에는 `parserName=hwp-hybrid`인 단 하나의 병합 `NormalizedDocument`만 전달한다. 상세 기준은 ADR-0079를 따른다.
 
 ---
 

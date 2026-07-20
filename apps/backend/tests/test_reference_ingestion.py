@@ -12,7 +12,9 @@ from nh_ad_backend.reference_ingestion import (
     ReferenceIngestionError,
     ReferenceIngestor,
     load_extractor,
+    _metadata_input,
 )
+from nh_ad_backend.reference_document_parser import ParsedReferenceDocument
 from nh_ad_backend.search import HybridSearch, InMemorySearchBackend, SearchDocument
 from nh_ad_backend.standards import InMemoryStandardRepository, StandardService
 
@@ -42,8 +44,8 @@ class RecordingSearchBackend(InMemorySearchBackend):
 class FixtureExtractor:
     calls: list[str]
 
-    def extract(self, *, file_name: str, pdf_bytes: bytes) -> ExtractedReference:
-        assert pdf_bytes.startswith(b"%PDF-")
+    def extract(self, *, file_name: str, content: str) -> ExtractedReference:
+        assert content
         self.calls.append(file_name)
         return ExtractedReference(
             title=f"{file_name} extracted",
@@ -63,6 +65,30 @@ class FixtureExtractor:
                 "revisionDate": "2026-01-01",
                 "sourceUrl": f"https://example.invalid/{file_name}",
             },
+        )
+
+
+class FixtureParser:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def parse(
+        self, *, file_name: str, source_file_id: str, source_hash: str, body: bytes
+    ) -> ParsedReferenceDocument:
+        assert source_file_id.startswith("REFSRC-")
+        assert source_hash
+        assert body
+        self.calls.append(file_name)
+        return ParsedReferenceDocument(
+            content="예금 광고에는 적용 금리 조건을 명확하게 표시해야 한다.",
+            parser_name="fixture-parser",
+            parser_version="v1",
+            parser_rule_version="fixture-structure-v1",
+            ir_version="normalized-document-v1",
+            text_block_count=1,
+            layout_block_count=0,
+            table_count=0,
+            section_paths=("pages/1",),
         )
 
 
@@ -88,10 +114,12 @@ def test_ingests_local_pdfs_and_indexes_through_standard_service(tmp_path: Path)
     (tmp_path / "a.PDF").write_bytes(PDF + b"-a")
     standard_service, repository, keyword, vector = services()
     extractor = FixtureExtractor([])
+    parser = FixtureParser()
 
     results = ReferenceIngestor(
         standard_service=standard_service,
         extractor=extractor,
+        document_parser=parser,
         actor=ACTOR,
         source_dir=tmp_path,
     ).ingest()
@@ -99,6 +127,7 @@ def test_ingests_local_pdfs_and_indexes_through_standard_service(tmp_path: Path)
     assert [result.source_file for result in results] == ["a.PDF", "b.pdf"]
     assert all(result.created for result in results)
     assert extractor.calls == ["a.PDF", "b.pdf"]
+    assert parser.calls == ["a.PDF", "b.pdf"]
     assert len(repository.standards) == 2
     assert len(repository.chunks) == 2
     assert len(keyword.upserts) == len(vector.upserts) == 2
@@ -109,9 +138,11 @@ def test_reingest_reuses_standard_and_retries_indexes_without_reextracting(tmp_p
     (tmp_path / "regulation.pdf").write_bytes(PDF)
     standard_service, repository, keyword, vector = services()
     extractor = FixtureExtractor([])
+    parser = FixtureParser()
     ingestor = ReferenceIngestor(
         standard_service=standard_service,
         extractor=extractor,
+        document_parser=parser,
         actor=ACTOR,
         source_dir=tmp_path,
     )
@@ -122,6 +153,7 @@ def test_reingest_reuses_standard_and_retries_indexes_without_reextracting(tmp_p
     assert first.standard_id == second.standard_id
     assert first.created is True and second.created is False
     assert extractor.calls == ["regulation.pdf"]
+    assert parser.calls == ["regulation.pdf"]
     assert len(repository.standards) == 1
     assert len(keyword.upserts) == len(vector.upserts) == 2
 
@@ -135,6 +167,7 @@ def test_rejects_path_escape_non_pdf_and_invalid_pdf_header(tmp_path: Path) -> N
     ingestor = ReferenceIngestor(
         standard_service=standard_service,
         extractor=FixtureExtractor([]),
+        document_parser=FixtureParser(),
         actor=ACTOR,
         source_dir=tmp_path,
     )
@@ -143,10 +176,20 @@ def test_rejects_path_escape_non_pdf_and_invalid_pdf_header(tmp_path: Path) -> N
         ingestor.ingest(["../outside.pdf"])
     with pytest.raises(ReferenceIngestionError, match="PDF signature"):
         ingestor.ingest(["invalid.pdf"])
-    with pytest.raises(ReferenceIngestionError, match="PDF files"):
+    with pytest.raises(ReferenceIngestionError, match="PDF, HWP, and HWPX"):
         ingestor.ingest(["not-pdf.txt"])
 
 
 def test_extractor_configuration_fails_closed() -> None:
     with pytest.raises(ReferenceIngestionError, match="NH_REFERENCE_EXTRACTOR"):
         load_extractor(None)
+
+
+def test_metadata_input_is_bounded_without_changing_indexed_source_contract() -> None:
+    content = "a" * 60_001
+    value = _metadata_input(content)
+
+    assert len(value) > 60_000
+    assert value.startswith("a" * 48_000)
+    assert value.endswith("a" * 12_000)
+    assert "omitted only for metadata classification" in value

@@ -128,6 +128,7 @@ def compose_job_runner(
             search=_live_evidence_search(settings) if response_client else None,
             structured_output=response_client.review_decision if response_client else None,
         ),
+        suggestion_refiner=response_client.refine_suggestion if response_client else None,
     )
     return JobRunner(queue, processor, repository)
 

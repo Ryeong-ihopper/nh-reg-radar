@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -82,9 +82,9 @@ test("loads advertisement data, submits the frozen review contract, and opens pr
   expect(screen.getByLabelText("기준 적용일")).toHaveValue(localToday);
   fireEvent.change(screen.getByLabelText("기준 적용일"), { target: { value: "2026-07-14" } });
   fireEvent.change(screen.getByLabelText("요청 메모"), { target: { value: "우대금리 확인" } });
-  fireEvent.click(screen.getByRole("button", { name: "분석 요청" }));
+  fireEvent.click(screen.getByRole("button", { name: "AI 검토 시작" }));
 
-  expect(await screen.findByRole("heading", { name: "AI 분석 진행 상태" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "AI 검토 진행 상태" })).toBeInTheDocument();
   const post = calls.find((call) => call.url.endsWith("/advertisements/ADV-001/reviews") && call.init?.method === "POST");
   expect(JSON.parse(String(post?.init?.body))).toMatchObject({
     standardEffectiveDate: "2026-07-14",
@@ -98,24 +98,79 @@ test("loads advertisement data, submits the frozen review contract, and opens pr
 
 test("refreshes running progress and stops on completion", async () => {
   let statusCalls = 0;
-  vi.stubGlobal("fetch", vi.fn(async () => {
-    statusCalls += 1;
-    return response(statusCalls === 1 ? progress() : progress({
-      reviewStatus: "REVIEW_COMPLETED",
-      jobStatus: "COMPLETED",
-      currentStep: "COMPLETED",
-      progressRate: 100,
-      steps: [{ stepCode: "COMPLETED", stepName: "완료", status: "COMPLETED", timeoutAt: null }],
-    }));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/reviews/REV-001/status")) {
+      statusCalls += 1;
+      return response(statusCalls === 1 ? progress() : progress({
+        reviewStatus: "REVIEW_COMPLETED",
+        jobStatus: "COMPLETED",
+        currentStep: "COMPLETED",
+        progressRate: 100,
+        steps: [{ stepCode: "COMPLETED", stepName: "완료", status: "COMPLETED", timeoutAt: null }],
+      }));
+    }
+    if (url.endsWith("/advertisements/ADV-001")) {
+      return response({
+        advertisementId: "ADV-001", advertisementName: "예금 광고", productGroup: "SAVINGS",
+        advertisementType: "MOBILE_BANNER", departmentId: "DPT-001", registeredBy: "user001",
+        registeredAt: "2026-07-14T10:00:00+09:00", reviewStatus: "ANALYZING", files: [],
+      });
+    }
+    throw new Error(`Unexpected request: ${url}`);
   }));
 
   render(<MemoryRouter initialEntries={["/reviews/REV-001/status"]}><App initialSession={productSession} /></MemoryRouter>);
-  expect(await screen.findByText("OCR_TEXT_EXTRACTION")).toBeInTheDocument();
+  expect(await screen.findByRole("progressbar", { name: "AI 검토 진행률" })).toHaveAttribute("value", "35");
+  expect(screen.getAllByText("OCR 텍스트 추출")).toHaveLength(2);
+  expect(await screen.findByLabelText("광고 원본 병행 검토")).toBeInTheDocument();
+  expect(screen.getByText("다른 화면으로 이동해도 검토는 중단되지 않습니다.")).toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "AI 검토 진행률" })).toHaveAttribute("value", "35");
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   expect(await screen.findByText("검토가 완료되었습니다.")).toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "AI 검토 진행률" })).toHaveAttribute("value", "100");
   expect(statusCalls).toBe(2);
+});
+
+test("keeps the completed state when a delayed running response follows it", async () => {
+  let statusCalls = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/reviews/REV-001/status")) {
+      statusCalls += 1;
+      if (statusCalls === 1) return response(progress());
+      if (statusCalls === 2) return response(progress({
+        reviewStatus: "REVIEW_COMPLETED",
+        jobStatus: "COMPLETED",
+        currentStep: "COMPLETED",
+        progressRate: 100,
+        steps: [{ stepCode: "COMPLETED", stepName: "완료", status: "COMPLETED", timeoutAt: null }],
+      }));
+      return response(progress());
+    }
+    if (url.endsWith("/advertisements/ADV-001")) {
+      return response({
+        advertisementId: "ADV-001", advertisementName: "예금 광고", productGroup: "SAVINGS",
+        advertisementType: "MOBILE_BANNER", departmentId: "DPT-001", registeredBy: "user001",
+        registeredAt: "2026-07-14T10:00:00+09:00", reviewStatus: "ANALYZING", files: [],
+      });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-001/status"]}><App initialSession={productSession} /></MemoryRouter>);
+  await screen.findByRole("progressbar", { name: "AI 검토 진행률" });
+  fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+  expect(await screen.findByRole("link", { name: "결과 보기" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+  await waitFor(() => expect(statusCalls).toBe(3));
+  expect(screen.getByRole("link", { name: "결과 보기" })).toBeInTheDocument();
+  expect(screen.getByRole("progressbar", { name: "AI 검토 진행률" })).toHaveAttribute("value", "100");
+  const actions = screen.getByRole("link", { name: "목록으로" }).parentElement;
+  expect(actions?.children[0]).toHaveTextContent("목록으로");
+  expect(actions?.children[1]).toHaveTextContent("새로고침");
+  expect(actions?.children[2]).toHaveTextContent("결과 보기");
 });
 
 test.each([
@@ -154,17 +209,28 @@ test("renders the final failure as a terminal error without exposing result navi
   expect(screen.queryByRole("button", { name: "재분석" })).not.toBeInTheDocument();
 });
 
-test("shows unreadable content as confirmation-only without leaking raw artifact data", async () => {
+test("explains unreadable content and automatic retry scope without leaking raw artifact data", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => response({
     ...progress({ reviewStatus: "CHECK_REQUIRED", jobStatus: "COMPLETED", progressRate: 100, failedReasonCode: "OCR_UNREADABLE" }),
     rawArtifactRef: "parser-artifacts/private/object-key",
     presignedUrl: "https://storage.invalid/secret",
   })));
   render(<MemoryRouter initialEntries={["/reviews/REV-001/status"]}><App initialSession={productSession} /></MemoryRouter>);
-  expect(await screen.findByText("담당자 확인이 필요합니다.")).toBeInTheDocument();
-  expect(screen.getByText("문구 판독 신뢰도가 낮아 자동 재시도하지 않습니다.")).toBeInTheDocument();
+  expect(await screen.findByText("문구 판독 확인이 필요합니다.")).toBeInTheDocument();
+  expect(screen.getByText(/자동 재시도는 OCR·Parser·저장소·AI 응답의 일시 오류에만 적용됩니다/)).toBeInTheDocument();
+  expect(screen.getByText(/더 선명한 파일을 등록해 재분석해 주세요/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "재분석" })).not.toBeInTheDocument();
   expect(screen.queryByText(/object-key|storage\.invalid/)).not.toBeInTheDocument();
+});
+
+test("does not mislabel every check-required result as unreadable content", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => response(progress({ reviewStatus: "CHECK_REQUIRED", jobStatus: "COMPLETED", progressRate: 100, failedReasonCode: "REFERENCE_NOT_PROVIDED" }))));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-001/status"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  expect(await screen.findByText("검토 결과 확인이 필요합니다.")).toBeInTheDocument();
+  expect(screen.getByText(/텍스트 품질, 상품 조건 또는 연결된 기준자료가 충분하지 않을 수 있습니다/)).toBeInTheDocument();
+  expect(screen.queryByText("문구 판독 확인이 필요합니다.")).not.toBeInTheDocument();
 });
 
 test("enables rerun only from isRetryable and follows the immutable new review id", async () => {

@@ -1,8 +1,7 @@
-"""OpenAI Responses API adapter for local reference-regulation PDFs."""
+"""OpenAI Responses API adapter for parser-normalized local reference documents."""
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 from collections.abc import Callable
@@ -47,7 +46,7 @@ REFERENCE_SCHEMA: dict[str, object] = {
         "title": {"type": "string", "minLength": 1},
         "content": {"type": "string", "minLength": 1},
         "evidence_type": {"type": "string", "enum": ["LAW", "REGULATION"]},
-        "product_group": {"enum": ["DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", None]},
+        "product_group": {"enum": ["DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", None]},
         "advertisement_type": {
             "enum": [
                 "BRANCH_FLYER",
@@ -121,11 +120,11 @@ class OpenAIReferenceExtractor:
             raise OpenAIReferenceExtractorError("OPENAI_TIMEOUT must be between 1 and 300 seconds")
         self._transport = transport or _urllib_transport
 
-    def extract(self, *, file_name: str, pdf_bytes: bytes) -> ExtractedReference:
+    def extract(self, *, file_name: str, content: str) -> ExtractedReference:
         if not file_name or len(file_name) > 500 or "\x00" in file_name:
-            raise OpenAIReferenceExtractorError("PDF filename is invalid")
-        if not pdf_bytes.startswith(b"%PDF-"):
-            raise OpenAIReferenceExtractorError("PDF signature is invalid")
+            raise OpenAIReferenceExtractorError("reference filename is invalid")
+        if not content.strip():
+            raise OpenAIReferenceExtractorError("reference text is empty")
         body = {
             "model": self._model,
             "store": False,
@@ -135,19 +134,12 @@ class OpenAIReferenceExtractor:
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_file",
-                            "filename": file_name,
-                            "file_data": (
-                                "data:application/pdf;base64,"
-                                + base64.b64encode(pdf_bytes).decode("ascii")
-                            ),
-                            "detail": "low",
-                        },
-                        {
                             "type": "input_text",
                             "text": (
-                                "Extract this local reference regulation. Its safe local source identifier is "
-                                f"local-reference://{file_name}."
+                                "Extract metadata from this parser-normalized local reference document. "
+                                f"Its safe local source identifier is local-reference://{file_name}. "
+                                "Do not invent requirements absent from the supplied text.\n\n"
+                                + content
                             ),
                         },
                     ],
@@ -262,7 +254,7 @@ def _validated_reference(payload: object) -> ExtractedReference:
         content=_required_string(payload, "content"),
         evidence_type=_enum_string(payload, "evidence_type", {"LAW", "REGULATION"}),
         product_group=_optional_enum(
-            payload, "product_group", {"DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT"}
+            payload, "product_group", {"DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN"}
         ),
         advertisement_type=_optional_enum(
             payload,

@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.12 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.14 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.14 | 2026-07-20 | ADR-0079 HWP/HWPX hybrid parser의 구성요소 raw artifact와 단일 병합 산출물 provenance 영속화 기준을 추가 |
+| v1.13 | 2026-07-20 | 규정·가이드라인 초기 적재 시 standard version metadata에 parser provenance와 구조 통계를 보존하는 기준을 추가 |
 | v1.12 | 2026-07-16 | 0009 운영 정합성 revision으로 OCR/layout 좌표 물리명·정밀도와 normalized text GIN 인덱스를 명세에 맞추고 현행 migration head를 동기화 |
 | v1.11 | 2026-07-15 | M8 revision 동시 번호 직렬화, M6 PostgreSQL restart roundtrip과 additive 0008 runtime/readonly 권한 반영 |
 | v1.10 | 2026-07-15 | G008 M7 PostgreSQL runtime repository의 version 증가, 원자 평가 저장, canonical snapshot/hash 및 기존 평가 불변 조회 실행 증거 반영 |
@@ -847,7 +849,7 @@ Parser/OCR adapter의 raw output과 중간 산출물에 대한 Object Storage �
 | idx_parser_artifacts_selected | review_step_id, is_selected_output |
 | idx_parser_artifacts_retention | retention_until |
 
-Parser/OCR 품질 미달 시 보조 엔진 재처리와 최종 산출물 선택 기준은 ADR-0073을 따른다. 정책 사유가 있고 허용·구성된 보조 adapter만 실행하며 1차와 보조 시도 각각의 engine, `attempt_no`, `is_primary_attempt`, `rerun_reason_code`, confidence, raw artifact 참조와 `is_selected_output`을 `parser_artifacts`에 기록한다. `uk_parser_artifacts_selected_step`으로 처리 단계마다 선택 artifact가 최대 하나임을 보장하고, worker는 정확히 하나를 선택한 뒤 `ocr_text_blocks`, `layout_blocks`, `annotations`와 후속 ReviewPipeline에 그 `NormalizedDocument`만 반영한다. 미채택 시도는 `parser_artifacts` metadata와 raw artifact로만 보존한다.
+Parser/OCR 품질 미달 시 보조 엔진 재처리와 최종 산출물 선택 기준은 ADR-0073을 따른다. 정책 사유가 있고 허용·구성된 보조 adapter만 실행하며 1차와 보조 시도 각각의 engine, `attempt_no`, `is_primary_attempt`, `rerun_reason_code`, confidence, raw artifact 참조와 `is_selected_output`을 `parser_artifacts`에 기록한다. HWP/HWPX는 ADR-0079에 따라 rhwp 텍스트, document-processor 구조와 aligner 중간 artifact를 미채택 구성요소 artifact로 보존하고, `parser_name=hwp-hybrid`인 병합 `NORMALIZED_DOCUMENT`만 선택 산출물로 표시한다. `uk_parser_artifacts_selected_step`으로 처리 단계마다 선택 artifact가 최대 하나임을 보장하고, worker는 정확히 하나를 선택한 뒤 `ocr_text_blocks`, `layout_blocks`, `annotations`와 후속 ReviewPipeline에 그 `NormalizedDocument`만 반영한다. 미채택 시도와 구성요소 artifact는 `parser_artifacts` metadata와 raw artifact로만 보존한다.
 
 ---
 
@@ -1852,7 +1854,7 @@ OpenSearch index mapping은 ADR-0071 기준으로 `chunk_text`, `title`, `articl
 | AI Job 정책 | ADR-0059 기준 `RETRY_PENDING`, `STALE`, `FAILED_FINAL`, `timeout_at`, `failed_reason_code`, `is_retryable`, `dead_lettered_at` 관리 |
 | 성능 기준 | ADR-0042 기준 목록 조회 P95 1.5초, 검토 항목 조회 P95 2초, 근거 검색 P95 3초를 PoC 관찰 목표로 관리 |
 | RAG 근거 선정 | ADR-0043 기준 검토 항목별 최대 5개 근거 저장, rank/score/source 저장. 검색 인프라 장애는 ADR-0061 기준 `review_jobs.failed_reason_code`, `review_steps.failed_reason_code`에 기록 |
-| Parser/OCR 엔진 라우팅 | ADR-0072 기준 PDF/복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지/스캔 PDF는 `PaddleOCR` 우선 적용. DB에는 엔진 raw output이 아니라 `NormalizedDocument` 영속화 결과와 parser metadata를 저장 |
+| Parser/OCR 엔진 라우팅 | ADR-0079 기준 PDF/복합 PDF는 `opendataloader-pdf`, 이미지/스캔 PDF는 `PaddleOCR`, HWP/HWPX는 `hwp-hybrid` 적용. DB에는 구성요소 raw output이 아니라 단일 병합 `NormalizedDocument` 영속화 결과와 parser metadata를 저장 |
 | Parser/OCR 품질 재처리 | ADR-0073 기준 기술 retry와 품질 재처리를 분리하고, 보조 엔진 시도/사유/최종 채택 여부는 `parser_artifacts` metadata로 추적 |
 
 ---

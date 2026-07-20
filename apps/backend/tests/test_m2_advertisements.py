@@ -113,6 +113,31 @@ def test_upload_list_detail_preview_download_and_scope(
     )
 
 
+def test_loan_is_an_available_product_group_for_registration(client: TestClient) -> None:
+    token, _ = login(client, "a@example.com")
+
+    created = client.post(
+        "/api/v1/advertisements",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "advertisementName": "대출 상품 안내",
+            "productGroup": "LOAN",
+            "advertisementType": "NOTICE",
+            "departmentId": "DPT-A",
+        },
+        files={"advertisementFile": ("loan.png", PNG, "image/png")},
+    )
+
+    assert created.status_code == 201, created.text
+    detail = client.get(
+        f"/api/v1/advertisements/{created.json()['advertisementId']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert detail.json()["productGroup"] == "LOAN"
+    codes = client.get("/api/v1/codes/product-groups", headers={"Authorization": f"Bearer {token}"})
+    assert any(item["code"] == "LOAN" for item in codes.json())
+
+
 def test_preview_returns_the_authorized_pdf_without_reinterpreting_its_bytes(
     client: TestClient,
 ) -> None:
@@ -139,6 +164,39 @@ def test_preview_returns_the_authorized_pdf_without_reinterpreting_its_bytes(
     assert content.status_code == 200
     assert content.headers["content-type"] == "application/pdf"
     assert content.content == PDF
+
+
+def test_hwp_preview_is_converted_by_the_private_renderer(client: TestClient) -> None:
+    token, _ = login(client)
+    hwp = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1preview"
+    created = client.post(
+        "/api/v1/advertisements",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "advertisementName": "HWP 미리보기",
+            "productGroup": "SAVINGS",
+            "advertisementType": "MOBILE_BANNER",
+            "departmentId": "DPT-A",
+        },
+        files={"advertisementFile": ("banner.hwp", hwp, "application/x-hwp")},
+    )
+    assert created.status_code == 201, created.text
+    file_id = created.json()["files"][0]["fileId"]
+
+    descriptor = client.get(
+        f"/api/v1/files/{file_id}/preview?pageNo=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert descriptor.status_code == 200
+    assert descriptor.json()["totalPages"] == 2
+    content = client.get(
+        f"/api/v1/files/{file_id}/preview/content?pageNo=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert content.status_code == 200
+    assert content.headers["content-type"].startswith("image/svg+xml")
+    assert b"<svg" in content.content
+    assert "sandbox" in content.headers["content-security-policy"]
 
 
 def test_file_error_statuses_and_duplicates(client: TestClient) -> None:

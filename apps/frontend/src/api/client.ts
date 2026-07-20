@@ -270,13 +270,17 @@ export const api = {
     return request<FilePreview>(`/files/${encodeURIComponent(fileId)}/preview?pageNo=${pageNo}`, accessToken);
   },
 
-  async getFilePreviewContent(accessToken: string, fileId: string, pageNo = 1): Promise<Blob> {
+  async getFilePreviewAsset(accessToken: string, fileId: string, pageNo = 1): Promise<{ descriptor: FilePreview; blob: Blob }> {
     const descriptor = await request<FilePreview>(`/files/${encodeURIComponent(fileId)}/preview?pageNo=${pageNo}`, accessToken);
     const expectedPath = `/api/v1/files/${encodeURIComponent(fileId)}/preview/content`;
     if (descriptor.previewPath !== expectedPath) {
       throw new ApiError(500, "INTERNAL_ERROR");
     }
-    return requestBlob(`${descriptor.previewPath}?pageNo=${pageNo}`, accessToken);
+    return { descriptor, blob: await requestBlob(`${descriptor.previewPath}?pageNo=${pageNo}`, accessToken) };
+  },
+
+  async getFilePreviewContent(accessToken: string, fileId: string, pageNo = 1): Promise<Blob> {
+    return (await this.getFilePreviewAsset(accessToken, fileId, pageNo)).blob;
   },
 
   downloadFile(accessToken: string, fileId: string): Promise<Blob> {

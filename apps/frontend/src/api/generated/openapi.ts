@@ -978,7 +978,7 @@ export interface components {
             password: string;
         };
         /** @enum {string} */
-        ProductGroup: "DEPOSIT" | "SAVINGS" | "DEMAND_DEPOSIT" | "EVENT";
+        ProductGroup: "DEPOSIT" | "SAVINGS" | "DEMAND_DEPOSIT" | "EVENT" | "LOAN";
         ReindexStandardRequest: {
             chunkingPolicyVersion: string;
             /** @description Reproducibility label; M3 makes no provider network call. */
@@ -3009,6 +3009,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     getFilePreviewContent: {
@@ -3033,6 +3051,7 @@ export interface operations {
                     "image/png": string;
                     "image/jpeg": string;
                     "application/pdf": string;
+                    "image/svg+xml": string;
                 };
             };
             /** @description Unauthorized */
@@ -3055,6 +3074,24 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

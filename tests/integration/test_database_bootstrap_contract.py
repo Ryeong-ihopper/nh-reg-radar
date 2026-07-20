@@ -13,6 +13,7 @@ PRODUCT_CI = ROOT / ".github/workflows/ci.yml"
 LOCAL_DEV = ROOT / "scripts/local-dev.sh"
 DEV_COMPOSE = ROOT / "compose.dev.yml"
 DEV_ENV = ROOT / ".env.dev.example"
+DEV_SEED = ROOT / "apps/backend/seeds/dev.sql"
 README = ROOT / "README.md"
 
 
@@ -57,6 +58,15 @@ class DatabaseBootstrapContractTests(unittest.TestCase):
         self.assertIn("scripts/local-dev.sh reset", readme)
         self.assertIn("test@ihopper.co.kr", readme)
         self.assertIn("Testihopper12#$", script)
+
+    def test_dev_seed_uses_the_accepted_two_account_poc_profile(self) -> None:
+        seed = DEV_SEED.read_text(encoding="utf-8")
+        self.assertIn("test@ihopper.co.kr", seed)
+        self.assertIn("admin@ihopper.co.kr", seed)
+        self.assertIn("'USR-SYNTH-PRODUCT', 'COMPLIANCE_REVIEWER'", seed)
+        self.assertIn("'USR-SYNTH-PRODUCT', 'STANDARD_MANAGER'", seed)
+        self.assertIn("'USR-SYNTH-STANDARD', 'SYSTEM_ADMIN'", seed)
+        self.assertIn("SET user_status = 'INACTIVE'", seed)
 
     def test_bootstrap_owns_only_fixed_roles_and_database_grants(self) -> None:
         text = BOOTSTRAP.read_text()

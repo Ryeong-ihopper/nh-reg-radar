@@ -6,13 +6,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.13 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.17 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.17 | 2026-07-20 | ADR-0079 HWP/HWPX hybrid parser의 단일 NormalizedDocument와 `hwp-hybrid` provenance 기준을 내부 계약에 반영 |
+| v1.16 | 2026-07-20 | `ProductGroup` enum과 공통 코드에 `LOAN`을 추가해 대출 광고 등록·기준자료 분류 계약을 동기화 |
 | --- | --- | --- |
+| v1.15 | 2026-07-20 | Hybrid 근거의 `relevanceScore`가 OpenSearch·Qdrant 원점수 비교가 아닌 RRF(`k=60`) 정규화 순위 점수임을 명시 |
+| v1.14 | 2026-07-17 | HWP/HWPX가 private 변환 서비스의 sanitize SVG를 인증 backend proxy로 반환하고, 변환 실패·미가용 오류를 구분하는 계약을 반영 |
 | v1.13 | 2026-07-16 | 권한 검증된 file preview content가 PNG/JPEG뿐 아니라 원본 PDF도 backend proxy로 반환하는 계약을 반영 |
 | v1.12 | 2026-07-16 | 광고 목록·상세의 전체 persisted review lifecycle 상태, 멀티파트 enum 검증, refresh replay/CAS 단일사용과 targetIndexes 실행 일치를 보강 |
 | v1.11 | 2026-07-15 | M8 OpenAPI v0.8.0 수정본 multipart 등록, 생성 client 비교·재검토 연계와 restart-safe M6 runtime 계약 반영 |
@@ -289,7 +293,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 | SAVINGS | 적금 |
 | DEMAND_DEPOSIT | 입출금 |
 | EVENT_FINANCIAL_PRODUCT | 이벤트성 금융상품 |
-| LOAN | 대출. 향후 확장 |
+| LOAN | 대출. 등록·기준자료 분류 지원, 전용 심의 기준자료 적재 후 검토 품질 범위를 확대 |
 | CARD | 카드. 향후 확장 |
 | INVESTMENT | 투자성 상품. 향후 확장 |
 
@@ -536,7 +540,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 }
 ```
 
-`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다. content는 PNG/JPEG 또는 원본 PDF를 동일한 backend proxy로 반환한다. HWP/HWPX는 브라우저 미리보기 대상이 아니므로 다운로드 또는 검토 결과의 Text IR을 사용한다.
+`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다. content는 PNG/JPEG 또는 원본 PDF를 동일한 backend proxy로 반환한다. HWP/HWPX는 browser가 원본을 직접 해석하지 않고, backend가 private `rhwp` 변환 서비스로부터 받은 sanitize된 `image/svg+xml` 페이지를 반환한다. 변환 불가 시 `422 HWP_PREVIEW_FAILED`, 변환 서비스 미가용 시 `503 HWP_PREVIEW_UNAVAILABLE`을 반환하며 클라이언트는 원본 다운로드 action을 유지한다.
 
 ---
 
@@ -1253,7 +1257,7 @@ Qdrant 또는 OpenSearch 장애로 RAG 검색을 정상 수행하지 못한 경�
 | searchMode | N | `KEYWORD`, `VECTOR`, `HYBRID` |
 | limit | N | 반환 개수. 기본 20, 최대 20 |
 
-검색은 내부 후보 Top 20, 판단 입력 Top 5, 화면 표시 Top 3 경계를 사용한다. 고정 fixture에서는 `relevanceScore DESC`, 동점 시 `evidenceChunkId ASC`로 정렬하며, 실제 점수 산식은 평가 데이터 없이 계약에 하드코딩하지 않는다. `HYBRID`에서 Qdrant 또는 OpenSearch가 실패하거나 인덱스 정합성이 깨지면 부분 fallback 없이 HTTP 503과 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED`를 반환한다.
+검색은 내부 후보 Top 20, 판단 입력 Top 5, 화면 표시 Top 3 경계를 사용한다. `HYBRID`는 OpenSearch와 Qdrant의 원점수를 직접 비교하지 않고 RRF(`k=60`) 순위 점수를 0~1로 정규화한 `relevanceScore`와 `matchSource`를 반환한다. 두 backend의 후보가 겹치면 `HYBRID`, 한쪽에만 있으면 `KEYWORD` 또는 `VECTOR`로 표시하며, 서로 다른 후보가 있으면 각 backend의 최상위 후보를 우선 포함한다. 고정 fixture에서는 `relevanceScore DESC`, 동점 시 `evidenceChunkId ASC`로 정렬한다. `HYBRID`에서 Qdrant 또는 OpenSearch가 실패하거나 인덱스 정합성이 깨지면 부분 fallback 없이 HTTP 503과 `RAG_SEARCH_UNAVAILABLE` 또는 `RAG_SEARCH_FAILED`를 반환한다.
 
 ### Response
 
@@ -2239,7 +2243,7 @@ M3는 `content`로 직접 입력된 본문만 정규화·Chunking한다. `source
     ],
     "modelVersion": "gpt-4.1-2026-07",
     "promptVersion": "review-prompt-v3",
-    "parserOcrPolicy": "ADR-0072/ADR-0073",
+    "parserOcrPolicy": "ADR-0079/ADR-0073",
     "ragSearchPolicy": "ADR-0043/ADR-0071"
   },
   "metrics": [
@@ -2541,9 +2545,9 @@ Text IR Block은 ADR-0065의 `NormalizedDocument.textBlocks` 영속화/응답 �
   "rawEndOffset": 372,
   "normalizedStartOffset": 342,
   "normalizedEndOffset": 366,
-  "parserName": "rhwp",
-  "parserVersion": "0.1.0",
-  "parserRuleVersion": "hwp-text-ir-v1",
+  "parserName": "hwp-hybrid",
+  "parserVersion": "rhwp-0.1.0+document-processor-0.1.0",
+  "parserRuleVersion": "hwp-hybrid-align-v1",
   "irVersion": "text-ir-v1",
   "confidenceScore": 0.98,
   "confidenceStatus": "READABLE",
@@ -2576,7 +2580,7 @@ Coordinate는 ADR-0015, ADR-0065, ADR-0066 기준 원본 좌표와 정규화 좌
 
 ## 17.8 NormalizedDocument v1
 
-`NormalizedDocument`는 Parser/OCR adapter의 공통 출력 계약이다. API/OpenAPI schema와 adapter contract test는 ADR-0065 기준 `normalized-document-v1`을 따른다.
+`NormalizedDocument`는 Parser/OCR adapter의 공통 출력 계약이다. API/OpenAPI schema와 adapter contract test는 ADR-0065 기준 `normalized-document-v1`을 따른다. HWP/HWPX는 ADR-0079에 따라 rhwp 기준 텍스트와 document-processor 구조를 정렬한 `parserName=hwp-hybrid` 단일 산출물을 사용하며 각 구성요소 raw output은 공개 API로 노출하지 않는다.
 
 ```json
 {
@@ -2766,7 +2770,7 @@ OpenAPI v0.8.0은 기존 M0~M7 operation을 보존하고 `POST /api/v1/advertise
 | 파일 정책 | ADR-0037 기준 `jpg/jpeg/png/pdf/hwp/hwpx`, 파일 1개당 50MB 제한 적용. 바이러스 검사는 PoC 필수 차단 조건에서 제외 |
 | AI Job 정책 | ADR-0035 기준 Redis Queue + PostgreSQL Job 상태 테이블 적용. ADR-0059 기준 전체 Job timeout 30분, 단계별 timeout, 최대 retry 3회, backoff 1분/3분/10분, `RETRY_PENDING`/`STALE`/`FAILED_FINAL` 상태 적용 |
 | OCR 좌표 체계 | ADR-0015/ADR-0066 기준 원본 좌표와 정규화 좌표를 함께 관리하고 API는 `Coordinate` object로 반환 |
-| Parser/OCR 엔진 라우팅 | ADR-0072 기준 PDF/복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지/스캔 PDF는 `PaddleOCR` 우선 적용. API 계약은 엔진 raw output이 아니라 `NormalizedDocument` v1 기준 |
+| Parser/OCR 엔진 라우팅 | ADR-0079 기준 PDF/복합 PDF는 `opendataloader-pdf`, 이미지/스캔 PDF는 `PaddleOCR`, HWP/HWPX는 rhwp 기준 텍스트와 document-processor 구조를 결합한 `hwp-hybrid` 적용. API 계약은 엔진 raw output이 아니라 단일 `NormalizedDocument` v1 기준 |
 | Parser/OCR 품질 재처리 | ADR-0073 기준 기술 retry와 품질 미달 재처리를 분리한다. 보조 엔진 시도는 raw artifact metadata에 기록하고, API의 업무 응답은 최종 채택된 `NormalizedDocument` 기준 결과만 반환 |
 | RAG 검색 정책 | ADR-0043 기준 내부 후보 Top 20, 판단 입력 Top 5, 화면 표시 Top 3, 리포트 표시 1~3개 적용. 관련도 부족 시 `CHECK_REQUIRED` 또는 기준자료 부족 상태 처리. 검색 인프라 장애는 ADR-0061 기준 RAG 검토 실패 및 복구 대상으로 처리 |
 | 위험도 산정 기준 | HIGH, MEDIUM, LOW, CHECK_REQUIRED 판정 기준 |

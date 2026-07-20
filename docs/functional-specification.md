@@ -6,12 +6,23 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.19 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.29 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.29 | 2026-07-20 | ADR-0079의 HWP/HWPX hybrid parser 기준을 반영하고, CI 복구를 위한 Ruff canonical formatting은 기존 업무·AI/RAG 동작을 변경하지 않는 경계를 명시 |
+| v1.28 | 2026-07-20 | 검토 진행 화면에서 기술 일시 오류 자동 재시도와 판독 불가·검토 확인 필요 상태를 구분해 안내하도록 정정 |
+| v1.27 | 2026-07-20 | HWP 검토 입력은 SVG glyph 좌표 추정이 아니라 rhwp의 semantic text export를 원천으로 사용해 원래 공백·문단 구조를 보존하도록 정정 |
+| v1.26 | 2026-07-20 | rhwp가 글자 단위 SVG 노드를 반환하는 HWP에서 시각적 행과 단어 경계를 재조합해 검토 입력이 글자별 줄바꿈으로 훼손되지 않도록 보강 |
+| v1.25 | 2026-07-20 | 승인된 규정·가이드라인 PDF/HWP/HWPX 전체를 private parser service로 정규화한 뒤 메타데이터 추출·Hybrid 색인하고 parser provenance를 보존하는 초기 적재 경로를 반영 |
+| v1.24 | 2026-07-20 | 상품군 공통 코드에 대출을 추가하고 대출 전용 기준자료가 없는 상태에서는 등록 분류만 지원한다는 심의 범위를 명시 |
+| --- | --- | --- |
+| v1.23 | 2026-07-20 | 위험 Rule 결과의 결정적 추천 생성, 근거가 있을 때만 수행하는 선택적 LLM 문장 보강, 실패 폴백·재시도 멱등성·`includeSuggestion` 제외 경계를 반영 |
+| v1.22 | 2026-07-20 | 실제 Hybrid RAG는 OpenSearch·Qdrant 원점수를 직접 비교하지 않고 RRF(`k=60`) 순위 융합과 source coverage로 근거를 선정하도록 정정 |
+| v1.21 | 2026-07-18 | Worker의 단계별 영속 진행률과 화면 이탈 후에도 지속되는 서버 작업, 검토 화면의 원본 병행 표시 기준을 반영 |
+| v1.20 | 2026-07-17 | HWP/HWPX의 private 변환 SVG 미리보기, 실패의 terminal 안내, 원본 검토 중심 상세 레이아웃 기준을 반영 |
 | v1.19 | 2026-07-16 | 완료 Job의 모든 진행 단계를 완료로 투영하고, 검토 요청 기준 적용일의 로컬 오늘 기본값 및 HWP/HWPX Text IR 전용 화면 표시 기준을 명시 |
 | --- | --- | --- |
 | v1.18 | 2026-07-16 | rhwp 페이지 단위 Text IR의 `textPath`·raw/normalized offset 보존과 실제 3개 엔진 E2E 완료 기준을 명시 |
@@ -280,7 +291,7 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
-실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. 이때 PDF/PNG/JPEG 광고와 `/reference-documents`로 읽기 전용 마운트한 승인 샘플 규정 PDF만 OpenAI Responses API와 OpenAI-compatible `/embeddings` API에 전송하며, 요청은 provider 저장을 비활성화하고 key·원문·raw provider 응답을 로그/결과 API에 남기지 않는다. 규정 PDF는 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. HWP/HWPX·설정 누락·검색 backend/embedding 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
+실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. `/reference-documents`로 읽기 전용 마운트한 ADR-0002 승인 규정·가이드라인 PDF/HWP/HWPX는 private parser service로 먼저 `NormalizedDocument` v1로 정규화한다. 정규화 텍스트만 OpenAI Responses API에 전달해 기준자료 메타데이터를 추출하고, 원문/파서 구조는 provider에 직접 전달하지 않는다. 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. parser 이름·버전·rule/IR 버전·text/layout/table block 수·구조 경로는 standard version metadata에 보존한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. 설정 누락·검색 backend/embedding·parser 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
 
 live opt-in의 문서 추출은 private Compose engine service와 worker adapter로 수행한다. PDF/복합 PDF는 `opendataloader-pdf`, 스캔 PDF·PNG/JPEG는 `paddleocr`, HWP/HWPX는 `rhwp` service가 실제 엔진을 실행하고 `NormalizedDocument` v1을 반환한다. worker는 identity·IR contract를 검증하고 parser 원시 output은 서비스 경계 밖으로 노출하지 않는다. OpenAI Responses API는 이 경로에서 구조화 검토 판단에만 사용하며, 문서 추출의 대체 경로가 아니다. engine service는 Compose 네트워크 내부 URL로만 연결하고 local dev에서만 loopback 포트를 선택적으로 공개한다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
 
@@ -298,7 +309,7 @@ live opt-in의 문서 추출은 private Compose engine service와 worker adapter
 | Annotation | 이미지/PDF BOX, HWP/HWPX TEXT_HIGHLIGHT, 좌표·offset 미확정 LIST_ONLY/UNAVAILABLE |
 | Snapshot | effective date, standard/evidence/chunk version, rank/score/match source를 결과와 함께 고정 |
 
-이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계의 Top-K를 0.70 이상 최대 3개로 선택하며, 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. PR 자동 Gate의 structured 경계는 fixture callable만 허용한다. 승인된 수동 개발 lane은 OpenAI adapter를 구성할 수 있으나, provider 출력은 schema-valid advisory score로만 보존하고 Rule 판정·위험도를 변경하지 않는다.
+이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계가 RRF로 순위를 정한 Top-3을 그대로 선택한다. 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. PR 자동 Gate의 structured 경계는 fixture callable만 허용한다. 승인된 수동 개발 lane은 OpenAI adapter를 구성할 수 있으나, provider 출력은 schema-valid advisory score로만 보존하고 Rule 판정·위험도를 변경하지 않는다.
 
 backend의 summary/items/detail/annotations handler는 기존 Review 부서 scope를 재사용하고 위험도 우선 정렬, evidence 필터, frozen standard version, BOX/TEXT_HIGHLIGHT/LIST_ONLY 정보를 반환한다. frontend runtime은 같은 frozen 계약을 소비하는 별도 lane이며 backend 구현은 OpenAPI, migration 또는 기존 M0~M4 revision을 재작성하지 않는다.
 
@@ -344,7 +355,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 | 항목명 | 필수 여부 | 형식 | 설명 |
 | --- | --- | --- | --- |
 | 광고명 | 필수 | 텍스트 | 광고물 식별명 |
-| 상품군 | 필수 | 선택값 | 예금, 적금, 입출금, 이벤트성 금융상품 등 |
+| 상품군 | 필수 | 선택값 | 예금, 적금, 입출금, 이벤트성 금융상품, 대출 등 |
 | 광고유형 | 필수 | 선택값 | 안내장, 배너, 이벤트 페이지, SMS, 알림톡, 앱 Push 등 |
 | 광고채널 | 선택 | 선택값 | 모바일 앱, 인터넷뱅킹, 영업점, 문자, 알림톡 등 |
 | 검토 요청 부서 | 필수 | 텍스트/선택 | 상품부서 또는 준법감시부서 |
@@ -434,9 +445,11 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 4. 광고물 상태를 `ANALYSIS_REQUESTED`로 변경한다.
 5. 분석 파이프라인은 다음 순서로 실행된다.
 6. 비동기 Job은 ADR-0059 기준 전체 timeout 30분, 단계별 timeout, 최대 retry 3회, backoff 1분/3분/10분을 적용한다.
-7. 일시 오류는 `RETRY_PENDING`으로 표시하고 자동 재시도하며, worker heartbeat 장애는 `STALE`로 표시한 뒤 복구 대상으로 관리한다.
+7. 엔진 timeout, 일시적 실행 오류, Object Storage 오류, AI provider 응답 오류 등 기술 일시 오류는 `RETRY_PENDING`으로 표시하고 최대 3회(1분/3분/10분) 자동 재시도한다. worker heartbeat 장애는 `STALE`로 표시한 뒤 복구 대상으로 관리한다.
 8. 파일 손상, 미지원 파일, OCR 판독 불가, 상품조건 불명확, 기준자료 미제공, 권한 오류, 요청값 검증 오류는 자동 retry하지 않고 담당자 확인 또는 최종 실패로 처리한다.
 9. Job이 `COMPLETED`이면 진행 상태 응답의 모든 정의된 단계는 `COMPLETED`로 표시하며, worker는 이를 영속 상태에도 반영한다.
+10. Worker는 `FILE_PREPROCESSING`(5%), `OCR_EXTRACTION`(25%), `LAYOUT_ANALYSIS`(50%), `RULE_REVIEW`(65%), `RAG_REVIEW`(80%), `RESULT_GENERATION`(95%) 전환을 PostgreSQL Job/Step 원천에 기록하고 완료 시 100%로 전이한다. 화면 이동·브라우저 탭 전환은 Redis 전달·PostgreSQL lease·worker 실행을 취소하지 않는다.
+11. S-004/S-005/S-006/S-008은 권한 검증된 광고 원본 미리보기를 검토 입력·진행·결과와 함께 표시한다. 지원 형식의 원본은 자동으로 private preview proxy를 호출하며, 실패 시 원본 다운로드 안내를 표시한다.
 
 ```
 파일 전처리
@@ -517,13 +530,15 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 
 1. 시스템은 광고물에서 텍스트 영역 또는 문서 구조 내 텍스트 블록을 탐지한다.
 2. 이미지, PDF, 모바일 화면, 배너, HWP/HWPX 내 문구를 추출한다.
-3. Parser/OCR 엔진 라우팅은 ADR-0072 기준으로 적용한다. PDF와 복합 PDF/표/다단 문서는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지와 스캔 PDF는 `PaddleOCR`을 1차 엔진으로 사용한다.
+3. Parser/OCR 엔진 라우팅은 ADR-0079 기준으로 적용한다. PDF와 복합 PDF/표/다단 문서는 `opendataloader-pdf`, 이미지와 스캔 PDF는 `PaddleOCR`, HWP/HWPX는 `HwpHybridParserAdapter`를 사용한다.
 4. 추출 결과는 ADR-0065 기준 `NormalizedDocument` v1으로 정규화하고, 텍스트 위치는 ADR-0052 기준 Text IR로 관리한다.
 5. 이미지/PDF/OCR 결과는 ADR-0066 기준 Coordinate를 함께 저장하고, HWP/HWPX parser 결과는 `textPath`와 raw/normalized offset을 함께 저장한다.
 6. 각 문구별 추출 신뢰도, 신뢰도 상태, 신뢰도 정책 버전, parser 버전을 저장한다.
 7. OCR text confidence는 ADR-0053 기준 `>= 0.80` 정상, `0.50~0.79` 판독 확인 필요, `< 0.50` 판독 불가로 처리한다.
 8. Parser/OCR 기술 실패와 품질 미달은 ADR-0073 기준으로 분리한다. 기술 실패는 ADR-0059 기준 retry하고, 품질 미달은 조건 기반 보조 엔진 재처리 후보로 처리한다.
-9. 보조 엔진은 항상 자동 fallback하지 않으며, 최종 채택된 `NormalizedDocument` v1만 후속 ReviewPipeline에 전달한다.
+9. HWP/HWPX는 `rhwp export-text`를 raw/normalized 텍스트의 기준 원천으로 사용하고 `document-processor`의 문단·run·표·셀·스타일·페이지 구조를 해당 텍스트에 정렬한다. private SVG는 원본 미리보기 전용이며 glyph SVG 좌표로 검토 텍스트를 복원하지 않는다.
+10. 구조에 정렬되지 않은 rhwp 텍스트도 별도 TextBlock과 warning으로 보존하고, 후속 ReviewPipeline에는 `parserName=hwp-hybrid`인 하나의 병합 `NormalizedDocument` v1만 전달한다.
+11. HWP/HWPX 검토 입력은 페이지 전체 `BODY` 한 개가 아니라 정렬된 문단·표 셀 TextBlock과 LayoutBlock을 사용한다. parser는 금융 규정 위반을 판단하지 않고 후속 금융광고 항목 분할에 필요한 구조만 제공한다.
 
 ---
 
@@ -534,6 +549,8 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 | 추출 문구 | 광고물에서 추출한 텍스트 |
 | 위치 좌표 | 문구가 위치한 영역 좌표 |
 | 텍스트 IR 위치 | HWP/HWPX 문서 구조 경로와 raw/normalized offset |
+| 문서 구조 | HWP/HWPX 문단·표·셀·스타일 관계와 미정렬 텍스트 warning |
+| Parser provenance | `hwp-hybrid`, rhwp/document-processor/aligner 버전과 raw artifact 추적 정보 |
 | 페이지/이미지 번호 | 문구가 추출된 위치 |
 | OCR 신뢰도 | 추출 결과 신뢰도 |
 | 신뢰도 상태 | READABLE / LOW_CONFIDENCE / UNREADABLE |
@@ -1103,7 +1120,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 ### 2) 처리 규칙
 
 1. 시스템은 ADR-0065 기준 `NormalizedDocument`의 좌표 또는 ADR-0052 기준 Text IR 위치 정보를 기반으로 문제 문구 위치를 표시한다.
-2. 이미지/PDF는 Bounding Box로 표시하고, HWP/HWPX는 `textBlockId + normalized offset` 기준으로 텍스트 뷰에서 하이라이트한다. HWP/HWPX는 브라우저 원본 preview를 요청하지 않고 Text IR과 원본 다운로드 안내를 표시한다.
+2. 이미지/PDF는 Bounding Box로 표시하고, HWP/HWPX는 `textBlockId + normalized offset` 기준으로 텍스트 뷰에서 하이라이트한다. HWP/HWPX는 browser가 원본을 직접 해석하지 않으며, 인증된 backend proxy가 private `rhwp` 변환 서비스에서 생성한 sanitize된 SVG 페이지를 descriptor/content 계약으로 표시한다. 변환 실패·서비스 미가용은 terminal 오류와 원본 다운로드 안내를 표시하며 무한 진행 상태로 남기지 않는다. HWPX의 초기 변환 화면은 문서 구조 텍스트를 페이지형 SVG로 배치한 검토용 표현이며, 원본 레이아웃의 완전한 재현을 보장하지 않는다.
 3. 일부 문구만 특정된 경우 특정된 부분만 표시하고 “일부 표시” 상태로 관리한다.
 4. 위치를 특정하지 못한 검토 항목도 목록과 상세 패널에 표시하며 “위치 확인 필요” 또는 “문서 전체 이슈” 상태로 관리한다.
 5. Annotation 위치 신뢰도는 ADR-0053 기준 `>= 0.80` `LOCATED`, `0.50~0.79` `LOW_CONFIDENCE` 또는 `PARTIALLY_LOCATED`, `< 0.50` `NOT_LOCATED`로 처리한다.
@@ -1156,6 +1173,8 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 6. 담당자는 ADR-0039 기준 채택, 미채택, 수정 후 사용 중 하나로 판단을 저장한다.
 7. 수정 후 사용 시 담당자가 입력한 최종 문구를 필수로 저장한다.
 8. 추천 문구 판단 이력은 누적 저장하고, 리포트에는 AI 추천 문구와 담당자 최종 판단을 구분 표시한다.
+9. Rule Engine은 위험 유형·원문·연결 근거를 입력으로 안전한 기본 추천을 결정적으로 생성한다. 연결 근거가 없으면 문구를 단정 추천하지 않고 담당자 확인으로 남긴다. LLM이 설정된 환경에서는 동일 근거 범위 안에서만 문장을 보강하며, LLM 실패·미설정 시 기본 추천을 유지한다.
+10. 검토 요청의 `includeSuggestion=false`이면 추천 생성 단계를 건너뛴다. 재시도는 같은 추천 ID를 사용해 중복 row를 만들지 않는다.
 
 ---
 
@@ -1772,7 +1791,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 | 런타임 성능 기준 | ADR-0042 기준 PoC 관찰 목표로 관리. 운영 SLA는 본사업 전환 시 재산정 |
 | 신뢰도 임계값 | ADR-0053 기준 OCR/Parser/Annotation 신뢰도 임계값과 YAML 설정 적용 |
 | Parser/OCR 출력 계약 | ADR-0065 기준 `NormalizedDocument` v1 schema와 adapter contract test 적용 |
-| Parser/OCR 엔진 라우팅 | ADR-0072 기준 PDF/복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지/스캔 PDF는 `PaddleOCR` 우선 적용 |
+| Parser/OCR 엔진 라우팅 | ADR-0079 기준 PDF/복합 PDF는 `opendataloader-pdf`, 이미지/스캔 PDF는 `PaddleOCR`, HWP/HWPX는 rhwp 텍스트와 document-processor 구조를 병합한 `hwp-hybrid` 적용 |
 | Parser/OCR 품질 재처리 | ADR-0073 기준 기술 retry와 품질 재처리 분리, 조건 기반 보조 엔진 재처리, 최종 채택 산출물 추적 적용 |
 | PoC 검증 Snapshot | ADR-0074 기준 DB를 정답지 source of truth로 사용하고 평가 실행 시점 snapshot과 hash를 고정 |
 | 좌표 저장/API 응답 | ADR-0066 기준 DB 명시 컬럼과 API `Coordinate` object 적용 |

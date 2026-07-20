@@ -62,7 +62,7 @@ def test_m5a_rule_result_is_deterministic_and_has_box_annotation() -> None:
     assert (item.annotation.display_mode, item.annotation.status) == ("BOX", "LOCATED")
 
 
-def test_m5b_selects_fixed_top_evidence_and_preserves_rule_decision() -> None:
+def test_m5b_preserves_search_rank_without_applying_a_cross_engine_score_cutoff() -> None:
     bundle = ReviewResultEngine(search=lambda _query: [evidence(0.91), evidence(0.69)]).execute(
         document()
     )
@@ -70,10 +70,10 @@ def test_m5b_selects_fixed_top_evidence_and_preserves_rule_decision() -> None:
 
     assert (item.result_status, item.risk_level) == ("NEEDS_REVISION", "HIGH")
     assert item.evidence_status == "CONNECTED"
-    assert [value.rank_no for value in item.evidences] == [1]
+    assert [value.rank_no for value in item.evidences] == [1, 2]
     assert item.score_detail["rag"] == {
         "topRelevanceScore": 0.91,
-        "evidenceCount": 1,
+        "evidenceCount": 2,
         "evidenceSufficient": True,
         "status": "CONNECTED",
         "failureCode": None,
@@ -333,5 +333,64 @@ def test_parser_job_persists_results_before_completing() -> None:
 
     assert processor.process(payload) == "CHECK_REQUIRED"
     assert job.review_results is not None
+    assert job.progress_rate == 100
+    assert job.current_step is None
+    assert job.progress_history == [
+        "FILE_PREPROCESSING",
+        "OCR_EXTRACTION",
+        "LAYOUT_ANALYSIS",
+        "RULE_REVIEW",
+        "RAG_REVIEW",
+        "RESULT_GENERATION",
+    ]
     assert job.review_results.items[0].evidence_status == "CONNECTED"
+    assert len(repository.suggestions) == 1
+    generated = next(iter(repository.suggestions.values()))
+    assert generated.review_item_id == job.review_results.items[0].review_item_id
+    assert generated.evidence_ids == ("EVD-SYNTH-M5-001",)
     assert job.status == "COMPLETED"
+    assert processor.process(payload) == "DUPLICATE_IGNORED"
+    assert len(repository.suggestions) == 1
+
+
+def test_parser_job_skips_suggestions_when_the_request_disables_them() -> None:
+    fixture = document()
+
+    class Adapter:
+        name = "paddleocr"
+
+        def parse(self, _source: DocumentInput) -> NormalizedDocument:
+            return fixture
+
+    source = DocumentInput(
+        source_file_id=fixture.source_file_id,
+        review_id=fixture.review_id,
+        file_name="fixture.png",
+        mime_type="image/png",
+        body=b"synthetic",
+    )
+    job = WorkerJob("JOB-M5-NO-SUGGESTION", fixture.review_id, source, include_suggestion=False)
+    repository = InMemoryJobRepository([job])
+    processor = ParserJobProcessor(
+        repository,
+        ParserRouter({"paddleocr": Adapter()}),
+        ArtifactStore(
+            InMemoryArtifactStorage(),
+            InMemoryArtifactMetadataRepository(),
+            bucket="parser-artifacts",
+        ),
+        InMemoryDeadLetterSink(),
+        worker_id="worker-m5",
+        result_engine=ReviewResultEngine(search=lambda _query: [evidence()]),
+    )
+    payload = {
+        "messageVersion": "review-job-v1",
+        "jobId": job.job_id,
+        "reviewId": job.review_id,
+        "jobType": "REVIEW_ANALYSIS",
+        "correlationId": "corr-m5-no-suggestion",
+        "idempotencyKey": job.job_id,
+    }
+
+    assert processor.process(payload) == "CHECK_REQUIRED"
+    assert repository.suggestions == {}

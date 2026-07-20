@@ -6,7 +6,7 @@ Accepted
 
 ## 배경
 
-ADR-0072는 파일 유형별 Parser/OCR 1차 엔진을 정했다. PDF와 복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지와 스캔 PDF는 `PaddleOCR`을 우선 사용한다. ADR-0053은 OCR text, parser structure, annotation location의 confidence 임계값을 정의했고, ADR-0059는 기술 오류와 업무 확인 필요 오류의 retry 기준을 정의했다.
+ADR-0079는 파일 유형별 Parser/OCR 기본 처리와 HWP/HWPX Hybrid Parser 구성을 정했다. PDF와 복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `rhwp` 기준 텍스트와 `document-processor` 구조를 결합한 `hwp-hybrid`, 이미지와 스캔 PDF는 `PaddleOCR`을 사용한다. ADR-0053은 OCR text, parser structure, annotation location의 confidence 임계값을 정의했고, ADR-0059는 기술 오류와 업무 확인 필요 오류의 retry 기준을 정의했다.
 
 남은 문제는 1차 엔진 결과가 낮은 품질이거나 구조 인식에 실패했을 때의 처리 기준이다. 모든 저신뢰도 결과에 보조 엔진을 자동 실행하면 비용과 처리 시간이 늘고, 어떤 결과가 최종 근거인지 추적이 어려워진다. 반대로 보조 엔진을 전혀 사용하지 않으면 PoC 샘플에서 파서/OCR 품질을 개선할 기회가 줄어든다.
 
@@ -37,7 +37,8 @@ Parser/OCR 품질 미달 처리는 **기술 실패는 ADR-0059 기준 retry, 품
 | Parser structure confidence `< 0.50` | 구조 인식 실패. HWP/HWPX/PDF는 보조 엔진 재처리 후보 |
 | Parser structure confidence `0.50~0.75` | `PARTIALLY_STRUCTURED`, 검토는 진행하되 구조 기반 판단은 낮은 신뢰도로 표시 |
 | 복합 PDF에서 표/다단 추출 누락 | `MinerU` 보조 재처리 후보 |
-| HWP/HWPX에서 `textPath` 또는 offset 생성 실패 | `document-processor` 보조 재처리 후보 |
+| HWP/HWPX에서 기준 텍스트 생성 실패 | `rhwp` 구성요소 기술 retry 또는 최종 실패 후보 |
+| HWP/HWPX에서 구조 정렬·표 셀·offset 생성 실패 | ADR-0079 기준 구조 보강 retry 후 미정렬 텍스트 보존과 확인 필요 처리 |
 | 이미지/스캔 PDF에서 OCR 누락 | VLM OCR 보조 재처리 후보. 단, 외부 AI 입력 가능 자료에 한정 |
 
 보조 엔진 결과가 1차 엔진보다 항상 우선하는 것은 아니다. 최종 채택 기준은 confidence, 필수 필드 충족 여부, Text IR/Coordinate 생성 여부, warning 수, 판정 대상 문구 식별 여부를 함께 비교한다.
@@ -49,7 +50,7 @@ Parser/OCR 품질 미달 처리는 **기술 실패는 ADR-0059 기준 retry, 품
 | PDF/복합 PDF | `opendataloader-pdf` | 구조 confidence `< 0.50`, 표/다단 누락 의심, text block 수 비정상 |
 | 스캔 PDF | `PaddleOCR` | OCR confidence `< 0.80`이면서 판정 대상 문구 누락 의심 |
 | JPG/JPEG/PNG | `PaddleOCR` | 저해상도/복잡 배경으로 핵심 문구 누락 의심. VLM OCR은 승인된 자료에 한정 |
-| HWP/HWPX | `rhwp` | `textPath`, raw/normalized offset, table cell 구조 생성 실패 |
+| HWP/HWPX | `hwp-hybrid` | `rhwp` 텍스트와 `document-processor` 구조의 구성요소 retry·정렬 품질 저하를 ADR-0079 기준으로 처리 |
 
 보조 엔진은 자동 fallback이 아니라 **재처리 시도**로 기록한다. 재처리 시도는 Job/Step 상태와 raw artifact metadata에 남기며, 최종 채택된 산출물만 후속 ReviewPipeline에 전달한다.
 
@@ -114,4 +115,4 @@ Parser/OCR 재처리는 다음 정보를 남긴다.
 - `docs/adr/ADR-0059-ai-job-timeout-retry-deadletter-policy.md`
 - `docs/adr/ADR-0065-normalized-document-schema-and-adapter-contract.md`
 - `docs/adr/ADR-0067-parser-ocr-raw-artifact-storage-retention-policy.md`
-- `docs/adr/ADR-0072-parser-ocr-engine-routing-policy.md`
+- `docs/adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md`

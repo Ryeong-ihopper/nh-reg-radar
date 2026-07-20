@@ -44,6 +44,9 @@ test("registers a versioned validation dataset and golden judgment through the g
   const multipart = calls.find((call) => call.url.endsWith("/validation/datasets") && call.init?.method === "POST")?.init?.body as FormData;
   expect(multipart.get("datasetName")).toBe("신규 검증셋");
   expect(multipart.get("excluded")).toBe("false");
+  expect(screen.getByLabelText("이 검증 데이터를 이번 평가에서 제외")).not.toBeChecked();
+  expect(screen.getByText("파일을 읽을 수 없거나 정답 판단이 어려운 경우에만 선택하세요.")).toBeInTheDocument();
+  expect(screen.getByLabelText("이 담당자 판단을 이번 평가에서 제외")).not.toBeChecked();
 
   fireEvent.change(screen.getByLabelText("대상 문구"), { target: { value: "원금 보장" } });
   fireEvent.click(screen.getByRole("button", { name: "담당자 판단 등록" }));
@@ -77,18 +80,18 @@ test("displays immutable server KPI values, exclusions, and zero-denominator sta
   }));
   render(<MemoryRouter initialEntries={["/validation/evaluations"]}><App initialSession={complianceSession} /></MemoryRouter>);
   fireEvent.click(await screen.findByLabelText("예금 검증셋 선택"));
-  fireEvent.click(screen.getByRole("button", { name: "선택 데이터셋 평가 실행" }));
+  fireEvent.click(screen.getByRole("button", { name: "선택 데이터 평가 실행" }));
   expect(await screen.findByText("87.5%")).toBeInTheDocument();
   expect(screen.getByText("미적용")).toBeInTheDocument();
-  expect(screen.getByText("분모 0 · 목표 판단 제외")).toBeInTheDocument();
-  expect(screen.getByText("OCR_UNREADABLE: 1건")).toBeInTheDocument();
-  expect(screen.getByText("sha256:frozen")).toBeInTheDocument();
+  expect(screen.getByText("평가할 데이터가 없습니다.")).toBeInTheDocument();
+  expect(screen.getByText("문구 판독 불가: 1건")).toBeInTheDocument();
+  expect(screen.queryByText("sha256:frozen")).not.toBeInTheDocument();
 });
 
 test("renders empty and safe error states", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ items: [], page: 1, size: 20, totalElements: 0, totalPages: 0 })));
   const view = render(<MemoryRouter initialEntries={["/validation/datasets"]}><App initialSession={complianceSession} /></MemoryRouter>);
-  expect(await screen.findByText("등록된 검증 데이터셋이 없습니다.")).toBeInTheDocument();
+  expect(await screen.findByText("등록된 검증 데이터가 없습니다.")).toBeInTheDocument();
   view.unmount();
   vi.stubGlobal("fetch", vi.fn(async () => json({ code: "INTERNAL_ERROR", message: "internal stack", traceId: "trace-safe" }, 500)));
   render(<MemoryRouter initialEntries={["/validation/datasets"]}><App initialSession={complianceSession} /></MemoryRouter>);

@@ -122,12 +122,22 @@ class ReviewResultEngine:
         self.rule_version = rule_version
         self.risk_policy_version = risk_policy_version
 
-    def execute(self, document: NormalizedDocument) -> ReviewResultBundle:
+    def execute(
+        self,
+        document: NormalizedDocument,
+        *,
+        on_stage: Callable[[str], None] | None = None,
+    ) -> ReviewResultBundle:
+        """Run ordered review stages and expose durable progress boundaries."""
         items = [
             self._rule_item(document, block, index)
             for index, block in enumerate(document.text_blocks, 1)
         ]
+        if on_stage is not None:
+            on_stage("RAG_REVIEW")
         items = [self._rag(item) for item in items]
+        if on_stage is not None:
+            on_stage("RESULT_GENERATION")
         items = [self._structured(item) for item in items]
         return ReviewResultBundle(
             review_id=document.review_id,
@@ -241,11 +251,7 @@ class ReviewResultEngine:
                 score_detail={**item.score_detail, "rag": rag},
             )
         selected = tuple(
-            ReviewEvidence(candidate, rank)
-            for rank, candidate in enumerate(
-                sorted(candidates, key=lambda value: value.relevance_score, reverse=True)[:3], 1
-            )
-            if candidate.relevance_score >= 0.70
+            ReviewEvidence(candidate, rank) for rank, candidate in enumerate(candidates[:3], 1)
         )
         status: EvidenceStatus = "CONNECTED" if selected else "INSUFFICIENT"
         rag = {

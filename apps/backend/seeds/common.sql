@@ -18,6 +18,7 @@ VALUES
   ('00000000-0000-4000-8000-000000000002', 'product-groups', 'SAVINGS', '적금', 2, true),
   ('00000000-0000-4000-8000-000000000003', 'product-groups', 'DEMAND_DEPOSIT', '입출금', 3, true),
   ('00000000-0000-4000-8000-000000000004', 'product-groups', 'EVENT', '이벤트', 4, true),
+  ('00000000-0000-4000-8000-000000000005', 'product-groups', 'LOAN', '대출', 5, true),
   ('00000000-0000-4000-8000-000000000101', 'advertisement-types', 'BRANCH_FLYER', '영업점 안내장', 1, true),
   ('00000000-0000-4000-8000-000000000102', 'advertisement-types', 'NOTICE', '고객 안내문', 2, true),
   ('00000000-0000-4000-8000-000000000103', 'advertisement-types', 'MOBILE_BANNER', '모바일 배너', 3, true),

@@ -15,7 +15,9 @@ from nh_ad_worker.openai_provider import (
     OpenAIProviderError,
     OpenAIResponsesClient,
 )
+from nh_ad_worker.results import EvidenceCandidate, ReviewResultEngine
 from nh_ad_worker.settings import Settings
+from nh_ad_worker.suggestions import rule_suggestions
 
 
 FIXTURE = (
@@ -246,6 +248,34 @@ def test_provider_rejects_missing_structured_output() -> None:
 
     with pytest.raises(OpenAIProviderError, match="OPENAI_OUTPUT_TEXT_MISSING"):
         provider.responses_json("prompt", {"type": "object"})
+
+
+def test_provider_refines_an_evidence_bound_rule_suggestion() -> None:
+    fixture = NormalizedDocument.model_validate_json(FIXTURE.read_text())
+    results = ReviewResultEngine(
+        search=lambda _query: [
+            EvidenceCandidate(
+                "EVD-1",
+                "STDVER-1",
+                "GUIDELINE",
+                "광고 표현 기준",
+                "객관적 기준 없는 절대적 표현은 사용할 수 없습니다.",
+                0.9,
+                "HYBRID",
+            )
+        ]
+    ).execute(fixture)
+    transport = CapturedTransport({"suggestedText": "조건 충족 시 혜택을 제공받을 수 있습니다."})
+
+    suggestions = rule_suggestions(results, refine=client(transport).refine_suggestion)
+
+    assert suggestions[0].suggested_text == "조건 충족 시 혜택을 제공받을 수 있습니다."
+    assert "AI가 문장을 보강" in suggestions[0].suggestion_reason
+    payload = request_payload(transport)
+    assert payload["text"]["format"]["name"] == "suggestion_refinement_v1"  # type: ignore[index]
+    prompt = payload["input"][0]["content"][0]["text"]  # type: ignore[index]
+    assert "fallbackSuggestion" in prompt
+    assert "객관적 기준 없는 절대적 표현" in prompt
 
 
 def test_production_runner_fails_closed_when_external_ai_config_is_incomplete() -> None:

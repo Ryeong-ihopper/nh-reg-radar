@@ -182,7 +182,7 @@ class InMemoryRepository:
 
     def list_common_codes(self, code_group: str) -> list[dict[str, object]]:
         values = {
-            "product-groups": ("DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT"),
+            "product-groups": ("DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN"),
             "advertisement-types": (
                 "BRANCH_FLYER",
                 "NOTICE",

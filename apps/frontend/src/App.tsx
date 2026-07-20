@@ -15,6 +15,7 @@ import { ReviewRequestPage } from "./pages/ReviewRequestPage";
 import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pages/ReviewResultsPage";
 import { StandardManagementPage } from "./pages/StandardManagementPage";
 import { ValidationDatasetsPage, ValidationEvaluationPage } from "./pages/ValidationPage";
+import nhBankLogo from "./assets/brand/nh-bank-logo.png";
 
 const ADVERTISEMENT_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
@@ -32,7 +33,7 @@ function ProtectedRoute({ allowedRoles }: { allowedRoles: Set<string> }) {
   if (isInitializing) return <div role="status" className="state-message">로그인 상태를 확인하는 중입니다.</div>;
   if (!session) return <Navigate to="/login" replace />;
   if (!session.user.roles.some((role) => allowedRoles.has(role))) {
-    return <section><div role="alert" className="state-message state-error"><strong>접근 권한이 없습니다.</strong><p>현재 역할로 사용할 수 없는 기능입니다.</p></div></section>;
+    return <section><div role="alert" className="state-message state-error access-denied-message"><strong>접근 권한이 없습니다.</strong><p>현재 역할로 사용할 수 없는 기능입니다.</p></div></section>;
   }
   return <Outlet />;
 }
@@ -45,17 +46,18 @@ function Shell() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <Link className="brand" to={session ? homePath(session.user.roles) : "/login"}><span className="brand-mark" aria-hidden="true">NH</span><span><strong>광고심의 적정성 검토</strong><small>AI Compliance Workspace</small></span></Link>
+        {session ? <Link className="brand" to={homePath(session.user.roles)}><img className="brand-mark brand-mark--inverse" src={nhBankLogo} alt="NH농협은행" /><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></Link> : <div className="brand"><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></div>}
         {session ? <div className="account-context"><span><strong>{session.user.userName}</strong><small>{session.user.departmentName}</small></span><button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button></div> : null}
       </header>
       <div className={session ? "app-workspace" : "app-workspace app-workspace--public"}>
         {session ? <aside className="app-sidebar"><nav aria-label="주 탐색">
-          <p className="nav-group-label">광고물 관리</p>
-          <NavLink to="/advertisements" end>광고물 목록</NavLink>
-          {canCreate ? <NavLink to="/advertisements/new">광고물 등록</NavLink> : null}
-          {canManageStandards ? <><p className="nav-group-label">기준 및 검증</p><NavLink to="/standards">기준자료 관리</NavLink></> : null}
-          {canValidate ? <NavLink to="/validation/datasets">PoC 검증</NavLink> : null}
-        </nav><p className="sidebar-note">AI 결과는 담당자 검토를 지원하며, 최종 판단을 대신하지 않습니다.</p></aside> : null}
+          <p className="nav-group-label">광고 심의</p>
+          <NavLink to="/advertisements" end aria-label="광고물 목록"><span>광고물 목록</span><small>등록·진행 현황</small></NavLink>
+          {canCreate ? <NavLink to="/advertisements/new" aria-label="광고물 등록"><span>광고물 등록</span><small>파일과 기본정보 등록</small></NavLink> : null}
+          {canManageStandards || canValidate ? <p className="nav-group-label">운영 도구</p> : null}
+          {canManageStandards ? <NavLink to="/standards" aria-label="기준자료 관리"><span>기준자료 관리</span><small>규정·근거 최신화</small></NavLink> : null}
+          {canValidate ? <NavLink to="/validation/datasets" aria-label="검토 품질 관리"><span>검토 품질 관리</span><small>검증 데이터·평가</small></NavLink> : null}
+        </nav><p className="sidebar-note"><strong>담당자 판단 원칙</strong>AI 결과는 검토를 지원하며 최종 결정을 대신하지 않습니다.</p></aside> : null}
       <main><Routes>
         <Route path="/login" element={session ? <Navigate to={homePath(session.user.roles)} replace /> : <LoginPage />} />
         <Route element={<ProtectedRoute allowedRoles={ADVERTISEMENT_ROLES} />}>

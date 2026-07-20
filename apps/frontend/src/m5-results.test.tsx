@@ -138,13 +138,19 @@ test("renders S-006 counts and distinguishes RAG failure from insufficient evide
   const kpis = await screen.findByLabelText("검토 결과 집계");
   expect(within(kpis).getByText("높음")).toBeInTheDocument();
   expect(within(kpis).getByText("3")).toBeInTheDocument();
-  expect(screen.getByText(/RAG 검토 실패\/복구 필요/)).toBeInTheDocument();
+  expect(screen.getByText("근거 검색을 완료하지 못했습니다. 기준자료를 확인해 주세요.")).toBeInTheDocument();
   expect(screen.queryByText("근거 부족")).not.toBeInTheDocument();
   const basic = await screen.findByLabelText("광고 기본정보");
   expect(basic).toHaveTextContent("정기예금 포스터");
-  expect(basic).toHaveTextContent("DEPOSIT");
-  expect(basic).toHaveTextContent("BRANCH_FLYER");
+  expect(basic).toHaveTextContent("예금");
+  expect(basic).toHaveTextContent("영업점 전단");
   expect(basic).toHaveTextContent("USR-M5");
+  expect(basic.tagName).toBe("TABLE");
+  expect(within(basic).getByRole("rowheader", { name: "광고명" })).toBeInTheDocument();
+  expect(screen.getByLabelText("광고 원본 병행 검토")).toHaveTextContent("광고 원본");
+  expect(screen.queryByText("원본을 보며 검토")).not.toBeInTheDocument();
+  expect(screen.queryByText("권한 검증 미리보기")).not.toBeInTheDocument();
+  expect(screen.getByText("최종 판단 안내").closest("p")).toHaveClass("state-warning");
   expect(screen.getByRole("link", { name: "수정본 비교·재검토" })).toHaveAttribute(
     "href",
     "/advertisements/ADV-M5/comparisons?reviewId=REV-M5",
@@ -167,8 +173,12 @@ test("filters S-008, opens deterministic detail, and preserves rule result durin
   await waitFor(() => expect(urls.some((url) => url.includes("riskLevel=HIGH"))).toBe(true));
   fireEvent.click(await screen.findByRole("button", { name: /국내 최고 혜택/ }));
   expect(await screen.findByText("조건과 산출 기준을 명시해 주세요.")).toBeInTheDocument();
-  expect(screen.getAllByText(/RAG 검토 실패\/복구 필요/).length).toBeGreaterThan(0);
-  expect(screen.getByText("RULE_EXPLICIT_VIOLATION")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /국내 최고 혜택/ })).toHaveTextContent("과장·오인 표현");
+  expect(screen.getByRole("button", { name: /국내 최고 혜택/ })).toHaveTextContent("수정 필요");
+  expect(screen.getByRole("button", { name: /국내 최고 혜택/ })).toHaveTextContent("위험도 높음");
+  expect(screen.getAllByText("근거 검색을 완료하지 못했습니다. 기준자료를 확인해 주세요.").length).toBeGreaterThan(0);
+  expect(screen.getByLabelText("검토 결과 세부 정보")).toHaveTextContent("규칙 기반 판단");
+  expect(screen.queryByText("RULE_EXPLICIT_VIOLATION")).not.toBeInTheDocument();
 });
 
 test("navigates paged review items without losing filters", async () => {
@@ -206,20 +216,39 @@ test("renders image boxes, HWP offsets, low-confidence warnings, and list fallba
   expect(preview).toHaveAttribute("src", "blob:m5-preview");
   const box = screen.getByRole("button", { name: "국내 최고 혜택 Annotation" });
   expect(box).toHaveStyle({ left: "10%", top: "10%", width: "40%", height: "10%" });
+  expect(preview.closest(".annotation-media")).toContainElement(box);
   expect(screen.getByText(/offset 4–12/)).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "위치 미확정 항목" })).toBeInTheDocument();
   expect(screen.getByLabelText("위치 신뢰도 확인 필요")).toHaveTextContent("위치 확인 필요 2건");
   const fallback = screen.getByRole("heading", { name: "위치 미확정 항목" }).parentElement;
   expect(fallback).not.toBeNull();
   const unavailable = within(fallback!).getByRole("button", { name: /원본 미리보기 불가/ });
-  expect(unavailable).toHaveTextContent("NOT_LOCATED · 위치 없음");
+  expect(unavailable).toHaveTextContent("위치 확인 필요 · 위치 없음");
   fireEvent.click(unavailable);
   expect(screen.getByLabelText("선택 Annotation 상세")).toHaveTextContent("PREVIEW_UNAVAILABLE");
   fireEvent.click(box);
   expect(screen.getByLabelText("선택 Annotation 상세")).toHaveTextContent("MATCHED_BOX");
 });
 
-test("does not leave an unsupported HWP preview in a loading state", async () => {
+test("loads a PNG Annotation preview even when the API returns the business file classification", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:m5-advertisement-preview") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/annotations")) return response({ ...annotations, fileType: "ADVERTISEMENT" });
+    if (url.includes("/preview/content")) return new Response(new Blob(["preview"], { type: "image/png" }), { status: 200 });
+    if (url.includes("/preview?")) return response({ fileId: "FILE-M5", pageNo: 1, totalPages: 1, previewPath: "/api/v1/files/FILE-M5/preview/content", width: 1000, height: 500 });
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-M5/results/annotations"]}><App initialSession={session} /></MemoryRouter>);
+  expect(await screen.findByRole("img", { name: "광고 원본 미리보기" })).toHaveAttribute("src", "blob:m5-advertisement-preview");
+  expect(screen.queryByText("이 파일 형식은 브라우저 미리보기를 지원하지 않습니다. 원본을 다운로드해 확인해 주세요.")).not.toBeInTheDocument();
+});
+
+test("renders a converted HWP preview instead of a perpetual loading state", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:m5-preview") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
   const hwpAnnotations: ReviewAnnotationCollection = {
     ...annotations,
     fileType: "HWP",
@@ -229,14 +258,33 @@ test("does not leave an unsupported HWP preview in a loading state", async () =>
     const url = String(input);
     urls.push(url);
     if (url.includes("/annotations")) return response(hwpAnnotations);
+    if (url.includes("/preview/content")) {
+      return new Response(new Blob(["<svg><text>한글 광고</text></svg>"], { type: "image/svg+xml" }), {
+        status: 200,
+      });
+    }
+    if (url.includes("/preview?")) {
+      return response({
+        fileId: "FILE-M5",
+        pageNo: 1,
+        totalPages: 2,
+        previewPath: "/api/v1/files/FILE-M5/preview/content",
+        width: null,
+        height: null,
+      });
+    }
     throw new Error(`Unexpected request: ${url}`);
   }));
 
   render(<MemoryRouter initialEntries={["/reviews/REV-M5/results/annotations"]}><App initialSession={session} /></MemoryRouter>);
   expect(await screen.findByText("HWP/HWPX 텍스트 위치")).toBeInTheDocument();
-  expect(screen.getByText("HWP/HWPX 원본은 브라우저에서 직접 미리보기로 열지 않습니다. 추출된 텍스트 위치와 원본 다운로드로 확인해 주세요.")).toBeInTheDocument();
+  expect(await screen.findByRole("img", { name: "광고 원본 미리보기" })).toHaveAttribute(
+    "src",
+    "blob:m5-preview",
+  );
   expect(screen.queryByText("광고 원본을 불러오는 중입니다.")).not.toBeInTheDocument();
-  expect(urls.some((url) => url.includes("/preview"))).toBe(false);
+  expect(urls.some((url) => url.includes("/preview?"))).toBe(true);
+  expect(urls.some((url) => url.includes("/preview/content"))).toBe(true);
 });
 
 test("continues advertisement analysis polling into summary and Annotation without exposing forbidden details", async () => {

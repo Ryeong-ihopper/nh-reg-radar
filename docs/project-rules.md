@@ -4,13 +4,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.16 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.18 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.18 | 2026-07-20 | ADR-0079에 따라 HWP/HWPX hybrid parser 기준을 추가하고, 신규 ADR·프론트엔드 감사 문서의 Notion 게시 범위와 최초 페이지 생성 절차를 동기화 |
+| v1.17 | 2026-07-20 | 개발 Compose 기준자료 초기 적재는 PDF/HWP/HWPX parser service와 단일 writer lock을 사용하고 완료 후 두 검색 인덱스 상태를 확인하는 기준을 추가 |
 | v1.16 | 2026-07-16 | Conventional Commit 제목을 type 접두어와 한글 요약으로 통일하는 기준을 추가 |
 | v1.15 | 2026-07-16 | ADR-0072 private parser/OCR service 이미지, health와 실제 provider E2E를 별도 수동 증거로 유지하는 기준을 추가 |
 | v1.14 | 2026-07-16 | 신규 개발자용 provider-free 로컬 Compose 진입점, migration·dev seed·health 대기 순서, 브라우저 API 주소와 안전한 중지·초기화 기준 반영 |
@@ -323,12 +325,12 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 | 자동 실행 | `main`에 게시 대상 Markdown 변경이 push되면 `.github/workflows/notion-docs-publish-test.yml` 실행 |
 | 수동 실행 | 초기 전환·장애 복구 시 `workflow_dispatch`를 확인 문자열 `SYNC_DEV_DOCS`와 기준 commit으로 실행 |
 | 게시 도구 | 공식 Notion CLI를 사용하는 `scripts/publish-notion-docs-test.sh` |
-| 게시 대상 | Git이 추적하는 `docs/*.md`, `docs/**/*.md` Markdown 94개. 일반 문서 15개와 ADR 문서 79개 |
+| 게시 대상 | Git이 추적하는 `docs/*.md`, `docs/**/*.md` Markdown 97개. 일반 문서 16개와 ADR 문서 81개 |
 | 제외 대상 | `docs/`의 HWP/HWPX, PDF, PNG, YAML 등 비 Markdown 파일과 Git 비추적 파일 |
 | 매핑 | `governance/notion-page-map.json`의 source path-page ID를 사용하고 누락·중복·계층 불일치는 fail-closed |
 | 프로젝트 규칙 | `프로젝트 규칙`을 번호 없이 `개발 문서` 최상단에 게시하고, 다음 문서군과 구분선으로 분리 |
-| 일반 문서 | README 문서 참조 순서에 따라 프로젝트 규칙을 제외한 14개 문서를 `01`~`14` 번호 제목으로 게시 |
-| ADR 문서 | 마지막 `15. ADR` 페이지 아래에 `docs/adr/` 문서 79개 게시 |
+| 일반 문서 | README 문서 참조 순서에 따라 프로젝트 규칙을 제외한 기준 문서 14개를 `01`~`14` 번호 제목으로 게시하고, 프론트엔드 구현 감사 문서는 `참고` 보조 문서로 게시 |
+| ADR 문서 | 마지막 `15. ADR` 페이지 아래에 `docs/adr/` 문서 81개 게시 |
 | 본문 | Git Markdown 본문만 게시하며 배포 안내, 원본 경로, commit, 동기화 시각과 별도 문서 목록을 Notion 본문에 추가하지 않음 |
 | 내부 링크 | 상대 Markdown 링크를 같은 commit의 GitHub 원문 절대 링크로 변환 |
 | 변경 선택 | `main`의 마지막 성공 동기화 commit(없으면 page map baseline) 또는 수동 기준 commit부터 현재 commit까지 변경된 Markdown을 갱신하여 이전 실패분도 다음 실행에 포함 |
@@ -341,6 +343,8 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 | 변경 요청 | Notion 댓글로 의견을 수집하되 공식 변경은 Git branch/PR에서 수행 |
 
 GitHub Actions의 `NOTION_API_TOKEN` secret과 `NOTION_PARENT_PAGE_ID`, `NOTION_WORKSPACE_ID` variable을 사용하며 token 값은 로그나 산출물에 기록하지 않는다. Notion은 공유본이므로 직접 본문 편집은 다음 동기화에서 Git 원본으로 대체될 수 있다. 신규·삭제·이름 변경은 page map과 공유 URL 영향이 있으므로 자동 추론하지 않고 별도 검토한다. 현재 private repository 플랜에서는 branch protection을 사용할 수 없어 Notion workflow는 merge 전 차단 Gate가 아니라 `main` 반영 후 운영 동기화 및 실패 알림 계층으로 사용한다.
+
+신규 Markdown을 Notion에 최초 반영할 때는 게시 manifest와 예상 개수를 갱신하고 page map에 `page_id: null`로 검토된 항목을 추가한다. 해당 branch에서 `workflow_dispatch`를 `SYNC_DEV_DOCS`, 기준 commit, `allow_create=true`로 실행한 후 artifact의 생성 page ID를 page map에 기록한다. page ID가 Git에 확정된 다음부터는 일반 `main` push가 기존 페이지를 자동 갱신한다.
 
 ---
 
@@ -366,7 +370,7 @@ RAG 검색 adapter는 [ADR-0061: RAG 검색 인프라 장애 처리 및 Fallback
 
 Parser/OCR adapter는 [ADR-0065: NormalizedDocument 공통 출력 스키마 및 Parser/OCR Adapter 계약 정책](adr/ADR-0065-normalized-document-schema-and-adapter-contract.md)을 따른다. ReviewPipeline, RAG, Annotation, 리포트 로직은 parser별 raw output이 아니라 `NormalizedDocument` v1 필드에만 의존해야 한다.
 
-Parser/OCR 기본 엔진 라우팅은 [ADR-0072: Parser/OCR 기본 엔진 선택 및 파일 유형별 라우팅 정책](adr/ADR-0072-parser-ocr-engine-routing-policy.md)을 따른다. PDF와 복합 PDF/표/다단 문서는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지와 스캔 PDF는 `PaddleOCR`을 1차 엔진으로 사용한다. 모든 엔진은 Adapter 뒤에 두며 업무 로직에서 엔진 SDK나 raw output을 직접 호출하지 않는다.
+Parser/OCR 기본 엔진 라우팅은 [ADR-0079: HWP/HWPX 이중 원천 Hybrid Parser 구성 정책](adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md)을 따른다. PDF와 복합 PDF/표/다단 문서는 `opendataloader-pdf`, 이미지와 스캔 PDF는 `PaddleOCR`을 사용한다. HWP/HWPX는 `rhwp` 기준 텍스트와 `document-processor` 구조를 `HwpHybridParserAdapter`에서 정렬·병합한다. 모든 엔진은 Adapter 뒤에 두며 업무 로직에서 엔진 SDK나 raw output을 직접 호출하지 않는다.
 
 Parser/OCR 품질 미달 시 재처리와 보조 엔진 사용은 [ADR-0073: Parser/OCR 품질 미달 시 재처리 및 보조 엔진 사용 정책](adr/ADR-0073-parser-ocr-quality-rerun-policy.md)을 따른다. 기술 실패는 ADR-0059 기준 retry하고, confidence/구조 인식 품질 미달은 조건 기반 보조 엔진 재처리 후보로 처리한다. 최종 채택된 `NormalizedDocument` v1만 ReviewPipeline 입력으로 사용한다.
 
@@ -513,7 +517,7 @@ M4 Redis delivery queue/dead-letter 이름은 `REDIS_QUEUE_PREFIX` 아래에서 
 
 Compose backend와 worker는 반드시 동일한 `REDIS_URL` 및 review queue 이름을 설정한다. backend가 host 기본값으로 fallback하면 요청은 영속화되어도 worker로 전달되지 않으므로, Compose bootstrap 회귀는 backend Redis URL/queue 주입을 정적으로 검증하고 실제 provider E2E는 완료 상태까지 확인한다.
 
-ADR-0072의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`는 private Compose service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. PDF/복합 PDF, 이미지·스캔 PDF, HWP/HWPX는 각각 해당 service로 라우팅한다. 이 engine service는 운영 Compose 네트워크 내부에만 두고, local dev의 loopback port는 디버깅 목적 외 사용하지 않는다. 엔진 container build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
+ADR-0079의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`/`document-processor`는 private Compose service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. PDF/복합 PDF와 이미지·스캔 PDF는 해당 service로 라우팅하며, HWP/HWPX는 rhwp 텍스트와 document-processor 구조를 병합한 `hwp-hybrid` 산출물을 사용한다. 이 engine service는 운영 Compose 네트워크 내부에만 두고, local dev의 loopback port는 디버깅 목적 외 사용하지 않는다. 엔진 container build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
 
 Compose 파일 변경 시 다음 조합의 설정 검증을 수행한다.
 

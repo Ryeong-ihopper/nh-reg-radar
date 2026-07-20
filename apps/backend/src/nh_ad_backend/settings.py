@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     review_queue_name: str = "review-jobs-v1"
     parser_artifacts_bucket: str = "parser-artifacts"
+    rhwp_endpoint: str = "http://rhwp:8093"
+    opendataloader_pdf_endpoint: str = "http://opendataloader-pdf:8091"
+    reference_parser_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+    hwp_preview_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     nh_external_ai_enabled: bool = False
     openai_api_key: SecretStr | None = None
     openai_base_url: str = "https://api.openai.com/v1"

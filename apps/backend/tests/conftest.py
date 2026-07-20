@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from nh_ad_backend.api import ApplicationServices
+from nh_ad_backend.hwp_preview import HwpPreview
 from nh_ad_backend.domain import User
 from nh_ad_backend.main import create_app
 from nh_ad_backend.repository import InMemoryRepository
@@ -20,6 +21,19 @@ from nh_ad_backend.storage import PrivateFileStorage
 
 PASSWORD = "SecurePassword!42"
 JWT_SECRET = "test-jwt-secret-with-more-than-thirty-two-characters"
+
+
+class PreviewRenderer:
+    def render(
+        self, *, file_id: str, file_name: str, mime_type: str, body: bytes, page_no: int
+    ) -> HwpPreview:
+        del file_id, file_name, mime_type, body
+        if page_no > 2:
+            raise RuntimeError("page out of range")
+        return HwpPreview(
+            body=b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><text>preview</text></svg>',
+            total_pages=2,
+        )
 
 
 class Clock:
@@ -102,6 +116,7 @@ def services(repository: InMemoryRepository, clock: Clock, tmp_path: Path) -> Ap
             now=clock,
             identifier=lambda prefix: f"{prefix}-{next(counter):04d}",
         ),
+        hwp_preview=PreviewRenderer(),
         standards=StandardService(
             InMemoryStandardRepository(),
             HybridSearch(

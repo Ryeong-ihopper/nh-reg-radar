@@ -11,7 +11,7 @@ from nh_ad_backend.openai_reference_extractor import (
 )
 
 
-PDF = b"%PDF-1.7\nsynthetic\n%%EOF"
+REFERENCE_TEXT = "광고에는 적용 금리 조건을 명확히 표시해야 한다."
 
 
 def response_body(payload: dict[str, object]) -> bytes:
@@ -50,7 +50,7 @@ def extracted_payload() -> dict[str, object]:
     }
 
 
-def test_sends_pdf_to_responses_with_non_stored_strict_output() -> None:
+def test_sends_parser_normalized_text_to_responses_with_non_stored_strict_output() -> None:
     captured: dict[str, object] = {}
 
     def transport(request: Request, timeout: float) -> bytes:
@@ -67,7 +67,7 @@ def test_sends_pdf_to_responses_with_non_stored_strict_output() -> None:
         timeout=42,
         transport=transport,
     )
-    result = extractor.extract(file_name="regulation.pdf", pdf_bytes=PDF)
+    result = extractor.extract(file_name="regulation.pdf", content=REFERENCE_TEXT)
 
     body = captured["body"]
     assert isinstance(body, dict)
@@ -78,7 +78,8 @@ def test_sends_pdf_to_responses_with_non_stored_strict_output() -> None:
     assert body["model"] == "gpt-test"
     assert "secret-test-key" not in json.dumps(body)
     content = body["input"][0]["content"]  # type: ignore[index]
-    assert content[0]["file_data"].startswith("data:application/pdf;base64,")
+    assert content[0]["type"] == "input_text"
+    assert REFERENCE_TEXT in content[0]["text"]
     output_format = body["text"]["format"]  # type: ignore[index]
     assert output_format["type"] == "json_schema"
     assert output_format["strict"] is True
@@ -121,7 +122,7 @@ def test_rejects_invalid_or_refused_structured_output() -> None:
         transport=lambda _request, _timeout: response_body({"title": "incomplete"}),
     )
     with pytest.raises(OpenAIReferenceExtractorError, match="structured output"):
-        invalid.extract(file_name="regulation.pdf", pdf_bytes=PDF)
+        invalid.extract(file_name="regulation.pdf", content=REFERENCE_TEXT)
 
     refused = OpenAIReferenceExtractor(
         api_key="secret",
@@ -139,4 +140,4 @@ def test_rejects_invalid_or_refused_structured_output() -> None:
         ).encode(),
     )
     with pytest.raises(OpenAIReferenceExtractorError, match="refused"):
-        refused.extract(file_name="regulation.pdf", pdf_bytes=PDF)
+        refused.extract(file_name="regulation.pdf", content=REFERENCE_TEXT)

@@ -6,12 +6,40 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.39 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.66 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.66 | 2026-07-20 | ADR-0079 hybrid parser·Notion 신규 페이지 회귀 기준을 추가하고 Python Ruff canonical formatting의 기존 관련 47개 회귀 성공을 확인 |
+| v1.65 | 2026-07-20 | OCR 판독 불가와 일반 검토 확인 필요 상태가 자동 재시도 범위와 원인을 혼동하지 않도록 진행 화면 회귀 기준을 추가 |
+| v1.64 | 2026-07-20 | HWP 검토 입력이 glyph SVG가 아닌 rhwp semantic text export를 사용해 원래 공백·줄 구조를 보존하는 회귀 기준으로 정정 |
+| v1.63 | 2026-07-20 | rhwp 글자 단위 SVG HWP를 시각적 행·단어 경계로 재조합해 글자별 줄바꿈이 ReviewPipeline 입력으로 전파되지 않는 회귀 기준을 추가 |
+| v1.62 | 2026-07-20 | 승인 규정·가이드라인의 PDF/HWP/HWPX 초기 적재, parser provenance 보존, Qdrant·OpenSearch 동시 색인 회귀 기준을 추가 |
+| v1.61 | 2026-07-20 | 대출 상품군의 공통 코드 조회와 광고물 등록 허용 회귀 기준을 추가 |
+| v1.60 | 2026-07-20 | 로그인 공개 화면의 헤더 제외 뷰포트 중앙 배치와 불필요한 세로 스크롤 비발생 회귀 기준을 추가 |
+| v1.59 | 2026-07-20 | S-003 등록 액션을 폼 최하단 일반 행으로 배치하고 sticky 장식 컨테이너를 제거하는 회귀 기준을 추가 |
+| --- | --- | --- |
+| v1.58 | 2026-07-20 | Rule 기반 추천 생성·근거 연결, LLM 보강 실패 폴백 및 `includeSuggestion` 제외 회귀 기준을 추가 |
+| v1.57 | 2026-07-20 | OpenSearch·Qdrant 원점수 차이에도 RRF 순위 융합과 vector 근거 source coverage를 보장하는 RAG 회귀 기준을 추가 |
+| v1.56 | 2026-07-20 | S-005 완료 상태 후 지연된 진행 중 응답에도 결과 이동과 진행률을 유지하고 정적 액션의 위치가 바뀌지 않는 회귀 기준을 추가 |
+| v1.55 | 2026-07-20 | S-007 Annotation의 업무 파일 분류 `ADVERTISEMENT`가 PNG 미리보기를 차단하지 않는 회귀 기준을 추가 |
+| v1.54 | 2026-07-20 | 장식용 좌측 색상 막대 전면 제거, S-005 단계 카드, 원본 내부 스크롤, S-008 문구 우선 칩·표 상세 및 좌표 기반 미리보기 이동 회귀 기준을 추가 |
+| v1.53 | 2026-07-20 | S-006 광고 기본정보 표, 간결한 원본 병행 패널 및 최종 판단 안내의 좌측 색상 막대 비노출 회귀 기준을 추가 |
+| v1.52 | 2026-07-20 | ADR-0078 PoC 2계정 seed와 test 계정의 기준자료 관리 권한 회귀 기준을 추가 |
+| v1.51 | 2026-07-20 | 역할 기반 접근 제한 안내의 색상 좌측 막대 비노출 회귀 기준을 추가 |
+| v1.50 | 2026-07-20 | S-014 개별 검색 데이터 갱신의 사용 시점·전체 갱신 경계와 기준명 말줄임·hover 전체 제목 회귀 기준을 추가 |
+| v1.49 | 2026-07-20 | S-014 청크 확인 명칭과 검색 데이터 갱신·검토 적용 중지의 독립된 운영 상태 표시 회귀 기준을 추가 |
+| v1.48 | 2026-07-20 | 치명적 렌더링 오류 화면의 색상 막대 비노출·뷰포트 높이 중앙 안내 회귀 기준을 추가 |
+| v1.47 | 2026-07-20 | 접근 거부 상태의 장식용 컬러바 비노출, 데스크톱 좌측 탐색 고정 및 검증 제외 체크박스의 표준 크기·목적 안내 회귀 기준을 추가 |
+| v1.46 | 2026-07-20 | 사용자용 명칭·중립 탐색·기술 식별자 비노출 회귀 기준을 추가하고 검토 품질 관리 화면의 원시 enum/해시 비노출 기준을 반영 |
+| v1.45 | 2026-07-18 | S-014 규정·가이드라인 등록 흐름, 사용자용 enum 라벨, 적용 시작일 기본값 및 검색 반영 상태 UI 회귀 기준을 추가 |
+| v1.44 | 2026-07-18 | 핵심 광고 심의 화면의 공통 업무 단계·사용자용 상태명, 광고물 상세 검토 이력 복귀, 결과 하위 탐색 회귀 기준을 추가 |
+| v1.43 | 2026-07-18 | 로그인 카드에서는 로고를 노출하지 않고 인증 후 공통 헤더에서만 제공하는 회귀 기준으로 정정 |
+| v1.42 | 2026-07-18 | Worker 단계별 영속 진행률·화면 이탈 후 처리 지속 및 S-004~S-008 원본 자동 미리보기 회귀 기준을 추가 |
+| v1.41 | 2026-07-17 | 로그인·공통 헤더의 NH농협은행 로고 정적 자산과 접근 가능한 대체 텍스트 회귀 기준을 추가 |
+| v1.40 | 2026-07-17 | HWP/HWPX private SVG 미리보기, terminal 오류, 다중 페이지 이동 및 확대 상세 작업 영역 회귀 기준을 추가 |
 | v1.39 | 2026-07-16 | terminal Job의 전체 단계 완료, 검토 기준일 로컬 오늘 기본값 및 HWP/HWPX Annotation 화면의 무한 loading 방지 회귀 기준을 추가 |
 | --- | --- | --- |
 | v1.38 | 2026-07-16 | 로그인 UI에서 내부 마일스톤 문구를 노출하지 않는 회귀 기준을 추가 |
@@ -210,6 +238,9 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ADV-008 | 파일 크기 초과 | 50MB 초과 파일 준비 | 광고물 등록 API 호출 | `FILE_SIZE_EXCEEDED` 반환 | - | P0 |
 | TC-ADV-009 | HWP/HWPX 광고물 등록 | hwp 또는 hwpx 광고 파일 준비 | 광고물 등록 API 호출 | 광고물 ID 생성, 분석 가능 여부 저장 | `advertisement_files` | P0 |
 | TC-ADV-010 | 상품설명서/약관 포함 등록 | 광고 파일, 상품설명서, 약관 준비 | 광고물 등록 API 호출 | 파일 3건 저장, 파일 유형 구분 | `advertisement_files` | P1 |
+| TC-ADV-014 | 대출 상품군 등록 | 대출 광고 파일 준비 | `productGroup=LOAN`으로 광고물 등록 | 대출 코드가 공통 코드에 노출되고 광고물에 저장된다. 대출 전용 기준자료가 없으면 후속 검토는 근거 부족 확인 필요로 처리한다. | `common_codes`, `advertisements` | P1 |
+
+| TC-STD-015 | 규정·가이드라인 초기 적재 | 승인된 PDF/HWP/HWPX 규정·가이드라인과 parser service 준비 | `scripts/ingest-reference-regulations.sh` 실행 | 모든 지원 문서가 source hash 기준으로 중복 없이 standard version으로 등록되고 Qdrant·OpenSearch에 색인된다. metadata에 parser 이름·버전·구조 통계가 저장된다. | `standards`, `standard_versions`, `evidence_chunks`, Qdrant, OpenSearch | P0 |
 
 ## 4.2 광고물 조회/수정
 
@@ -244,7 +275,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-013 | 재시도 한도 초과 최종 실패 | retryCount가 maxRetries에 도달 | 추가 실패 발생 | jobStatus `FAILED_FINAL`, dead_lettered_at, failedReasonCode 저장 | `review_jobs`, `audit_logs` | P0 |
 | TC-REV-014 | 상태 조회 retry 필드 반환 | `RETRY_PENDING` job 존재 | 상태 조회 API 호출 | retryCount, maxRetries, nextRetryAt, isRetryable, failedReasonCode 반환 | `review_jobs`, `review_steps` | P0 |
 | TC-REV-015 | 기준 적용일 기본값 | S-004 진입 | 검토 요청 폼 표시 | date 입력값이 사용자의 로컬 오늘 날짜이며 수정 가능 | frontend | P1 |
-| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | preview API를 호출하지 않고 loading을 끝내며 Text IR·원본 다운로드 안내 표시 | frontend | P0 |
+| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, Text IR·원본 다운로드와 함께 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
+| TC-REV-017 | 판독 불가와 확인 필요 안내 구분 | `OCR_UNREADABLE` 및 근거/상품조건 사유의 `CHECK_REQUIRED` fixture 준비 | S-005 상태 조회 | 판독 불가는 기술 일시 오류만 자동 재시도한다는 안내와 원본 품질 개선 후 재분석 안내를, 일반 확인 필요는 원인 범주 확인 안내를 각각 표시한다 | frontend | P1 |
 
 ---
 
@@ -267,8 +299,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-OCR-013 | Coordinate 정규화 값 검증 | sourceWidth/sourceHeight와 원본 좌표 fixture 준비 | adapter contract test 실행 | normalizedX/Y/Width/Height가 ADR-0015 계산식과 일치 | `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-014 | raw artifact metadata 저장 | Parser/OCR raw output fixture 준비 | adapter 실행 후 저장 결과 확인 | Object Storage `parser-artifacts`에 저장되고 DB에는 `raw_artifact_id`, bucket, object_key, checksum, parser/version, retention metadata만 저장 | `parser_artifacts` | P0 |
 | TC-OCR-015 | raw artifact 일반 사용자 접근 차단 | 일반 사용자 계정과 raw artifact 참조 준비 | raw artifact 조회 또는 다운로드 시도 | 일반 사용자에게 원문 JSON, presigned URL, object key 전체값이 노출되지 않음 | `parser_artifacts`, `audit_logs` | P0 |
-| TC-OCR-016 | ParserRouter 파일 유형별 엔진 선택 | pdf, 복합 pdf, 스캔 pdf, hwp, hwpx, png fixture 준비 | ParserRouter 실행 | PDF/복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `rhwp`, 이미지/스캔 PDF는 `PaddleOCR` Adapter 선택 | `review_steps`, parser adapter logs | P0 |
-| TC-OCR-017 | HWP/HWPX rhwp Text IR contract | HWP/HWPX fixture 준비 | `HwpHwpxParserAdapter` contract test 실행 | `rhwp` 산출물이 `NormalizedDocument` v1 `textBlocks`, `textPath`, raw/normalized offset으로 변환됨 | `ocr_text_blocks` | P0 |
+| TC-OCR-016 | ParserRouter 파일 유형별 엔진 선택 | pdf, 복합 pdf, 스캔 pdf, hwp, hwpx, png fixture 준비 | ParserRouter 실행 | PDF/복합 PDF는 `opendataloader-pdf`, HWP/HWPX는 `HwpHybridParserAdapter`, 이미지/스캔 PDF는 `PaddleOCR` Adapter 선택 | `review_steps`, parser adapter logs | P0 |
+| TC-OCR-017 | HWP/HWPX hybrid Text IR contract | 문단·표를 포함한 HWP/HWPX fixture 준비 | `HwpHybridParserAdapter` contract test 실행 | `parserName=hwp-hybrid`인 `NormalizedDocument` v1에 rhwp 기준 텍스트의 문단·표 셀 `textBlocks`, `textPath`, raw/normalized offset과 document-processor 기반 `layoutBlocks`·`tables`가 생성됨 | `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-018 | 복합 PDF opendataloader 우선 처리 | 표/다단 PDF fixture 준비 | `PdfParserAdapter` 실행 | `opendataloader-pdf`를 1차 엔진으로 사용하고 `layoutBlocks`, `tables`, coordinates를 반환 | `layout_blocks`, `ocr_text_blocks` | P1 |
 | TC-OCR-019 | 엔진 교체 시 업무 로직 비의존 | 동일 문서의 대체 엔진 NormalizedDocument fixture 준비 | ReviewPipeline 실행 | 엔진 raw output 변경 없이 `NormalizedDocument` fixture만으로 후속 검토가 동작 | `review_steps`, `review_items` | P1 |
 | TC-OCR-020 | Parser/OCR 기술 실패 retry | 품질 재처리 후보 PDF의 1차 Parser timeout fixture와 구성된 보조 adapter 준비 | AI 검토 실행 | 보조 adapter를 실행하지 않고 ADR-0059 기준 1/3/10 retry·dead-letter 경계로 전파되며 품질 재처리로 오분류되지 않음 | `review_steps`, `review_jobs` | P0 |
@@ -276,13 +308,18 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-OCR-022 | 최종 채택 산출물만 후속 전달 | confidence·필수 필드·Text IR/Coordinate·warning·판정 문구 판독성이 다른 1차/보조 NormalizedDocument fixture 준비 | ReviewPipeline 실행 | ADR-0073 순서와 앞선 시도 우선 tie-break로 후보를 결정하고 정확히 하나의 `isSelectedOutput=true` 산출물만 `ocr_text_blocks`, `layout_blocks`, 후속 검토에 반영 | `parser_artifacts`, `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-023 | OCR 판독 불가 자동 retry 제외 | 판정 대상 문구 confidence `< 0.50` fixture 준비 | AI 검토 실행 | 자동 retry 없이 `OCR_UNREADABLE` 확인 필요/평가 제외 후보 기록 | `review_items`, `evaluations` | P1 |
 | TC-OCR-024 | VLM OCR 보조 재처리 제한 | 외부 AI 입력 불가 파일과 이미지 OCR 누락 fixture 준비 | 보조 재처리 판단 | VLM OCR을 실행하지 않고 확인 필요로 처리 | `review_steps`, `audit_logs` | P1 |
+| TC-OCR-025 | rhwp HWP semantic text export | 글자 단위 SVG와 공백·문단을 포함한 HWP fixture 준비 | `rhwp` parse 실행 | `export-text` 산출물의 원래 공백·문단 구조가 `rawText`에 보존되고 glyph SVG를 직접 결합한 문자열은 검토 입력으로 사용하지 않는다 | `ocr_text_blocks` | P0 |
+| TC-OCR-026 | HWP hybrid 기준 텍스트 완전성 | rhwp와 document-processor 텍스트의 공백·일부 문자열이 다른 HWP fixture 준비 | hybrid parse 실행 | rhwp 기준 비공백 텍스트가 누락·덮어쓰기 없이 구조 블록 또는 미정렬 TextBlock에 모두 남고 document-processor 텍스트가 기준 원문을 대체하지 않음 | `ocr_text_blocks`, parser artifacts | P0 |
+| TC-OCR-027 | HWP 구조 정렬과 표 셀 복원 | 제목·본문·병합 셀·표가 포함된 HWP/HWPX fixture 준비 | hybrid parse 실행 | document-processor node가 rhwp 기준 offset에 정렬되고 문단·표 셀별 TextBlock, 관련 LayoutBlock과 Table이 결정적으로 생성됨 | `ocr_text_blocks`, `layout_blocks` | P0 |
+| TC-OCR-028 | HWP 구조 보강 실패 처리 | rhwp 성공, document-processor timeout/저품질 fixture 준비 | hybrid parse 실행 | 구성요소 기술 retry 후에도 실패하면 rhwp 텍스트를 보존하고 구조 warning·저신뢰 상태·확인 필요를 남기며 정상 구조 완료로 가장하지 않음 | `review_steps`, parser artifacts | P0 |
+| TC-OCR-029 | HWP 병합 산출물 단일 전달과 provenance | 두 구성요소 정상 fixture 준비 | hybrid parse 후 ReviewPipeline 실행 | rhwp/document-processor/aligner raw artifact·버전·confidence를 추적하고 `hwp-hybrid` 병합 NormalizedDocument 하나만 선택·영속화·후속 전달 | parser artifacts, `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-LIVE-001 | 승인 샘플 규정 PDF 적재 | dev Compose, `NH_EXTERNAL_AI_ENABLED=true`, 유효한 `OPENAI_API_KEY`, ADR-0002 승인 문서 | `scripts/ingest-reference-regulations.sh` 실행 | 각 PDF가 표준/version/evidence/chunk로 생성 또는 재사용되고 Qdrant/OpenSearch 재색인이 완료된다. key/원문은 출력되지 않는다. | standards/evidence/search index | P0/manual |
 | TC-LIVE-002 | 승인 샘플 PDF/PNG 광고 실제 검토 | TC-LIVE-001 완료, product 계정으로 광고 업로드·검토 요청 | supplied sample PDF 또는 PNG를 업로드하고 완료 상태까지 조회 | 선택 산출물, 결과 item, 구조화 LLM score와 OpenSearch 근거 상태가 저장·조회된다. Rule 판정은 provider 출력으로 덮어쓰지 않는다. | review/jobs/results | P0/manual |
 | TC-LIVE-003 | live provider fail-closed | `NH_EXTERNAL_AI_ENABLED=true` 이고 key 없음, 또는 HWP/HWPX 업로드 | worker 검토 실행 | `OPENAI_API_KEY_NOT_CONFIGURED` 또는 비지원 adapter 오류로 최종 실패하고 성공 결과·DB fallback 검색이 생성되지 않는다. | review/jobs/audit | P0 |
-| TC-LIVE-004 | 실제 hybrid 근거 조회 | TC-LIVE-001 완료, `OPENAI_EMBEDDING_MODEL`과 1536 차원 Qdrant collection 설정 | 샘플 광고를 검토 요청 | 규정 chunk가 실제 vector로 Qdrant에 저장되고, OpenSearch 및 Qdrant가 모두 결과를 반환한 경우에만 `HYBRID` 근거가 결과 item에 연결된다. | Qdrant/OpenSearch/review items | P0/manual |
+| TC-LIVE-004 | 실제 hybrid 근거 조회 | TC-LIVE-001 완료, `OPENAI_EMBEDDING_MODEL`과 1536 차원 Qdrant collection 설정 | 샘플 광고를 검토 요청 | 규정 chunk가 실제 vector로 Qdrant에 저장되고, OpenSearch·Qdrant 결과는 RRF(`k=60`)로 융합된다. 중복 chunk는 `HYBRID`, 서로 다른 후보가 있으면 `KEYWORD`와 `VECTOR` 근거가 모두 상위 결과에 포함된다. | Qdrant/OpenSearch/review items | P0/manual |
 | TC-LIVE-005 | embedding endpoint/model 교체 | 새 OpenAI-compatible endpoint/model/dimension 및 새 Qdrant collection 설정 | 기존 collection을 재사용하지 않고 기준자료 재적재/재색인 | 새 vector dimension과 model metadata로만 검색하며, dimension 불일치/endpoint 오류는 `SEARCH_UNAVAILABLE` 또는 적재 실패로 종료된다. | Qdrant/reindex jobs | P1/manual |
 | TC-LIVE-006 | 승인 PDF paid provider 종단간 검토 | TC-LIVE-001 완료, 동일 Redis URL/queue를 사용하는 backend·worker Compose, 유효한 opt-in key | 승인 PDF를 업로드하고 검토 요청 후 job 종료까지 조회 | `OCR_EXTRACTION`→근거 검색→결과 저장이 완료되고 review는 `CHECK_REQUIRED` 또는 정책상 최종 상태, job은 `COMPLETED`가 된다. OCR ID는 review별로 유일하고 근거 score는 0~1, source는 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA` 중 하나다. key/raw provider 응답은 노출되지 않는다. | review/jobs/ocr/results | P0/manual |
-| TC-LIVE-007 | ADR-0072 실제 엔진 E2E | `opendataloader-pdf`, `PaddleOCR`, `rhwp` private Compose service 및 유효한 opt-in key | 일반 PDF, 스캔 PDF/PNG, HWP/HWPX 승인 샘플을 각각 업로드·검토 요청하고 완료 상태까지 조회 | 각 job의 선택 parser가 `opendataloader-pdf`, `paddleocr`, `rhwp`이며 service health·`NormalizedDocument` contract·최종 결과 저장이 확인된다. OpenAI는 구조화 판단에만 사용한다. | parser services/review/jobs/results | P0/manual |
+| TC-LIVE-007 | ADR-0079 실제 엔진 E2E | `opendataloader-pdf`, `PaddleOCR`, `rhwp`, `document-processor` private Compose service 및 유효한 opt-in key | 일반 PDF, 스캔 PDF/PNG, 문단·표가 있는 HWP/HWPX 승인 샘플을 각각 업로드·검토 요청하고 완료 상태까지 조회 | PDF/이미지는 지정 parser를 사용하고 HWP/HWPX 선택 parser는 `hwp-hybrid`이며 기준 텍스트 보존·문단/표 구조·service health·단일 NormalizedDocument·최종 결과 저장이 확인된다. OpenAI는 구조화 판단에만 사용한다. | parser services/review/jobs/results | P0/manual |
 | TC-LAY-001 | 제목/본문/유의사항 영역 분리 | 레이아웃 있는 광고 등록 | AI 검토 실행 | `layout_blocks`에 TITLE, BODY, NOTICE 저장 | `layout_blocks` | P1 |
 | TC-LAY-002 | 버튼/배너 영역 인식 | 모바일 배너 등록 | AI 검토 실행 | BUTTON, BANNER 영역 저장 | `layout_blocks` | P2 |
 | TC-LAY-003 | 레이아웃 신뢰도 저장 | 레이아웃 분석 실행 | 결과 확인 | confidence_score 저장 | `layout_blocks` | P2 |
@@ -371,7 +408,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ANN-009 | 문서 단위 이슈 표시 | 위치 없는 문서 전체 이슈 존재 | Annotation 조회 | `DOCUMENT_LEVEL_ISSUE` 상태로 목록/상세 표시 | `review_items`, `annotations` | P1 |
 | TC-ANN-010 | Annotation 위치 신뢰도 임계값 적용 | location confidence 0.80, 0.79, 0.49 fixture 준비 | Annotation 조회 | LOCATED, LOW_CONFIDENCE/PARTIALLY_LOCATED, NOT_LOCATED 상태 분리 | `annotations` | P1 |
 | TC-ANN-011 | Annotation Coordinate object 응답 | BOX Annotation 존재 | `/reviews/{id}/annotations` 호출 | `coordinate` object에 source/원본/정규화 좌표, rotation, coordinateConfidence 반환 | `/reviews/{id}/annotations` | P0 |
-| TC-FILE-001 | 파일 미리보기 조회 | PNG/JPEG/PDF/HWP fileId 존재 | 상세의 미리보기 선택 | 권한 검증된 backend proxy가 이미지 또는 `application/pdf` 원본 bytes를 반환하고, PDF는 browser object로 표시한다. HWP/HWPX는 미리보기 요청을 보내지 않고 다운로드·Text IR 안내를 표시한다. | `advertisement_files` | P0 |
+| TC-FILE-001 | 파일 미리보기 조회 | PNG/JPEG/PDF/HWP/HWPX fileId 존재 | 상세의 미리보기 선택 | 권한 검증된 backend proxy가 이미지·`application/pdf` 원본 bytes 또는 HWP/HWPX의 sanitize된 `image/svg+xml` 변환본을 반환한다. PDF는 browser object, HWP/HWPX는 이미지형 SVG와 페이지 이동으로 표시한다. | `advertisement_files` | P0 |
 | TC-FILE-002 | 존재하지 않는 파일 미리보기 | 잘못된 fileId | preview API 호출 | 404 NOT_FOUND 반환 | - | P1 |
 
 ---
@@ -385,6 +422,10 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-SUG-003 | 추천 문구 채택 저장 | suggestionId 존재 | decisionStatus=ACCEPTED 저장 | 채택 상태 저장 | `suggestion_decisions` | P0 |
 | TC-SUG-004 | 추천 문구 미채택 저장 | suggestionId 존재 | decisionStatus=REJECTED 저장 | 미채택 상태 저장 | `suggestion_decisions` | P1 |
 | TC-SUG-005 | 수정 후 사용 저장 | 담당자 수정 문구 입력 | decisionStatus=MODIFIED_AND_USED 저장 | finalText 저장 | `suggestion_decisions` | P0 |
+| TC-SUG-009 | 준비된 추천 문구 없음 | 해당 reviewId의 suggestions 0건 | S-009 진입 | 빈 화면 대신 추천 문구가 없다는 안내와 항목별 검토 결과 이동을 표시 | 프론트엔드 컴포넌트 회귀 | P1 |
+| TC-SUG-010 | Rule 기반 추천 생성·근거 연결 | `includeSuggestion=true`, 위험 표현과 연결 근거 존재 | 검토 worker 완료 후 추천 목록 조회 | 위험 유형별 안전한 기본 추천 1건 이상, review item·근거 ID가 함께 저장되고 재시도해도 중복 생성하지 않음 | `suggestions`, `review_item_evidences` | P0 |
+| TC-SUG-011 | LLM 추천 보강 실패 폴백 | Rule 기반 추천 생성 가능, LLM 호출 실패 또는 미설정 | 검토 worker 완료 후 추천 목록 조회 | worker가 실패하지 않고 Rule 기반 추천을 반환 | `suggestions` | P0 |
+| TC-SUG-012 | 추천 산출물 제외 | `includeSuggestion=false` | 검토 worker 완료 후 추천 목록 조회 | 추천을 생성하지 않음 | `suggestions` | P1 |
 | TC-SUG-006 | 존재하지 않는 suggestionId 저장 | 잘못된 ID 사용 | 판단 저장 API 호출 | 404 NOT_FOUND 반환 | - | P1 |
 | TC-SUG-007 | 권한 없는 사용자 저장 | 조회 권한만 있는 사용자 | 판단 저장 API 호출 | 403 FORBIDDEN 반환 | - | P1 |
 | TC-SUG-008 | 수정 후 사용 finalText 누락 | suggestionId 존재 | decisionStatus=MODIFIED_AND_USED, finalText 없이 호출 | 400 BAD_REQUEST 반환 | - | P1 |
@@ -496,6 +537,7 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-STD-009/015 | `STANDARD_MANAGER`, `SYSTEM_ADMIN` 외 role은 route에서 API 호출 전에 차단되고 Chunk action이 노출되지 않음을 검증 |
 | TC-STD-011/012/014/017 | 재색인 요청의 고정 version/양쪽 target과 Job 상태, redacted Chunk 내용·양쪽 index 상태, 내부 point/doc 식별자 미노출 검증 |
 | TC-EVD-001/004/012/013/014 | deterministic rank/score/matchSource 표시, 503 일반화 문구와 traceId, server message 및 내부 검색 식별자 미노출, fallback 금지 검증 |
+| TC-STD-001/011/012 | 규정·가이드라인 등록 화면이 적용 범위→문서 정보→검토 기준 내용 순서를 안내하고, API enum 대신 한국어 기준 유형·성격을 표시하며, 적용 시작일은 로컬 오늘을 기본값으로 제공하는지 검증 |
 
 ---
 
@@ -508,6 +550,20 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-VAL-003 | 담당자 판단 결과 등록 | datasetId 존재 | judgments 등록 API 호출 | judgment 저장 | `validation_judgments` | P0 |
 | TC-VAL-004 | 평가 제외 처리 | datasetId 존재 | excluded=true, excludeReasonCode 저장 | is_excluded=true, exclude_reason_code 저장 | `validation_datasets` | P1 |
 | TC-VAL-005 | 정답지 수정 version 증가 | datasetId와 judgmentId 존재 | labelJson 또는 judgment 수정 | datasetVersion 또는 judgmentVersion 증가 | `validation_datasets`, `validation_judgments` | P1 |
+| TC-UI-021 | 사용자용 업무 명칭과 기술 식별자 비노출 | 광고물·기준자료·검토 품질·리포트 화면 진입 | 화면 텍스트 확인 | S-015/S-016·PoC·광고물/기준자료/리포트 ID·해시·원시 제외 사유 코드 대신 업무 명칭과 한국어 상태명 표시, URL/API 동작은 유지 | 프론트엔드 회귀 | P1 |
+| TC-UI-022 | 중립 오류·고정 탐색·검증 제외 안내 | 권한 없음 화면 및 검증 데이터 등록 화면 | 화면·스타일 확인 | 접근 거부 메시지에 장식용 좌측 컬러바가 없고, 데스크톱 좌측 탐색은 뷰포트에 고정되며, 제외 체크박스는 1rem 크기와 목적·보조 안내를 표시 | 프론트엔드 회귀/수동 화면 확인 | P1 |
+| TC-UI-023 | 치명적 오류 화면 레이아웃 | 렌더링 예외 발생 | 오류 경계 표시 확인 | 색상 좌측 막대·업무 사이드바 없이 중앙 안내만 표시하고, 화면 높이는 뷰포트에 맞아 불필요한 세로 스크롤이 없음 | 프론트엔드 오류 경계 회귀 | P1 |
+| TC-UI-024 | 기준자료 운영 상태 명확화 | 기준자료 관리 화면 진입 | 표기와 action 확인 | `청크 확인`을 사용하고, 검색 데이터 갱신과 검토 적용 중지는 운영 상태 영역에 함께 표시하되 각각 재색인과 soft-deactivate의 독립 동작임을 안내한다. 적용 상태는 적용 중/미적용으로 표시하며 재적용 API가 없어 on/off 토글로 표현하지 않는다. | 프론트엔드 컴포넌트 회귀/수동 화면 확인 | P1 |
+| TC-UI-025 | 검색 데이터 갱신 안내와 기준명 표시 | 기준자료 관리 화면 진입 | 검색 데이터 갱신 패널·목록 확인 | 단건 갱신은 신규·개정 자료 확인 또는 해당 자료의 색인 실패 복구에 사용하며 공통 모델·스키마 변경은 전체 일괄 갱신 범위임을 안내한다. 긴 기준명은 말줄임으로 표시하고 hover 시 전체 제목을 제공하며 데스크톱에서 표의 불필요한 가로 스크롤을 만들지 않는다. | 프론트엔드 컴포넌트 회귀/수동 화면 확인 | P1 |
+| TC-UI-026 | 역할 기반 접근 제한 안내 | 권한 없는 사용자가 허용되지 않은 경로로 직접 이동 | 접근 제한 상태 확인 | “접근 권한이 없습니다” 안내에는 오류 색상 좌측 막대가 없고 중립 테두리만 표시한다. | 프론트엔드 컴포넌트 회귀/수동 화면 확인 | P1 |
+| TC-UI-027 | 검토 결과 기본정보·원본·판단 안내 | S-006 검토 결과 요약 화면 진입 | 화면 구조 확인 | 광고명·상품군·광고유형·등록자·검토일은 행·열이 명확한 표로 표시한다. 광고 원본 병행 패널은 원본 확인 기능을 유지하되 `원본을 보며 검토`, `권한 검증 미리보기` 같은 구현 설명을 노출하지 않는다. 최종 판단 안내에는 장식용 좌측 색상 막대가 없다. | 프론트엔드 컴포넌트 회귀/수동 화면 확인 | P1 |
+| TC-UI-028 | 중립 상태 카드·원본 내부 스크롤·항목 상세 | S-005/S-008과 세로가 긴 이미지 또는 HWP/HWPX 광고물 준비 | 상태·목록·상세·원본 미리보기 확인 | 텍스트 박스·S-005 단계 카드·기준자료 단계 카드에 장식용 좌측 색상 막대가 없다. 원본 이미지와 HWP/HWPX 변환 SVG는 가로폭을 기준으로 비율을 유지하며 미리보기 영역 안에서 가로 스크롤 없이 세로 스크롤된다. S-008은 원문 문구를 우선 표시하고 검토 유형·판정·위험도는 칩으로 보조하며, 선택 상세의 판단 방식·수정 권고·근거 상태는 표로 표시한다. Coordinate가 있는 항목을 선택하거나 광고 화면으로 이동하면 해당 원본 위치로 스크롤한다. | 프론트엔드 컴포넌트/수동 화면 확인 | P1 |
+| TC-UI-029 | Annotation PNG 미리보기 형식 판정 | Annotation 응답의 `fileType=ADVERTISEMENT`, preview 콘텐츠 `image/png` 준비 | S-007 진입 | 업무상 파일 분류와 무관하게 PNG 미리보기를 표시하며 지원 불가 안내를 표시하지 않는다. | 프론트엔드 컴포넌트 회귀 | P0 |
+| TC-UI-030 | 완료 상태 표시 안정성 | S-005에서 완료 응답 뒤 지연된 진행 중 응답 준비 | 수동 새로고침 | 완료된 진행률 100%와 결과 보기 이동을 유지한다. 목록으로·새로고침은 항상 앞선 순서에 유지되어 결과 보기 표시 변화로 위치가 바뀌지 않는다. | 프론트엔드 컴포넌트 회귀 | P0 |
+| TC-UI-031 | Annotation 좌표 기준과 원문 가독성 | 세로 스크롤이 필요한 이미지 광고 원본과 normalized coordinate BOX 준비 | S-007에서 BOX 표시·hover·선택 | BOX의 좌상단과 크기는 스크롤 뷰포트가 아닌 실제 렌더링된 원본 미디어의 normalized coordinate에 일치한다. hover·선택 상태는 진한 녹색 채움 없이 반투명 테두리·옅은 채움으로 원문을 계속 읽을 수 있다. | 프론트엔드 컴포넌트/수동 화면 확인 | P1 |
+| TC-UI-032 | 광고물 등록 하단 액션 | S-003 광고물 등록 화면 진입 | 취소·광고물 등록 버튼 영역 확인 | 버튼은 폼의 최하단 일반 액션 행에 표시되며 viewport에 떠 있지 않고, 별도 테두리·배경·그림자 컨테이너를 사용하지 않는다. | 프론트엔드 회귀/수동 화면 확인 | P1 |
+| TC-UI-033 | 로그인 화면 뷰포트 배치 | 일반 데스크톱 뷰포트에서 로그인 화면 진입 | 문서 높이·로그인 카드 위치 확인 | 헤더 아래 공개 영역은 뷰포트 높이에 맞고 로그인 카드는 중앙에 표시된다. 콘텐츠가 뷰포트에 들어가는 경우 불필요한 세로 스크롤이 생기지 않는다. | 수동 화면 확인 | P1 |
+| TC-SEC-012 | PoC 2계정 개발 seed 프로필 | dev seed 적용 완료 | 활성 계정과 역할 매핑 확인 | 활성 로그인 계정은 test/admin 두 개이며, test는 상품·준법·기준관리 역할을, admin은 시스템 관리자 역할을 가진다. 준법감시 synthetic 계정은 활성 로그인할 수 없다. | seed 계약 테스트 | P1 |
 | TC-EVAL-001 | 성능평가 정상 실행 | 데이터셋, 판단 결과, AI 결과 존재 | 평가 실행 API 호출 | evaluationId 생성, KPI별 score/numerator/denominator 반환 | `evaluations`, `evaluation_metrics` | P0 |
 | TC-EVAL-002 | 필수 문구 정확도 산출 | 필수 문구 정답 데이터 존재 | 평가 실행 | REQUIRED_PHRASE_ACCURACY의 분자/분모/점수 산출 | `evaluation_metrics` | P0 |
 | TC-EVAL-003 | 위험 표현 정확도 산출 | 위험 표현 정답 데이터 존재 | 평가 실행 | MISLEADING_EXPRESSION_ACCURACY의 분자/분모/점수 산출 | `evaluation_metrics` | P0 |
@@ -618,6 +674,11 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-UI-004 | Tablet/Mobile fallback | 768px, 375px viewport에서 핵심 화면 확인 | 텍스트 겹침, 버튼 잘림, 필수 상태 확인 불가가 없음 | P2 |
 | TC-NFR-UI-005 | Annotation 화면 반응형 제한 안내 | 모바일 viewport에서 S-007 진입 | 정밀 검토는 PC 사용 권장 안내 또는 제한된 fallback 표시 | P2 |
 | TC-NFR-UI-006 | 로그인 내부 개발 용어 미노출 | 비인증 상태에서 `/login` 진입 | 사용자용 제목 `로그인`만 표시하고 `M2` 등 내부 마일스톤 문구를 표시하지 않음 | P1 |
+| TC-NFR-UI-007 | NH농협은행 로고 노출 경계 | 비인증 로그인과 인증 후 공통 헤더 진입 | 로그인 화면에는 로고 이미지가 없고, 인증 후 공통 헤더에서만 흰색 단색·투명 배경 로고와 이미지 대체 텍스트 `NH농협은행`을 제공한다. 외부 API 호출은 추가하지 않는다. | P1 |
+| TC-NFR-UI-008 | 검토 원본 병행 표시 | S-004/S-005/S-006/S-008 진입 후 지원 형식 광고물 확인 | 권한 검증된 원본이 자동 미리보기로 검토 입력·진행·결과와 함께 표시되고, 파일 미리보기 실패는 안전한 오류·다운로드 안내로 전환 | P0 |
+| TC-NFR-UI-009 | Worker 단계별 진행률·화면 이탈 | 검토 요청 후 S-005를 벗어나고 재진입하며 Job/Step 원천 조회 | `FILE_PREPROCESSING`부터 결과 생성까지 현재 단계·진행률이 PostgreSQL 원천과 일치하고, 화면 이탈 중에도 queue/worker 처리가 지속되며 재진입 시 최신 상태가 표시됨 | P0 |
+| TC-NFR-UI-010 | 핵심 광고 심의 업무 단계 | S-002~S-008을 순서대로 이동 | `광고 등록 → 원본 확인 → AI 검토 → 결과 확인` 단계와 현재 위치가 동일한 용어·순서로 표시되고 내부 화면 ID·영문 상태 enum은 노출되지 않음 | P1 |
+| TC-NFR-UI-011 | 기존 검토 복귀 | 검토 이력이 있는 광고물 상세 진입 | 최근 검토 회차·상태·요청일을 확인하고 진행 중 검토는 상태 화면, 완료 검토는 결과 화면으로 즉시 이동 가능 | P0 |
 
 ## 19.6 M1 플랫폼 및 CI
 
@@ -692,7 +753,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | 검증 범위 | 실행/증거 | 기대 결과 |
 | --- | --- | --- |
 | Rule/risk property table | `apps/worker/tests/test_m5_results.py` | 최상급/절대 표현, 조건 없는 금리, 정상 문구가 동일 config에서 각각 HIGH/MEDIUM/LOW 구조 결과를 결정적으로 만들고 policy/reason/source version을 항상 포함 |
-| RAG evidence/failure | `apps/worker/tests/test_m5_results.py` | 고정 후보 중 0.70 이상 최대 3개를 선정하고 `INSUFFICIENT`, `RAG_SEARCH_UNAVAILABLE`, `RAG_SEARCH_FAILED`가 Rule 판정·위험도를 덮지 않음 |
+| RAG evidence/failure | `apps/worker/tests/test_m5_results.py`, `apps/worker/tests/test_qdrant_evidence_search.py` | RRF 순위 Top-3과 keyword/vector source coverage를 보존하고 `INSUFFICIENT`, `RAG_SEARCH_UNAVAILABLE`, `RAG_SEARCH_FAILED`가 Rule 판정·위험도를 덮지 않음 |
 | Structured fixture | `apps/worker/tests/test_m5_results.py`, `tests/fixtures/m5/structured-output-v1.json` | provider/model null, `networkAllowed=false`인 versioned mock만 사용하고 invalid schema를 명시하면서 Rule/RAG 결과 보존 |
 | Worker integration | `apps/worker/tests/test_m5_results.py` | 선택된 parser 산출물 이후 result bundle이 completion 전에 저장되고 확인 필요 상태가 job/review에 전파됨 |
 | Result API/scope | `apps/backend/tests/test_m5_result_api.py` | summary/items/detail/annotations 실제 handler가 frozen v0.5 응답, evidence snapshot, BOX 위치와 부서 scope 403을 반환 |
@@ -763,11 +824,11 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 ## 19.18 Notion 문서 단방향 동기화 테스트
 
-이 절의 기대 개수 94개와 제외 개수 33개는 ADR-0077 적용 commit 기준이다. Git `main`이 원본이며 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
+이 절의 기대 개수 97개와 제외 개수 33개는 ADR-0079 추가 commit 기준이다. Git `main`이 원본이며 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
 
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
-| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 94개가 선택되고 일반 15개·ADR 79개로 완전히 분류되며 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
+| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 97개가 선택되고 일반 16개·ADR 81개로 완전히 분류되며 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
 | TC-NFR-DOC-002 | page map 완전성 | manifest와 `governance/notion-page-map.json`을 비교 | 모든 source path가 중복 없이 하나의 올바른 parent/page ID에 매핑되고 누락·중복은 동기화 전에 실패함 | P0 |
 | TC-NFR-DOC-003 | 자동 실행 범위·실패 수렴 | `main`에 Markdown과 비문서 파일을 각각 push하고 중간 동기화 실패 후 다음 문서 변경을 push | 게시 대상 Markdown 변경에만 실행되고 마지막 성공 동기화 commit부터 현재까지를 선택하여 이전 실패 문서도 다음 실행에 다시 포함됨 | P0 |
 | TC-NFR-DOC-004 | 기존 페이지 증분 갱신 | 매핑된 문서 하나를 변경하고 동기화 | 기존 page ID·URL을 유지한 채 공식 CLI page update로 본문과 제목이 Git 원본으로 교체됨 | P0 |
@@ -779,6 +840,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-DOC-010 | 멱등 재실행 | 동일 before/after와 문서로 동기화를 두 번 실행 | 동일 page ID만 반복 갱신하고 중복 페이지를 만들지 않으며 최종 본문이 Git 원본과 일치함 | P0 |
 | TC-NFR-DOC-011 | mapping fail-closed | source path 누락·중복·잘못된 parent map으로 동기화 | Notion 변경 전에 실패하고 제목 추측으로 임의 페이지를 생성·삭제하지 않음 | P0 |
 | TC-NFR-DOC-012 | 수동 복구 실행 | 확인 문자열과 기준 commit을 지정해 `workflow_dispatch` 실행 | 자동 실행과 같은 검증·rollback 경로로 기준 commit 이후 변경 문서만 재동기화함 | P1 |
+| TC-NFR-DOC-013 | 신규 문서 최초 페이지 생성 | 게시 manifest에 신규 Markdown을 추가하고 page map에 `page_id: null`로 등록한 뒤 일반 동기화와 `allow_create=true` 수동 동기화를 각각 실행 | 일반 동기화는 Notion을 변경하지 않고 실패하며, 검토된 수동 실행만 페이지를 생성·검증하고 artifact에 page ID/URL을 남김 | P0 |
 
 ## 19.19 Git 협업 및 GitOps 정책 수동 테스트
 
@@ -910,7 +972,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | Docker Compose 정책 | ADR-0063 기준 `compose.yml` + `compose.dev.yml`, `compose.yml` + `compose.prod.yml` 조합 config 검증 |
 | CI/CD Gate | ADR-0064 기준 PR 필수 Gate와 정기/수동 실제 엔진 평가 분리. PR은 `pytest -m "not external_ai and not slow"` 기준 |
 | Parser/OCR 계약 | ADR-0065 기준 `NormalizedDocument` v1 fixture와 adapter contract test 적용 |
-| Parser/OCR 라우팅 | ADR-0072 기준 PDF/복합 PDF `opendataloader-pdf`, HWP/HWPX `rhwp`, 이미지/스캔 PDF `PaddleOCR` 우선 적용 검증 |
+| Parser/OCR 라우팅 | ADR-0079 기준 PDF/복합 PDF `opendataloader-pdf`, HWP/HWPX `hwp-hybrid`, 이미지/스캔 PDF `PaddleOCR` 적용 검증 |
 | Parser/OCR 품질 재처리 | ADR-0073 기준 기술 retry, 조건 기반 보조 엔진 재처리, 최종 채택 산출물만 후속 전달 검증 |
 | PoC 검증 Snapshot | ADR-0074 기준 DB 정답지 version, 평가 실행 snapshot, 기존 evaluation 불변성, snapshotHash 검증 |
 | Coordinate 계약 | ADR-0066 기준 DB 명시 컬럼과 API `Coordinate` object 검증 |

@@ -44,6 +44,7 @@ test("redirects an unauthenticated root route to login and validates required cr
   render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "로그인" })).toBeInTheDocument();
   expect(screen.queryByText("M2 보안 로그인")).not.toBeInTheDocument();
+  expect(screen.queryByRole("img", { name: "NH농협은행" })).not.toBeInTheDocument();
   expect(document.querySelector(".app-workspace")).toHaveClass("app-workspace--public");
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
   expect(screen.getByRole("alert")).toHaveTextContent("이메일과 비밀번호를 입력해 주세요.");
@@ -57,6 +58,9 @@ test("renders the role-based workspace navigation defined by the screen plan", a
   expect(navigation).toHaveTextContent("광고물 목록");
   expect(navigation).toHaveTextContent("광고물 등록");
   expect(screen.getByText("테스트 사용자")).toBeInTheDocument();
+  const headerLogo = screen.getByRole("img", { name: "NH농협은행" });
+  expect(headerLogo).toHaveAttribute("src", expect.stringContaining("nh-bank-logo"));
+  expect(headerLogo).toHaveClass("brand-mark--inverse");
 });
 
 test("marks only the current advertisement route as active in workspace navigation", async () => {
@@ -208,7 +212,9 @@ test("blocks roles without advertisement permission before any API request", () 
   vi.stubGlobal("fetch", fetchMock);
   const restrictedSession: AuthSession = { ...productSession, user: { ...productSession.user, roles: ["STANDARD_MANAGER"] } };
   render(<MemoryRouter initialEntries={["/advertisements"]}><App initialSession={restrictedSession} /></MemoryRouter>);
-  expect(screen.getByRole("alert")).toHaveTextContent("접근 권한이 없습니다.");
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent("접근 권한이 없습니다.");
+  expect(alert).toHaveClass("access-denied-message");
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -223,13 +229,15 @@ test("shows registration validation for required and unsupported file inputs", a
   render(<MemoryRouter initialEntries={["/advertisements/new"]}><App initialSession={productSession} /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "광고물 등록" })).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByText("등록 선택값을 불러오는 중입니다.")).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "광고물 등록" }).parentElement).toHaveClass("form-actions");
+  expect(screen.getByRole("button", { name: "광고물 등록" }).parentElement).not.toHaveClass("form-actions-sticky");
   const oversizedTerms = new File(["terms"], "terms.pdf", { type: "application/pdf" });
   Object.defineProperty(oversizedTerms, "size", { value: 50 * 1024 * 1024 + 1 });
-  fireEvent.change(screen.getByLabelText("광고 파일 *"), { target: { files: [new File(["bad"], "malware.exe", { type: "application/octet-stream" })] } });
+  fireEvent.change(screen.getByLabelText("광고 원본 *"), { target: { files: [new File(["bad"], "malware.exe", { type: "application/octet-stream" })] } });
   fireEvent.change(screen.getByLabelText("상품설명서"), { target: { files: [new File(["bad"], "description.exe", { type: "application/octet-stream" })] } });
   fireEvent.change(screen.getByLabelText("약관"), { target: { files: [oversizedTerms] } });
   fireEvent.change(screen.getByLabelText("추가 첨부파일"), { target: { files: Array.from({ length: 11 }, (_, index) => new File(["file"], `extra-${index}.png`, { type: "image/png" })) } });
-  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "광고물 등록" }));
   const alert = screen.getByRole("alert");
   expect(alert).toHaveTextContent("광고명을 입력해 주세요.");
   expect(alert).toHaveTextContent("상품군을 선택해 주세요.");
@@ -269,11 +277,11 @@ test("completes login, allowed multipart upload, list/detail, authorized preview
   fireEvent.change(screen.getByLabelText("광고명 *"), { target: { value: "안전한 광고" } });
   fireEvent.change(screen.getByLabelText("상품군 *"), { target: { value: "SAVINGS" } });
   fireEvent.change(screen.getByLabelText("광고유형 *"), { target: { value: "MOBILE_BANNER" } });
-  fireEvent.change(screen.getByLabelText("광고 파일 *"), { target: { files: [new File(["png"], "banner.png", { type: "image/png" })] } });
+  fireEvent.change(screen.getByLabelText("광고 원본 *"), { target: { files: [new File(["png"], "banner.png", { type: "image/png" })] } });
   fireEvent.change(screen.getByLabelText("추가 첨부파일"), { target: { files: [new File(["more"], "extra.pdf", { type: "application/pdf" })] } });
-  fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  fireEvent.click(screen.getByRole("button", { name: "광고물 등록" }));
 
-  expect(await screen.findByRole("heading", { name: "광고물 상세 조회" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "안전한 광고" })).toBeInTheDocument();
   expect(await screen.findByText("안전한 광고")).toBeInTheDocument();
   expect(screen.getByText(/banner\.png/)).toBeInTheDocument();
   const upload = calls.find((call) => call.url.endsWith("/advertisements") && call.init?.method === "POST");
@@ -286,7 +294,7 @@ test("completes login, allowed multipart upload, list/detail, authorized preview
   fireEvent.click(screen.getByRole("button", { name: "다운로드" }));
   await waitFor(() => expect(calls.some((call) => call.url.endsWith("/files/FILE-001/download"))).toBe(true));
   const protectedFileCalls = calls.filter((call) => call.url.includes("/files/FILE-001/"));
-  expect(protectedFileCalls).toHaveLength(3);
+  expect(protectedFileCalls).toHaveLength(5);
   for (const call of protectedFileCalls) expect(new Headers(call.init?.headers).get("Authorization")).toBe("Bearer safe-token");
 });
 
@@ -320,19 +328,50 @@ test("renders an authorized PDF preview as a browser PDF object", async () => {
   expect(await screen.findByLabelText("banner.pdf 미리보기")).toHaveAttribute("data", "blob:pdf-preview");
 });
 
-test("does not request an unsupported HWP browser preview", async () => {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+test("renders an authorized HWP preview and exposes page navigation", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:hwp-preview") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    urls.push(url);
+    if (url.includes(".woff2")) return new Response(new Uint8Array([0, 1, 2, 3]), { status: 200 });
+    if (url.includes("/preview/content")) return new Response(new Blob(["<svg/>"], { type: "image/svg+xml" }), { status: 200, headers: { "Content-Type": "image/svg+xml" } });
+    if (url.includes("/preview?")) return response({ fileId: "FILE-HWP", pageNo: 1, totalPages: 2, previewPath: "/api/v1/files/FILE-HWP/preview/content", width: 1240, height: 1754 });
     if (url.endsWith("/advertisements/ADV-HWP")) return response({ advertisementId: "ADV-HWP", advertisementName: "HWP 광고", productGroup: "SAVINGS", advertisementType: "MOBILE_BANNER", departmentId: "DPT-001", registeredBy: "user001", registeredAt: "2026-07-16T10:00:00+09:00", reviewStatus: "UPLOADED", files: [{ fileId: "FILE-HWP", fileType: "ADVERTISEMENT", fileName: "banner.hwp", mimeType: "application/x-hwp", fileSize: 10 }] });
     throw new Error(`Unexpected request: ${url}`);
-  });
-  vi.stubGlobal("fetch", fetchMock);
+  }));
 
   render(<MemoryRouter initialEntries={["/advertisements/ADV-HWP"]}><App initialSession={productSession} /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button", { name: "미리보기" }));
 
-  expect(await screen.findByText("HWP/HWPX는 원본 다운로드 또는 검토 결과의 텍스트 위치에서 확인할 수 있습니다.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "미리보기" })).toBeDisabled();
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(await screen.findByAltText("banner.hwp 미리보기")).toHaveClass("file-preview");
+  expect(screen.getByText("한글 문서 변환 미리보기")).toBeInTheDocument();
+  expect(screen.getByText("1 / 2")).toBeInTheDocument();
+  expect(urls.some((url) => url.includes("/preview?"))).toBe(true);
+  expect(urls.some((url) => url.includes("/preview/content"))).toBe(true);
+});
+
+test("shows the current workflow step and links completed review history back to results", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/advertisements/ADV-HISTORY/reviews")) {
+      return response([{ reviewId: "REV-DONE", reviewRound: 1, reviewStatus: "REVIEW_COMPLETED", overallRiskLevel: "LOW", requestedAt: "2026-07-17T01:00:00Z", completedAt: "2026-07-17T01:10:00Z" }]);
+    }
+    if (url.endsWith("/advertisements/ADV-HISTORY")) {
+      return response({ advertisementId: "ADV-HISTORY", advertisementName: "완료된 광고", productGroup: "DEPOSIT", advertisementType: "BRANCH_FLYER", departmentId: "DPT-001", registeredBy: "user001", registeredAt: "2026-07-17T00:00:00Z", reviewStatus: "REVIEW_COMPLETED", files: [] });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-HISTORY"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  expect(await screen.findByRole("heading", { name: "완료된 광고" })).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "광고 심의 업무 단계" }).querySelector('[aria-current="step"]')).toHaveTextContent("원본 확인");
+  expect(screen.getByText("예금")).toBeInTheDocument();
+  expect(screen.getByText("영업점 전단")).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "결과 확인" })).toHaveAttribute("href", "/reviews/REV-DONE/results");
+  expect(screen.queryByText("REVIEW_COMPLETED")).not.toBeInTheDocument();
 });
 
 test("rejects an untrusted preview path without requesting storage or foreign URLs", async () => {
@@ -348,7 +387,7 @@ test("rejects an untrusted preview path without requesting storage or foreign UR
   render(<MemoryRouter initialEntries={["/advertisements/ADV-001"]}><App initialSession={productSession} /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "미리보기" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("일시적인 오류가 발생했습니다.");
-  expect(requestedUrls).toHaveLength(2);
+  expect(requestedUrls.filter((url) => url.includes("/files/FILE-001/preview?"))).toHaveLength(2);
   expect(requestedUrls).not.toContain("https://storage.invalid/private-object");
 });
 

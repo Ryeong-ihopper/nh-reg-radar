@@ -2,7 +2,9 @@
 
 ## 상태
 
-Accepted
+Superseded
+
+파일 유형별 Parser/OCR 라우팅과 HWP/HWPX 구성은 [ADR-0079: HWP/HWPX 이중 원천 Hybrid Parser 구성 정책](ADR-0079-hwp-hwpx-hybrid-parser-composition.md)으로 대체되었다. PDF·이미지 라우팅과 Adapter 경계 원칙은 ADR-0079에서 유지한다.
 
 ## 배경
 

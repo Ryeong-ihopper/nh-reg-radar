@@ -169,8 +169,8 @@ Local development stack is ready.
   MinIO console:  http://localhost:${minio_console_port}
 
 Synthetic users:
-  test@ihopper.co.kr
-  compliance@example.invalid
+  test@ihopper.co.kr  (업무·기준자료 테스트)
+  admin@ihopper.co.kr (시스템 관리자)
 EOF
 if [[ "$using_default_password" == true ]]; then
   printf '%s\n' '  Password: Testihopper12#$'

@@ -22,6 +22,7 @@ from nh_ad_parser_contracts import (
 )
 
 from nh_ad_worker.results import ReviewResultItem
+from nh_ad_worker.suggestions import SuggestionProposal
 
 
 class OpenAIProviderError(RuntimeError):
@@ -41,6 +42,14 @@ REVIEW_DECISION_SCHEMA: dict[str, object] = {
         "explanation": {"type": "string"},
     },
     "required": ["decision", "confidence", "reasonCode", "explanation"],
+}
+
+
+SUGGESTION_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"suggestedText": {"type": "string", "minLength": 1, "maxLength": 1000}},
+    "required": ["suggestedText"],
 }
 
 
@@ -105,7 +114,13 @@ class OpenAIResponsesClient:
         self._timeout_seconds = timeout_seconds
         self._transport = transport or self._send
 
-    def responses_json(self, prompt: str, schema: dict[str, object]) -> dict[str, object]:
+    def responses_json(
+        self,
+        prompt: str,
+        schema: dict[str, object],
+        *,
+        format_name: str = "structured_response",
+    ) -> dict[str, object]:
         """Send a text-only request and return a schema-constrained JSON object."""
 
         if not prompt.strip():
@@ -113,7 +128,7 @@ class OpenAIResponsesClient:
         return self._request_json(
             [{"type": "input_text", "text": prompt}],
             schema,
-            format_name="structured_response",
+            format_name=format_name,
             strict=True,
         )
 
@@ -177,6 +192,40 @@ class OpenAIResponsesClient:
             separators=(",", ":"),
         )
         return self.responses_json(prompt, REVIEW_DECISION_SCHEMA)
+
+    def refine_suggestion(self, item: ReviewResultItem, proposal: SuggestionProposal) -> str | None:
+        """Improve readability without changing the Rule finding or adding product facts."""
+        if not item.evidences:
+            return None
+        prompt = json.dumps(
+            {
+                "instruction": (
+                    "Refine the fallback Korean advertising phrase. Use only the supplied "
+                    "Rule finding and evidence. Do not invent rates, amounts, eligibility, "
+                    "benefits, legal claims, or product facts. Return the fallback unchanged "
+                    "when a safe improvement is not possible."
+                ),
+                "originalText": proposal.original_text,
+                "fallbackSuggestion": proposal.suggested_text,
+                "ruleReasonCodes": item.risk_reason_codes,
+                "evidence": [
+                    {
+                        "title": evidence.candidate.title,
+                        "matchedText": evidence.candidate.matched_text,
+                    }
+                    for evidence in item.evidences
+                ],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        output = self.responses_json(
+            prompt,
+            SUGGESTION_SCHEMA,
+            format_name="suggestion_refinement_v1",
+        )
+        value = output.get("suggestedText")
+        return value if isinstance(value, str) else None
 
     def _request_json(
         self,

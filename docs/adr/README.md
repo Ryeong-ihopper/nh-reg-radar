@@ -96,12 +96,14 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0069](ADR-0069-standard-reindex-and-chunk-query-api-policy.md) | Accepted | 기준자료 재색인 및 Chunk 조회 API 정책 | 후속 구현 결정 |
 | [ADR-0070](ADR-0070-search-index-idempotent-sync-policy.md) | Accepted | Qdrant/OpenSearch 인덱스 동기화 및 Idempotent Upsert/Delete 정책 | 후속 구현 결정 |
 | [ADR-0071](ADR-0071-search-index-schema-analyzer-payload-policy.md) | Accepted | 검색 인덱스 스키마, Analyzer/Synonym/Highlight 및 Payload 표준화 정책 | 후속 구현 결정 |
-| [ADR-0072](ADR-0072-parser-ocr-engine-routing-policy.md) | Accepted | Parser/OCR 기본 엔진 선택 및 파일 유형별 라우팅 정책 | 후속 구현 결정 |
+| [ADR-0072](ADR-0072-parser-ocr-engine-routing-policy.md) | Superseded | Parser/OCR 기본 엔진 선택 및 파일 유형별 라우팅 정책 | 후속 구현 결정 |
 | [ADR-0073](ADR-0073-parser-ocr-quality-rerun-policy.md) | Accepted | Parser/OCR 품질 미달 시 재처리 및 보조 엔진 사용 정책 | 후속 구현 결정 |
 | [ADR-0074](ADR-0074-validation-dataset-golden-label-snapshot-policy.md) | Accepted | PoC 검증 데이터셋, 정답지 및 평가 Snapshot 관리 정책 | 후속 구현 결정 |
 | [ADR-0075](ADR-0075-project-scoped-skills-distribution.md) | Accepted | 프로젝트 범위 Skills 배포 및 온보딩 설치 정책 | ADR 후보 041 |
 | [ADR-0076](ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md) | Accepted | AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층 | ADR 후보 042 |
 | [ADR-0077](ADR-0077-git-notion-one-way-document-sync-policy.md) | Accepted | Git-Notion 단방향 문서 자동 동기화 정책 | ADR 후보 043 |
+| [ADR-0078](ADR-0078-poc-two-account-operation-profile.md) | Accepted | PoC 2계정 운영 프로필 정책 | ADR 후보 044 |
+| [ADR-0079](ADR-0079-hwp-hwpx-hybrid-parser-composition.md) | Accepted | HWP/HWPX 이중 원천 Hybrid Parser 구성 정책 | ADR 후보 045 |
 
 ## 결정 대기 질문지
 

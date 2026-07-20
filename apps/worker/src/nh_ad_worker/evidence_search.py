@@ -46,7 +46,7 @@ class OpenSearchEvidenceSearch:
             return ()
         today = datetime.now(UTC).date().isoformat()
         payload = {
-            "size": 3,
+            "size": 20,
             "query": {
                 "bool": {
                     "must": [

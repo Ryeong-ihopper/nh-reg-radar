@@ -19,6 +19,7 @@ from nh_ad_worker.results import EvidenceCandidate, EvidenceSearchFailure
 
 
 Transport = Callable[[Request, float], bytes]
+_RRF_RANK_CONSTANT = 60
 
 
 class QdrantEvidenceSearch:
@@ -49,7 +50,7 @@ class QdrantEvidenceSearch:
         today = datetime.now(UTC).date().isoformat()
         payload = {
             "vector": list(vector),
-            "limit": 3,
+            "limit": 20,
             "with_payload": True,
             "filter": {
                 "must": [
@@ -100,7 +101,7 @@ class QdrantEvidenceSearch:
 
 
 class HybridEvidenceSearch:
-    """Require both keyword and semantic search, then retain the strongest evidence."""
+    """Require both search backends and fuse their ranked results without score comparison."""
 
     def __init__(self, *, keyword: OpenSearchEvidenceSearch, vector: QdrantEvidenceSearch) -> None:
         self._keyword = keyword
@@ -109,23 +110,48 @@ class HybridEvidenceSearch:
     def __call__(self, query: str) -> tuple[EvidenceCandidate, ...]:
         keyword_hits = self._keyword(query)
         vector_hits = self._vector(query)
-        merged: dict[str, EvidenceCandidate] = {
-            hit.evidence_chunk_id or hit.evidence_id: hit for hit in keyword_hits
-        }
-        keyword_ids = set(merged)
-        for hit in vector_hits:
-            key = hit.evidence_chunk_id or hit.evidence_id
-            previous = merged.get(key)
-            if previous is None or hit.relevance_score > previous.relevance_score:
-                merged[key] = hit
-            if key in keyword_ids:
-                selected = merged[key]
-                merged[key] = replace(selected, match_source="HYBRID")
-        return tuple(
-            sorted(
-                merged.values(), key=lambda hit: (-hit.relevance_score, hit.evidence_chunk_id or "")
-            )[:3]
-        )
+        ranked: dict[str, list[tuple[EvidenceCandidate, int]]] = {}
+        for rank, hit in enumerate(keyword_hits, 1):
+            ranked.setdefault(hit.evidence_chunk_id or hit.evidence_id, []).append((hit, rank))
+        for rank, hit in enumerate(vector_hits, 1):
+            ranked.setdefault(hit.evidence_chunk_id or hit.evidence_id, []).append((hit, rank))
+
+        fused: list[EvidenceCandidate] = []
+        for values in ranked.values():
+            source_names = {candidate.match_source for candidate, _ in values}
+            # The backend scores have unrelated distributions (BM25 versus cosine).
+            # Normalize reciprocal-rank fusion to 0..1 instead of comparing those
+            # source scores directly. A first-ranked result from one backend is 0.5;
+            # the same result from both backends can reach 1.0.
+            score = sum(1 / (_RRF_RANK_CONSTANT + rank) for _, rank in values)
+            normalized_score = score / (2 / (_RRF_RANK_CONSTANT + 1))
+            preferred = next(
+                (candidate for candidate, _ in values if candidate.match_source == "KEYWORD"),
+                values[0][0],
+            )
+            fused.append(
+                replace(
+                    preferred,
+                    relevance_score=round(normalized_score, 8),
+                    match_source="HYBRID" if len(source_names) > 1 else preferred.match_source,
+                )
+            )
+
+        ordered = sorted(fused, key=lambda hit: (-hit.relevance_score, hit.evidence_chunk_id or ""))
+        return tuple(_preserve_source_coverage(ordered)[:3])
+
+
+def _preserve_source_coverage(hits: list[EvidenceCandidate]) -> list[EvidenceCandidate]:
+    """Keep the best semantic hit visible when both backends returned distinct chunks."""
+
+    if any(hit.match_source == "HYBRID" for hit in hits):
+        return hits
+    keyword = next((hit for hit in hits if hit.match_source == "KEYWORD"), None)
+    vector = next((hit for hit in hits if hit.match_source == "VECTOR"), None)
+    if keyword is None or vector is None:
+        return hits
+    selected = [keyword, vector]
+    return selected + [hit for hit in hits if hit not in selected]
 
 
 def _candidate(source: dict[str, Any], score: float, source_name: str) -> EvidenceCandidate:

@@ -5,6 +5,9 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { api, type ReportFormat, type Suggestion, type SuggestionDecisionInput } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { ErrorState, LoadingState } from "../components/RequestState";
+import { PageHeader } from "../components/PageHeader";
+import { ReviewNavigation } from "../components/ReviewNavigation";
+import { WorkflowSteps } from "../components/WorkflowSteps";
 
 const DECISION_LABELS = {
   ACCEPTED: "채택",
@@ -92,14 +95,16 @@ export function M6SupportPage() {
 
   return (
     <section aria-labelledby="m6-support-heading">
-      <p className="eyebrow">담당자 지원 산출물</p>
-      <h2 id="m6-support-heading">검토 지원 및 리포트</h2>
+      <WorkflowSteps current={4} reviewId={reviewId} />
+      <PageHeader headingId="m6-support-heading" eyebrow="4단계 · 결과 확인" title="검토 지원 및 리포트" description="추천 문구, 규정 Q&A, 심의 의견과 리포트를 한 곳에서 검토하고 확정합니다." />
+      <ReviewNavigation reviewId={reviewId} />
       <p className="state-message state-warning"><strong>최종 판단 안내</strong><br />AI 결과는 담당자 검토 지원용이며 자동으로 확정되지 않습니다.</p>
 
       <section aria-labelledby="suggestion-heading"><h3 id="suggestion-heading">문구 추천</h3>
         {suggestions.isPending ? <LoadingState label="추천 문구를 불러오는 중입니다." /> : null}
         {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => void suggestions.refetch()} /> : null}
         {suggestions.data?.map((suggestion) => <SuggestionDecisionForm key={suggestion.suggestionId} suggestion={suggestion} token={token} onSaved={() => void suggestions.refetch()} />)}
+        {suggestions.data?.length === 0 ? <p className="state-message">현재 검토에 준비된 추천 문구가 없습니다. 항목별 검토 결과에서 수정 권고를 확인해 주세요. <Link to={`/reviews/${encodeURIComponent(reviewId)}/results/items`}>항목별 검토 결과로 이동</Link></p> : null}
       </section>
 
       <section aria-labelledby="qa-heading"><h3 id="qa-heading">광고 규정 Q&A</h3><form onSubmit={submitQuestion}><label>질문<textarea name="question" required /></label><button type="submit" disabled={question.isPending}>{question.isPending ? "답변 생성 중..." : "근거 기반 질문"}</button></form>
@@ -113,10 +118,10 @@ export function M6SupportPage() {
         {createDraft.isError ? <ErrorState error={createDraft.error} /> : null}{updateDraft.isError ? <ErrorState error={updateDraft.error} /> : null}
       </section>
 
-      <section aria-labelledby="report-heading"><h3 id="report-heading">불변 리포트 스냅샷</h3><p>HWPX 원본을 기준으로 PDF 변환본을 생성하며, 생성 후 검토·기준 변경과 무관하게 같은 스냅샷을 유지합니다.</p>
+      <section aria-labelledby="report-heading"><h3 id="report-heading">검토 리포트</h3><p>HWPX 원본을 기준으로 PDF 변환본을 생성하며, 생성 후 검토·기준 변경과 무관하게 같은 스냅샷을 유지합니다.</p>
         <button type="button" onClick={() => createReport.mutate("HWPX")} disabled={createReport.isPending}>HWPX 리포트 생성</button>{" "}<button type="button" onClick={() => createReport.mutate("PDF")} disabled={createReport.isPending}>PDF 리포트 생성</button>
         {createReport.isError ? <ErrorState error={createReport.error} /> : null}
-        {report ? <article className="result-detail"><p>상태: {report.reportStatus} · 스냅샷 {report.snapshotVersion}</p><p>해시: <code>{report.snapshotHash}</code></p>{report.sourceReportId ? <p>HWPX 원본: {report.sourceReportId}</p> : null}<button type="button" onClick={() => void downloadReport()}>권한 확인 후 다운로드</button></article> : null}
+        {report ? <article className="result-detail"><p>리포트가 준비되었습니다. 생성 형식: {report.format === "PDF" ? "PDF" : "HWPX"}</p><button type="button" onClick={() => void downloadReport()}>권한 확인 후 다운로드</button></article> : null}
       </section>
       <div className="form-actions"><Link className="button-link button-secondary" to={`/reviews/${encodeURIComponent(reviewId)}/results`}>검토 결과로</Link><Link className="button-link" to="/advertisements">광고물 목록</Link></div>
     </section>
@@ -167,5 +172,5 @@ export function ComparisonPage() {
       revisedAdvertisementFile: revisionFile,
     });
   }
-  return <section aria-labelledby="comparison-heading"><p className="eyebrow">수정 전후 비교</p><h2 id="comparison-heading">수정본 재검토 비교</h2><form onSubmit={submit}><label>광고물 ID<input value={advertisementId} readOnly /></label><label>기준 검토 ID<input name="baseReviewId" defaultValue={baseReviewId} required /></label><label>수정 메모<textarea name="revisionMemo" /></label><label>수정 광고 파일<input name="revisedAdvertisementFile" type="file" accept="image/png,image/jpeg,application/pdf" onChange={(event) => setRevisionFile(event.target.files?.[0] ?? null)} required /></label><button type="submit" disabled={createComparison.isPending}>{createComparison.isPending ? "등록·비교·재검토 중..." : "수정본 등록 후 비교·재검토"}</button></form>{createComparison.isError ? <ErrorState error={createComparison.error} /> : null}{result ? <article className="result-detail"><p>수정본 ID: <code>{result.revisionId}</code> · 재검토 ID: <code>{result.newReviewId}</code></p><p>해결 {result.comparison.resolvedIssueCount} · 미해결 {result.comparison.unresolvedIssueCount} · 신규 {result.comparison.newIssueCount}</p><ul>{result.comparison.items?.map((item, index) => <li key={`${item.reviewItemId}-${index}`}><strong>{item.resolutionStatus}</strong> {item.originalText} → {item.revisedText}{item.reanalysisReviewId ? ` (재분석 ${item.reanalysisReviewId})` : ""}</li>)}</ul></article> : null}<Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>광고물 상세로</Link></section>;
+  return <section aria-labelledby="comparison-heading"><p className="eyebrow">수정 전후 비교</p><h2 id="comparison-heading">수정본 재검토 비교</h2><form onSubmit={submit}><input name="baseReviewId" type="hidden" value={baseReviewId} readOnly />{!baseReviewId ? <p className="state-message state-warning">비교할 기존 검토 결과에서 이 화면으로 이동해 주세요.</p> : null}<label>수정 메모<textarea name="revisionMemo" /></label><label>수정 광고 파일<input name="revisedAdvertisementFile" type="file" accept="image/png,image/jpeg,application/pdf" onChange={(event) => setRevisionFile(event.target.files?.[0] ?? null)} required /></label><button type="submit" disabled={!baseReviewId || createComparison.isPending}>{createComparison.isPending ? "등록·비교·재검토 중..." : "수정본 등록 후 비교·재검토"}</button></form>{createComparison.isError ? <ErrorState error={createComparison.error} /> : null}{result ? <article className="result-detail"><p>수정본 등록과 재검토 요청이 완료되었습니다.</p><p>해결 {result.comparison.resolvedIssueCount} · 미해결 {result.comparison.unresolvedIssueCount} · 신규 {result.comparison.newIssueCount}</p><ul>{result.comparison.items?.map((item, index) => <li key={`${item.reviewItemId}-${index}`}><strong>{item.resolutionStatus === "RESOLVED" ? "해결" : item.resolutionStatus === "NEW_ISSUE" ? "신규 확인" : "확인 필요"}</strong> {item.originalText} → {item.revisedText}</li>)}</ul></article> : null}<Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>광고물 상세로</Link></section>;
 }

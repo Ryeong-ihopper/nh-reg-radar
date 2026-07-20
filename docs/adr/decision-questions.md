@@ -1955,3 +1955,43 @@
 추천: B. Git `main`을 유일한 원천으로 유지하고 source path-page ID mapping, 기존 page Markdown update, 페이지별 검증·rollback·재잠금으로 운영한다. 신규·삭제·이름 변경은 자동 추측하지 않고 mapping 변경을 별도 검토한다.
 
 결정 결과: B안. 이번 Git convention 변경분은 수동 증분 동기화하고, 이후 `main` Markdown 변경은 GitHub Actions가 자동으로 기존 Notion 페이지에 반영한다. Notion 장애는 post-merge 공유본 최신성 장애로 처리하며 수동 재실행으로 복구한다. 상세 기준은 ADR-0077로 기록한다.
+
+
+---
+
+## Q73. PoC 로그인 계정 운영 프로필
+
+관련 후보: ADR 후보 044, ADR-0036/ADR-0055 운영 보완
+
+질문: PoC에서 실제 로그인하는 개발 계정을 어떻게 운영할 것인가?
+
+| 선택지 | 내용 | 장점 | 리스크 |
+| --- | --- | --- | --- |
+| A | 역할별 synthetic 계정을 각각 유지 | 최소 권한 수동 확인이 쉬움 | 데모·온보딩마다 계정 선택과 관리가 복잡 |
+| B | `test`와 `admin` 두 계정만 운영하고 test에 업무·기준관리 역할을 합성 | PoC 흐름이 단순하고 기준자료 등록도 한 계정으로 검증 가능 | test 계정만으로 최소 권한 수동 검증은 불가 |
+| C | 권한 모델도 일반 사용자·관리자 두 역할로 축소 | 사용자 설명이 단순 | ADR-0055 인가 경계와 본사업 전환 준비를 훼손 |
+| D | admin 계정 하나에 모든 권한 집중 | 계정 수 최소 | 시스템 관리 계정의 일상 사용을 정상화 |
+
+추천: B. 로그인 계정 수만 두 개로 단순화하고 역할 모델과 API 인가 정책은 유지한다. 역할별 최소 권한·거부 시나리오는 자동 테스트 fixture로 검증한다.
+
+결정 결과: B안. `test@ihopper.co.kr`는 `PRODUCT_DEPARTMENT_USER`, `COMPLIANCE_REVIEWER`, `STANDARD_MANAGER`를 가진 업무·기준자료 테스트 계정으로 운영한다. `admin@ihopper.co.kr`는 `SYSTEM_ADMIN`으로 운영한다. 이전 준법감시 synthetic 계정은 활성 로그인 계정으로 운영하지 않는다. 상세 기준은 ADR-0078을 따른다.
+
+---
+
+## Q74. HWP/HWPX 이중 원천 Hybrid Parser 구성
+
+관련 후보: ADR 후보 045, ADR-0072 재검토
+
+질문: HWP/HWPX의 텍스트 완전성과 문단·표 구조를 어떤 방식으로 함께 확보할 것인가?
+
+| 선택지 | 내용 | 장점 | 리스크 |
+| --- | --- | --- | --- |
+| A | `rhwp` 단독 결과를 유지 | 검증된 원문 텍스트와 현재 운영 경로 유지 | 페이지 전체 BODY 블록으로 항목별 검토와 표 구조가 약함 |
+| B | `document-processor` 단독으로 교체 | 문단·표·스타일 구조 IR을 직접 활용 | 기존 rhwp 대비 텍스트 누락·변형 검증과 런타임 전환 필요 |
+| C | 두 엔진을 실행한 뒤 점수가 높은 NormalizedDocument 하나 선택 | 기존 ADR-0073 후보 선택 구조 재사용 | 텍스트 완전성과 구조 장점을 동시에 보존하지 못함 |
+| D | `rhwp` 기준 텍스트와 `document-processor` 구조를 정렬·병합 | 원문 보존과 구조화를 동시에 확보하고 단일 downstream 계약 유지 | 정렬·provenance·구성요소 장애 정책 구현 필요 |
+| E | 전체 원문을 LLM으로 구조화 | 금융광고 의미 분류를 빠르게 실험 가능 | 재현성·비용·폐쇄망·감사 추적 리스크 큼 |
+
+추천: D. `rhwp export-text`를 raw/normalized 텍스트 기준 원천으로 유지하고 `document-processor` 문단·표·스타일 노드를 해당 텍스트에 정렬한다. 정렬되지 않은 원문도 별도 블록으로 보존하고 후속 파이프라인에는 `hwp-hybrid` 단일 `NormalizedDocument`만 전달한다.
+
+결정 결과: D안. HWP/HWPX는 `HwpHybridParserAdapter`가 `rhwp` 기준 텍스트와 `document-processor` 구조를 결합한다. `document-processor`는 경쟁 보조 산출물이 아니라 구조 보강 구성요소이며, 원문 불일치 시 `rhwp` 텍스트를 유지한다. 구성요소 raw artifact와 버전·confidence·정렬 warning을 보존하고 최종 병합 산출물 하나만 ReviewPipeline에 전달한다. 상세 기준은 ADR-0079를 따른다.

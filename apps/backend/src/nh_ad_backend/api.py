@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
+from nh_ad_backend.hwp_preview import HwpPreview, HwpPreviewError, HwpPreviewRenderer
 from nh_ad_backend.domain import (
     Advertisement as AdvertisementRecord,
     AdvertisementFile as AdvertisementFileRecord,
@@ -228,6 +229,7 @@ class ApplicationServices:
     results: ResultService | None = None
     support: SupportService | None = None
     validation: ValidationService | None = None
+    hwp_preview: HwpPreviewRenderer | None = None
 
 
 def _user_response(user: User | CurrentUser) -> UserContext:
@@ -278,6 +280,48 @@ def error_response(request: Request, status_code: int, code: str, message: str) 
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         },
     )
+
+
+def _is_hwp_preview(mime_type: str, file_name: str) -> bool:
+    return file_name.casefold().endswith((".hwp", ".hwpx")) or mime_type in {
+        "application/x-hwp",
+        "application/haansofthwp",
+        "application/vnd.hancom.hwpx",
+    }
+
+
+def _render_hwp_preview(
+    services: ApplicationServices, file: AdvertisementFileRecord, stream: Any, page_no: int
+) -> HwpPreview | None:
+    if not _is_hwp_preview(file.mime_type, file.original_file_name):
+        return None
+    renderer = services.hwp_preview
+    if renderer is None:
+        raise ServiceError(
+            503,
+            "HWP_PREVIEW_UNAVAILABLE",
+            "한글 문서 미리보기 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        )
+    try:
+        return renderer.render(
+            file_id=file.file_id,
+            file_name=file.original_file_name,
+            mime_type=file.mime_type,
+            body=stream.read(),
+            page_no=page_no,
+        )
+    except HwpPreviewError as exc:
+        if str(exc) == "HWP_PREVIEW_UNAVAILABLE":
+            raise ServiceError(
+                503,
+                "HWP_PREVIEW_UNAVAILABLE",
+                "한글 문서 미리보기 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+            ) from exc
+        raise ServiceError(
+            422,
+            "HWP_PREVIEW_FAILED",
+            "한글 문서 미리보기를 생성할 수 없습니다. 원본 파일을 다운로드해 확인해 주세요.",
+        ) from exc
 
 
 def install_routes(
@@ -634,7 +678,7 @@ def install_routes(
         "/files/{fileId}/preview",
         response_model=FilePreview,
         operation_id="getFilePreview",
-        responses=error_models(401, 403, 404),
+        responses=error_models(401, 403, 404, 422, 503),
     )
     async def get_file_preview(
         file_id: Annotated[str, Path(alias="fileId", pattern=r"^FILE-[A-Za-z0-9-]+$")],
@@ -645,11 +689,14 @@ def install_routes(
         file, stream = services.advertisements.open_file(
             current, file_id, request.state.trace_id, "FILE_PREVIEW"
         )
-        stream.close()
+        try:
+            rendered = _render_hwp_preview(services, file, stream, page_no)
+        finally:
+            stream.close()
         return {
             "fileId": file.file_id,
             "pageNo": page_no,
-            "totalPages": 1,
+            "totalPages": rendered.total_pages if rendered else 1,
             "previewPath": f"/api/v1/files/{file.file_id}/preview/content",
             "width": None,
             "height": None,
@@ -665,9 +712,10 @@ def install_routes(
                     "image/png": {"schema": {"type": "string", "format": "binary"}},
                     "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
                     "application/pdf": {"schema": {"type": "string", "format": "binary"}},
+                    "image/svg+xml": {"schema": {"type": "string", "format": "binary"}},
                 }
             },
-            **error_models(401, 403, 404),
+            **error_models(401, 403, 404, 422, 503),
         },
     )
     async def get_file_preview_content(
@@ -676,10 +724,23 @@ def install_routes(
         current: Actor,
         page_no: Annotated[int, Query(alias="pageNo", ge=1)],
     ) -> StreamingResponse:
-        del page_no
         file, stream = services.advertisements.open_file(
             current, file_id, request.state.trace_id, "FILE_PREVIEW"
         )
+        if _is_hwp_preview(file.mime_type, file.original_file_name):
+            try:
+                rendered = _render_hwp_preview(services, file, stream, page_no)
+            finally:
+                stream.close()
+            assert rendered is not None
+            return StreamingResponse(
+                iter([rendered.body]),
+                media_type="image/svg+xml",
+                headers={
+                    "Cache-Control": "no-store",
+                    "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+                },
+            )
         if file.mime_type not in {"image/png", "image/jpeg", "application/pdf"}:
             stream.close()
             raise ServiceError(400, "FILE_READ_FAILED", "미리보기를 생성할 수 없습니다.")

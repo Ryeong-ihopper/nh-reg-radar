@@ -15,6 +15,7 @@ from typing import Literal, Protocol, Sequence
 
 
 SearchMode = Literal["KEYWORD", "VECTOR", "HYBRID"]
+_RRF_RANK_CONSTANT = 60
 
 
 @dataclass(frozen=True)
@@ -287,36 +288,36 @@ class HybridSearch:
         vector_hits = self.vector.search(
             keyword, limit=20, effective_date=basis_date, filters=query_filters
         )
-        ranks: dict[str, tuple[SearchDocument, float, float, dict[str, list[str]]]] = {}
-        for hit in keyword_hits:
-            ranks[hit.document.evidence_chunk_id] = (
-                hit.document,
-                hit.score,
-                0.0,
-                hit.highlights,
+        ranked: dict[str, list[tuple[BackendHit, SearchMode, int]]] = {}
+        for rank, hit in enumerate(keyword_hits, 1):
+            ranked.setdefault(hit.document.evidence_chunk_id, []).append((hit, "KEYWORD", rank))
+        for rank, hit in enumerate(vector_hits, 1):
+            ranked.setdefault(hit.document.evidence_chunk_id, []).append((hit, "VECTOR", rank))
+
+        combined: list[SearchHit] = []
+        for values in ranked.values():
+            source_names = {source for _, source, _ in values}
+            score = sum(1 / (_RRF_RANK_CONSTANT + rank) for _, _, rank in values)
+            normalized_score = score / (2 / (_RRF_RANK_CONSTANT + 1))
+            keyword_hit = next((hit for hit, source, _ in values if source == "KEYWORD"), None)
+            preferred = keyword_hit or values[0][0]
+            source: SearchMode = "HYBRID" if len(source_names) > 1 else values[0][1]
+            combined.append(
+                SearchHit(
+                    preferred.document,
+                    0,
+                    round(normalized_score, 8),
+                    source,
+                    preferred.highlights,
+                )
             )
-        for hit in vector_hits:
-            current = ranks.get(hit.document.evidence_chunk_id)
-            ranks[hit.document.evidence_chunk_id] = (
-                hit.document if current is None else current[0],
-                0.0 if current is None else current[1],
-                hit.score,
-                {} if current is None else current[3],
-            )
-        combined = [
-            (document, (keyword_score + vector_score) / 2, highlights)
-            for document, keyword_score, vector_score, highlights in ranks.values()
-        ]
-        ordered = sorted(
-            combined,
-            key=lambda item: (
-                -item[1],
-                item[0].evidence_chunk_id,
-            ),
+
+        ordered = _preserve_search_source_coverage(
+            sorted(combined, key=lambda hit: (-hit.relevance_score, hit.document.evidence_chunk_id))
         )[:bounded_limit]
         return [
-            SearchHit(document, rank, round(score, 8), "HYBRID", highlights)
-            for rank, (document, score, highlights) in enumerate(ordered, 1)
+            SearchHit(hit.document, rank, hit.relevance_score, hit.match_source, hit.highlights)
+            for rank, hit in enumerate(ordered, 1)
         ]
 
     @staticmethod
@@ -335,3 +336,16 @@ class HybridSearch:
     @staticmethod
     def display_evidence(hits: Sequence[SearchHit]) -> list[SearchHit]:
         return list(hits[:3])
+
+
+def _preserve_search_source_coverage(hits: list[SearchHit]) -> list[SearchHit]:
+    """Avoid erasing the top semantic candidate when each backend found distinct chunks."""
+
+    if any(hit.match_source == "HYBRID" for hit in hits):
+        return hits
+    keyword = next((hit for hit in hits if hit.match_source == "KEYWORD"), None)
+    vector = next((hit for hit in hits if hit.match_source == "VECTOR"), None)
+    if keyword is None or vector is None:
+        return hits
+    selected = [keyword, vector]
+    return selected + [hit for hit in hits if hit not in selected]

@@ -52,14 +52,14 @@ upload file
 | `confidence` | 추출 신뢰도 |
 | `warnings` | 판독 실패, 낮은 신뢰도, 손상 파일 등 경고 |
 
-PoC 기본 후보와 파일 유형별 라우팅은 [ADR-0072: Parser/OCR 기본 엔진 선택 및 파일 유형별 라우팅 정책](ADR-0072-parser-ocr-engine-routing-policy.md)을 따른다. 요약은 다음과 같다.
+PoC 기본 후보와 파일 유형별 라우팅은 [ADR-0079: HWP/HWPX 이중 원천 Hybrid Parser 구성 정책](ADR-0079-hwp-hwpx-hybrid-parser-composition.md)을 따른다. 요약은 다음과 같다.
 
 | 입력 유형 | 1차 후보 | 보조 후보 | 비고 |
 | --- | --- | --- | --- |
 | PDF | `opendataloader-pdf` | `MinerU` | Markdown/JSON/HTML과 bounding box 추출 우선 |
 | 복합 PDF/표/다단 문서 | `opendataloader-pdf` | `MinerU` | PoC 초기에는 복합 PDF도 `opendataloader-pdf` 우선 |
 | 이미지/스캔 PDF | `PaddleOCR` | `MinerU`, VLM OCR | 텍스트 레이어가 없거나 OCR 필요 시 OCR 경로 |
-| HWP/HWPX | `rhwp` | `document-processor` | HWP/HWPX 전용 Rust 기반 엔진 우선 |
+| HWP/HWPX | `hwp-hybrid` (`rhwp` 텍스트 + `document-processor` 구조) | 구성요소 retry·구조 확인 필요 처리 | 기준 텍스트 보존과 문단·표 구조를 병합 |
 
 ## 대안
 
@@ -88,7 +88,7 @@ PoC 기본 후보와 파일 유형별 라우팅은 [ADR-0072: Parser/OCR 기본 
 
 - `NormalizedDocument` v1 스키마는 ADR-0065 기준으로 DB 명세와 API 명세에 반영한다.
 - HWP/HWPX Text IR과 offset 저장 기준은 ADR-0052를 따른다.
-- Parser/OCR 기본 엔진과 파일 유형별 라우팅은 ADR-0072를 따른다.
+- Parser/OCR 기본 엔진과 파일 유형별 라우팅은 ADR-0079를 따른다.
 - PDF, 이미지, HWP/HWPX 샘플 광고물로 파서 후보를 비교하는 PoC 테스트셋을 만든다.
 - 파서/OCR Adapter별 최소 계약은 ADR-0065 기준으로 정의한다.
 - GPU 필요 OCR/VLM은 온프렘 가능성과 자료 반출 제한 ADR을 확인한 뒤 활성화한다.
@@ -101,4 +101,4 @@ PoC 기본 후보와 파일 유형별 라우팅은 [ADR-0072: Parser/OCR 기본 
 - `docs/database-specification.md`
 - `docs/screen-specification.md`
 - `docs/adr/ADR-0065-normalized-document-schema-and-adapter-contract.md`
-- `docs/adr/ADR-0072-parser-ocr-engine-routing-policy.md`
+- `docs/adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md`

@@ -39,21 +39,24 @@ if ! grep -q 'persist-credentials: false' <<<"$checkout_step"; then
 fi
 
 dry_run_output="$(scripts/publish-notion-docs-test.sh --dry-run)"
-grep -q '^selected_markdown_count=94$' <<<"$dry_run_output"
-grep -q '^general_markdown_count=15$' <<<"$dry_run_output"
-grep -q '^adr_markdown_count=79$' <<<"$dry_run_output"
+grep -q '^selected_markdown_count=97$' <<<"$dry_run_output"
+grep -q '^general_markdown_count=16$' <<<"$dry_run_output"
+grep -q '^adr_markdown_count=81$' <<<"$dry_run_output"
 grep -q '^excluded_non_markdown_count=33$' <<<"$dry_run_output"
 
 manifest="$(scripts/publish-notion-docs-test.sh --manifest)"
-test "$(awk -F '\t' '$1 == "general" {count++} END {print count + 0}' <<<"$manifest")" -eq 15
-test "$(awk -F '\t' '$1 == "adr" {count++} END {print count + 0}' <<<"$manifest")" -eq 79
+test "$(awk -F '\t' '$1 == "general" {count++} END {print count + 0}' <<<"$manifest")" -eq 16
+test "$(awk -F '\t' '$1 == "adr" {count++} END {print count + 0}' <<<"$manifest")" -eq 81
 grep -q $'^general\t00\tdocs/project-rules.md\t프로젝트 규칙$' <<<"$manifest"
 grep -q $'^general\t01\tdocs/requirements-definition.md\t01. 요구사항 정의서$' <<<"$manifest"
 grep -q $'^general\t14\tdocs/risk-assessment-criteria.md\t14. 위험도 산정 기준표$' <<<"$manifest"
+grep -q $'^general\t15\tdocs/frontend-implementation-audit.md\t참고. 프론트엔드 화면기획 구현 감사 및 개편 기준$' <<<"$manifest"
 grep -q $'^adr\t00\tdocs/adr/README.md\t00. ADR 목록$' <<<"$manifest"
 grep -q $'^adr\t01\tdocs/adr/decision-questions.md\t01. ADR 의사결정 질문지$' <<<"$manifest"
 grep -q $'^adr\tADR-0076\tdocs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md\tADR-0076: AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층$' <<<"$manifest"
 grep -q $'^adr\tADR-0077\tdocs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md\tADR-0077: Git-Notion 단방향 문서 자동 동기화 정책$' <<<"$manifest"
+grep -q $'^adr\tADR-0078\tdocs/adr/ADR-0078-poc-two-account-operation-profile.md\tADR-0078: PoC 2계정 운영 프로필 정책$' <<<"$manifest"
+grep -q $'^adr\tADR-0079\tdocs/adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md\tADR-0079: HWP/HWPX 이중 원천 Hybrid Parser 구성 정책$' <<<"$manifest"
 scripts/publish-notion-docs-test.sh --validate-map
 
 rendered="$(scripts/publish-notion-docs-test.sh --render docs/project-rules.md)"
@@ -238,30 +241,31 @@ PATH="$mock_dir:$PATH" \
 
 jq -e '
   .root_page_id == "test-parent"
-  and .adr_page_id == "mock-page-16"
-  and .published_count == 94
-  and .general_count == 15
-  and .adr_count == 79
-  and (.pages | length == 94)
+  and .adr_page_id == "mock-page-17"
+  and .published_count == 97
+  and .general_count == 16
+  and .adr_count == 81
+  and (.pages | length == 97)
   and .pages[0].display_title == "프로젝트 규칙"
   and .pages[1].display_title == "01. 요구사항 정의서"
   and .pages[14].display_title == "14. 위험도 산정 기준표"
-  and .pages[15].display_title == "00. ADR 목록"
-  and .pages[16].display_title == "01. ADR 의사결정 질문지"
-  and .pages[-1].display_title == "ADR-0077: Git-Notion 단방향 문서 자동 동기화 정책"
+  and .pages[15].display_title == "참고. 프론트엔드 화면기획 구현 감사 및 개편 기준"
+  and .pages[16].display_title == "00. ADR 목록"
+  and .pages[17].display_title == "01. ADR 의사결정 질문지"
+  and .pages[-1].display_title == "ADR-0079: HWP/HWPX 이중 원천 Hybrid Parser 구성 정책"
 ' "$result_path" >/dev/null
 
-test "$(awk -F '\t' '$1 == "create" && $3 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 15
-test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 79
-grep -q $'^container\tmock-page-16\ttest-parent\t15. ADR$' "$mock_dir/events"
+test "$(awk -F '\t' '$1 == "create" && $3 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 16
+test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-17" {count++} END {print count + 0}' "$mock_dir/events")" -eq 81
+grep -q $'^container\tmock-page-17\ttest-parent\t15. ADR$' "$mock_dir/events"
 if grep -q $'^create\t.*\ttest-parent\t# 15. ADR$' "$mock_dir/events"; then
   echo "ADR container contains an unnecessary heading block" >&2
   exit 1
 fi
 test "$(awk -F '\t' '$1 == "divider" && $2 == "test-parent" {count++} END {print count + 0}' "$mock_dir/events")" -eq 2
-test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 96
+test "$(awk -F '\t' '$1 == "lock" {count++} END {print count + 0}' "$mock_dir/events")" -eq 99
 grep -q $'^lock\ttest-parent$' "$mock_dir/events"
-grep -q $'^lock\tmock-page-16$' "$mock_dir/events"
+grep -q $'^lock\tmock-page-17$' "$mock_dir/events"
 
 mock_map="$mock_dir/notion-page-map.json"
 jq '{version:1,root_page_id,adr_page_id,last_published_commit:.commit_sha,pages:[.pages[] | {source_path,section,page_id,state:"active"}]}' \
@@ -328,7 +332,7 @@ jq -e '
   and .pages[0].source_path == "docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md"
   and .pages[0].page_id != null
 ' "$sync_result_path" >/dev/null
-test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-16" {count++} END {print count + 0}' "$mock_dir/events")" -eq 1
+test "$(awk -F '\t' '$1 == "create" && $3 == "mock-page-17" {count++} END {print count + 0}' "$mock_dir/events")" -eq 1
 
 rm -f "$sync_result_path"
 : >"$mock_dir/events"
@@ -359,7 +363,7 @@ printf '0' >"$mock_dir/divider-counter"
 
 if PATH="$mock_dir:$PATH" \
   MOCK_NTN_STATE_DIR="$mock_dir" \
-  MOCK_NTN_PERMANENT_GET_PAGE=mock-page-17 \
+  MOCK_NTN_PERMANENT_GET_PAGE=mock-page-18 \
   NOTION_API_TOKEN=test-token \
   NOTION_PARENT_PAGE_ID=test-parent \
   NOTION_REQUEST_INTERVAL_SECONDS=0 \
@@ -371,7 +375,7 @@ if PATH="$mock_dir:$PATH" \
 fi
 
 test ! -e "$result_path"
-test "$(awk -F '\t' '$1 == "trash" {count++} END {print count + 0}' "$mock_dir/events")" -eq 16
+test "$(awk -F '\t' '$1 == "trash" {count++} END {print count + 0}' "$mock_dir/events")" -eq 17
 grep -q $'^delete-block\tmock-divider-1$' "$mock_dir/events"
 grep -q $'^delete-block\tmock-divider-2$' "$mock_dir/events"
 grep -q $'^unlock\ttest-parent$' "$mock_dir/events"

@@ -95,6 +95,12 @@
       "state": "active"
     },
     {
+      "source_path": "docs/frontend-implementation-audit.md",
+      "section": "general",
+      "page_id": "3a31847f-058f-810c-82ff-d2ae29b81c01",
+      "state": "active"
+    },
+    {
       "source_path": "docs/adr/README.md",
       "section": "adr",
       "page_id": "39d1847f-058f-814a-ac87-cfd8308d832b",
@@ -566,6 +572,18 @@
       "source_path": "docs/adr/ADR-0077-git-notion-one-way-document-sync-policy.md",
       "section": "adr",
       "page_id": "39e1847f-058f-81f6-8519-d40110e21c79",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0078-poc-two-account-operation-profile.md",
+      "section": "adr",
+      "page_id": "3a31847f-058f-81ab-be9d-fd41d0dcb014",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md",
+      "section": "adr",
+      "page_id": "3a31847f-058f-815c-96ea-dfcf013fc02f",
       "state": "active"
     }
   ]

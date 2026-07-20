@@ -312,6 +312,8 @@ class QdrantBackend:
         dimensions: int,
         document_vector: Callable[[SearchDocument], Sequence[float]],
         query_vector: Callable[[str], Sequence[float]],
+        document_vectors: Callable[[Sequence[SearchDocument]], Sequence[Sequence[float]]]
+        | None = None,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._collection = collection
@@ -320,6 +322,7 @@ class QdrantBackend:
         self._chunking_policy_version = chunking_policy_version
         self._dimensions = dimensions
         self._document_vector = document_vector
+        self._document_vectors = document_vectors
         self._query_vector = query_vector
 
     def ensure_collection(self) -> None:
@@ -333,28 +336,26 @@ class QdrantBackend:
 
     def upsert(self, documents: Sequence[SearchDocument]) -> None:
         self.ensure_collection()
-        points = []
-        for document in documents:
-            logical_id = deterministic_index_id(
-                self._environment,
-                document.standard_version_id,
-                document.evidence_chunk_id,
-                self._embedding_model,
-                self._chunking_policy_version,
+        for start in range(0, len(documents), 64):
+            batch = documents[start : start + 64]
+            vectors = (
+                self._document_vectors(batch)
+                if self._document_vectors is not None
+                else [self._document_vector(document) for document in batch]
             )
-            vector = list(self._document_vector(document))
-            if len(vector) != self._dimensions:
-                raise ValueError("document vector dimension mismatch")
-            payload: JsonObject = _payload(document)
-            payload["deterministic_index_id"] = logical_id
-            points.append(
-                {
-                    "id": str(uuid5(NAMESPACE_URL, logical_id)),
-                    "vector": vector,
-                    "payload": payload,
-                }
-            )
-        if points:
+            if len(vectors) != len(batch):
+                raise ValueError("document vector batch count mismatch")
+            points = [
+                _qdrant_point(
+                    document=document,
+                    vector=vector,
+                    environment=self._environment,
+                    embedding_model=self._embedding_model,
+                    chunking_policy_version=self._chunking_policy_version,
+                    dimensions=self._dimensions,
+                )
+                for document, vector in zip(batch, vectors, strict=True)
+            ]
             _request(
                 self.name,
                 "PUT",
@@ -415,3 +416,31 @@ class QdrantBackend:
             )
             and (hit.document.expired_date is None or hit.document.expired_date >= effective_date)
         ]
+
+
+def _qdrant_point(
+    *,
+    document: SearchDocument,
+    vector: Sequence[float],
+    environment: str,
+    embedding_model: str,
+    chunking_policy_version: str,
+    dimensions: int,
+) -> JsonObject:
+    logical_id = deterministic_index_id(
+        environment,
+        document.standard_version_id,
+        document.evidence_chunk_id,
+        embedding_model,
+        chunking_policy_version,
+    )
+    values = list(vector)
+    if len(values) != dimensions:
+        raise ValueError("document vector dimension mismatch")
+    payload: JsonObject = _payload(document)
+    payload["deterministic_index_id"] = logical_id
+    return {
+        "id": str(uuid5(NAMESPACE_URL, logical_id)),
+        "vector": values,
+        "payload": payload,
+    }

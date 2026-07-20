@@ -46,7 +46,8 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
   fireEvent.click(screen.getByRole("button", { name: "근거 기반 질문" }));
   expect(await screen.findByText("근거가 부족하여 담당자 확인이 필요합니다.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "HWPX 리포트 생성" }));
-  expect(await screen.findByText("sha256:test")).toBeInTheDocument();
+  expect(await screen.findByText(/리포트가 준비되었습니다/)).toBeInTheDocument();
+  expect(screen.queryByText("sha256:test")).not.toBeInTheDocument();
   expect(new Headers(decision?.init?.headers).get("Authorization")).toBe("Bearer m6-access-token");
 });
 
@@ -64,6 +65,20 @@ test("requires final text for a modified suggestion before mutating the contract
   fireEvent.click(screen.getByRole("button", { name: "담당자 판단 저장" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("수정 후 사용에는 최종 문구가 필요합니다.");
   expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/decision"))).toBe(false);
+});
+
+test("explains how to continue when a completed review has no prepared suggestions", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/reviews/REV-M6/suggestions")) return response([]);
+    if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response([]);
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-M6/support"]}><App initialSession={session} /></MemoryRouter>);
+
+  expect(await screen.findByText(/현재 검토에 준비된 추천 문구가 없습니다/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "항목별 검토 결과로 이동" })).toHaveAttribute("href", "/reviews/REV-M6/results/items");
 });
 
 test("registers an uploaded revision before comparison and reanalysis", async () => {
@@ -84,16 +99,16 @@ test("registers an uploaded revision before comparison and reanalysis", async ()
   }));
 
   render(<MemoryRouter initialEntries={["/advertisements/ADV-M6/comparisons?reviewId=REV-M6"]}><App initialSession={session} /></MemoryRouter>);
-  expect(screen.getByLabelText("광고물 ID")).toHaveValue("ADV-M6");
-  expect(screen.getByLabelText("기준 검토 ID")).toHaveValue("REV-M6");
+  expect(document.querySelector<HTMLInputElement>("input[name=baseReviewId]")?.value).toBe("REV-M6");
   fireEvent.change(screen.getByLabelText("수정 메모"), { target: { value: "확정 표현 완화" } });
   const file = new File(["png"], "revised.png", { type: "image/png" });
   fireEvent.change(screen.getByLabelText("수정 광고 파일"), { target: { files: [file] } });
   const submit = screen.getByRole("button", { name: "수정본 등록 후 비교·재검토" });
   fireEvent.submit(submit.closest("form") as HTMLFormElement);
 
-  expect(await screen.findByText("REVISION-M6-2")).toBeInTheDocument();
-  expect(screen.getByText("REV-M6-2")).toBeInTheDocument();
+  expect(await screen.findByText("수정본 등록과 재검토 요청이 완료되었습니다.")).toBeInTheDocument();
+  expect(screen.queryByText("REVISION-M6-2")).not.toBeInTheDocument();
+  expect(screen.queryByText("REV-M6-2")).not.toBeInTheDocument();
   expect(calls.map((call) => new URL(call.url, "http://test").pathname)).toEqual([
     "/api/v1/advertisements/ADV-M6/revisions",
     "/api/v1/advertisements/ADV-M6/comparisons",

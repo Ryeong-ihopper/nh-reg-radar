@@ -23,6 +23,7 @@ from nh_ad_parser_contracts import (
 
 if TYPE_CHECKING:
     from nh_ad_worker.results import ReviewResultBundle, ReviewResultEngine
+    from nh_ad_worker.suggestions import SuggestionProposal, SuggestionRefiner
 
 
 RETRY_DELAYS = (timedelta(minutes=1), timedelta(minutes=3), timedelta(minutes=10))
@@ -86,6 +87,10 @@ class WorkerJob:
     normalized_document: NormalizedDocument | None = None
     review_results: ReviewResultBundle | None = None
     review_status: str = "ANALYSIS_REQUESTED"
+    current_step: str | None = None
+    progress_rate: int = 0
+    progress_history: list[str] = field(default_factory=list)
+    include_suggestion: bool = True
 
 
 class JobRepository(Protocol):
@@ -93,6 +98,7 @@ class JobRepository(Protocol):
         self, message: QueueMessage, *, worker_id: str, now: datetime
     ) -> WorkerJob | None: ...
     def heartbeat(self, job_id: str, *, worker_id: str, now: datetime) -> None: ...
+    def advance(self, job_id: str, *, worker_id: str, now: datetime, step_code: str) -> None: ...
     def fail_claim_error(
         self,
         message: QueueMessage,
@@ -112,6 +118,9 @@ class JobRepository(Protocol):
     def persist_results(
         self, job_id: str, results: ReviewResultBundle, *, worker_id: str
     ) -> None: ...
+    def persist_suggestions(
+        self, job_id: str, suggestions: tuple[SuggestionProposal, ...], *, worker_id: str
+    ) -> None: ...
     def complete(
         self, job_id: str, *, worker_id: str, now: datetime, check_required: bool
     ) -> None: ...
@@ -128,6 +137,7 @@ class JobRepository(Protocol):
 class InMemoryJobRepository:
     def __init__(self, jobs: Iterable[WorkerJob] = ()) -> None:
         self.jobs = {job.job_id: job for job in jobs}
+        self.suggestions: dict[str, SuggestionProposal] = {}
 
     def claim(self, message: QueueMessage, *, worker_id: str, now: datetime) -> WorkerJob | None:
         job = self.jobs.get(message.job_id)
@@ -143,12 +153,35 @@ class InMemoryJobRepository:
         job.review_status = "ANALYZING"
         job.locked_by = worker_id
         job.heartbeat_at = now
+        job.current_step = "FILE_PREPROCESSING"
+        job.progress_rate = 5
+        job.progress_history.append("FILE_PREPROCESSING")
         return job
 
     def heartbeat(self, job_id: str, *, worker_id: str, now: datetime) -> None:
         job = self.jobs[job_id]
         if job.status != "RUNNING" or job.locked_by != worker_id:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
+        job.heartbeat_at = now
+
+    def advance(self, job_id: str, *, worker_id: str, now: datetime, step_code: str) -> None:
+        progress_rates = {
+            "FILE_PREPROCESSING": 5,
+            "OCR_EXTRACTION": 25,
+            "LAYOUT_ANALYSIS": 50,
+            "RULE_REVIEW": 65,
+            "RAG_REVIEW": 80,
+            "RESULT_GENERATION": 95,
+        }
+        if step_code not in progress_rates:
+            raise ValueError("UNKNOWN_REVIEW_STEP")
+        job = self.jobs[job_id]
+        if job.status != "RUNNING" or job.locked_by != worker_id:
+            raise ValueError("ILLEGAL_JOB_TRANSITION")
+        job.current_step = step_code
+        job.progress_rate = progress_rates[step_code]
+        if not job.progress_history or job.progress_history[-1] != step_code:
+            job.progress_history.append(step_code)
         job.heartbeat_at = now
 
     def fail_claim_error(
@@ -208,12 +241,26 @@ class InMemoryJobRepository:
             raise ValueError("REVIEW_RESULTS_ALREADY_PERSISTED")
         job.review_results = results
 
+    def persist_suggestions(
+        self, job_id: str, suggestions: tuple[SuggestionProposal, ...], *, worker_id: str
+    ) -> None:
+        job = self.jobs[job_id]
+        if job.status != "RUNNING" or job.locked_by != worker_id:
+            raise ValueError("ILLEGAL_JOB_TRANSITION")
+        for suggestion in suggestions:
+            existing = self.suggestions.get(suggestion.suggestion_id)
+            if existing is not None and existing != suggestion:
+                raise ValueError("SUGGESTION_IDEMPOTENCY_CONFLICT")
+            self.suggestions[suggestion.suggestion_id] = suggestion
+
     def complete(self, job_id: str, *, worker_id: str, now: datetime, check_required: bool) -> None:
         job = self.jobs[job_id]
         if job.status != "RUNNING" or job.locked_by != worker_id or job.normalized_document is None:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
         job.status = "COMPLETED"
         job.review_status = "CHECK_REQUIRED" if check_required else "REVIEW_COMPLETED"
+        job.current_step = None
+        job.progress_rate = 100
         job.heartbeat_at = now
 
     def retry_or_dead_letter(
@@ -306,6 +353,7 @@ class ParserJobProcessor:
         now: Callable[[], datetime] | None = None,
         raw_output: Callable[[DocumentInput, NormalizedDocument], bytes] | None = None,
         result_engine: ReviewResultEngine | None = None,
+        suggestion_refiner: SuggestionRefiner | None = None,
         heartbeat_interval_seconds: float = 30.0,
     ) -> None:
         self.repository = repository
@@ -318,6 +366,7 @@ class ParserJobProcessor:
             lambda _input, output: output.model_dump_json(by_alias=True).encode("utf-8")
         )
         self._result_engine = result_engine
+        self._suggestion_refiner = suggestion_refiner
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
 
     def process(self, payload: dict[str, object]) -> str:
@@ -361,7 +410,13 @@ class ParserJobProcessor:
         )
         heartbeat.start()
         try:
+            self.repository.advance(
+                job.job_id, worker_id=self.worker_id, now=self._now(), step_code="OCR_EXTRACTION"
+            )
             selection = self.router.parse_with_attempts(job.document)
+            self.repository.advance(
+                job.job_id, worker_id=self.worker_id, now=self._now(), step_code="LAYOUT_ANALYSIS"
+            )
             selected_artifact: ArtifactMetadata | None = None
             for attempt in selection.attempts:
                 normalized = attempt.normalized_document
@@ -400,12 +455,28 @@ class ParserJobProcessor:
             )
             check_required = normalized.confidence.status.value != "READABLE"
             if self._result_engine is not None:
-                results = self._result_engine.execute(normalized)
+                self.repository.advance(
+                    job.job_id, worker_id=self.worker_id, now=self._now(), step_code="RULE_REVIEW"
+                )
+                results = self._result_engine.execute(
+                    normalized,
+                    on_stage=lambda step_code: self.repository.advance(
+                        job.job_id, worker_id=self.worker_id, now=self._now(), step_code=step_code
+                    ),
+                )
                 self.repository.persist_results(
                     job.job_id,
                     results,
                     worker_id=self.worker_id,
                 )
+                if job.include_suggestion:
+                    from nh_ad_worker.suggestions import rule_suggestions
+
+                    self.repository.persist_suggestions(
+                        job.job_id,
+                        rule_suggestions(results, refine=self._suggestion_refiner),
+                        worker_id=self.worker_id,
+                    )
                 check_required = check_required or results.check_required
             self.repository.complete(
                 job.job_id,

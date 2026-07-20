@@ -7,9 +7,9 @@ cd "$ROOT"
 MODE="${1:---publish}"
 REPOSITORY="${GITHUB_REPOSITORY:-bhjeon-cginside/nh-ad-compliance}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
-EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-94}"
-EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-15}"
-EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-79}"
+EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-97}"
+EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-16}"
+EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-81}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 PAGE_MAP_PATH="${NOTION_PAGE_MAP_PATH:-governance/notion-page-map.json}"
 SYNC_BASE_SHA="${NOTION_SYNC_BASE_SHA:-}"
@@ -48,7 +48,8 @@ list_general_files() {
     docs/reference-repositories.md \
     docs/poc-kpi-formulas.md \
     docs/poc-evaluation-exclusion-criteria.md \
-    docs/risk-assessment-criteria.md
+    docs/risk-assessment-criteria.md \
+    docs/frontend-implementation-audit.md
 }
 
 list_adr_files() {
@@ -87,6 +88,8 @@ display_title() {
   title="$(source_title "$source_path")"
   if [ "$section" = "general" ] && [ "$order" = "00" ]; then
     printf '%s\n' "$title"
+  elif [ "$source_path" = "docs/frontend-implementation-audit.md" ]; then
+    printf '참고. %s\n' "$title"
   elif [ "$section" = "general" ] || [ "$order" = "00" ] || [ "$order" = "01" ]; then
     printf '%s. %s\n' "$order" "$title"
   else

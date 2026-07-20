@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
-# Ingest ADR-0002-approved local regulation PDFs through the explicit dev-only
-# OpenAI boundary. The script prints only sanitized ingestion identifiers.
+# Ingest all ADR-0002-approved local regulation documents through the explicit
+# dev-only parser and metadata-extraction boundaries. The script prints only
+# sanitized ingestion identifiers.
 set -Eeuo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
+
+# A source hash is idempotent, but concurrent create attempts cannot share that
+# check atomically through the standard-management API. Keep the explicit local
+# developer lane single-writer until a database uniqueness constraint is added.
+LOCK_FILE="${TMPDIR:-/tmp}/nh-ad-reference-ingest.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  printf '%s\n' 'reference ingestion is already running on this host' >&2
+  exit 75
+fi
 
 ENV_FILE="${NH_LOCAL_DEV_ENV_FILE:-.env.dev}"
 if [[ "${1:-}" == "--env-file" ]]; then
@@ -37,7 +48,7 @@ if [[ "$enabled" != "true" || -z "$api_key" || -z "$model" || -z "$embedding_mod
 fi
 unset api_key model embedding_model
 
-printf '%s\n' '[reference-ingest] running dev-only approved-PDF ingestion'
+printf '%s\n' '[reference-ingest] parsing and indexing approved PDF/HWP/HWPX reference documents'
 "${COMPOSE[@]}" run --rm --no-deps \
   --env 'NH_REFERENCE_EXTRACTOR=nh_ad_backend.openai_reference_extractor:OpenAIReferenceExtractor' \
   backend python -m nh_ad_backend.reference_ingestion "$@"

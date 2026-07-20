@@ -8,12 +8,38 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.11 |
-| 기준일 | 2026-07-16 |
+| 현행 버전 | v1.36 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.36 | 2026-07-20 | S-005 상태 조회의 `jobStatus`·`failedReasonCode`·`reviewStatus`로 기술 일시 오류 재시도와 OCR 판독 불가·일반 확인 필요 안내를 구분하도록 반영 (API 계약 변경 없음) |
+| v1.35 | 2026-07-20 | S-003·S-014·검증 화면의 상품군 공통 코드에 대출을 추가하고, API enum과 화면 선택값을 동기화 |
+| v1.34 | 2026-07-20 | 로그인 공개 화면은 API 계약 변경 없이 헤더 제외 뷰포트에 맞춘 중앙 레이아웃으로 불필요한 세로 스크롤을 제거하도록 정정 |
+| v1.33 | 2026-07-20 | S-003의 취소·광고물 등록 액션을 별도 sticky 컨테이너 없이 폼 최하단의 일반 액션 행으로 배치하도록 화면 반영을 정정 (API 계약 변경 없음) |
+| --- | --- | --- |
+| v1.32 | 2026-07-20 | S-009는 `includeSuggestion=true` 검토 완료 시 위험 Rule 결과·연결 근거에서 생성된 추천을 표시하고, LLM 문장 보강 실패 시에도 기본 추천을 유지하도록 worker 생성 경계를 반영 |
+| v1.31 | 2026-07-20 | S-009 추천 문구 목록이 비어 있을 때 항목별 검토 결과의 수정 권고로 이어지는 빈 상태를 추가 (API 계약 변경 없음) |
+| v1.30 | 2026-07-20 | S-007 BOX의 normalized coordinate를 스크롤 뷰포트가 아닌 실제 원본 미디어 기준으로 변환하고, hover·선택 표현이 원문을 가리지 않도록 정정 (API 계약 변경 없음) |
+| v1.29 | 2026-07-20 | HWP/HWPX 변환 SVG도 Blob 이미지로 가로폭에 맞춰 렌더링하고, 미리보기 영역의 가로 스크롤을 차단해 세로 스크롤로 원본을 확인하도록 정정 (API 계약 변경 없음) |
+| v1.28 | 2026-07-20 | S-005가 GET 검토 상태의 완료 응답을 확인한 뒤 지연된 비완료 응답으로 완료 UI를 되돌리지 않도록 화면 상태 안정화 경계를 반영 (API 계약 변경 없음) |
+| v1.27 | 2026-07-20 | S-007이 Annotation의 업무 파일 분류가 아닌 preview 콘텐츠 MIME 타입으로 렌더링 형식을 결정하도록 정정 (API 계약 변경 없음) |
+| v1.26 | 2026-07-20 | S-005 중립 단계 카드, 원본 내부 스크롤, S-008 문구 우선 칩·표 상세 및 Annotation 좌표 기반 원본 위치 이동을 반영 (API 계약 변경 없음) |
+| v1.25 | 2026-07-20 | S-006 기본정보 표·간결한 원본 병행 패널·중립 최종 판단 안내 표시를 반영 (API 계약 변경 없음) |
+| v1.24 | 2026-07-20 | ADR-0078의 test/admin PoC 계정 프로필을 반영 (API 역할 계약 변경 없음) |
+| v1.23 | 2026-07-20 | 역할 기반 접근 제한 화면의 중립 테두리 표시를 반영 (API 계약 변경 없음) |
+| v1.22 | 2026-07-20 | S-014의 개별 검색 데이터 갱신은 신규·개정 자료 확인 및 단건 색인 실패 복구용이며, 공통 검색 설정 변경은 별도 전체 일괄 갱신 범위임을 화면 안내에 반영 (API 계약 변경 없음) |
+| v1.21 | 2026-07-20 | S-014에서 청크 확인, 검색 데이터 갱신, 검토 적용 중지를 사용자용 명칭으로 구분하고 검색 갱신과 적용 중지가 서로 독립된 API 동작임을 명시 (API 계약 변경 없음) |
+| v1.20 | 2026-07-20 | API 호출 없이 렌더링 실패를 처리하는 전용 오류 경계 화면의 중립 중앙 안내·뷰포트 높이 경계를 반영 |
+| v1.19 | 2026-07-20 | API 계약 변경 없이 접근 거부 상태의 중립 표시, 데스크톱 고정 탐색 및 검증 제외 선택의 화면 안내 경계를 동기화 |
+| v1.18 | 2026-07-20 | API 계약은 유지하고 S-012/S-014/S-015/S-016의 화면 기본 출력에서 기술 식별자·해시·원시 enum을 제거하여 일반 업무 용어로 표시하는 경계를 반영 |
+| v1.17 | 2026-07-18 | S-014 규정·가이드라인 등록 화면의 적용 범위·문서 정보·검토 본문 흐름과 검색 반영의 사용자용 상태명을 반영 (API 계약 변경 없음) |
+| v1.16 | 2026-07-18 | 광고물 상세의 기존 검토 이력 조회·진행/결과 복귀와 핵심 화면 공통 업무 단계·결과 하위 탐색 표시를 반영 |
+| v1.15 | 2026-07-18 | 로그인 카드의 정적 NH농협은행 로고를 제거하고 인증 후 공통 헤더에만 유지하도록 화면 표시 경계를 정정 |
+| v1.14 | 2026-07-18 | S-004~S-008 원본 자동 미리보기와 Worker 단계별 진행률·화면 이탈 후 서버 작업 지속 경계를 반영 |
+| v1.13 | 2026-07-17 | 로그인·공통 헤더의 NH농협은행 로고 표시와 대체 텍스트는 API 호출 없이 정적 자산으로 제공함을 명시 |
+| v1.12 | 2026-07-17 | HWP/HWPX private SVG 미리보기 호출, 실패 코드 및 Text IR 병행 표시를 반영 |
 | v1.11 | 2026-07-16 | S-004 로컬 오늘 기준일 기본값, S-005 완료 단계 정합성, S-007 HWP/HWPX preview 비호출과 Text IR 안내를 반영 |
 | --- | --- | --- |
 | v1.10 | 2026-07-16 | 로그인 UI에서 내부 마일스톤 표기를 제거하고 사용자용 제목만 유지하는 화면 반영 기준을 추가 |
@@ -69,7 +95,7 @@
 
 | 구분 | API | Method | 설명 | 비고 |
 | --- | --- | --- | --- | --- |
-| 로그인 | `/auth/login` | POST | access token과 사용자 context 수신 | `credentials: include`, `refreshToken` httpOnly cookie는 브라우저가 관리. UI는 `로그인`만 표시하며 내부 마일스톤 명칭을 노출하지 않음 |
+| 로그인 | `/auth/login` | POST | access token과 사용자 context 수신 | `credentials: include`, `refreshToken` httpOnly cookie는 브라우저가 관리. UI는 `로그인`만 표시하며 내부 마일스톤 명칭과 NH농협은행 로고를 노출하지 않는다. 로고는 인증 후 공통 헤더에서 API 없이 정적 자산과 대체 텍스트로 제공한다. |
 | 로그아웃 | `/auth/logout` | POST | refresh session revoke와 cookie 삭제 | 화면은 성공/실패와 무관하게 메모리 access token 제거 |
 | 사용자 정보 | `/users/me` | GET | 로그인 사용자 정보 조회 | API 명세서 정의됨 |
 | 공통 코드 | `/codes/product-groups` | GET | 상품군 코드 조회 | `/codes/{codeGroup}`으로 정의됨 |
@@ -101,8 +127,8 @@
 | S-012 | 검토 리포트 | 리포트 생성, 리포트 조회, 다운로드 |
 | S-013 | 수정 전후 비교 | 수정본 등록, 비교 요청, 비교 결과 조회 |
 | S-014 | 기준자료 관리 | 기준자료 목록 조회, 등록, 수정, 비활성화 |
-| S-015 | PoC 검증 관리 | 검증 데이터셋 조회, 등록, 담당자 판단 등록 |
-| S-016 | 성능 평가 | 성능 평가 실행, 평가 결과 조회 |
+| S-015 | 검토 품질 관리 | 검증 데이터 조회, 등록, 담당자 판단 등록 |
+| S-016 | 검증 결과 평가 | 성능 평가 실행, 평가 결과 조회 |
 | S-017 | 사용자/권한 관리 | 사용자 목록 조회, 권한 변경, 감사 로그 조회 |
 
 ---
@@ -173,9 +199,10 @@ M2 1차 화면은 OpenAPI v0.2.0 `AdvertisementPage`에 잠긴 광고물 ID·광
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 목록 ID 클릭 | M2 광고물 기본 상세 | `/advertisements/{advertisementId}` | GET | `advertisementId` | `AdvertisementDetail`, 안전한 `AdvertisementFile` 메타데이터 | `/advertisements/{advertisementId}` 기본정보·파일 목록 |
+| 광고물 상세 진입 | 기존 검토 이력 조회 | `/advertisements/{advertisementId}/reviews` | GET | `advertisementId` | `ReviewHistory[]`: 회차, 검토 상태, 위험도, 요청·완료일 | 최근 검토를 우선 표시하고 진행 중이면 S-005, 완료·확인 필요이면 S-006 복귀 링크 제공 |
 | 단건 권한 거부 | 부서 scope 거부 | `/advertisements/{advertisementId}` | GET | 타 부서 `advertisementId` | 403 `ErrorResponse` | 전용 권한 안내. raw message, object key, presigned URL 미표시 |
 | 파일 미리보기 클릭 | 미리보기 descriptor 조회 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo=1` | `FilePreview`, backend 상대 `previewPath` | 안전한 content 경로 검증 후 다음 호출 |
-| descriptor 검증 후 | 렌더링 이미지 조회 | `/files/{fileId}/preview/content` | GET | `fileId`, `pageNo` | `image/png` binary | object URL로 화면 미리보기. Bearer 인증 유지 |
+| descriptor 검증 후 | 렌더링 이미지 조회 | `/files/{fileId}/preview/content` | GET | `fileId`, `pageNo` | `image/png`/`image/jpeg`/`application/pdf` 또는 HWP/HWPX 변환 `image/svg+xml` binary | object URL로 화면 미리보기. HWP/HWPX SVG는 이미지처럼 가로폭에 맞춰 렌더링하고 가로 스크롤 없이 세로 스크롤로 확인한다. Bearer 인증 유지 |
 | 파일 다운로드 클릭 | 원본 파일 proxy 다운로드 | `/files/{fileId}/download` | GET | `fileId` | binary, `Content-Disposition` | 파일명으로 저장. Bearer 인증 유지 |
 | 파일 권한 거부 | 부서 scope 거부 | 위 파일 API | GET | 타 부서 `fileId` | 403 `ErrorResponse` | 미리보기/다운로드 전용 권한 안내. raw message, bucket, object key 미표시 |
 
@@ -225,7 +252,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 광고명, 상품군, 광고유형, 파일 목록 | 광고물 기본정보 영역 |
+| 화면 진입 | 광고물 상세 조회·원본 자동 미리보기 | `/advertisements/{advertisementId}` → `/files/{fileId}/preview` | GET | `advertisementId`, `fileId`, `pageNo` | 광고명, 상품군, 광고유형, 파일 목록·private preview | 입력 영역과 원본 병행 패널 |
 | 화면 진입 | 검토유형 코드 조회 | `/codes/review-types` | GET | 없음 | 검토유형 코드 목록 | 검토 항목 선택 영역 |
 | 분석 요청 클릭 | AI 검토 요청 | `/advertisements/{advertisementId}/reviews` | POST | `CreateReviewRequest`: `standardEffectiveDate`(사용자 로컬 오늘 날짜 기본값, 변경 가능), `reviewTypes`, `includeSuggestion`, `includeOpinionDraft`, `requestMemo` | `ReviewAccepted`: `reviewId`, `jobId`, `reviewStatus`, `standardVersionIds`, `requestedAt` | 응답 `reviewId`로 S-005 이동 |
 | 이전 클릭 | 화면 이동 | - | - | - | - | S-002 이동 |
@@ -249,7 +276,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입/비 terminal 자동 갱신 | 검토 진행 상태 조회 | `/reviews/{reviewId}/status` | GET | `reviewId` | `ReviewProgress`: `reviewStatus`, `jobStatus`, `currentStep`, `progressRate`, retry/실패 필드, `steps` | 진행률·단계와 running/retry pending/stale/final failure/quality warning 상태 표시. `COMPLETED` Job은 모든 정의된 step을 완료로 표시 |
+| 화면 진입/비 terminal 자동 갱신 | 검토 진행 상태·원본 병행 표시 | `/reviews/{reviewId}/status` → `/advertisements/{advertisementId}` → `/files/{fileId}/preview` | GET | `reviewId`, `advertisementId`, `fileId`, `pageNo` | `ReviewProgress`: `currentStep`, `progressRate`, `steps`, `jobStatus`, `failedReasonCode`, `reviewStatus` 및 파일 preview | Worker가 영속한 단계별 진행률과 원본을 함께 표시한다. `RETRY_PENDING`은 기술 일시 오류의 자동 재시도, `OCR_UNREADABLE`은 원본 품질 확인, 그 외 `CHECK_REQUIRED`은 검토 근거·조건 확인으로 구분해 안내한다. 화면 이탈은 서버 작업을 중단하지 않고 재진입 시 최신 상태를 조회한다. `COMPLETED` Job은 모든 정의된 step을 완료로 표시 |
 | 새로고침 클릭 | 상태 갱신 | `/reviews/{reviewId}/status` | GET | `reviewId` | 최신 `ReviewProgress` | 진행률 및 단계 갱신. terminal 상태에서는 자동 갱신 중지 |
 | 결과 보기 클릭 | 검토 결과 요약 이동 | `/reviews/{reviewId}/summary` | GET | `reviewId` | 검토 요약 | S-006 이동 |
 | `isRetryable=true` 실패/stale에서 재분석 클릭 | AI 재분석 요청 | `/reviews/{reviewId}/rerun` | POST | `RerunReviewRequest`: `reason`, `reviewTypes` | `RerunReviewAccepted`: `newReviewId`, `previousReviewId`, `jobId`, `reviewStatus` | 이력을 덮어쓰지 않고 `newReviewId`의 S-005 표시 |
@@ -274,7 +301,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 광고 기본정보, 파일정보 | 광고 기본정보 영역 |
+| 화면 진입 | 광고물 상세 조회·원본 자동 미리보기 | `/advertisements/{advertisementId}` → `/files/{fileId}/preview` | GET | `advertisementId`, `fileId`, `pageNo` | 광고 기본정보, 파일정보·private preview | 광고 기본정보 표와 제목만 표시한 원본 병행 패널 |
 | 화면 진입 | 검토 결과 요약 조회 | `/reviews/{reviewId}/summary` | GET | `reviewId` | 종합 위험도, 문제 건수, 검토유형별 요약, 주요 리스크 | 검토 요약 영역 |
 | 주요 리스크 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 판단 사유, 근거, 추천 문구, ADR-0066 기준 Coordinate | 상세 팝업 또는 S-008 이동 |
 | 광고 화면 보기 클릭 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo` | Annotation 표시 모드, 위치 상태, Coordinate/텍스트 위치 | S-007 이동 |
@@ -302,8 +329,8 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 파일 ID, 광고 기본정보 | 상단 정보 영역 |
-| 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 이미지/PDF에서만 광고 원본 미리보기 영역에 호출 |
-| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 preview API를 호출하지 않고 Text IR 및 원본 다운로드 안내를 표시 |
+| 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 이미지/PDF/HWP/HWPX 모두 광고 원본 미리보기 영역에 호출. HWP/HWPX는 private 변환 SVG를 반환 |
+| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 SVG 미리보기와 Text IR 하이라이트 및 원본 다운로드를 함께 표시 |
 | Annotation 또는 목록 항목 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 원문, 문제유형, 판단사유, 근거, 추천문구 | 선택 항목 상세 패널 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준명, 조항, 내용, 적용일 | 근거 상세 팝업 |
 | 필터 선택 | Annotation 필터링 | `/reviews/{reviewId}/annotations` | GET | `reviewType`, `riskLevel`, `pageNo` | 필터링된 Annotation 목록 | 화면 표시 갱신 |
@@ -336,8 +363,8 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 상세 검토 결과 목록 조회 | `/reviews/{reviewId}/items` | GET | `reviewType`, `riskLevel`, `resultStatus`, `page`, `size` | 검토 항목 목록 | 목록 영역 |
 | 조회/필터 클릭 | 상세 결과 조건 조회 | `/reviews/{reviewId}/items` | GET | 필터 조건 | 필터링된 검토 항목 목록 | 목록 영역 갱신 |
-| 행 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 상세 판단 사유, ADR-0043 기준 핵심 근거 최대 3개, 추천 문구, Coordinate | 상세 패널 또는 팝업 |
-| 광고 화면에서 보기 클릭 | Annotation 위치 이동 | `/reviews/{reviewId}/annotations` | GET | `reviewItemId` 또는 `pageNo` | 표시 모드, 위치 상태, Coordinate/텍스트 위치 | S-007 이동 |
+| 행 클릭 | 검토 항목 상세 조회·원본 위치 이동 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 상세 판단 사유, ADR-0043 기준 핵심 근거 최대 3개, 추천 문구, Coordinate | 문구 우선 상세 패널을 표로 표시하고 Coordinate가 있으면 같은 화면의 원본 미리보기를 해당 위치로 스크롤 |
+| 광고 화면에서 보기 클릭 | Annotation 위치 이동 | `/reviews/{reviewId}/annotations` | GET | `reviewItemId` 또는 `pageNo` | 표시 모드, 위치 상태, Coordinate/텍스트 위치 | S-007 이동 후 Coordinate가 있으면 원본 캔버스를 해당 위치로 스크롤 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 근거 상세정보 | 근거 팝업 |
 
 ### 3.18.1 M5 생성 client 실행 매핑
@@ -345,9 +372,9 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
 | --- | --- | --- |
 | S-006 `/reviews/{reviewId}/results` | `getReviewSummary` | 종합 위험도·집계·주요 리스크를 표시하고 `EvidenceStatus`의 검색 장애와 업무적 근거 부족을 서로 다른 안내로 표시한다. |
-| S-008 `/reviews/{reviewId}/results/items` | `listReviewItems`, `getReviewItem` | `reviewType`, `riskLevel`, `resultStatus` query를 생성 타입으로 전달하고, 선택 항목의 판단 사유·최종 결정 규칙·근거·수정 권고를 상세 패널에 표시한다. |
+| S-008 `/reviews/{reviewId}/results/items` | `listReviewItems`, `getReviewItem` | `reviewType`, `riskLevel`, `resultStatus` query를 생성 타입으로 전달한다. 문구를 우선 표시하고 검토 유형·판정·위험도는 칩으로 보조하며, 상세의 판단 방식·수정 권고·근거 상태는 표로 표시한다. Coordinate가 있으면 원본 미리보기의 해당 위치로 이동한다. |
 | S-007 `/reviews/{reviewId}/results/annotations` | `listReviewAnnotations` | `pageNo`, `reviewType`, `riskLevel` query와 BOX/TEXT_HIGHLIGHT/LIST_ONLY/UNAVAILABLE 표시 모드를 소비하며, 위치 신뢰도 확인 목록을 유지한다. |
-| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. 이미지/PDF BOX는 정규화 좌표를 사용하고 HWP/HWPX는 offset 하이라이트를 사용한다. |
+| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. Annotation의 `fileType`은 업무상 분류이므로 렌더링 형식 판정에 사용하지 않고 preview 콘텐츠 MIME 타입을 사용한다. 이미지와 HWP/HWPX 변환 SVG는 가로폭에 맞춰 표시한다. 이미지/PDF BOX는 정규화 좌표를 실제 렌더링 원본 미디어의 폭·높이로 변환하며, HWP/HWPX는 private 변환 SVG와 offset 하이라이트를 함께 사용한다. |
 | 공통 | 위 네 M5 operation | loading/empty/error/403을 전용 상태로 표시하고 서버 원문, raw artifact/object key/presigned URL은 렌더링하지 않는다. |
 
 ---
@@ -369,7 +396,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입 | 문구 추천 목록 조회 | `/reviews/{reviewId}/suggestions` | GET | `reviewId` | 원문, 추천 문구, 추천 사유, 근거 ID, 채택 상태 | 추천 문구 목록 |
+| 화면 진입 | 문구 추천 목록 조회 | `/reviews/{reviewId}/suggestions` | GET | `reviewId` | 원문, 추천 문구, 추천 사유, 근거 ID, 채택 상태 | `includeSuggestion=true`인 검토는 완료 worker가 위험 Rule 결과와 연결 근거로 생성한 추천을 표시한다. LLM 문장 보강은 선택적이며 실패 시 Rule 기본 추천을 유지한다. 빈 배열이면 빈 상태와 S-008 이동을 표시 |
 | 추천 항목 클릭 | 관련 검토 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewItemId` | 판단 사유, 위험도, 근거 | 문제 분석 영역 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 근거 상세정보 | 근거 팝업 |
 | 채택/미채택/수정 후 저장 클릭 | 문구 추천 판단 저장 | `/suggestions/{suggestionId}/decision` | PATCH | `decisionStatus`, `finalText`, `comment`. `MODIFIED_AND_USED`는 `finalText` 필수 | 저장 결과, 수정일시, 최종 사용 문구 | 채택 상태 갱신 |
@@ -495,8 +522,8 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | S-009 `/reviews/{reviewId}/support` | `listReviewSuggestions`, `recordSuggestionDecision` | 추천 문구를 조회하고 `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED`를 저장한다. `MODIFIED_AND_USED`는 요청 전 `finalText`를 필수 검증하며 저장 후 목록을 다시 조회한다. |
 | S-010 `/reviews/{reviewId}/support` | `askComplianceQuestion`, `listComplianceQuestions` | 질문 결과의 답변 요약·상세·고정 근거를 표시한다. 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. |
 | S-011 `/reviews/{reviewId}/support` | `listOpinionDrafts`, `createOpinionDraft`, `updateOpinionDraft` | 최신 초안을 조회하고 없으면 생성한다. 원본 `draftContent`를 유지한 채 담당자 `finalContent`를 저장하고 다시 조회한다. |
-| S-012 `/reviews/{reviewId}/support` | `createReviewReport`, `getReviewReport`, `downloadReviewReport` | HWPX/PDF snapshot의 상태·버전·해시와 PDF 원본 HWPX `sourceReportId`를 표시한다. 다운로드는 Bearer 권한을 확인하며 변환 실패는 원본 HWPX와 분리한다. |
-| S-013 `/advertisements/{advertisementId}/comparisons` | `createAdvertisementComparison`, `getAdvertisementComparison` | 기준 검토와 수정본을 비교해 해결·미해결·신규 건수 및 항목을 표시하고 `reanalysisReviewId`를 재분석 연결로 노출한다. |
+| S-012 `/reviews/{reviewId}/support` | `createReviewReport`, `getReviewReport`, `downloadReviewReport` | HWPX/PDF 리포트의 생성 형식·준비 상태와 다운로드를 표시한다. 응답의 식별자·해시는 클라이언트 동작에만 사용하고 기본 화면에는 표시하지 않는다. 다운로드는 Bearer 권한을 확인하며 변환 실패는 원본 HWPX와 분리한다. |
+| S-013 `/advertisements/{advertisementId}/comparisons` | `createAdvertisementComparison`, `getAdvertisementComparison` | 기존 검토에서 진입해 수정본을 비교하고 해결·미해결·신규 확인 건수와 항목을 표시한다. 비교 API의 식별자는 요청에만 사용하며 기본 화면에는 노출하지 않는다. |
 | 공통 | 위 M6 operation | loading/error/403을 공통 상태로 표시하고 지원 산출물은 자동 확정하지 않는다. 화면은 내부 snapshot 원문, 감사 메타데이터, 저장소 경로를 노출하지 않는다. |
 
 ---
@@ -508,8 +535,8 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 항목 | 내용 |
 | --- | --- |
 | 화면 ID | S-014 |
-| 화면명 | 기준자료 관리 |
-| 화면 목적 | 법령, 내부기준, 상품기준, 심의사례, 문구 템플릿 관리 |
+| 화면명 | 검토 기준자료 관리 |
+| 화면 목적 | 규정·가이드라인·내부 기준 등록 및 광고 검토 근거 관리 |
 | 주요 사용자 | 기준 관리자, 시스템 관리자 |
 
 ---
@@ -520,14 +547,14 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 기준자료 목록 조회 | `/standards` | GET | `page`, `size`, `activeOnly` | 기준자료 목록 | 목록 영역 |
 | 조회 클릭 | 기준자료 조건 검색 | `/standards` | GET | `keyword`, `evidenceType`, `productGroup`, `advertisementType`, `ruleType`, `activeOnly` | 조건에 맞는 기준자료 목록 | 목록 영역 |
-| 신규 등록 클릭 | 내부 기준 등록 | `/standards` | POST | `multipart/form-data`: 기준명, `INTERNAL_STANDARD`, 상품군, 광고유형, 기준성격, 중요도, 적용일, 직접 입력 내용, 선택 원문 파일 및 `metadata` JSON(`owningDepartment`, `documentName`, `sectionPath`, `effectiveDate`, `version`, `productGroup`, `inputBoundary`) | `standardId`, `evidenceId`, `version` | 등록 완료 후 목록 갱신. `metadata.productGroup`/`effectiveDate`는 상위 multipart 필드와 같은 값 유지 |
+| 기준자료 등록 클릭 | 규정·가이드라인·내부 기준 등록 | `/standards` | POST | `multipart/form-data`: 기준명, `INTERNAL_STANDARD`, 상품군, 광고유형, 기준성격, 중요도, 적용일, 직접 입력 내용, 선택 원문 파일 및 `metadata` JSON(`owningDepartment`, `documentName`, `sectionPath`, `effectiveDate`, `version`, `productGroup`, `inputBoundary`) | `standardId`, `evidenceId`, `version` | 등록 완료 후 목록 갱신. `metadata.productGroup`/`effectiveDate`는 상위 multipart 필드와 같은 값 유지 |
 | 행 클릭 | 기준자료 단건 조회 | `/standards/{standardId}` | GET | `standardId` | master와 현재 불변 version 상세 | 상세 영역 |
 | 수정 클릭 | 기준자료 수정 | `/standards/{standardId}` | PATCH | 기준명, 내용, 적용일, 변경 사유 | 수정 결과 | 상세 영역 갱신 |
-| 비활성화 클릭 | 기준자료 비활성화 | `/standards/{standardId}/deactivate` | PATCH | `reason` | 비활성화 결과 | 상태 변경 |
+| 검토 적용 중지 클릭 | 기준자료 검토 적용 중지 | `/standards/{standardId}/deactivate` | PATCH | `reason` | 미적용 상태 | 기준자료와 이력은 유지하고 광고 검토·근거 검색 대상에서 제외 |
 | 이력 보기 클릭 | 기준자료 변경 이력 조회 | `/standards/{standardId}/histories` | GET | `standardId` | 불변 version 변경 이력 목록 | 이력 패널 |
-| 재색인 클릭 | 기준자료 재색인 요청 | `/standards/{standardId}/versions/{standardVersionId}/reindex` | POST | `reindexScope`, `reason`, model/version 정보 | `jobId`, `jobStatus` | 재색인 상태 표시 |
-| 재색인 상태 확인 | 기준자료 재색인 상태 조회 | `/standard-reindex-jobs/{jobId}` | GET | `jobId` | 상태, 처리 건수, 실패 사유 | 상태 배지/오류 표시 |
-| Chunk 확인 클릭 | 기준자료 Chunk 목록 조회 | `/evidences/{evidenceId}/chunks` | GET | `evidenceId`, `page`, `size` | 내부 index/point/doc ID가 제거된 Chunk 내용·version·상태 | 관리자 보조 화면 |
+| 검색 데이터 갱신 클릭 | 선택한 기준자료 버전의 검색 데이터 갱신 요청 | `/standards/{standardId}/versions/{standardVersionId}/reindex` | POST | `reindexScope`, `reason`, model/version 정보 | `jobId`, `jobStatus` | 신규·개정 자료 확인 또는 단건 색인 실패 복구에 사용. 공통 모델·스키마 변경은 전체 일괄 갱신 범위 |
+| 검색 데이터 갱신 상태 확인 | 기준자료 검색 데이터 갱신 상태 조회 | `/standard-reindex-jobs/{jobId}` | GET | `jobId` | 상태, 처리 건수, 실패 사유 | 상태 배지/오류 표시 |
+| 청크 확인 클릭 | 기준자료 청크 목록 조회 | `/evidences/{evidenceId}/chunks` | GET | `evidenceId`, `page`, `size` | 내부 index/point/doc ID가 제거된 청크 내용·version·상태 | 관리자 보조 화면 |
 
 ### 3.33 확정 계약 경계
 
@@ -542,7 +569,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- |
 | 생성 타입 | OpenAPI 0.3.0 frozen 문서로 생성한 `StandardPage`, `StandardDetail`, `StandardHistoryPage`, `StandardReindexJob`, `EvidenceChunkPage`, `EvidenceSearchResult`를 client와 화면 경계에 사용 |
 | Route 권한 | `STANDARD_MANAGER`, `SYSTEM_ADMIN`만 `/standards` 접근과 navigation link를 허용하고, 그 외 role은 API 요청 전에 차단 |
-| 목록/관리 loading | 목록 조회와 상세·이력·Chunk·재색인·등록·수정·비활성화 action 진행 상태를 분리해 표시 |
+| 목록/관리 loading | 목록 조회와 상세·이력·청크 확인·검색 데이터 갱신·등록·수정·검토 적용 중지 action 진행 상태를 분리해 표시 |
 | Empty | 목록/이력/Chunk/검색 결과가 0건이면 해당 영역의 빈 상태 표시 |
 | 오류/redaction | ADR-0045 일반화 문구와 안전한 traceId만 표시하고 server message 및 index/point/doc ID를 숨김 |
 | 등록 metadata 오류 | `REFERENCE_METADATA_INVALID`를 필수 메타데이터 입력 확인 문구로 표시하고 안전한 traceId만 제공하며 backend 원문 message는 숨김 |

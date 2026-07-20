@@ -39,6 +39,7 @@ class ProductGroup(StrEnum):
     SAVINGS = "SAVINGS"
     DEMAND_DEPOSIT = "DEMAND_DEPOSIT"
     EVENT = "EVENT"
+    LOAN = "LOAN"
 
 
 class AdvertisementType(StrEnum):

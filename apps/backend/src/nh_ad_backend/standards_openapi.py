@@ -371,7 +371,7 @@ STANDARDS_OPENAPI: dict[str, Any] = {
                 "type": "string",
             },
             "ProductGroup": {
-                "enum": ["DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT"],
+                "enum": ["DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN"],
                 "type": "string",
             },
             "ReindexJobStatus": {

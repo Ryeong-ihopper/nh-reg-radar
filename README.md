@@ -71,11 +71,10 @@ scripts/local-dev.sh up
 
 기본 synthetic 로그인 계정은 다음과 같습니다.
 
-| 역할 | 이메일 | 비밀번호 |
-| --- | --- | --- |
-| 상품부서 사용자 | `test@ihopper.co.kr` | `Testihopper12#$` |
-| 준법감시 사용자 | `compliance@example.invalid` | `Testihopper12#$` |
-| 기준자료 관리자 | `standard@example.invalid` | `Testihopper12#$` |
+| 계정 | PoC 사용 목적 | 이메일 | 비밀번호 |
+| --- | --- | --- | --- |
+| 업무·기준자료 테스트 | 광고 등록·AI 검토·결과 확인, 법령·가이드라인 등 기준자료 등록/개정/검색 갱신 | `test@ihopper.co.kr` | `Testihopper12#$` |
+| 시스템 관리자 | 사용자·권한·감사·시스템 운영 확인 | `admin@ihopper.co.kr` | `Testihopper12#$` |
 
 개인 로컬 비밀번호를 바꾸려면 시작 시에만 다음처럼 전달합니다. 평문 비밀번호는 DB에 저장되지 않으며 scrypt hash만 dev seed에 전달됩니다.
 
@@ -126,7 +125,7 @@ curl --fail http://localhost:8001/ready
 
    적재기는 `docs/규정 및 가이드라인/` 아래의 PDF만 읽고, 표준·버전·근거 chunk를 만든 뒤 **OpenAI-compatible embedding과 Qdrant + OpenSearch hybrid index**에 재색인합니다. HWP/HWPX 규정은 이 최초 live 경로의 대상이 아닙니다. 동일 PDF는 SHA-256으로 식별되어 재실행 시 표준을 중복 생성하지 않고 재색인만 수행합니다.
 
-3. <http://localhost:5173>에서 `test@ihopper.co.kr`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
+3. <http://localhost:5173>에서 `test@ihopper.co.kr`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 같은 계정으로 **기준자료 관리**에서 법령·가이드라인·내부 기준도 등록할 수 있습니다. `admin@ihopper.co.kr`는 시스템 관리자 기능 확인에 사용합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/NH농협은행-2026_001-예금성.pdf` 및 `docs/광고예시/NH농협은행-2026_002-예금성.png`입니다.
 
 worker는 OpenAI Responses API를 **구조화 검토 판단**에만, OpenAI-compatible `/embeddings` API를 근거 검색에 사용하며 provider 원문 응답이나 API key는 저장하지 않습니다. 문서 추출은 private parser/OCR 서비스가 담당합니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. 구조화 판단 또는 임베딩 key가 없거나 기능이 꺼져 있으면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
 
@@ -211,6 +210,7 @@ npm --prefix apps/frontend run build
 | [요구사항 정의서](docs/requirements-definition.md) | 프로젝트 목적, 적용 범위, 사용자, 업무/기능/데이터/비기능 요구사항, 수용 기준 | 무엇을 만들어야 하는지 확인 | 요구사항 변경, 기능 우선순위 판단, 누락 요구사항 검토의 기준 |
 | [기능명세서](docs/functional-specification.md) | 화면별 기능, 입력값, 처리 규칙, 출력값, 예외 처리, 권한, 수용 기준 | 기능 동작 방식을 상세 확인 | 구현 단위, 상태 전이, 예외 처리, 테스트 조건 도출의 기준 |
 | [화면설계서](docs/screen-specification.md) | 메뉴 구조, 공통 화면 구성, 화면별 UI 구성, 버튼, 이동 흐름, 팝업, 메시지 | 사용자가 보는 화면과 흐름 확인 | 프론트엔드 화면/컴포넌트/라우팅 구현 기준 |
+| [프론트엔드 구현 감사 및 개편 기준](docs/frontend-implementation-audit.md) | 화면기획 대비 구현 감사, 공통 UX 개편 범위, 로컬 화면 캡처 검증 | 현재 프론트엔드 구현 품질과 보완 기준 확인 | 화면 개편과 시각 회귀 검증의 보조 기준 |
 | [화면-API 매핑표](docs/screen-api-mapping.md) | 화면별 호출 API, 호출 시점, 요청/응답값, 사용자 액션별 API 흐름 | 화면과 백엔드 연결 방식 확인 | 프론트엔드-백엔드 연동, API 호출 누락 검토 기준 |
 | [API 명세서](docs/api-specification.md) | API 설계 원칙, 공통 규격, 엔드포인트, 요청/응답 모델, 호출 흐름 | 외부/내부 연동 규격 확인 | 백엔드 라우터, DTO, 클라이언트 타입, API 테스트 작성 기준 |
 | [API 계약 동기화 기준](docs/api-contract-sync-policy.md) | OpenAPI, API 명세, 구현, 생성 타입 간 원천과 동기화 절차 | API 계약 변경 순서와 검증 기준 확인 | 계약 변경 시 함께 수정할 파일과 CI Gate 판단 기준 |

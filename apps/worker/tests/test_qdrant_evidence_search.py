@@ -83,4 +83,40 @@ def test_hybrid_search_requires_and_merges_keyword_and_vector_hits() -> None:
 
     assert len(result) == 1
     assert result[0].match_source == "HYBRID"
-    assert result[0].relevance_score == 0.93
+    assert result[0].relevance_score == 1.0
+
+
+def test_hybrid_search_uses_rrf_and_keeps_a_vector_only_hit_visible() -> None:
+    keyword = OpenSearchEvidenceSearch(
+        "http://opensearch.invalid:9200",
+        "reference-v2",
+        transport=lambda _request, _timeout: json.dumps(
+            {
+                "hits": {
+                    "hits": [
+                        {"_score": 20.0, "_source": payload("KEYWORD-1")},
+                        {"_score": 10.0, "_source": payload("KEYWORD-2")},
+                    ]
+                }
+            }
+        ).encode(),
+    )
+    vector = QdrantEvidenceSearch(
+        "http://qdrant.invalid:6333",
+        "reference-v2",
+        embeddings(),
+        transport=lambda _request, _timeout: json.dumps(
+            {
+                "result": [
+                    {"score": 0.42, "payload": payload("VECTOR-1")},
+                    {"score": 0.41, "payload": payload("VECTOR-2")},
+                ]
+            }
+        ).encode(),
+    )
+
+    result = HybridEvidenceSearch(keyword=keyword, vector=vector)("금리")
+
+    assert [hit.evidence_chunk_id for hit in result] == ["KEYWORD-1", "VECTOR-1", "KEYWORD-2"]
+    assert [hit.match_source for hit in result] == ["KEYWORD", "VECTOR", "KEYWORD"]
+    assert result[0].relevance_score == result[1].relevance_score == 0.5

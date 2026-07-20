@@ -17,6 +17,7 @@ from pypdf import PdfReader
 
 from nh_ad_worker.jobs import QueueMessage, RETRY_DELAYS, WorkerJob
 from nh_ad_worker.results import ReviewResultBundle
+from nh_ad_worker.suggestions import SuggestionProposal
 
 
 class PostgresArtifactMetadataRepository:
@@ -158,7 +159,7 @@ class PostgresJobRepository:
                     UPDATE app.review_jobs
                        SET job_status='RUNNING',locked_by=:worker,locked_at=:now,
                            heartbeat_at=:now,started_at=COALESCE(started_at,:now),
-                           current_step='OCR_EXTRACTION'
+                           current_step='FILE_PREPROCESSING',progress_rate=5
                      WHERE job_id=:job_id AND review_id=:review_id
                        AND job_status IN ('PENDING','RETRY_PENDING','STALE')
                        AND (next_retry_at IS NULL OR next_retry_at<=:now)
@@ -189,7 +190,7 @@ class PostgresJobRepository:
                 text("""
                     UPDATE app.review_steps
                        SET step_status='RUNNING',started_at=COALESCE(started_at,:now)
-                     WHERE job_id=:job_id AND step_code='OCR_EXTRACTION'
+                     WHERE job_id=:job_id AND step_code='FILE_PREPROCESSING'
                     RETURNING review_step_id
                 """),
                 {"now": now, "job_id": message.job_id},
@@ -197,7 +198,8 @@ class PostgresJobRepository:
             source = (
                 connection.execute(
                     text("""
-                    SELECT f.file_id,f.original_file_name,f.mime_type,f.bucket,f.object_key
+                    SELECT f.file_id,f.original_file_name,f.mime_type,f.bucket,f.object_key,
+                           r.include_suggestion
                       FROM app.reviews r
                       JOIN app.advertisement_files f ON f.advertisement_id=r.advertisement_id
                      WHERE r.review_id=:review_id AND f.file_type='ADVERTISEMENT'
@@ -232,6 +234,7 @@ class PostgresJobRepository:
             heartbeat_at=now,
             locked_by=worker_id,
             review_status="ANALYZING",
+            include_suggestion=source["include_suggestion"],
         )
 
     def heartbeat(self, job_id: str, *, worker_id: str, now: datetime) -> None:
@@ -246,6 +249,61 @@ class PostgresJobRepository:
             ).scalar_one_or_none()
         if updated is None:
             raise ValueError("ILLEGAL_JOB_TRANSITION")
+
+    def advance(self, job_id: str, *, worker_id: str, now: datetime, step_code: str) -> None:
+        progress_rates = {
+            "FILE_PREPROCESSING": 5,
+            "OCR_EXTRACTION": 25,
+            "LAYOUT_ANALYSIS": 50,
+            "RULE_REVIEW": 65,
+            "RAG_REVIEW": 80,
+            "RESULT_GENERATION": 95,
+        }
+        progress_rate = progress_rates.get(step_code)
+        if progress_rate is None:
+            raise ValueError("UNKNOWN_REVIEW_STEP")
+        with self._engine.begin() as connection:
+            owned = connection.execute(
+                text("""
+                    UPDATE app.review_jobs
+                       SET current_step=:step_code,progress_rate=:progress_rate,heartbeat_at=:now
+                     WHERE job_id=:job_id AND job_status='RUNNING' AND locked_by=:worker
+                 RETURNING job_id
+                """),
+                {
+                    "step_code": step_code,
+                    "progress_rate": progress_rate,
+                    "now": now,
+                    "job_id": job_id,
+                    "worker": worker_id,
+                },
+            ).scalar_one_or_none()
+            if owned is None:
+                raise ValueError("ILLEGAL_JOB_TRANSITION")
+            sequence_no = connection.execute(
+                text(
+                    "SELECT sequence_no FROM app.review_steps WHERE job_id=:job_id AND step_code=:step_code"
+                ),
+                {"job_id": job_id, "step_code": step_code},
+            ).scalar_one_or_none()
+            if sequence_no is None:
+                raise ValueError("UNKNOWN_REVIEW_STEP")
+            connection.execute(
+                text("""
+                    UPDATE app.review_steps
+                       SET step_status='COMPLETED',completed_at=COALESCE(completed_at,:now)
+                     WHERE job_id=:job_id AND sequence_no<:sequence_no AND step_status<>'COMPLETED'
+                """),
+                {"now": now, "job_id": job_id, "sequence_no": sequence_no},
+            )
+            connection.execute(
+                text("""
+                    UPDATE app.review_steps
+                       SET step_status='RUNNING',started_at=COALESCE(started_at,:now),failed_reason_code=NULL
+                     WHERE job_id=:job_id AND step_code=:step_code
+                """),
+                {"now": now, "job_id": job_id, "step_code": step_code},
+            )
 
     def fail_claim_error(
         self,
@@ -640,6 +698,49 @@ class PostgresJobRepository:
                     "review_id": results.review_id,
                 },
             )
+
+    def persist_suggestions(
+        self,
+        job_id: str,
+        suggestions: tuple[SuggestionProposal, ...],
+        *,
+        worker_id: str,
+    ) -> None:
+        """Insert deterministic Rule suggestions without overwriting human decisions."""
+        with self._engine.begin() as connection:
+            review_id = connection.execute(
+                text("""
+                    SELECT review_id FROM app.review_jobs
+                     WHERE job_id=:job_id AND job_status='RUNNING' AND locked_by=:worker
+                     FOR UPDATE
+                """),
+                {"job_id": job_id, "worker": worker_id},
+            ).scalar_one_or_none()
+            if review_id is None:
+                raise ValueError("ILLEGAL_JOB_TRANSITION")
+            for suggestion in suggestions:
+                if suggestion.review_id != review_id:
+                    raise ValueError("SUGGESTION_REVIEW_MISMATCH")
+                connection.execute(
+                    text("""
+                        INSERT INTO app.suggestions
+                        (suggestion_id,review_id,review_item_id,original_text,suggested_text,
+                         suggestion_reason,suggestion_type,evidence_ids,decision_status,created_at)
+                        VALUES (:id,:review_id,:item_id,:original,:suggested,:reason,:type,
+                                CAST(:evidence_ids AS jsonb),'PENDING',CURRENT_TIMESTAMP)
+                        ON CONFLICT (suggestion_id) DO NOTHING
+                    """),
+                    {
+                        "id": suggestion.suggestion_id,
+                        "review_id": suggestion.review_id,
+                        "item_id": suggestion.review_item_id,
+                        "original": suggestion.original_text,
+                        "suggested": suggestion.suggested_text,
+                        "reason": suggestion.suggestion_reason,
+                        "type": suggestion.suggestion_type,
+                        "evidence_ids": json.dumps(suggestion.evidence_ids),
+                    },
+                )
 
     def complete(self, job_id: str, *, worker_id: str, now: datetime, check_required: bool) -> None:
         review_status = "CHECK_REQUIRED" if check_required else "REVIEW_COMPLETED"

@@ -74,6 +74,29 @@ def test_hybrid_search_is_deterministic_and_never_silently_falls_back() -> None:
         search.search("최고 금리", mode="HYBRID", limit=20)
 
 
+def test_hybrid_search_uses_rrf_and_keeps_distinct_vector_evidence() -> None:
+    keyword = InMemorySearchBackend("OPENSEARCH")
+    vector = InMemorySearchBackend("QDRANT")
+    keyword.replace(
+        [document("ECH-KEYWORD-1"), document("ECH-KEYWORD-2")],
+        {"ECH-KEYWORD-1": 20.0, "ECH-KEYWORD-2": 10.0},
+    )
+    vector.replace(
+        [document("ECH-VECTOR-1"), document("ECH-VECTOR-2")],
+        {"ECH-VECTOR-1": 0.42, "ECH-VECTOR-2": 0.41},
+    )
+
+    hits = HybridSearch(keyword=keyword, vector=vector).search("최고 금리", mode="HYBRID")
+
+    assert [hit.document.evidence_chunk_id for hit in hits[:3]] == [
+        "ECH-KEYWORD-1",
+        "ECH-VECTOR-1",
+        "ECH-KEYWORD-2",
+    ]
+    assert [hit.match_source for hit in hits[:3]] == ["KEYWORD", "VECTOR", "KEYWORD"]
+    assert hits[0].relevance_score == hits[1].relevance_score == 0.5
+
+
 def test_top_20_candidates_top_5_evidence_and_top_3_display() -> None:
     values = [document(f"ECH-{index:02d}") for index in range(25)]
     keyword = InMemorySearchBackend("OPENSEARCH")

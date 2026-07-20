@@ -17,7 +17,7 @@ RAG 검색 결과 선정 정책은 Top-K, 품질 기준, 근거 표시 개수, �
 | 항목 | 결정 |
 | --- | --- |
 | 기본 검색 방식 | ADR-0011 기준 Hybrid Search |
-| 내부 후보 수집 | keyword/vector 결과를 병합해 후보 Top 20 수집 |
+| 내부 후보 수집 | keyword/vector 결과를 Reciprocal Rank Fusion(RRF, `k=60`)으로 병합해 후보 Top 20 수집 |
 | LLM/Rule 입력 근거 | 재랭킹 후 상위 5개까지 사용 |
 | 검토 항목 저장 근거 | 검토 항목별 최대 5개까지 `review_item_evidences`에 저장 |
 | 화면 표시 근거 | 검토 항목별 최대 3개 표시 |
@@ -33,7 +33,7 @@ query / review target
   -> metadata filter
   -> OpenSearch keyword search
   -> Qdrant vector search
-  -> candidate merge
+  -> RRF candidate merge (`k=60`)
   -> duplicate chunk/evidence 제거
   -> metadata/rule match 기반 rerank
   -> internal Top 20 후보 보존
@@ -43,7 +43,7 @@ query / review target
 
 ## 품질 기준
 
-PoC 초기에는 Qdrant와 OpenSearch의 원점수 절대값만으로 근거 사용 여부를 결정하지 않는다. 다음 요소를 조합해 근거 품질을 판단한다.
+PoC 초기에는 Qdrant와 OpenSearch의 원점수 절대값만으로 근거 사용 여부를 결정하지 않는다. keyword와 vector 결과는 각 backend의 순위로 RRF(`sum(1 / (60 + rank))`)를 계산하고, 두 backend의 1위 중복 결과를 1.0으로 정규화한다. 한 backend에서만 나온 1위 결과는 0.5가 된다. 두 backend가 서로 다른 후보를 반환하면 각 backend의 최상위 후보를 우선 포함해 의미 검색 결과가 키워드 원점수에 밀려 사라지지 않게 한다. 다음 요소를 조합해 근거 품질을 판단한다.
 
 | 기준 | 설명 |
 | --- | --- |
@@ -52,9 +52,9 @@ PoC 초기에는 Qdrant와 OpenSearch의 원점수 절대값만으로 근거 사
 | Rule match | 금지어, 필수 문구, 조문번호, 기준 유형의 직접 일치 여부 |
 | Source priority | 법령/내규/상품자료/심의사례 등 근거 유형의 우선순위 |
 | Structure confidence | ADR-0012의 구조 인식 신뢰도 |
-| Relevance score | keyword/vector/combined score의 정규화 결과 |
+| Relevance score | RRF 융합 순위 점수의 0~1 정규화 결과 |
 
-절대 점수 임계값은 PoC 평가셋 결과가 쌓인 뒤 조정한다. 초기 구현에서는 아래 기준을 사용한다.
+RRF 결과는 search adapter가 정한 순서를 그대로 Top-3에 저장하며, keyword/vector 원점수 공통의 절대 임계값으로 다시 제외하지 않는다. 절대 점수 임계값은 PoC 평가셋 결과가 쌓인 뒤 RRF 점수 체계에 맞춰 조정한다. 초기 구현에서는 아래 기준을 사용한다.
 
 | 상황 | 처리 |
 | --- | --- |

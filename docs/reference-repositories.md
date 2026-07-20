@@ -4,16 +4,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-07-13 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-20 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-07-20 | ADR-0079에 따라 rhwp는 HWP/HWPX 기준 텍스트, document-processor는 구조 원천으로 함께 사용하는 역할을 명시 |
 | v1.0 | 2026-07-13 | ADR-0072 기준 Parser/OCR 후보 참조 저장소 목록 정리 |
 
-- hwp/hwpx 엔진(rust)
+- HWP/HWPX 기준 텍스트·미리보기 엔진(rust)
 
     [https://github.com/edwardkim/rhwp](https://github.com/edwardkim/rhwp)
 
@@ -21,7 +22,7 @@
 
     [https://github.com/opendataloader-project/opendataloader-pdf](https://github.com/opendataloader-project/opendataloader-pdf)
 
-- 사내 document parser
+- HWP/HWPX 문단·표·스타일 구조 원천인 사내 document parser
 
     [https://github.com/CGINSIDE-ROOKIES/document-processor](https://github.com/CGINSIDE-ROOKIES/document-processor)
 

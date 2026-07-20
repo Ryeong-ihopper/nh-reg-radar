@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from service import ParseRequest, normalized_document, page, text_block
 
 
@@ -68,3 +70,50 @@ def test_service_preserves_text_ir_offsets_when_an_engine_provides_them() -> Non
     assert block["textPath"] == "pages/1"
     assert block["rawStartOffset"] == 0
     assert block["normalizedEndOffset"] == 5
+
+
+def test_hwpx_preview_keeps_document_text_and_removes_active_svg_nodes() -> None:
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from rhwp_app import _hwpx_text_pages, _sanitize_svg
+
+    source = BytesIO()
+    with ZipFile(source, "w") as archive:
+        archive.writestr("Contents/section0.xml", "<root><t>광고 문구</t><t>유의사항</t></root>")
+    assert _hwpx_text_pages(source.getvalue()) == [["광고 문구", "유의사항"]]
+    safe = _sanitize_svg(
+        '<svg xmlns="http://www.w3.org/2000/svg" onclick="bad()"><script>alert(1)</script><text onclick="bad()">안전</text></svg>'.encode()
+    )
+    assert b"script" not in safe
+    assert b"onclick" not in safe
+    assert b"\xec\x95\x88\xec\xa0\x84" in safe
+
+
+def test_rhwp_uses_text_export_for_hwp_review_input(monkeypatch, tmp_path) -> None:
+    from rhwp_app import RhwpEngine
+
+    def fake_run(command, **_kwargs):
+        output = command[command.index("-o") + 1]
+        Path(output).mkdir(parents=True)
+        Path(output, "page-1.txt").write_text("대출 대상\n공무원", encoding="utf-8")
+
+    monkeypatch.setattr("rhwp_app.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "rhwp_app.tempfile.TemporaryDirectory", lambda: _TemporaryDirectory(tmp_path)
+    )
+
+    assert RhwpEngine()._hwp_text_values("advertisement.hwp", b"hwp") == {
+        1: [("대출 대상\n공무원", 0.0, 1.0)]
+    }
+
+
+class _TemporaryDirectory:
+    def __init__(self, path) -> None:
+        self.path = path
+
+    def __enter__(self):
+        return self.path
+
+    def __exit__(self, *_args) -> None:
+        return None

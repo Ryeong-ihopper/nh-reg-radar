@@ -56,10 +56,14 @@ def generated_openapi(app: FastAPI) -> dict[str, Any]:
         servers=app.servers,
         tags=app.openapi_tags,
     )
-    for path_item in schema["paths"].values():
+    for path, path_item in schema["paths"].items():
         for operation in path_item.values():
             if isinstance(operation, dict):
-                operation.get("responses", {}).pop("422", None)
+                # FastAPI emits generic validation 422 responses that are not part of
+                # this governed boundary.  File preview deliberately publishes a
+                # business 422 (conversion failed), so preserve that capability.
+                if path not in {"/files/{fileId}/preview", "/files/{fileId}/preview/content"}:
+                    operation.get("responses", {}).pop("422", None)
     schema["paths"]["/advertisements"]["post"]["requestBody"] = {
         "required": True,
         "content": {
