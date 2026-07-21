@@ -1995,3 +1995,21 @@
 추천: D. `rhwp export-text`를 raw/normalized 텍스트 기준 원천으로 유지하고 `document-processor` 문단·표·스타일 노드를 해당 텍스트에 정렬한다. 정렬되지 않은 원문도 별도 블록으로 보존하고 후속 파이프라인에는 `hwp-hybrid` 단일 `NormalizedDocument`만 전달한다.
 
 결정 결과: D안. HWP/HWPX는 `HwpHybridParserAdapter`가 `rhwp` 기준 텍스트와 `document-processor` 구조를 결합한다. `document-processor`는 경쟁 보조 산출물이 아니라 구조 보강 구성요소이며, 원문 불일치 시 `rhwp` 텍스트를 유지한다. 구성요소 raw artifact와 버전·confidence·정렬 warning을 보존하고 최종 병합 산출물 하나만 ReviewPipeline에 전달한다. 상세 기준은 ADR-0079를 따른다.
+
+---
+
+## Q75. Private Parser/OCR와 외부 AI 활성화 분리
+
+관련 후보: ADR 후보 046, ADR-0079 후속 운영 결정
+
+질문: 외부 LLM/embedding을 비활성화해도 Compose 내부 Parser/OCR 서비스를 사용할 수 있어야 하는가?
+
+| 선택지 | 내용 | 장점 | 리스크 |
+| --- | --- | --- | --- |
+| A | 기존처럼 `NH_EXTERNAL_AI_ENABLED`가 parser까지 함께 제어 | 설정 수가 적음 | private parser와 외부 AI를 독립적으로 운영할 수 없음 |
+| B | `NH_PARSER_SERVICES_ENABLED`를 별도 도입 | 폐쇄망·provider-free 환경에서도 문서 정규화 가능 | 설정 항목이 하나 늘어남 |
+| C | parser를 항상 강제하고 비활성화 옵션 제거 | 단순한 production 기본값 | 테스트와 장애 격리의 명시적 경계가 약해짐 |
+
+추천: B. private Parser/OCR는 외부 AI와 다른 신뢰 경계이므로 별도 설정으로 분리한다.
+
+결정 결과: B안. `NH_PARSER_SERVICES_ENABLED=true`를 기본값으로 두고 PDF·이미지·HWP/HWPX 정규화와 Rule 검토는 외부 AI 없이도 실행한다. OpenAI·embedding·RAG와 구조화 판단만 `NH_EXTERNAL_AI_ENABLED`의 opt-in으로 유지한다. 상세 기준은 ADR-0081로 기록한다.

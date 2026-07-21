@@ -334,7 +334,68 @@ def test_production_runner_registers_adr_0079_services_and_shared_review_client(
     assert isinstance(captured["response_client"], OpenAIResponsesClient)
 
 
+def test_production_runner_keeps_private_parser_services_without_external_ai(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    def capture(
+        settings: Settings,
+        router: object,
+        response_client: OpenAIResponsesClient | None = None,
+    ) -> object:
+        captured.update(settings=settings, router=router, response_client=response_client)
+        return sentinel
+
+    monkeypatch.setattr(worker_main, "compose_job_runner", capture)
+
+    assert (
+        worker_main.production_runner(Settings(app_env="test", nh_external_ai_enabled=False))
+        is sentinel
+    )
+    router = captured["router"]
+    assert set(router._adapters) == {  # type: ignore[attr-defined]
+        "opendataloader-pdf",
+        "paddleocr",
+        "hwp-hybrid",
+    }
+    assert captured["response_client"] is None
+
+
+def test_production_runner_can_explicitly_disable_private_parser_services(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    def capture(
+        settings: Settings,
+        router: object,
+        response_client: OpenAIResponsesClient | None = None,
+    ) -> object:
+        captured.update(settings=settings, router=router, response_client=response_client)
+        return sentinel
+
+    monkeypatch.setattr(worker_main, "compose_job_runner", capture)
+
+    assert (
+        worker_main.production_runner(
+            Settings(
+                app_env="test",
+                nh_parser_services_enabled=False,
+                nh_external_ai_enabled=False,
+            )
+        )
+        is sentinel
+    )
+    router = captured["router"]
+    assert router._adapters == {}  # type: ignore[attr-defined]
+    assert captured["response_client"] is None
+
+
 def test_worker_settings_load_external_provider_environment(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("NH_PARSER_SERVICES_ENABLED", "false")
     monkeypatch.setenv("NH_EXTERNAL_AI_ENABLED", "true")
     monkeypatch.setenv("OPENAI_API_KEY", "environment-secret")
     monkeypatch.setenv("OPENAI_MODEL", "environment-model")
@@ -349,6 +410,7 @@ def test_worker_settings_load_external_provider_environment(monkeypatch: MonkeyP
 
     settings = Settings()
 
+    assert settings.nh_parser_services_enabled is False
     assert settings.nh_external_ai_enabled is True
     assert settings.openai_api_key is not None
     assert settings.openai_api_key.get_secret_value() == "environment-secret"

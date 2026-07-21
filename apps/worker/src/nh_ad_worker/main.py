@@ -134,10 +134,11 @@ def compose_job_runner(
 
 
 def production_runner(settings: Settings) -> Runner:
-    """Enable the external provider only through explicit, complete configuration."""
+    """Compose parser/OCR services independently from optional external AI."""
 
+    router = _parser_router(settings)
     if not settings.nh_external_ai_enabled:
-        return compose_job_runner(settings, ParserRouter())
+        return compose_job_runner(settings, router)
     api_key = (
         settings.openai_api_key.get_secret_value() if settings.openai_api_key is not None else None
     )
@@ -156,17 +157,25 @@ def production_runner(settings: Settings) -> Runner:
     )
     return compose_job_runner(
         settings,
-        ParserRouter(
-            parser_service_adapters(
-                opendataloader_endpoint=settings.opendataloader_pdf_endpoint,
-                paddleocr_endpoint=settings.paddleocr_endpoint,
-                rhwp_endpoint=settings.rhwp_endpoint,
-                document_processor_endpoint=settings.document_processor_endpoint,
-                timeout_seconds=settings.parser_service_timeout_seconds,
-                hwp_structure_attempts=settings.hwp_structure_attempts,
-            )
-        ),
+        router,
         response_client=client,
+    )
+
+
+def _parser_router(settings: Settings) -> ParserRouter:
+    """Register private parser services unless explicitly disabled for a test/runtime."""
+
+    if not settings.nh_parser_services_enabled:
+        return ParserRouter()
+    return ParserRouter(
+        parser_service_adapters(
+            opendataloader_endpoint=settings.opendataloader_pdf_endpoint,
+            paddleocr_endpoint=settings.paddleocr_endpoint,
+            rhwp_endpoint=settings.rhwp_endpoint,
+            document_processor_endpoint=settings.document_processor_endpoint,
+            timeout_seconds=settings.parser_service_timeout_seconds,
+            hwp_structure_attempts=settings.hwp_structure_attempts,
+        )
     )
 
 

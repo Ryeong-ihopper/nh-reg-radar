@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     openai_model: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     openai_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    nh_parser_services_enabled: bool = True
     nh_external_ai_enabled: bool = False
     opensearch_endpoint: str = "http://opensearch:9200"
     opensearch_index: str = "dev_reference_docs"

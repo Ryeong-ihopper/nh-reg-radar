@@ -105,6 +105,7 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0078](ADR-0078-poc-two-account-operation-profile.md) | Accepted | PoC 2계정 운영 프로필 정책 | ADR 후보 044 |
 | [ADR-0079](ADR-0079-hwp-hwpx-hybrid-parser-composition.md) | Accepted | HWP/HWPX 이중 원천 Hybrid Parser 구성 정책 | ADR 후보 045 |
 | [ADR-0080](ADR-0080-self-hosted-runner-compose-cd-policy.md) | Accepted | GitHub-hosted CI 및 Self-hosted Compose CD 정책 | CI·배포 실행 경계 결정 |
+| [ADR-0081](ADR-0081-parser-service-and-external-ai-activation-separation.md) | Accepted | Private Parser/OCR와 외부 AI 활성화 분리 정책 | Parser·외부 AI 설정 경계 결정 |
 
 ## 결정 대기 질문지
 

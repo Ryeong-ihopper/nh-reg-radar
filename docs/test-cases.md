@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.71 |
-| 기준일 | 2026-07-21 |
+| 현행 버전 | v1.72 |
+| 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.72 | 2026-07-22 | ADR-0081의 Parser/OCR·외부 AI 활성화 분리 회귀 기준을 추가 |
 | v1.71 | 2026-07-21 | HWP/HWPX Annotation은 구조 파서의 text/layout 좌표가 결합된 경우에만 원본 SVG 위 BOX로 표시하고, offset만 있는 항목을 원본 아래 Text IR 하이라이트로 분리하지 않는 회귀 기준을 추가 |
 | v1.70 | 2026-07-21 | 4단계 지원 탭과 화면 제목을 `검토 및 리포트`로 통일하는 회귀 기준을 추가 |
 | v1.69 | 2026-07-21 | S-010을 4단계 별도 탭으로 분리하고 현재 검토 맥락을 Q&A 요청에 자동 적용하는 회귀 기준을 추가 |
@@ -318,6 +319,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-OCR-027 | HWP 구조 정렬과 표 셀 복원 | 제목·본문·병합 셀·표가 포함된 HWP/HWPX fixture 준비 | hybrid parse 실행 | document-processor node가 rhwp 기준 offset에 정렬되고 문단·표 셀별 TextBlock, 관련 LayoutBlock과 Table이 결정적으로 생성됨 | `ocr_text_blocks`, `layout_blocks` | P0 |
 | TC-OCR-028 | HWP 구조 보강 실패 처리 | rhwp 성공, document-processor timeout/저품질 fixture 준비 | hybrid parse 실행 | 구성요소 기술 retry 후에도 실패하면 rhwp 텍스트를 보존하고 구조 warning·저신뢰 상태·확인 필요를 남기며 정상 구조 완료로 가장하지 않음 | `review_steps`, parser artifacts | P0 |
 | TC-OCR-029 | HWP 병합 산출물 단일 전달과 provenance | 두 구성요소 정상 fixture 준비 | hybrid parse 후 ReviewPipeline 실행 | rhwp/document-processor/aligner raw artifact·버전·confidence를 추적하고 `hwp-hybrid` 병합 NormalizedDocument 하나만 선택·영속화·후속 전달 | parser artifacts, `ocr_text_blocks`, `layout_blocks` | P0 |
+| TC-OCR-030 | Parser/OCR·외부 AI 활성화 분리 | `NH_PARSER_SERVICES_ENABLED=true`, `NH_EXTERNAL_AI_ENABLED=false` | worker production runner 조립 | `opendataloader-pdf`, `paddleocr`, `hwp-hybrid` adapter를 등록하고 external AI client는 주입하지 않음 | worker runtime | P0 |
 | TC-LIVE-001 | 승인 샘플 규정·가이드라인 적재 | dev Compose, `NH_EXTERNAL_AI_ENABLED=true`, 유효한 `OPENAI_API_KEY`, ADR-0002 승인 PDF/HWP/HWPX | `scripts/ingest-reference-regulations.sh` 실행 | 각 파일이 표준/version/evidence/chunk로 생성 또는 재사용되고 HWP/HWPX는 `hwp-hybrid` parser provenance를 보존한 뒤 Qdrant/OpenSearch 재색인이 완료된다. key/원문은 출력되지 않는다. | standards/evidence/search index | P0/manual |
 | TC-LIVE-002 | 승인 샘플 PDF/PNG 광고 실제 검토 | TC-LIVE-001 완료, product 계정으로 광고 업로드·검토 요청 | supplied sample PDF 또는 PNG를 업로드하고 완료 상태까지 조회 | 선택 산출물, 결과 item, 구조화 LLM score와 OpenSearch 근거 상태가 저장·조회된다. Rule 판정은 provider 출력으로 덮어쓰지 않는다. | review/jobs/results | P0/manual |
 | TC-LIVE-003 | live provider fail-closed | `NH_EXTERNAL_AI_ENABLED=true` 이고 key 없음, 또는 필수 parser service 미구성 | worker 검토 실행 | `OPENAI_API_KEY_NOT_CONFIGURED` 또는 parser adapter/service 오류로 최종 실패하고 성공 결과·DB fallback 검색이 생성되지 않는다. document-processor만 실패한 경우는 rhwp 텍스트를 보존한 확인 필요 결과로 분리한다. | review/jobs/audit | P0 |

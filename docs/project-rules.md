@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.21 |
+| 현행 버전 | v1.22 |
 | 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.22 | 2026-07-22 | ADR-0081에 따라 private Parser/OCR와 외부 AI 활성화 설정을 분리 |
 | v1.21 | 2026-07-22 | ADR-0080을 GitHub-hosted CI와 self-hosted 환경별 Compose CD 분리로 갱신 |
 | v1.20 | 2026-07-21 | ADR-0080에 따라 self-hosted CI·환경별 Compose CD runner 분리, `dev` 성공 revision 배포와 production 수동 승인·환경 파일 격리 기준을 추가 |
 | v1.19 | 2026-07-20 | document-processor를 Python 3.13/OpenJDK 25 private Compose service로 고정하고 HWP/HWPX 광고·기준자료가 공용 hybrid 계약과 구성요소 artifact 경계를 사용하도록 운영 기준을 구체화 |
@@ -644,11 +645,11 @@ M8 릴리스 후보 검증은 [ADR-0044](adr/ADR-0044-ai-mock-fixture-test-polic
 
 ### 10.1.3 OpenAI live 개발·배포 secret 경계
 
-실제 광고 결과 확인은 `feature/*` 또는 로컬 dev 환경의 명시적 opt-in으로만 수행한다. `.env.dev`에는 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, 선택적으로 generation/embedding별 base URL·key·timeout·dimension을 설정할 수 있으나 `.env.dev`와 실 key는 Git에 커밋하지 않는다. 개발 Compose는 해당 key를 worker, embedding을 수행하는 backend, 명시적으로 실행한 one-shot 기준자료 적재 command에만 전달한다. PDF/HWP/HWPX 규정 적재는 읽기 전용 `/reference-documents`의 ADR-0002 승인 샘플에 한정한다.
+private Parser/OCR는 `NH_PARSER_SERVICES_ENABLED=true`로 별도 활성화하며 external AI가 없어도 PDF·이미지·HWP/HWPX 정규화와 결정적 Rule 검토를 수행할 수 있다. 실제 OpenAI 기반 광고 결과 확인은 `feature/*` 또는 로컬 dev 환경의 명시적 opt-in으로만 수행한다. `.env.dev`에는 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, 선택적으로 generation/embedding별 base URL·key·timeout·dimension을 설정할 수 있으나 `.env.dev`와 실 key는 Git에 커밋하지 않는다. 개발 Compose는 해당 key를 worker, embedding을 수행하는 backend, 명시적으로 실행한 one-shot 기준자료 적재 command에만 전달한다. PDF/HWP/HWPX 규정 적재는 읽기 전용 `/reference-documents`의 ADR-0002 승인 샘플에 한정한다.
 
 임베딩 endpoint는 OpenAI-compatible `/v1/embeddings` 계약을 사용한다. 폐쇄망 vLLM 전환은 `EMBEDDING_BASE_URL`, `OPENAI_EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, 필요 시 `EMBEDDING_API_KEY`와 `EMBEDDING_ALLOW_INSECURE_HTTP=true`를 명시하여 수행한다. model·dimension·endpoint를 바꾸면 기존 vector collection을 재사용하지 않고 새 `QDRANT_COLLECTION`과 전체 기준자료 재색인을 사용한다. OpenSearch와 Qdrant 중 하나라도 사용할 수 없으면 DB scan/단일 backend 성공으로 우회하지 않는다.
 
-배포/수동 GitHub Actions 평가는 repository 또는 environment secret `OPENAI_API_KEY`만 사용하며, PR CI·artifact·로그·Notion 동기화에는 key, 광고 원문, provider raw response를 포함하지 않는다. `NH_EXTERNAL_AI_ENABLED=false` 또는 key 누락은 fallback 성공이 아니라 fail-closed 구성 오류다. 새로운 고객/운영/민감 자료를 provider에 보내기 전에는 ADR-0002의 별도 승인 기록이 필요하다.
+배포/수동 GitHub Actions 평가는 repository 또는 environment secret `OPENAI_API_KEY`만 사용하며, PR CI·artifact·로그·Notion 동기화에는 key, 광고 원문, provider raw response를 포함하지 않는다. `NH_EXTERNAL_AI_ENABLED=false` 또는 key 누락은 외부 AI/RAG 결과의 fallback 성공이 아니라 fail-closed 구성 경계이며, private parser/OCR 활성화와는 독립적이다. 새로운 고객/운영/민감 자료를 provider에 보내기 전에는 ADR-0002의 별도 승인 기록이 필요하다.
 
 M8 production recovery rehearsal의 공개 실행 경계는 `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`이며, 자동 회귀는 `NH_RUN_M8_RELEASE_DOCKER=1 uv run pytest tests/release/test_release_recovery_contract.py -q -rs`로 opt-in 한다. 이 Gate는 G011 fresh/repeat-volume, 0001→0007→0008 migration, backup 이후 downgrade와 PostgreSQL payload/revision 복구, MinIO checksum 복구, Qdrant snapshot download→waited delete→node-global copy→async restore의 green collection·point payload 확인, OpenSearch 재색인, Redis backup 제외와 503 `not_ready`→recovery, object/search outage, PostgreSQL restart를 모두 통과해야 한다. 성공과 실패 모두 production/G011 project의 container·volume·network와 임시 backup directory가 0개로 정리되어야 한다.
 

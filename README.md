@@ -112,6 +112,7 @@ curl --fail http://localhost:8001/ready
 
    ```dotenv
    NH_EXTERNAL_AI_ENABLED=true
+   NH_PARSER_SERVICES_ENABLED=true
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4.1-mini
    OPENAI_BASE_URL=https://api.openai.com/v1
@@ -119,6 +120,8 @@ curl --fail http://localhost:8001/ready
    OPENAI_EMBEDDING_MODEL=text-embedding-3-small
    EMBEDDING_DIMENSIONS=1536
    ```
+
+   `NH_PARSER_SERVICES_ENABLED`는 Compose 내부 Parser/OCR 서비스만 제어하며, 외부 LLM을 사용하지 않는 OCR·HWP/HWPX 정규화에도 `true`로 유지합니다. `NH_EXTERNAL_AI_ENABLED`는 OpenAI·embedding·RAG의 opt-in입니다.
 
 2. 서비스를 다시 빌드·기동하고 승인된 규정·가이드라인을 적재합니다.
 

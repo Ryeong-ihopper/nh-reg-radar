@@ -6,13 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.30 |
-| 기준일 | 2026-07-20 |
+| 현행 버전 | v1.31 |
+| 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.31 | 2026-07-22 | ADR-0081에 따라 private Parser/OCR와 외부 AI 활성화 설정을 분리 |
 | v1.30 | 2026-07-20 | ADR-0079를 실제 `hwp-hybrid` 라우팅, Python 3.13/OpenJDK 25 document-processor private service, 구성요소 artifact 보존과 광고·기준자료 공용 계약으로 구현 |
 | v1.29 | 2026-07-20 | ADR-0079의 HWP/HWPX hybrid parser 기준을 반영하고, CI 복구를 위한 Ruff canonical formatting은 기존 업무·AI/RAG 동작을 변경하지 않는 경계를 명시 |
 | v1.28 | 2026-07-20 | 검토 진행 화면에서 기술 일시 오류 자동 재시도와 판독 불가·검토 확인 필요 상태를 구분해 안내하도록 정정 |
@@ -292,7 +293,7 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
 
-실제 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. `/reference-documents`로 읽기 전용 마운트한 ADR-0002 승인 규정·가이드라인 PDF/HWP/HWPX는 private parser service로 먼저 `NormalizedDocument` v1로 정규화한다. 정규화 텍스트만 OpenAI Responses API에 전달해 기준자료 메타데이터를 추출하고, 원문/파서 구조는 provider에 직접 전달하지 않는다. 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. parser 이름·버전·rule/IR 버전·text/layout/table block 수·구조 경로는 standard version metadata에 보존한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. 설정 누락·검색 backend/embedding·parser 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
+private Parser/OCR 서비스는 `NH_PARSER_SERVICES_ENABLED=true`일 때 외부 AI와 독립적으로 PDF·이미지·HWP/HWPX를 `NormalizedDocument` v1로 정규화하고 결정적 Rule 검토에 전달한다. 실제 OpenAI 기반 근거 검색·구조화 판단 결과 확인은 개발 환경에서만 명시적으로 `NH_EXTERNAL_AI_ENABLED=true`, `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`을 함께 설정한 경우에 허용한다. `/reference-documents`로 읽기 전용 마운트한 ADR-0002 승인 규정·가이드라인 PDF/HWP/HWPX는 private parser service로 먼저 정규화한다. 정규화 텍스트만 OpenAI Responses API에 전달해 기준자료 메타데이터를 추출하고, 원문/파서 구조는 provider에 직접 전달하지 않는다. 표준 버전·근거 chunk로 적재한 뒤 실제 embedding을 Qdrant에 저장하고 OpenSearch에도 재색인한다. parser 이름·버전·rule/IR 버전·text/layout/table block 수·구조 경로는 standard version metadata에 보존한다. worker는 DB 스캔 fallback 없이 두 검색 결과를 함께 요구하는 hybrid 근거 검색을 사용한다. 설정 누락·검색 backend/embedding·parser 오류는 성공으로 가장하지 않고 fail-closed 오류 또는 `SEARCH_UNAVAILABLE`로 끝낸다. 이 경로는 ADR-0002가 허용한 현재 저장소의 고객 승인 샘플에 한정되고 신규·운영·민감 자료는 별도 승인이 필요하다.
 
 live opt-in의 문서 추출은 private Compose engine service와 worker adapter로 수행한다. PDF/복합 PDF는 `opendataloader-pdf`, 스캔 PDF·PNG/JPEG는 `paddleocr`를 사용한다. HWP/HWPX는 `rhwp` service의 기준 텍스트와 별도 Python 3.13/OpenJDK 25 `document-processor` service의 문단·표 구조를 `HwpHybridParserAdapter`가 공백 차이를 허용해 결정적으로 정렬한다. 비공백 미정렬 범위는 `UNALIGNED` TextBlock과 warning으로 보존하고, 구조 서비스는 최대 `HWP_STRUCTURE_ATTEMPTS`회 호출 후 rhwp 기반 `UNSTRUCTURED` 저신뢰 결과로 닫는다. worker는 두 구성요소를 미선택 raw artifact로, `hwp-hybrid` 병합본 하나를 선택 산출물로 저장한다. 기준자료 HWP/HWPX 적재도 같은 aligner를 사용한다. OpenAI Responses API는 이 경로에서 구조화 검토 판단에만 사용하며 문서 추출의 대체 경로가 아니다. engine service는 Compose 네트워크 내부 URL로만 연결하고 local dev에서만 loopback 포트를 선택적으로 공개한다. Review 요청은 Compose backend와 worker가 동일 Redis URL/queue 이름을 사용해야 하며, 결과 근거 source는 DB 계약의 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA`만 저장하고 score는 0~1 범위로 정규화한다.
 
@@ -306,6 +307,7 @@ live opt-in의 문서 추출은 private Compose engine service와 worker adapter
 | 실패 분리 | 정상 검색의 근거 부족과 `RAG_SEARCH_UNAVAILABLE`/`RAG_SEARCH_FAILED` 기술 장애를 분리 |
 | Rule 보존 | M5b/M5c 실패가 M5a Rule 결과를 무근거 정상이나 덮어쓰기 상태로 변경하지 않음 |
 | Structured output | PR 자동 Gate에서는 `review-structured-output-v1` fixture만 사용한다. 승인된 수동 개발 lane에서는 OpenAI Responses JSON schema를 동일 shape로 검증하되 Rule 최종 판정을 덮어쓰지 않는다. |
+| Parser/OCR opt-in | `NH_PARSER_SERVICES_ENABLED=true`이면 private service가 PDF·이미지·HWP/HWPX를 정규화하며, external AI 활성화와 독립적이다. |
 | Live provider opt-in | `NH_EXTERNAL_AI_ENABLED=true`, non-empty `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`, 승인 샘플 PDF/이미지 및 적재된 기준자료가 모두 필요하다. 키워드·vector search 및 provider 오류·미구성·비지원 형식은 fail-closed이고 PR CI는 호출하지 않는다. |
 | Annotation | 이미지/PDF BOX, HWP/HWPX TEXT_HIGHLIGHT, 좌표·offset 미확정 LIST_ONLY/UNAVAILABLE |
 | Snapshot | effective date, standard/evidence/chunk version, rank/score/match source를 결과와 함께 고정 |
