@@ -37,6 +37,7 @@ HWP/HWPX Hybrid Parser의 책임은 다음과 같다.
 5. 두 엔진의 raw artifact와 버전·confidence·정렬 결과는 ADR-0067 기준으로 보존한다.
 6. 후속 ReviewPipeline에는 `parserName=hwp-hybrid`인 **단 하나의 병합된 `NormalizedDocument` v1**만 전달한다.
 7. ReviewPipeline, RAG, Annotation, 리포트는 두 엔진의 raw output을 직접 읽지 않고 ADR-0065의 공통 출력만 사용한다.
+8. 정렬된 TextBlock에 직접 좌표가 없고 연관 `layoutBlock`에 검증된 좌표가 있으면 그 layout 좌표를 TextBlock의 시각 위치로 보존한다. 이때만 Annotation은 실제 HWP/HWPX 변환 SVG 위 BOX로 표시하며, offset만 있는 항목은 원본 위치 미확정으로 남긴다.
 
 ```text
 HWP/HWPX
@@ -107,6 +108,7 @@ HWP/HWPX
 - worker는 `rhwp`, `document-processor` 구성요소 산출물을 감사용 `PARSER_RAW` artifact로 보존하고 최종 병합 산출물만 선택 상태로 저장한다.
 - `document-processor`는 고정 commit, Python 3.13, OpenJDK 25 기반 private Compose 서비스로 격리했다.
 - 실제 HWP 광고 샘플에서 `rhwp` 비공백 텍스트 전량 보존, 20개 병합 TextBlock, 7개 LayoutBlock, 4개 Table 생성을 확인했다.
+- 2026-07-21부터는 HWP/HWPX 화면에서 구조 TextBlock 좌표를 우선하고, 직접 좌표가 누락된 경우 연관 layout 좌표를 보완해 변환 SVG 원본 위에 표시한다. offset만 존재하는 항목은 위치를 추정해 하이라이트하지 않는다.
 
 금융광고 항목별 도메인 세그먼터와 구성요소별 구조 confidence의 독립 표현은 별도 명세·ADR에서 다룬다.
 

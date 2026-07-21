@@ -8,12 +8,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.36 |
-| 기준일 | 2026-07-20 |
+| 현행 버전 | v1.40 |
+| 기준일 | 2026-07-21 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.40 | 2026-07-21 | S-007 HWP/HWPX는 document-processor text/layout 좌표가 결합된 Annotation만 private SVG 원본 위 BOX로 표시하고, offset만 있는 항목은 원본 위치 미확정으로 처리하도록 정정 (API 계약 변경 없음) |
+| v1.39 | 2026-07-21 | 4단계 `/reviews/{reviewId}/support` 탭의 사용자 노출 명칭을 `검토 및 리포트`로 통일 (API 계약 변경 없음) |
+| v1.38 | 2026-07-21 | S-010을 4단계 결과 확인의 `/reviews/{reviewId}/results/qa` 탭으로 분리하고, 기존 요약·광고물 조회값을 Q&A 요청 범위에 자동 적용하도록 화면 매핑을 정정 (API 계약 변경 없음) |
+| v1.37 | 2026-07-21 | S-006/S-008을 원본 좌측·검토 정보 우측의 넓은 작업공간으로 재배치하고 좌측 탐색 접기·반복 안내 제거를 반영 (API 계약 변경 없음) |
 | v1.36 | 2026-07-20 | S-005 상태 조회의 `jobStatus`·`failedReasonCode`·`reviewStatus`로 기술 일시 오류 재시도와 OCR 판독 불가·일반 확인 필요 안내를 구분하도록 반영 (API 계약 변경 없음) |
 | v1.35 | 2026-07-20 | S-003·S-014·검증 화면의 상품군 공통 코드에 대출을 추가하고, API enum과 화면 선택값을 동기화 |
 | v1.34 | 2026-07-20 | 로그인 공개 화면은 API 계약 변경 없이 헤더 제외 뷰포트에 맞춘 중앙 레이아웃으로 불필요한 세로 스크롤을 제거하도록 정정 |
@@ -301,7 +305,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입 | 광고물 상세 조회·원본 자동 미리보기 | `/advertisements/{advertisementId}` → `/files/{fileId}/preview` | GET | `advertisementId`, `fileId`, `pageNo` | 광고 기본정보, 파일정보·private preview | 광고 기본정보 표와 제목만 표시한 원본 병행 패널 |
+| 화면 진입 | 광고물 상세 조회·원본 자동 미리보기 | `/advertisements/{advertisementId}` → `/files/{fileId}/preview` | GET | `advertisementId`, `fileId`, `pageNo` | 광고 기본정보, 파일정보·private preview | 데스크톱 좌측의 넓은 원본 패널과 우측 광고 기본정보 표. 구현 방식 설명은 표시하지 않음 |
 | 화면 진입 | 검토 결과 요약 조회 | `/reviews/{reviewId}/summary` | GET | `reviewId` | 종합 위험도, 문제 건수, 검토유형별 요약, 주요 리스크 | 검토 요약 영역 |
 | 주요 리스크 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 판단 사유, 근거, 추천 문구, ADR-0066 기준 Coordinate | 상세 팝업 또는 S-008 이동 |
 | 광고 화면 보기 클릭 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo` | Annotation 표시 모드, 위치 상태, Coordinate/텍스트 위치 | S-007 이동 |
@@ -330,7 +334,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 파일 ID, 광고 기본정보 | 상단 정보 영역 |
 | 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 이미지/PDF/HWP/HWPX 모두 광고 원본 미리보기 영역에 호출. HWP/HWPX는 private 변환 SVG를 반환 |
-| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 SVG 미리보기와 Text IR 하이라이트 및 원본 다운로드를 함께 표시 |
+| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 구조 좌표가 있는 항목만 SVG 원본 위 BOX로 표시하며, offset만 있는 항목은 원본 위치 미확정 목록으로 표시 |
 | Annotation 또는 목록 항목 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 원문, 문제유형, 판단사유, 근거, 추천문구 | 선택 항목 상세 패널 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준명, 조항, 내용, 적용일 | 근거 상세 팝업 |
 | 필터 선택 | Annotation 필터링 | `/reviews/{reviewId}/annotations` | GET | `reviewType`, `riskLevel`, `pageNo` | 필터링된 Annotation 목록 | 화면 표시 갱신 |
@@ -420,17 +424,9 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 화면 진입 | 상품군/광고유형 코드 조회 | `/codes/product-groups`, `/codes/advertisement-types` | GET | 없음 | 코드 목록 | 조건 선택 영역 |
+| 화면 진입 | 현재 검토 요약·광고물 조회 | `/reviews/{reviewId}/summary` → `/advertisements/{advertisementId}` | GET | `reviewId`, `advertisementId` | 기준 적용일, 상품군, 광고유형 | 별도 탭의 질문 범위로 자동 적용하고 현재 검토 기준으로 표시 |
 | 질문하기 클릭 | 광고 규정 질의응답 요청 | `/qa/questions` | POST | `question`, `productGroup`, `advertisementType`, `standardEffectiveDate` | 답변 요약, 상세 설명, 근거, 추천 문구, 담당자 검토 필요 여부 | 답변 영역 |
-| 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준 상세정보 | 근거 상세 팝업 |
-| Q&A 이력 보기 | Q&A 이력 조회 | `/qa/questions` | GET | `keyword`, `productGroup`, `fromDate`, `toDate` | 질문/답변 이력 | 이력 목록 |
-| 답변 저장 클릭 | Q&A 저장 | `/qa/questions/{qaId}/save` | PATCH | `qaId`, `memo` | 저장 결과 | API 추가 필요 |
-
-### 3.23 추가 필요 API
-
-| API | 사유 |
-| --- | --- |
-| `/qa/questions/{qaId}/save` | 답변 저장 또는 즐겨찾기 기능이 필요한 경우 추가 |
+| 결과 요약/검토 및 리포트 탭 이동 | 화면 전환 | - | - | `reviewId` | - | Q&A 요청·응답은 화면 상태로 유지하고 결과 확인의 공통 탭 간에 이동 |
 
 ---
 
@@ -520,7 +516,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
 | --- | --- | --- |
 | S-009 `/reviews/{reviewId}/support` | `listReviewSuggestions`, `recordSuggestionDecision` | 추천 문구를 조회하고 `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED`를 저장한다. `MODIFIED_AND_USED`는 요청 전 `finalText`를 필수 검증하며 저장 후 목록을 다시 조회한다. |
-| S-010 `/reviews/{reviewId}/support` | `askComplianceQuestion`, `listComplianceQuestions` | 질문 결과의 답변 요약·상세·고정 근거를 표시한다. 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. |
+| S-010 `/reviews/{reviewId}/results/qa` | `getReviewSummary`, `getAdvertisement`, `askComplianceQuestion` | 현재 검토의 상품군·광고유형·기준 적용일을 질문 범위에 자동 적용한다. 질문 결과의 답변 요약·상세·고정 근거·참고 문구를 표시하며, 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. |
 | S-011 `/reviews/{reviewId}/support` | `listOpinionDrafts`, `createOpinionDraft`, `updateOpinionDraft` | 최신 초안을 조회하고 없으면 생성한다. 원본 `draftContent`를 유지한 채 담당자 `finalContent`를 저장하고 다시 조회한다. |
 | S-012 `/reviews/{reviewId}/support` | `createReviewReport`, `getReviewReport`, `downloadReviewReport` | HWPX/PDF 리포트의 생성 형식·준비 상태와 다운로드를 표시한다. 응답의 식별자·해시는 클라이언트 동작에만 사용하고 기본 화면에는 표시하지 않는다. 다운로드는 Bearer 권한을 확인하며 변환 실패는 원본 HWPX와 분리한다. |
 | S-013 `/advertisements/{advertisementId}/comparisons` | `createAdvertisementComparison`, `getAdvertisementComparison` | 기존 검토에서 진입해 수정본을 비교하고 해결·미해결·신규 확인 건수와 항목을 표시한다. 비교 API의 식별자는 요청에만 사용하며 기본 화면에는 노출하지 않는다. |

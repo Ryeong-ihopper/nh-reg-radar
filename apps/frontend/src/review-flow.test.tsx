@@ -121,10 +121,11 @@ test("refreshes running progress and stops on completion", async () => {
   }));
 
   render(<MemoryRouter initialEntries={["/reviews/REV-001/status"]}><App initialSession={productSession} /></MemoryRouter>);
+  expect(screen.queryByText("화면을 벗어나도 분석은 계속되며, 다시 돌아오면 서버에 저장된 최신 단계부터 확인할 수 있습니다.")).not.toBeInTheDocument();
   expect(await screen.findByRole("progressbar", { name: "AI 검토 진행률" })).toHaveAttribute("value", "35");
   expect(screen.getAllByText("OCR 텍스트 추출")).toHaveLength(2);
   expect(await screen.findByLabelText("광고 원본 병행 검토")).toBeInTheDocument();
-  expect(screen.getByText("다른 화면으로 이동해도 검토는 중단되지 않습니다.")).toBeInTheDocument();
+  expect(screen.queryByText("다른 화면으로 이동해도 검토는 중단되지 않습니다.")).not.toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "AI 검토 진행률" })).toHaveAttribute("value", "35");
   fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   expect(await screen.findByText("검토가 완료되었습니다.")).toBeInTheDocument();

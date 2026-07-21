@@ -16,7 +16,7 @@ function response(body: unknown, status = 200): Response {
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-test("uses the generated M6 client for suggestion decision, evidence-backed Q&A, and immutable report creation", async () => {
+test("uses the generated M6 client for suggestion decision and immutable report creation", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input); calls.push({ url, init });
@@ -26,12 +26,13 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
     ]);
     if (url.endsWith("/reviews/REV-M6/opinion-drafts")) return response([{ draftId: "OPN-1", reviewId: "REV-M6", draftContent: "초안", includedReviewItemIds: [], createdAt: "2026-07-14T10:00:00Z" }]);
     if (url.endsWith("/suggestions/SUG-2/decision")) return response({ suggestionId: "SUG-2", decisionStatus: "MODIFIED_AND_USED", finalText: "수정 문구", updatedAt: "2026-07-14T10:01:00Z" });
-    if (url.endsWith("/qa/questions")) return response({ qaId: "QA-1", answerSummary: "확인이 필요합니다", answerDetail: "기준 근거를 확인하세요.", evidences: [], suggestedPhrases: [], needsHumanReview: true });
     if (url.endsWith("/reviews/REV-M6/reports")) return response({ reportId: "RPT-1", reviewId: "REV-M6", sourceReportId: null, reportType: "FULL", format: "HWPX", reportStatus: "CREATED", snapshotHash: "sha256:test", snapshotVersion: "v1", createdAt: "2026-07-14T10:02:00Z" });
     throw new Error(`Unexpected request: ${url}`);
   }));
 
   render(<MemoryRouter initialEntries={["/reviews/REV-M6/support"]}><App initialSession={session} /></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "검토 및 리포트" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "검토 및 리포트" })).toHaveAttribute("href", "/reviews/REV-M6/support");
   expect(await screen.findByText("국내 최고")).toBeInTheDocument();
   expect(screen.getByText("무조건 이득")).toBeInTheDocument();
   const secondSuggestion = screen.getByRole("article", { name: "추천 문구 무조건 이득" });
@@ -42,13 +43,58 @@ test("uses the generated M6 client for suggestion decision, evidence-backed Q&A,
   const decision = calls.find((call) => call.url.endsWith("/suggestions/SUG-2/decision"));
   expect(JSON.parse(String(decision?.init?.body))).toEqual({ decisionStatus: "MODIFIED_AND_USED", finalText: "수정 문구" });
 
-  fireEvent.change(screen.getByLabelText("질문"), { target: { value: "표현을 사용할 수 있나요?" } });
-  fireEvent.click(screen.getByRole("button", { name: "근거 기반 질문" }));
-  expect(await screen.findByText("근거가 부족하여 담당자 확인이 필요합니다.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "HWPX 리포트 생성" }));
   expect(await screen.findByText(/리포트가 준비되었습니다/)).toBeInTheDocument();
   expect(screen.queryByText("sha256:test")).not.toBeInTheDocument();
   expect(new Headers(decision?.init?.headers).get("Authorization")).toBe("Bearer m6-access-token");
+});
+
+test("provides evidence-backed Q&A as a dedicated fourth-step tab with the current review context", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/reviews/REV-M6/summary")) {
+      return response({
+        reviewId: "REV-M6", advertisementId: "ADV-M6", standardEffectiveDate: "2026-07-21", standardVersionIds: ["STDV-M6"],
+        overallRiskLevel: "LOW", totalItemCount: 1, needsRevisionCount: 0, needsConfirmationCount: 0,
+        reviewTypeSummary: [], topRisks: [], completedAt: "2026-07-21T09:00:00Z",
+      });
+    }
+    if (url.endsWith("/advertisements/ADV-M6")) {
+      return response({
+        advertisementId: "ADV-M6", advertisementName: "예금 광고", productGroup: "DEPOSIT", advertisementType: "BRANCH_FLYER",
+        departmentId: "DPT-M6", registeredBy: "USR-M6", registeredAt: "2026-07-21T09:00:00Z", reviewStatus: "REVIEW_COMPLETED", files: [],
+      });
+    }
+    if (url.endsWith("/qa/questions")) {
+      return response({
+        qaId: "QA-1", answerSummary: "조건을 함께 표시해야 합니다.", answerDetail: "우대 조건과 적용 기준을 광고물에 명확히 기재해 주세요.",
+        evidences: [{ evidenceId: "EVD-1", standardVersionId: "STDV-M6", title: "예금상품 광고 기준", matchedText: "우대 조건을 명시한다." }],
+        suggestedPhrases: ["조건 충족 시 우대 혜택을 제공받을 수 있습니다."], needsHumanReview: false,
+      });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/reviews/REV-M6/results/qa"]}><App initialSession={session} /></MemoryRouter>);
+
+  expect(await screen.findByRole("heading", { name: "광고 규정 Q&A" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "광고 규정 Q&A" })).toHaveAttribute("href", "/reviews/REV-M6/results/qa");
+  expect(await screen.findByText("예금 · 영업점 전단 · 기준 적용일 2026-07-21")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("질문"), { target: { value: "우대금리 문구를 사용할 수 있나요?" } });
+  fireEvent.click(screen.getByRole("button", { name: "질문하기" }));
+
+  expect(await screen.findByText("조건을 함께 표시해야 합니다.")).toBeInTheDocument();
+  expect(screen.getByText("예금상품 광고 기준")).toBeInTheDocument();
+  expect(screen.getByText("조건 충족 시 우대 혜택을 제공받을 수 있습니다.")).toBeInTheDocument();
+  const request = calls.find((call) => call.url.endsWith("/qa/questions"));
+  expect(JSON.parse(String(request?.init?.body))).toEqual({
+    question: "우대금리 문구를 사용할 수 있나요?",
+    productGroup: "DEPOSIT",
+    advertisementType: "BRANCH_FLYER",
+    standardEffectiveDate: "2026-07-21",
+  });
 });
 
 test("requires final text for a modified suggestion before mutating the contract", async () => {

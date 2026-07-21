@@ -7,7 +7,8 @@ export function ReviewNavigation({ reviewId }: { reviewId: string }) {
       <NavLink end to={`/reviews/${id}/results`}>결과 요약</NavLink>
       <NavLink to={`/reviews/${id}/results/items`}>항목별 검토</NavLink>
       <NavLink to={`/reviews/${id}/results/annotations`}>광고 화면</NavLink>
-      <NavLink to={`/reviews/${id}/support`}>담당자 지원</NavLink>
+      <NavLink to={`/reviews/${id}/results/qa`}>광고 규정 Q&A</NavLink>
+      <NavLink to={`/reviews/${id}/support`}>검토 및 리포트</NavLink>
     </nav>
   );
 }

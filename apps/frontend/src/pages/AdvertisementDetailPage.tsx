@@ -42,11 +42,11 @@ export function AdvertisementDetailPage() {
       {query.data ? <>
         <WorkflowSteps current={2} advertisementId={advertisementId} />
         <header className="advertisement-detail-hero">
-          <div><p className="eyebrow">2단계 · 원본 확인</p><h2 id="advertisement-detail-heading">{query.data.advertisementName}</h2><p>광고 원본과 관련 자료를 확인하고, 기존 검토를 이어가거나 새로운 AI 검토를 요청하세요.</p></div>
+          <div><p className="eyebrow">2단계 · 원본 확인</p><h2 id="advertisement-detail-heading">{query.data.advertisementName}</h2></div>
           <div className="detail-hero-actions"><Link className="button-link button-secondary" to="/advertisements">목록으로</Link><Link className="button-link" to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>AI 검토 요청</Link></div>
         </header>
         <div className="advertisement-detail-workspace">
-          <div className="detail-document-panel"><div className="detail-panel-heading"><div><h3>광고 원본</h3><p>미리보기는 권한이 검증된 서버 프록시를 통해서만 표시됩니다.</p></div></div>
+          <div className="detail-document-panel"><div className="detail-panel-heading"><h3>광고 원본</h3></div>
             {query.data.files.length === 0 ? <p className="state-message">등록된 파일이 없습니다.</p> : <div className="file-list">{query.data.files.map((file) => <FileActions key={file.fileId} accessToken={session?.accessToken ?? ""} file={file} autoPreview={file.fileType === "ADVERTISEMENT"} />)}</div>}
           </div>
           <aside className="detail-metadata-panel" aria-label="광고물 기본 정보"><h3>기본 정보</h3><dl className="detail-metadata">

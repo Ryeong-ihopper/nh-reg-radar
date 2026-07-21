@@ -50,7 +50,6 @@ export function M6SupportPage() {
   const { reviewId = "" } = useParams();
   const { session } = useAuth();
   const token = session?.accessToken ?? "";
-  const [qaAnswer, setQaAnswer] = useState<Awaited<ReturnType<typeof api.askComplianceQuestion>> | null>(null);
   const [report, setReport] = useState<Awaited<ReturnType<typeof api.createReviewReport>> | null>(null);
 
   const suggestions = useQuery({
@@ -63,16 +62,9 @@ export function M6SupportPage() {
     queryFn: () => api.listOpinionDrafts(token, reviewId),
     enabled: Boolean(token && reviewId),
   });
-  const question = useMutation({ mutationFn: (questionText: string) => api.askComplianceQuestion(token, { question: questionText }), onSuccess: setQaAnswer });
   const createDraft = useMutation({ mutationFn: () => api.createOpinionDraft(token, reviewId), onSuccess: () => void opinion.refetch() });
   const updateDraft = useMutation({ mutationFn: ({ draftId, finalContent }: { draftId: string; finalContent: string }) => api.updateOpinionDraft(token, draftId, { finalContent }), onSuccess: () => void opinion.refetch() });
   const createReport = useMutation({ mutationFn: (format: ReportFormat) => api.createReviewReport(token, reviewId, { format, includeAnnotations: true, includeSuggestions: true, includeOpinionDraft: true, includeEvidenceDetails: true }), onSuccess: setReport });
-
-  function submitQuestion(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const questionText = new FormData(event.currentTarget).get("question")?.toString().trim() ?? "";
-    if (questionText) question.mutate(questionText);
-  }
 
   function submitDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,7 +88,7 @@ export function M6SupportPage() {
   return (
     <section aria-labelledby="m6-support-heading">
       <WorkflowSteps current={4} reviewId={reviewId} />
-      <PageHeader headingId="m6-support-heading" eyebrow="4단계 · 결과 확인" title="검토 지원 및 리포트" description="추천 문구, 규정 Q&A, 심의 의견과 리포트를 한 곳에서 검토하고 확정합니다." />
+      <PageHeader headingId="m6-support-heading" eyebrow="4단계 · 결과 확인" title="검토 및 리포트" description="추천 문구, 심의 의견과 리포트를 한 곳에서 검토하고 확정합니다." />
       <ReviewNavigation reviewId={reviewId} />
       <p className="state-message state-warning"><strong>최종 판단 안내</strong><br />AI 결과는 담당자 검토 지원용이며 자동으로 확정되지 않습니다.</p>
 
@@ -105,11 +97,6 @@ export function M6SupportPage() {
         {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => void suggestions.refetch()} /> : null}
         {suggestions.data?.map((suggestion) => <SuggestionDecisionForm key={suggestion.suggestionId} suggestion={suggestion} token={token} onSaved={() => void suggestions.refetch()} />)}
         {suggestions.data?.length === 0 ? <p className="state-message">현재 검토에 준비된 추천 문구가 없습니다. 항목별 검토 결과에서 수정 권고를 확인해 주세요. <Link to={`/reviews/${encodeURIComponent(reviewId)}/results/items`}>항목별 검토 결과로 이동</Link></p> : null}
-      </section>
-
-      <section aria-labelledby="qa-heading"><h3 id="qa-heading">광고 규정 Q&A</h3><form onSubmit={submitQuestion}><label>질문<textarea name="question" required /></label><button type="submit" disabled={question.isPending}>{question.isPending ? "답변 생성 중..." : "근거 기반 질문"}</button></form>
-        {question.isError ? <ErrorState error={question.error} /> : null}
-        {qaAnswer ? <article className="result-detail"><h4>{qaAnswer.answerSummary}</h4><p>{qaAnswer.answerDetail}</p>{qaAnswer.needsHumanReview ? <p className="state-message state-warning">근거가 부족하여 담당자 확인이 필요합니다.</p> : null}<h5>근거</h5>{qaAnswer.evidences.length ? <ul>{qaAnswer.evidences.map((evidence) => <li key={evidence.evidenceId}><strong>{evidence.title}</strong>: {evidence.matchedText}</li>)}</ul> : <p>연결된 근거가 없습니다.</p>}</article> : null}
       </section>
 
       <section aria-labelledby="opinion-heading"><h3 id="opinion-heading">심의 의견 초안</h3>

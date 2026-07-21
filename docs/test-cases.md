@@ -6,13 +6,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.67 |
-| 기준일 | 2026-07-20 |
+| 현행 버전 | v1.71 |
+| 기준일 | 2026-07-21 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.71 | 2026-07-21 | HWP/HWPX Annotation은 구조 파서의 text/layout 좌표가 결합된 경우에만 원본 SVG 위 BOX로 표시하고, offset만 있는 항목을 원본 아래 Text IR 하이라이트로 분리하지 않는 회귀 기준을 추가 |
+| v1.70 | 2026-07-21 | 4단계 지원 탭과 화면 제목을 `검토 및 리포트`로 통일하는 회귀 기준을 추가 |
+| v1.69 | 2026-07-21 | S-010을 4단계 별도 탭으로 분리하고 현재 검토 맥락을 Q&A 요청에 자동 적용하는 회귀 기준을 추가 |
+| v1.68 | 2026-07-21 | 접을 수 있는 좌측 탐색, 원본 좌측·검토 우측 결과 작업공간, 반복 안내 문구 비노출 회귀 기준을 추가 |
 | v1.67 | 2026-07-20 | `hwp-hybrid` 라우팅·공백 허용 정렬·미정렬 보존·구조 서비스 재시도/저신뢰 fallback·구성요소 artifact·기준자료 공용 경로와 document-processor 계약 회귀를 구현 |
 | v1.66 | 2026-07-20 | ADR-0079 hybrid parser·Notion 신규 페이지 회귀 기준을 추가하고 Python Ruff canonical formatting의 기존 관련 47개 회귀 성공을 확인 |
 | v1.65 | 2026-07-20 | OCR 판독 불가와 일반 검토 확인 필요 상태가 자동 재시도 범위와 원인을 혼동하지 않도록 진행 화면 회귀 기준을 추가 |
@@ -276,7 +280,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-013 | 재시도 한도 초과 최종 실패 | retryCount가 maxRetries에 도달 | 추가 실패 발생 | jobStatus `FAILED_FINAL`, dead_lettered_at, failedReasonCode 저장 | `review_jobs`, `audit_logs` | P0 |
 | TC-REV-014 | 상태 조회 retry 필드 반환 | `RETRY_PENDING` job 존재 | 상태 조회 API 호출 | retryCount, maxRetries, nextRetryAt, isRetryable, failedReasonCode 반환 | `review_jobs`, `review_steps` | P0 |
 | TC-REV-015 | 기준 적용일 기본값 | S-004 진입 | 검토 요청 폼 표시 | date 입력값이 사용자의 로컬 오늘 날짜이며 수정 가능 | frontend | P1 |
-| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, Text IR·원본 다운로드와 함께 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
+| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, 구조 파서 좌표가 결합된 문구는 실제 SVG 원본 위 BOX로 표시한다. offset만 있는 문구는 원본 아래에 별도 하이라이트하지 않고 위치 미확정 목록으로 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
 | TC-REV-017 | 판독 불가와 확인 필요 안내 구분 | `OCR_UNREADABLE` 및 근거/상품조건 사유의 `CHECK_REQUIRED` fixture 준비 | S-005 상태 조회 | 판독 불가는 기술 일시 오류만 자동 재시도한다는 안내와 원본 품질 개선 후 재분석 안내를, 일반 확인 필요는 원인 범주 확인 안내를 각각 표시한다 | frontend | P1 |
 
 ---
@@ -404,7 +408,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ANN-004 | 위험도별 Annotation 필터 | 위험도별 영역 존재 | riskLevel 조건 조회 | 해당 위험도 영역만 반환 | `annotations` | P1 |
 | TC-ANN-005 | Annotation 단건 상세 연결 | reviewItemId 존재 | Annotation 또는 목록 항목 클릭 후 상세 조회 | 검토 항목 상세 결과 반환 | `review_items` | P0 |
 | TC-ANN-006 | 좌표 없는 검토 항목 처리 | OCR 좌표 없음 | Annotation 조회 | `LIST_ONLY` 또는 `UNAVAILABLE` 상태로 목록과 상세 패널에 표시 | `review_items`, `annotations` | P1 |
-| TC-ANN-007 | HWP/HWPX 텍스트 하이라이트 | HWP/HWPX 문서에서 문구 위치 특정 | Annotation 조회 | `TEXT_HIGHLIGHT`, textBlockId, normalized offset, matchedText 반환 | `annotations` | P1 |
+| TC-ANN-007 | HWP/HWPX 원본 위치 표시 | HWP/HWPX 문서에서 구조 좌표와 문구 위치가 결합됨 | Annotation 조회·S-007 진입 | document-processor의 text 또는 연관 layout 좌표를 hybrid parser가 보존하고 `BOX` Annotation이 private SVG 원본 위에 표시된다. 좌표 없는 offset은 `TEXT_HIGHLIGHT` 계약으로 반환될 수 있으나 UI는 위치 미확정 목록으로만 표시한다. | `annotations`, frontend | P1 |
 | TC-ANN-008 | 일부 위치 특정 처리 | 일부 문구만 매칭 | Annotation 조회 | `PARTIALLY_LOCATED` 상태와 특정된 문구만 반환 | `annotations` | P1 |
 | TC-ANN-009 | 문서 단위 이슈 표시 | 위치 없는 문서 전체 이슈 존재 | Annotation 조회 | `DOCUMENT_LEVEL_ISSUE` 상태로 목록/상세 표시 | `review_items`, `annotations` | P1 |
 | TC-ANN-010 | Annotation 위치 신뢰도 임계값 적용 | location confidence 0.80, 0.79, 0.49 fixture 준비 | Annotation 조회 | LOCATED, LOW_CONFIDENCE/PARTIALLY_LOCATED, NOT_LOCATED 상태 분리 | `annotations` | P1 |
@@ -443,6 +447,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-QA-004 | Q&A 근거 매핑 저장 | Q&A 답변 생성 | DB 확인 | `qa_message_evidences` 저장 | `qa_message_evidences` | P1 |
 | TC-QA-005 | Q&A 이력 조회 | 질문 이력 존재 | `/qa/questions` 호출 | 질문/답변 이력 반환 | `qa_messages` | P2 |
 | TC-QA-006 | 빈 질문 요청 | question 공백 | Q&A 요청 | 400 BAD_REQUEST 반환 | - | P1 |
+| TC-QA-007 | 4단계 Q&A 탭과 검토 맥락 적용 | 완료된 reviewId·광고물·기준 적용일 존재 | `/reviews/{reviewId}/results/qa` 진입 후 질문 제출 | 결과 확인 공통 탭에 `광고 규정 Q&A`가 표시되고, `getReviewSummary`·`getAdvertisement`의 상품군·광고유형·기준 적용일이 `/qa/questions` 요청에 자동 포함된다. 답변 요약·상세·근거·참고 문구와 `needsHumanReview` 안내를 구분해 표시한다. | `ReviewSummary`, `AdvertisementDetail`, `/qa/questions` | P1 |
 
 ---
 
@@ -564,6 +569,8 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-UI-031 | Annotation 좌표 기준과 원문 가독성 | 세로 스크롤이 필요한 이미지 광고 원본과 normalized coordinate BOX 준비 | S-007에서 BOX 표시·hover·선택 | BOX의 좌상단과 크기는 스크롤 뷰포트가 아닌 실제 렌더링된 원본 미디어의 normalized coordinate에 일치한다. hover·선택 상태는 진한 녹색 채움 없이 반투명 테두리·옅은 채움으로 원문을 계속 읽을 수 있다. | 프론트엔드 컴포넌트/수동 화면 확인 | P1 |
 | TC-UI-032 | 광고물 등록 하단 액션 | S-003 광고물 등록 화면 진입 | 취소·광고물 등록 버튼 영역 확인 | 버튼은 폼의 최하단 일반 액션 행에 표시되며 viewport에 떠 있지 않고, 별도 테두리·배경·그림자 컨테이너를 사용하지 않는다. | 프론트엔드 회귀/수동 화면 확인 | P1 |
 | TC-UI-033 | 로그인 화면 뷰포트 배치 | 일반 데스크톱 뷰포트에서 로그인 화면 진입 | 문서 높이·로그인 카드 위치 확인 | 헤더 아래 공개 영역은 뷰포트 높이에 맞고 로그인 카드는 중앙에 표시된다. 콘텐츠가 뷰포트에 들어가는 경우 불필요한 세로 스크롤이 생기지 않는다. | 수동 화면 확인 | P1 |
+| TC-UI-034 | 접이식 탐색과 원본 중심 결과 작업공간 | 데스크톱에서 S-004~S-008 진입 | 좌측 탐색 접기·펼치기 후 S-006/S-008 레이아웃과 문구 확인 | 좌측 탐색은 아이콘 폭으로 접혀 본문 폭을 넓히고 펼치기 후 원래 너비로 복원된다. 접힌 메뉴도 접근 가능한 이름을 유지한다. S-006/S-008은 원본 미리보기를 넓은 좌측 영역에, 위험·근거·권고를 우측에 표시한다. 원본 확인 방법·서버 proxy·백그라운드 처리·위험 확인 순서를 반복하는 안내 문장은 표시하지 않는다. | 프론트엔드 컴포넌트 회귀/1440px 화면 확인 | P1 |
+| TC-UI-035 | 4단계 검토 및 리포트 명칭 | 완료된 reviewId로 `/reviews/{reviewId}/support` 진입 | 탭과 페이지 제목 확인 | 공통 탭과 페이지 제목은 모두 `검토 및 리포트`로 표시하고, 이전 `담당자 지원`·`검토 지원 및 리포트` 명칭은 표시하지 않는다. | 프론트엔드 컴포넌트 회귀 | P2 |
 | TC-SEC-012 | PoC 2계정 개발 seed 프로필 | dev seed 적용 완료 | 활성 계정과 역할 매핑 확인 | 활성 로그인 계정은 test/admin 두 개이며, test는 상품·준법·기준관리 역할을, admin은 시스템 관리자 역할을 가진다. 준법감시 synthetic 계정은 활성 로그인할 수 없다. | seed 계약 테스트 | P1 |
 | TC-EVAL-001 | 성능평가 정상 실행 | 데이터셋, 판단 결과, AI 결과 존재 | 평가 실행 API 호출 | evaluationId 생성, KPI별 score/numerator/denominator 반환 | `evaluations`, `evaluation_metrics` | P0 |
 | TC-EVAL-002 | 필수 문구 정확도 산출 | 필수 문구 정답 데이터 존재 | 평가 실행 | REQUIRED_PHRASE_ACCURACY의 분자/분모/점수 산출 | `evaluation_metrics` | P0 |

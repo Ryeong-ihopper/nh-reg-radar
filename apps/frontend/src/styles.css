@@ -1251,6 +1251,315 @@ button.annotation-box[aria-pressed="true"]:hover:not(:disabled), button.annotati
   .standard-form-section, .standard-form-content { grid-template-columns: 1fr; }
 }
 
+/* Wide review workspace and collapsible desktop navigation. */
+main {
+  width: min(120rem, calc(100% - 2rem));
+  margin: 1.25rem auto 2rem;
+}
+
+.app-workspace {
+  grid-template-columns: 15.5rem minmax(0, 1fr);
+  transition: grid-template-columns 180ms ease;
+}
+
+.app-workspace[data-sidebar-collapsed="true"] {
+  grid-template-columns: 4.75rem minmax(0, 1fr);
+}
+
+.app-sidebar {
+  gap: 0.75rem;
+  padding: 1rem;
+  transition: padding 180ms ease;
+}
+
+.sidebar-toggle {
+  display: inline-grid;
+  width: 2.25rem;
+  min-height: 2.25rem;
+  margin-left: auto;
+  padding: 0;
+  place-items: center;
+  border-color: #d9dde2;
+  color: #596579;
+  background: #fff;
+  box-shadow: none;
+}
+
+.sidebar-toggle:hover:not(:disabled) {
+  border-color: #adb5c2;
+  color: #1f2937;
+  background: #f6f7f8;
+  box-shadow: none;
+  transform: none;
+}
+
+.sidebar-toggle svg,
+.nav-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+}
+
+.app-sidebar nav a {
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.nav-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.nav-copy > span {
+  overflow: hidden;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-copy > small {
+  overflow: hidden;
+  color: #8993a4;
+  font-size: 0.69rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar nav a:is(:hover, .active) .nav-copy > small {
+  color: #6b7280;
+}
+
+.app-workspace[data-sidebar-collapsed="true"] .app-sidebar {
+  padding-inline: 0.65rem;
+}
+
+.app-workspace[data-sidebar-collapsed="true"] .app-sidebar nav a {
+  grid-template-columns: 1fr;
+  min-height: 2.75rem;
+  padding-inline: 0;
+  place-items: center;
+}
+
+.app-workspace[data-sidebar-collapsed="true"] .nav-copy,
+.app-workspace[data-sidebar-collapsed="true"] .nav-group-label,
+.app-workspace[data-sidebar-collapsed="true"] .sidebar-note {
+  display: none;
+}
+
+.review-results-page {
+  min-width: 0;
+}
+
+.review-workspace--document-first {
+  grid-template-columns: minmax(32rem, 1.7fr) minmax(22rem, 0.85fr);
+  gap: clamp(1rem, 1.5vw, 1.5rem);
+}
+
+.review-workspace--document-first .review-original-panel .file-preview-viewport {
+  max-height: min(68vh, 58rem);
+}
+
+.review-inspection-panel {
+  min-width: 0;
+}
+
+.review-inspection-panel .review-metadata-table-wrap {
+  margin: 0 0 1rem;
+}
+
+.review-inspection-panel .result-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.review-inspection-panel .result-layout {
+  grid-template-columns: 1fr;
+}
+
+.review-inspection-panel .risk-list li > div {
+  align-items: flex-start;
+}
+
+@media (max-width: 1180px) {
+  .review-workspace--document-first {
+    grid-template-columns: 1fr;
+  }
+
+  .review-workspace--document-first .review-original-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 900px) {
+  main {
+    width: min(100% - 1.25rem, 64rem);
+    margin: 0.75rem auto 2rem;
+  }
+
+  .app-workspace,
+  .app-workspace[data-sidebar-collapsed="true"] {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar,
+  .app-workspace[data-sidebar-collapsed="true"] .app-sidebar {
+    gap: 0.7rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .app-workspace[data-sidebar-collapsed="true"] .app-sidebar nav a {
+    grid-template-columns: 1.15rem minmax(0, 1fr);
+    min-height: 0;
+    padding: 0.45rem 0.65rem;
+    place-items: center start;
+  }
+
+  .app-workspace[data-sidebar-collapsed="true"] .nav-copy {
+    display: grid;
+  }
+}
+
+/* Fourth-step regulatory Q&A keeps the review context visible beside its evidence-backed answer. */
+.compliance-qa-layout {
+  display: grid;
+  grid-template-columns: minmax(19rem, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(1rem, 1.8vw, 1.5rem);
+  align-items: start;
+}
+
+.qa-question-panel,
+.qa-answer,
+.qa-empty-state {
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+
+.qa-question-panel {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1rem, 2vw, 1.35rem);
+}
+
+.qa-question-panel h3,
+.qa-answer h3,
+.qa-answer h4,
+.qa-empty-state h3 {
+  margin: 0;
+}
+
+.qa-context {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.55rem;
+  color: #475467;
+  background: var(--surface-subtle);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.qa-question-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.qa-question-form label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.qa-question-form textarea {
+  min-height: 10rem;
+  resize: vertical;
+}
+
+.qa-question-form button {
+  justify-self: start;
+}
+
+.qa-answer-panel {
+  min-width: 0;
+}
+
+.qa-answer {
+  padding: clamp(1rem, 2vw, 1.35rem);
+}
+
+.qa-answer-heading {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.qa-answer-detail {
+  margin: 1rem 0;
+  color: #344054;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.qa-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.15rem;
+}
+
+.qa-evidence-grid > section {
+  min-width: 0;
+}
+
+.qa-evidence-grid h4 {
+  margin-bottom: 0.65rem;
+  font-size: 0.9rem;
+}
+
+.qa-phrase-list {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qa-phrase-list li {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: #344054;
+  background: var(--surface-subtle);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.qa-empty-state {
+  min-height: 17rem;
+  padding: clamp(1rem, 2vw, 1.35rem);
+  color: var(--muted);
+}
+
+.qa-empty-state p {
+  max-width: 34rem;
+  margin: 0.5rem 0 0;
+}
+
+@media (max-width: 900px) {
+  .compliance-qa-layout,
+  .qa-evidence-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .qa-question-form button {
+    width: 100%;
+  }
+}
+
 /* Calm operational navigation: no coloured sidebar states or decorative card stacking. */
 .app-sidebar { background: #fff; }
 .app-sidebar nav a { border: 1px solid transparent; border-radius: 0.4rem; color: #4b5565; }

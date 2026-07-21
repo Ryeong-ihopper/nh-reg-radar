@@ -87,7 +87,6 @@ export function ReviewProgressPage() {
         headingId="review-progress-heading"
         eyebrow="3단계 · AI 검토"
         title="AI 검토 진행 상태"
-        description="화면을 벗어나도 분석은 계속되며, 다시 돌아오면 서버에 저장된 최신 단계부터 확인할 수 있습니다."
       />
       {progress.isPending ? <LoadingState label="검토 진행 상태를 불러오는 중입니다." /> : null}
       {forbidden ? <div role="alert" className="state-message state-error"><strong>접근 권한이 없습니다.</strong><p>검토 상태를 볼 수 있는 부서 또는 역할인지 확인해 주세요.</p></div> : null}
@@ -102,7 +101,6 @@ export function ReviewProgressPage() {
             <div><strong>진행률</strong><span>{displayedProgress.progressRate}%</span></div>
           </div>
           <progress aria-label="AI 검토 진행률" max={100} value={displayedProgress.progressRate}>{displayedProgress.progressRate}%</progress>
-          <p className="background-processing-note"><strong>백그라운드 처리 중</strong><span>다른 화면으로 이동해도 검토는 중단되지 않습니다.</span></p>
           <ol className="review-steps" aria-label="검토 단계">{displayedProgress.steps.map((step) => (
             <li key={step.stepCode} data-status={step.status}>
               <strong>{step.stepName}</strong><StatusBadge status={step.status} />

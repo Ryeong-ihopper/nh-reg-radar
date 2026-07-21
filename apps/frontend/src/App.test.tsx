@@ -63,6 +63,24 @@ test("renders the role-based workspace navigation defined by the screen plan", a
   expect(headerLogo).toHaveClass("brand-mark--inverse");
 });
 
+test("collapses and restores the desktop sidebar without hiding navigation semantics", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => response(emptyList())));
+  render(<MemoryRouter initialEntries={["/advertisements"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  expect(await screen.findByRole("heading", { name: "광고물 목록" })).toBeInTheDocument();
+  const workspace = document.querySelector(".app-workspace");
+  const navigation = screen.getByRole("navigation", { name: "주 탐색" });
+  const collapse = screen.getByRole("button", { name: "사이드바 접기" });
+  expect(collapse).toHaveAttribute("aria-expanded", "true");
+
+  fireEvent.click(collapse);
+
+  expect(workspace).toHaveAttribute("data-sidebar-collapsed", "true");
+  expect(screen.getByRole("button", { name: "사이드바 펼치기" })).toHaveAttribute("aria-expanded", "false");
+  expect(within(navigation).getByRole("link", { name: "광고물 목록" })).toBeInTheDocument();
+  expect(within(navigation).getByRole("link", { name: "광고물 등록" })).toBeInTheDocument();
+});
+
 test("marks only the current advertisement route as active in workspace navigation", async () => {
   render(<MemoryRouter initialEntries={["/advertisements/new"]}><App initialSession={productSession} /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "광고물 등록" })).toBeInTheDocument();
@@ -367,6 +385,8 @@ test("shows the current workflow step and links completed review history back to
   render(<MemoryRouter initialEntries={["/advertisements/ADV-HISTORY"]}><App initialSession={productSession} /></MemoryRouter>);
 
   expect(await screen.findByRole("heading", { name: "완료된 광고" })).toBeInTheDocument();
+  expect(screen.queryByText("광고 원본과 관련 자료를 확인하고, 기존 검토를 이어가거나 새로운 AI 검토를 요청하세요.")).not.toBeInTheDocument();
+  expect(screen.queryByText("미리보기는 권한이 검증된 서버 프록시를 통해서만 표시됩니다.")).not.toBeInTheDocument();
   expect(screen.getByRole("navigation", { name: "광고 심의 업무 단계" }).querySelector('[aria-current="step"]')).toHaveTextContent("원본 확인");
   expect(screen.getByText("예금")).toBeInTheDocument();
   expect(screen.getByText("영업점 전단")).toBeInTheDocument();

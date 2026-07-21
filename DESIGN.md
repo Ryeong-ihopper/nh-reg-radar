@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-07-18
+- Last refreshed: 2026-07-21
 - Primary product surfaces: 로그인, 광고물 관리, AI 검토 요청·진행·결과, 기준자료 관리, 검토 품질 관리
 - Evidence reviewed: `docs/screen-specification.md`, `docs/screen-api-mapping.md`, `apps/frontend/src/App.tsx`, page components, `apps/frontend/src/styles.css`, existing frontend tests
 
@@ -18,14 +18,14 @@
 
 ## Personas and jobs
 - Primary personas: 상품부서 담당자, 준법감시 검토자, 기준자료 관리자, 검토 품질 담당자
-- User jobs: 광고 등록·요청, 진행 확인, 위험/근거 검토, 기준·검증 데이터 관리
+- User jobs: 광고 등록·요청, 진행 확인, 위험/근거 검토, 현재 광고 맥락의 규정 질의응답, 기준·검증 데이터 관리
 - Key contexts of use: PC/노트북 우선, 장시간 표·문서·근거 검토
 
 ## Information architecture
-- Primary navigation: `광고 심의`(목록·신규 등록), `운영 도구`(기준자료·검토 품질 관리)를 역할 기반 좌측 탐색으로 제공한다. 탐색은 흰 배경과 중립 회색 활성 상태를 사용하며, 데스크톱에서는 업무 본문만 스크롤되고 좌측 탐색은 뷰포트에 고정한다. 내부 화면 ID·마일스톤·기술 식별자·원시 enum은 기본 화면에 노출하지 않는다. 치명적 오류 화면은 전용 중앙 안내로 표시하고 색상 막대나 업무 탐색을 노출하지 않으며, 뷰포트보다 큰 높이를 만들지 않는다.
-- Core routes/screens: S-002~S-008, S-014~S-016. 보조 지원 화면은 결과 화면의 행동으로 진입한다.
+- Primary navigation: `광고 심의`(목록·신규 등록), `운영 도구`(기준자료·검토 품질 관리)를 역할 기반 좌측 탐색으로 제공한다. 탐색은 흰 배경과 중립 회색 활성 상태를 사용하며, 데스크톱에서는 업무 본문만 스크롤되고 좌측 탐색은 뷰포트에 고정한다. 사용자는 좌측 탐색을 아이콘 폭으로 접거나 다시 펼쳐 문서 검토 폭을 확보할 수 있고, 접힌 상태에서도 각 링크의 접근 가능한 이름과 hover 제목을 유지한다. 내부 화면 ID·마일스톤·기술 식별자·원시 enum은 기본 화면에 노출하지 않는다. 치명적 오류 화면은 전용 중앙 안내로 표시하고 색상 막대나 업무 탐색을 노출하지 않으며, 뷰포트보다 큰 높이를 만들지 않는다.
+- Core routes/screens: S-002~S-008, S-010, S-014~S-016. S-006~S-010은 결과 확인 단계의 공통 탭으로 연결하고, 광고 규정 Q&A는 현재 검토 맥락을 유지한 별도 탭으로 제공한다.
 - Core journey: `광고 등록 → 원본 확인 → AI 검토 → 결과 확인`의 네 단계를 모든 광고 심의 핵심 화면에서 같은 순서와 용어로 표시한다. 이전 검토가 있는 광고물은 상세 화면에서 진행 중 작업 또는 완료 결과로 즉시 복귀할 수 있어야 한다.
-- Content hierarchy: 업무 단계 안내 → 페이지 제목/설명 → 상태·주요 CTA → 필터·요약 → 데이터·세부 정보. 광고물 상세는 원본 문서 작업 영역을 우선하고 메타데이터·검토 이력·다음 행동은 보조 패널로 분리한다.
+- Content hierarchy: 업무 단계 안내 → 페이지 제목 → 상태·주요 CTA → 필터·요약 → 데이터·세부 정보. 설명 없이도 제목과 주변 맥락이 충분한 화면에는 반복적인 안내 문장을 추가하지 않는다. 광고물 상세는 원본 문서 작업 영역을 우선하고 메타데이터·검토 이력·다음 행동은 보조 패널로 분리한다. AI 검토 결과 화면은 넓은 원본 미리보기를 좌측 주 작업면에, 위험·근거·권고·액션을 우측 검토 패널에 배치한다.
 
 ## Design principles
 - 업무 맥락을 먼저 보인다: 제목, 상태, 주요 액션을 고정된 위계로 배치한다.
@@ -40,7 +40,7 @@
 - Spacing/layout rhythm: 4px 기반, 넓은 콘텐츠 폭과 좌측 탐색. 업무 입력·조회 영역은 장식용 색상 카드 대신 얇은 구분선과 절제된 표면으로 구분한다.
 - Shape/radius/elevation: 10~16px radius, 얕은 border와 아주 약한 shadow.
 - Motion: 160ms 이내의 색·border 전환만 사용하며 reduced motion을 지원한다.
-- Imagery/iconography: 외부 아이콘 의존성 없이 텍스트·상태 marker를 사용한다.
+- Imagery/iconography: 외부 아이콘 의존성 없이 단순한 inline SVG와 텍스트·상태 marker를 사용한다. 아이콘은 텍스트의 의미를 대체하지 않는다.
 
 ## Components
 - Existing components to reuse: `RequestState`, `Pagination`, `FileActions`.
@@ -56,8 +56,8 @@
 - Reduced motion and sensory considerations: motion 감소 환경에서 transition 제거.
 
 ## Responsive behavior
-- Supported breakpoints/devices: 1024px 이상 업무용 2열, 768px 이하 단일 열.
-- Layout adaptations: sidebar는 상단 가로 탐색으로 전환하고 표는 가로 스크롤 유지.
+- Supported breakpoints/devices: 1180px 이상 원본 중심 업무용 2열, 그 이하는 안전한 단일 열, 768px 이하는 모바일 조회형 단일 열.
+- Layout adaptations: 좁은 화면에서 sidebar는 상단 가로 탐색으로 전환하고 접기 버튼은 숨긴다. 결과 작업공간은 원본 다음에 판단 정보가 이어지는 단일 열로 전환하며 표는 필요한 경우에만 가로 스크롤을 유지한다.
 - Touch/hover differences: 버튼 최소 높이 40px, hover 없이도 선택 상태가 보인다.
 
 ## Interaction states

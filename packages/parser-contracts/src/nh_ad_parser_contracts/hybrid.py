@@ -9,6 +9,7 @@ from pydantic import Field
 
 from nh_ad_parser_contracts.models import (
     Confidence,
+    Coordinate,
     LayoutBlock,
     NormalizedDocument,
     Table,
@@ -120,6 +121,7 @@ class HwpStructureAligner:
         }
         incomplete = not expected_structure_ids.issubset(matched_structure_ids)
         parser_version = self._parser_version(canonical, structure)
+        structure_coordinates = self._structure_coordinates(structure)
         for page_no in sorted(canonical_pages):
             page_text = canonical_pages[page_no]
             page_ranges = aligned.get(page_no, [])
@@ -140,6 +142,11 @@ class HwpStructureAligner:
                     raw_text=raw_text,
                     unmatched=item.source is None,
                     parser_version=parser_version,
+                    coordinate=(
+                        structure_coordinates.get(item.source.text_block_id)
+                        if item.source is not None
+                        else None
+                    ),
                 )
                 output_blocks.append(block)
                 if item.source is None:
@@ -189,6 +196,27 @@ class HwpStructureAligner:
             rawArtifactRef=self._artifact_reference(canonical, structure),
             createdAt=max(canonical.created_at, structure.created_at),
         )
+
+    @staticmethod
+    def _structure_coordinates(structure: NormalizedDocument) -> dict[str, Coordinate]:
+        """Prefer exact text bounds, then the owning layout block's verified bounds.
+
+        document-processor can expose a paragraph/table layout box even when the
+        nested text node has no own bbox.  The layout box remains a truthful
+        visual anchor and lets the review UI annotate the rendered source rather
+        than presenting a detached Text IR highlight.
+        """
+        values = {
+            block.text_block_id: block.coordinate
+            for block in structure.text_blocks
+            if block.coordinate is not None
+        }
+        for layout in structure.layout_blocks:
+            if layout.coordinate is None:
+                continue
+            for text_block_id in layout.related_text_block_ids:
+                values.setdefault(text_block_id, layout.coordinate)
+        return values
 
     @staticmethod
     def _validate_canonical(canonical: NormalizedDocument) -> None:
@@ -293,6 +321,7 @@ class HwpStructureAligner:
         raw_text: str,
         unmatched: bool,
         parser_version: str,
+        coordinate: Coordinate | None,
     ) -> TextBlock:
         if source is None:
             if not unmatched:
@@ -305,7 +334,6 @@ class HwpStructureAligner:
             score = min(canonical.confidence.score, source.confidence_score)
             text_path = source.text_path or f"pages/{page_no}/structure/{start}-{end}"
             text_block_type = source.text_block_type
-            coordinate = source.coordinate
         return TextBlock(
             textBlockId=self._stable_id(
                 "text", canonical.review_id, page_no, text_path, start, end

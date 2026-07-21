@@ -80,17 +80,18 @@ export function ReviewSummaryPage() {
   });
 
   return (
-    <section aria-labelledby="review-summary-heading">
+    <section className="review-results-page" aria-labelledby="review-summary-heading">
       <WorkflowSteps current={4} advertisementId={summary.data?.advertisementId} reviewId={reviewId} />
-      <PageHeader headingId="review-summary-heading" eyebrow="4단계 · 결과 확인" title="AI 검토 결과" description="위험 항목을 먼저 확인하고 원본·판단 근거·권고 조치를 함께 검토하세요." />
+      <PageHeader headingId="review-summary-heading" eyebrow="4단계 · 결과 확인" title="AI 검토 결과" />
       <ReviewNavigation reviewId={reviewId} />
       {summary.isPending ? <LoadingState label="검토 결과 요약을 불러오는 중입니다." /> : null}
       {summary.isError && isForbidden(summary.error) ? <ForbiddenState /> : null}
       {summary.isError && !isForbidden(summary.error) ? <ErrorState error={summary.error} onRetry={() => void summary.refetch()} /> : null}
       {summary.data ? (
         <>
-          <div className="review-workspace">
-          <div>
+          <div className="review-workspace review-workspace--document-first" aria-label="AI 검토 결과 작업공간">
+          {advertisement.data ? <ReviewOriginalPanel accessToken={session?.accessToken ?? ""} advertisement={advertisement.data} /> : null}
+          <div className="review-inspection-panel">
           {summary.data && advertisement.isPending ? <LoadingState label="광고 기본정보를 불러오는 중입니다." /> : null}
           {advertisement.isError ? <ErrorState error={advertisement.error} onRetry={() => void advertisement.refetch()} /> : null}
           {advertisement.data ? <div className="table-scroll review-metadata-table-wrap">
@@ -131,11 +132,10 @@ export function ReviewSummaryPage() {
             <Link className="button-link button-secondary" to="/advertisements">광고물 목록</Link>
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/items`}>상세 결과 보기</Link>
             <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/annotations`}>광고 화면 보기</Link>
-            <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/support`}>담당자 지원</Link>
+            <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/support`}>검토 및 리포트</Link>
             <Link className="button-link" to={`/advertisements/${encodeURIComponent(summary.data.advertisementId)}/comparisons?reviewId=${encodeURIComponent(reviewId)}`}>수정본 비교·재검토</Link>
           </div>
           </div>
-          {advertisement.data ? <ReviewOriginalPanel accessToken={session?.accessToken ?? ""} advertisement={advertisement.data} /> : null}
           </div>
         </>
       ) : null}
@@ -181,12 +181,13 @@ export function ReviewItemsPage() {
   }
 
   return (
-    <section aria-labelledby="review-items-heading">
+    <section className="review-results-page" aria-labelledby="review-items-heading">
       <WorkflowSteps current={4} advertisementId={reviewProgress.data?.advertisementId} reviewId={reviewId} />
       <PageHeader headingId="review-items-heading" eyebrow="4단계 · 결과 확인" title="항목별 검토 결과" description="판정 항목을 선택해 수정 권고와 연결된 규정 근거를 확인합니다." />
       <ReviewNavigation reviewId={reviewId} />
-      <div className="review-workspace">
-      <div>
+      <div className="review-workspace review-workspace--document-first">
+      {advertisement.data ? <ReviewOriginalPanel accessToken={session?.accessToken ?? ""} advertisement={advertisement.data} focusTarget={detail.data?.annotation?.coordinate ? { normalizedY: detail.data.annotation.coordinate.normalizedY } : undefined} /> : null}
+      <div className="review-inspection-panel">
       <div className="result-filters">
         <label>검토 유형<select value={filters.reviewType ?? ""} onChange={(event) => setFilter("reviewType", event.target.value)}><option value="">전체</option>{Object.entries(REVIEW_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>위험도<select value={filters.riskLevel ?? ""} onChange={(event) => setFilter("riskLevel", event.target.value)}><option value="">전체</option>{Object.entries(RISK_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -220,7 +221,6 @@ export function ReviewItemsPage() {
       {items.data ? <Pagination page={items.data.page} totalPages={items.data.totalPages} totalElements={items.data.totalElements} onPageChange={(page) => setFilters((current) => ({ ...current, page }))} /> : null}
       <div className="form-actions"><Link className="button-link button-secondary" to={`/reviews/${encodeURIComponent(reviewId)}/results`}>요약으로</Link><Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/annotations`}>광고 화면 보기</Link></div>
       </div>
-      {advertisement.data ? <ReviewOriginalPanel accessToken={session?.accessToken ?? ""} advertisement={advertisement.data} focusTarget={detail.data?.annotation?.coordinate ? { normalizedY: detail.data.annotation.coordinate.normalizedY } : undefined} /> : null}
       </div>
     </section>
   );
@@ -265,8 +265,7 @@ export function ReviewAnnotationsPage() {
   const previewUrl = useObjectUrl(preview.data);
   const selected = annotations.data?.annotations.find((annotation) => annotation.reviewItemId === selectedId) ?? null;
   const boxes = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "BOX" && annotation.coordinate) ?? [];
-  const textHighlights = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "TEXT_HIGHLIGHT") ?? [];
-  const fallbacks = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "LIST_ONLY" || annotation.annotationDisplayMode === "UNAVAILABLE" || (!annotation.coordinate && !annotation.matchedText)) ?? [];
+  const fallbacks = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "LIST_ONLY" || annotation.annotationDisplayMode === "UNAVAILABLE" || annotation.annotationDisplayMode === "TEXT_HIGHLIGHT" || (!annotation.coordinate && !annotation.matchedText)) ?? [];
   const lowConfidence = annotations.data?.annotations.filter((annotation) => annotation.annotationStatus === "LOW_CONFIDENCE" || annotation.annotationStatus === "PARTIALLY_LOCATED" || (annotation.locationConfidence !== null && annotation.locationConfidence < 0.8)) ?? [];
 
   useEffect(() => {
@@ -303,9 +302,8 @@ export function ReviewAnnotationsPage() {
               {boxes.map((annotation) => <button key={annotation.annotationId} type="button" className="annotation-box" aria-label={`${annotation.targetText} Annotation`} data-risk={annotation.riskLevel} aria-pressed={annotation.reviewItemId === selectedId} onClick={() => setSelectedId(annotation.reviewItemId)} style={{ left: `${(annotation.coordinate?.normalizedX ?? 0) * 100}%`, top: `${(annotation.coordinate?.normalizedY ?? 0) * 100}%`, width: `${(annotation.coordinate?.normalizedWidth ?? 0) * 100}%`, height: `${(annotation.coordinate?.normalizedHeight ?? 0) * 100}%` }} />)}
             </div>
           </div> : null}
-          {textHighlights.length > 0 ? <div className="text-highlight-view"><h3>HWP/HWPX 텍스트 위치</h3>{textHighlights.map((annotation) => <button type="button" key={annotation.annotationId} aria-pressed={annotation.reviewItemId === selectedId} onClick={() => setSelectedId(annotation.reviewItemId)}><mark>{annotation.matchedText ?? annotation.targetText}</mark><span>{annotation.textBlockId} · offset {annotation.normalizedStartOffset}–{annotation.normalizedEndOffset}</span></button>)}</div> : null}
           {!previewSupported ? <p className="state-message">이 파일 형식은 브라우저 미리보기를 지원하지 않습니다. 원본을 다운로드해 확인해 주세요.</p> : null}
-          {fallbacks.length > 0 ? <div className="annotation-fallback"><h3>위치 미확정 항목</h3>{fallbacks.map((annotation) => <AnnotationButton key={annotation.annotationId} annotation={annotation} selected={annotation.reviewItemId === selectedId} onSelect={() => setSelectedId(annotation.reviewItemId)} />)}</div> : null}
+          {fallbacks.length > 0 ? <div className="annotation-fallback"><h3>원본 위치 미확정 항목</h3><p>좌표가 검증된 항목만 광고 원본 위에 표시합니다. 아래 항목은 원본 위치를 확정할 수 없어 하이라이트하지 않았습니다.</p>{fallbacks.map((annotation) => <AnnotationButton key={annotation.annotationId} annotation={annotation} selected={annotation.reviewItemId === selectedId} onSelect={() => setSelectedId(annotation.reviewItemId)} />)}</div> : null}
         </div><aside className="result-detail" aria-label="선택 Annotation 상세">
           {selected ? <><h3>{selected.targetText}</h3><dl className="compact-detail"><div><dt>검토 유형</dt><dd>{selected.reviewType}</dd></div><div><dt>위험도</dt><dd>{RISK_LABELS[selected.riskLevel]}</dd></div><div><dt>표시 상태</dt><dd>{selected.annotationStatus}</dd></div><div><dt>표시 사유</dt><dd>{selected.displayReason}</dd></div></dl><Link to={`/reviews/${encodeURIComponent(reviewId)}/results/items?reviewItemId=${encodeURIComponent(selected.reviewItemId)}`}>판단 사유와 근거 보기</Link></> : <p>Annotation 또는 위치 미확정 항목을 선택하면 상세 정보가 표시됩니다.</p>}
           <h3>전체 Annotation</h3><div className="annotation-list">{annotations.data.annotations.map((annotation) => <AnnotationButton key={annotation.annotationId} annotation={annotation} selected={annotation.reviewItemId === selectedId} onSelect={() => setSelectedId(annotation.reviewItemId)} />)}</div>

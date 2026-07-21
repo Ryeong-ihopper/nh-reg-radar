@@ -153,6 +153,35 @@ def test_aligner_uses_rhwp_as_canonical_text_and_preserves_unmatched_ranges() ->
     assert merged.confidence.status.value == "LOW_CONFIDENCE"
 
 
+def test_aligner_uses_related_structure_layout_coordinate_when_text_node_has_none() -> None:
+    """A structural paragraph box is still a valid visual anchor for its text."""
+    structure = _structure_document()
+    payload = structure.model_dump(mode="json", by_alias=True)
+    payload["layoutBlocks"][0]["coordinate"] = {
+        "sourceWidth": 595,
+        "sourceHeight": 842,
+        "sourceUnit": "point",
+        "x": 72,
+        "y": 96,
+        "width": 210,
+        "height": 48,
+        "normalizedX": 72 / 595,
+        "normalizedY": 96 / 842,
+        "normalizedWidth": 210 / 595,
+        "normalizedHeight": 48 / 842,
+        "coordinateConfidence": 0.90,
+    }
+
+    merged = HwpStructureAligner().merge(
+        _document("rhwp", text="대출 대상\n공무원"),
+        NormalizedDocument.model_validate(payload),
+    )
+
+    coordinate = merged.text_blocks[0].coordinate
+    assert coordinate is not None
+    assert (coordinate.normalized_x, coordinate.normalized_y) == (72 / 595, 96 / 842)
+
+
 def test_aligner_keeps_rhwp_text_when_structure_source_is_unavailable() -> None:
     merged = HwpStructureAligner().merge(
         _document("rhwp", text="대출 대상\n공무원"),

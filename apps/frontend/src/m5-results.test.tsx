@@ -148,6 +148,10 @@ test("renders S-006 counts and distinguishes RAG failure from insufficient evide
   expect(basic.tagName).toBe("TABLE");
   expect(within(basic).getByRole("rowheader", { name: "광고명" })).toBeInTheDocument();
   expect(screen.getByLabelText("광고 원본 병행 검토")).toHaveTextContent("광고 원본");
+  const workspace = screen.getByLabelText("AI 검토 결과 작업공간");
+  expect(workspace.firstElementChild).toBe(screen.getByLabelText("광고 원본 병행 검토"));
+  expect(workspace.lastElementChild).toHaveClass("review-inspection-panel");
+  expect(screen.queryByText("위험 항목을 먼저 확인하고 원본·판단 근거·권고 조치를 함께 검토하세요.")).not.toBeInTheDocument();
   expect(screen.queryByText("원본을 보며 검토")).not.toBeInTheDocument();
   expect(screen.queryByText("권한 검증 미리보기")).not.toBeInTheDocument();
   expect(screen.getByText("최종 판단 안내").closest("p")).toHaveClass("state-warning");
@@ -199,7 +203,7 @@ test("navigates paged review items without losing filters", async () => {
   expect(urls.at(-1)).toContain("riskLevel=HIGH");
 });
 
-test("renders image boxes, HWP offsets, low-confidence warnings, and list fallback for AC-13", async () => {
+test("renders verified original boxes and keeps coordinate-less text out of the preview", async () => {
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:m5-preview") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -217,10 +221,10 @@ test("renders image boxes, HWP offsets, low-confidence warnings, and list fallba
   const box = screen.getByRole("button", { name: "국내 최고 혜택 Annotation" });
   expect(box).toHaveStyle({ left: "10%", top: "10%", width: "40%", height: "10%" });
   expect(preview.closest(".annotation-media")).toContainElement(box);
-  expect(screen.getByText(/offset 4–12/)).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "위치 미확정 항목" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "HWP/HWPX 텍스트 위치" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "원본 위치 미확정 항목" })).toBeInTheDocument();
   expect(screen.getByLabelText("위치 신뢰도 확인 필요")).toHaveTextContent("위치 확인 필요 2건");
-  const fallback = screen.getByRole("heading", { name: "위치 미확정 항목" }).parentElement;
+  const fallback = screen.getByRole("heading", { name: "원본 위치 미확정 항목" }).parentElement;
   expect(fallback).not.toBeNull();
   const unavailable = within(fallback!).getByRole("button", { name: /원본 미리보기 불가/ });
   expect(unavailable).toHaveTextContent("위치 확인 필요 · 위치 없음");
@@ -246,12 +250,24 @@ test("loads a PNG Annotation preview even when the API returns the business file
   expect(screen.queryByText("이 파일 형식은 브라우저 미리보기를 지원하지 않습니다. 원본을 다운로드해 확인해 주세요.")).not.toBeInTheDocument();
 });
 
-test("renders a converted HWP preview instead of a perpetual loading state", async () => {
+test("renders a converted HWP preview with verified text locations over the original", async () => {
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:m5-preview") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
   const hwpAnnotations: ReviewAnnotationCollection = {
     ...annotations,
     fileType: "HWP",
+    annotations: [
+      annotations.annotations[0],
+      {
+        ...annotations.annotations[1],
+        annotationId: "ANN-M5-HWP-BOX",
+        annotationDisplayMode: "BOX",
+        annotationStatus: "LOCATED",
+        locationConfidence: 0.9,
+        displayReason: "STRUCTURE_LAYOUT_COORDINATE",
+        coordinate: { sourceWidth: 1240, sourceHeight: 1754, sourceUnit: "point", x: 96, y: 120, width: 320, height: 34, normalizedX: 96 / 1240, normalizedY: 120 / 1754, normalizedWidth: 320 / 1240, normalizedHeight: 34 / 1754, rotation: 0, coordinateConfidence: 0.9 },
+      },
+    ],
   };
   const urls: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -277,11 +293,15 @@ test("renders a converted HWP preview instead of a perpetual loading state", asy
   }));
 
   render(<MemoryRouter initialEntries={["/reviews/REV-M5/results/annotations"]}><App initialSession={session} /></MemoryRouter>);
-  expect(await screen.findByText("HWP/HWPX 텍스트 위치")).toBeInTheDocument();
-  expect(await screen.findByRole("img", { name: "광고 원본 미리보기" })).toHaveAttribute(
+  const preview = await screen.findByRole("img", { name: "광고 원본 미리보기" });
+  expect(preview).toHaveAttribute(
     "src",
     "blob:m5-preview",
   );
+  const hwpBox = screen.getByRole("button", { name: "중도해지 안내 Annotation" });
+  expect(preview.closest(".annotation-media")).toContainElement(hwpBox);
+  expect(hwpBox).toHaveStyle({ left: `${(96 / 1240) * 100}%`, top: `${(120 / 1754) * 100}%` });
+  expect(screen.queryByRole("heading", { name: "HWP/HWPX 텍스트 위치" })).not.toBeInTheDocument();
   expect(screen.queryByText("광고 원본을 불러오는 중입니다.")).not.toBeInTheDocument();
   expect(urls.some((url) => url.includes("/preview?"))).toBe(true);
   expect(urls.some((url) => url.includes("/preview/content"))).toBe(true);
