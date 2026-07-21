@@ -34,9 +34,12 @@ function SuggestionDecisionForm({ suggestion, token, onSaved }: { suggestion: Su
     decision.mutate({ decisionStatus, finalText: finalText || null });
   }
 
-  return <article className="result-detail" aria-label={`추천 문구 ${suggestion.originalText}`}>
-    <p><strong>{suggestion.originalText}</strong> → {suggestion.suggestedText}</p>
-    <p>{suggestion.suggestionReason}</p>
+  return <article className="result-detail suggestion-card" aria-label={`추천 문구 ${suggestion.originalText}`}>
+    <dl className="suggestion-compare">
+      <div><dt>검토 문구</dt><dd>{suggestion.originalText}</dd></div>
+      <div><dt>권고 문구</dt><dd>{suggestion.suggestedText}</dd></div>
+    </dl>
+    {suggestion.suggestionReason ? <p className="suggestion-reason"><strong>권고 사유</strong>{suggestion.suggestionReason}</p> : null}
     <form onSubmit={submit}><label>판단<select value={decisionStatus} onChange={(event) => setDecisionStatus(event.target.value as keyof typeof DECISION_LABELS)}>{Object.entries(DECISION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>최종 문구<textarea name="finalText" /></label>
       {decisionError ? <p role="alert" className="state-message state-error">{decisionError}</p> : null}

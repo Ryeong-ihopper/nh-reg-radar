@@ -237,6 +237,48 @@ function useObjectUrl(blob: Blob | undefined): string | null {
   return url;
 }
 
+type OverlayBox = { annotation: ReviewAnnotation; x: number; y: number; width: number; height: number };
+
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === "function") return blob.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsText(blob);
+  });
+}
+
+function useSvgTextBoxes(preview: Blob | undefined, annotations: ReviewAnnotation[]) {
+  const [boxes, setBoxes] = useState<OverlayBox[]>([]);
+  useEffect(() => {
+    if (!preview || !annotations.length || (preview.type && preview.type !== "image/svg+xml")) { setBoxes([]); return; }
+    let active = true;
+    void readBlobText(preview).then((source) => {
+      const root = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
+      if (root.localName !== "svg") return;
+      const viewBox = (root.getAttribute("viewBox") ?? "").trim().split(/\s+/).map(Number);
+      if (viewBox.length !== 4 || viewBox.some((value) => !Number.isFinite(value)) || viewBox[2] <= 0 || viewBox[3] <= 0) return;
+      const glyphs = [...root.querySelectorAll("text")].flatMap((node) => {
+        const value = (node.textContent ?? "").replace(/\s+/g, ""); const x = Number(node.getAttribute("x")); const baseline = Number(node.getAttribute("y")); const fontSize = Number(node.getAttribute("font-size") ?? 12);
+        if (!value || !Number.isFinite(x) || !Number.isFinite(baseline) || !Number.isFinite(fontSize)) return [];
+        const width = Number(node.getAttribute("textLength")) || fontSize * 0.55 * value.length;
+        return [...value].map((character, index) => ({ character, x: x + width * index / value.length, y: baseline - fontSize, width: width / value.length, height: fontSize * 1.2 }));
+      });
+      const stream = glyphs.map((glyph) => glyph.character).join("");
+      const next = annotations.flatMap((annotation) => {
+        const target = (annotation.matchedText ?? annotation.targetText).replace(/\s+/g, ""); const start = target ? stream.indexOf(target) : -1;
+        if (start < 0 || stream.indexOf(target, start + target.length) >= 0) return [];
+        const matched = glyphs.slice(start, start + target.length); const left = Math.min(...matched.map((glyph) => glyph.x)); const top = Math.min(...matched.map((glyph) => glyph.y)); const right = Math.max(...matched.map((glyph) => glyph.x + glyph.width)); const bottom = Math.max(...matched.map((glyph) => glyph.y + glyph.height));
+        return [{ annotation, x: (left - viewBox[0]) / viewBox[2], y: (top - viewBox[1]) / viewBox[3], width: (right - left) / viewBox[2], height: (bottom - top) / viewBox[3] }];
+      });
+      if (active) setBoxes(next);
+    }).catch(() => { if (active) setBoxes([]); });
+    return () => { active = false; };
+  }, [preview, annotations]);
+  return boxes;
+}
+
 function AnnotationButton({ annotation, selected, onSelect }: { annotation: ReviewAnnotation; selected: boolean; onSelect: () => void }) {
   return <button type="button" className="annotation-list-button" aria-pressed={selected} onClick={onSelect}><strong>{annotation.targetText}</strong><span>{annotationStatusLabel(annotation.annotationStatus)} · {annotation.locationConfidence?.toFixed(2) ?? "위치 없음"}</span></button>;
 }
@@ -265,17 +307,25 @@ export function ReviewAnnotationsPage() {
   const previewUrl = useObjectUrl(preview.data);
   const selected = annotations.data?.annotations.find((annotation) => annotation.reviewItemId === selectedId) ?? null;
   const boxes = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "BOX" && annotation.coordinate) ?? [];
-  const fallbacks = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "LIST_ONLY" || annotation.annotationDisplayMode === "UNAVAILABLE" || annotation.annotationDisplayMode === "TEXT_HIGHLIGHT" || (!annotation.coordinate && !annotation.matchedText)) ?? [];
+  const textHighlights = useMemo(
+    () => annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "TEXT_HIGHLIGHT") ?? [],
+    [annotations.data?.annotations],
+  );
+  const svgTextBoxes = useSvgTextBoxes(preview.data, textHighlights);
+  const resolvedTextIds = new Set(svgTextBoxes.map((box) => box.annotation.annotationId));
+  const selectedSvgBox = svgTextBoxes.find((box) => box.annotation.reviewItemId === selectedId) ?? null;
+  const fallbacks = annotations.data?.annotations.filter((annotation) => annotation.annotationDisplayMode === "LIST_ONLY" || annotation.annotationDisplayMode === "UNAVAILABLE" || (annotation.annotationDisplayMode === "TEXT_HIGHLIGHT" && !resolvedTextIds.has(annotation.annotationId)) || (!annotation.coordinate && !annotation.matchedText)) ?? [];
   const lowConfidence = annotations.data?.annotations.filter((annotation) => annotation.annotationStatus === "LOW_CONFIDENCE" || annotation.annotationStatus === "PARTIALLY_LOCATED" || (annotation.locationConfidence !== null && annotation.locationConfidence < 0.8)) ?? [];
 
   useEffect(() => {
-    if (!selected?.coordinate || !previewUrl || !annotationCanvasRef.current) return;
+    const normalizedY = selected?.coordinate?.normalizedY ?? selectedSvgBox?.y;
+    if (normalizedY === undefined || !previewUrl || !annotationCanvasRef.current) return;
     const canvas = annotationCanvasRef.current;
     const image = canvas.querySelector("img");
     if (!image) return;
-    const frame = requestAnimationFrame(() => canvas.scrollTo({ top: Math.max(0, image.scrollHeight * selected.coordinate!.normalizedY - canvas.clientHeight * 0.35), behavior: "smooth" }));
+    const frame = requestAnimationFrame(() => canvas.scrollTo({ top: Math.max(0, image.scrollHeight * normalizedY - canvas.clientHeight * 0.35), behavior: "smooth" }));
     return () => cancelAnimationFrame(frame);
-  }, [previewUrl, selected]);
+  }, [previewUrl, selected?.coordinate?.normalizedY, selectedSvgBox?.y]);
 
   function setFilter(name: keyof ReviewAnnotationSearch, value: string) {
     setFilters((current) => ({ ...current, [name]: value ? (name === "pageNo" ? Number(value) : value) : undefined } as ReviewAnnotationSearch));
@@ -300,6 +350,7 @@ export function ReviewAnnotationsPage() {
             <div className="annotation-media">
               {preview.data?.type === "application/pdf" ? <object data={previewUrl} type="application/pdf" aria-label="PDF 광고 원본 미리보기" /> : <img src={previewUrl} alt="광고 원본 미리보기" />}
               {boxes.map((annotation) => <button key={annotation.annotationId} type="button" className="annotation-box" aria-label={`${annotation.targetText} Annotation`} data-risk={annotation.riskLevel} aria-pressed={annotation.reviewItemId === selectedId} onClick={() => setSelectedId(annotation.reviewItemId)} style={{ left: `${(annotation.coordinate?.normalizedX ?? 0) * 100}%`, top: `${(annotation.coordinate?.normalizedY ?? 0) * 100}%`, width: `${(annotation.coordinate?.normalizedWidth ?? 0) * 100}%`, height: `${(annotation.coordinate?.normalizedHeight ?? 0) * 100}%` }} />)}
+              {svgTextBoxes.map((box) => <button key={box.annotation.annotationId} type="button" className="annotation-box" aria-label={`${box.annotation.targetText} Annotation`} data-risk={box.annotation.riskLevel} aria-pressed={box.annotation.reviewItemId === selectedId} onClick={() => setSelectedId(box.annotation.reviewItemId)} style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.width * 100}%`, height: `${box.height * 100}%` }} />)}
             </div>
           </div> : null}
           {!previewSupported ? <p className="state-message">이 파일 형식은 브라우저 미리보기를 지원하지 않습니다. 원본을 다운로드해 확인해 주세요.</p> : null}

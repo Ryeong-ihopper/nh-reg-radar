@@ -8,12 +8,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.40 |
+| 현행 버전 | v1.41 |
 | 기준일 | 2026-07-21 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.41 | 2026-07-21 | S-007 HWP/HWPX는 private SVG의 실제 글자 좌표와 `matchedText`의 정확 일치 시 원본 하이라이트를 허용하고, S-009는 원문·권고 문구 비교 필드를 표시하도록 정정 (API 계약 변경 없음) |
 | v1.40 | 2026-07-21 | S-007 HWP/HWPX는 document-processor text/layout 좌표가 결합된 Annotation만 private SVG 원본 위 BOX로 표시하고, offset만 있는 항목은 원본 위치 미확정으로 처리하도록 정정 (API 계약 변경 없음) |
 | v1.39 | 2026-07-21 | 4단계 `/reviews/{reviewId}/support` 탭의 사용자 노출 명칭을 `검토 및 리포트`로 통일 (API 계약 변경 없음) |
 | v1.38 | 2026-07-21 | S-010을 4단계 결과 확인의 `/reviews/{reviewId}/results/qa` 탭으로 분리하고, 기존 요약·광고물 조회값을 Q&A 요청 범위에 자동 적용하도록 화면 매핑을 정정 (API 계약 변경 없음) |
@@ -334,7 +335,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 파일 ID, 광고 기본정보 | 상단 정보 영역 |
 | 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 이미지/PDF/HWP/HWPX 모두 광고 원본 미리보기 영역에 호출. HWP/HWPX는 private 변환 SVG를 반환 |
-| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 구조 좌표가 있는 항목만 SVG 원본 위 BOX로 표시하며, offset만 있는 항목은 원본 위치 미확정 목록으로 표시 |
+| 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 구조 좌표를 우선 표시하고, 없으면 private SVG 글자 좌표와 `matchedText`가 정확히 일치하는 항목만 원본 위에 표시한다. 일치하지 않는 offset 항목은 원본 위치 미확정 목록으로 표시 |
 | Annotation 또는 목록 항목 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 원문, 문제유형, 판단사유, 근거, 추천문구 | 선택 항목 상세 패널 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준명, 조항, 내용, 적용일 | 근거 상세 팝업 |
 | 필터 선택 | Annotation 필터링 | `/reviews/{reviewId}/annotations` | GET | `reviewType`, `riskLevel`, `pageNo` | 필터링된 Annotation 목록 | 화면 표시 갱신 |
@@ -378,7 +379,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | S-006 `/reviews/{reviewId}/results` | `getReviewSummary` | 종합 위험도·집계·주요 리스크를 표시하고 `EvidenceStatus`의 검색 장애와 업무적 근거 부족을 서로 다른 안내로 표시한다. |
 | S-008 `/reviews/{reviewId}/results/items` | `listReviewItems`, `getReviewItem` | `reviewType`, `riskLevel`, `resultStatus` query를 생성 타입으로 전달한다. 문구를 우선 표시하고 검토 유형·판정·위험도는 칩으로 보조하며, 상세의 판단 방식·수정 권고·근거 상태는 표로 표시한다. Coordinate가 있으면 원본 미리보기의 해당 위치로 이동한다. |
 | S-007 `/reviews/{reviewId}/results/annotations` | `listReviewAnnotations` | `pageNo`, `reviewType`, `riskLevel` query와 BOX/TEXT_HIGHLIGHT/LIST_ONLY/UNAVAILABLE 표시 모드를 소비하며, 위치 신뢰도 확인 목록을 유지한다. |
-| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. Annotation의 `fileType`은 업무상 분류이므로 렌더링 형식 판정에 사용하지 않고 preview 콘텐츠 MIME 타입을 사용한다. 이미지와 HWP/HWPX 변환 SVG는 가로폭에 맞춰 표시한다. 이미지/PDF BOX는 정규화 좌표를 실제 렌더링 원본 미디어의 폭·높이로 변환하며, HWP/HWPX는 private 변환 SVG와 offset 하이라이트를 함께 사용한다. |
+| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. Annotation의 `fileType`은 업무상 분류이므로 렌더링 형식 판정에 사용하지 않고 preview 콘텐츠 MIME 타입을 사용한다. 이미지와 HWP/HWPX 변환 SVG는 가로폭에 맞춰 표시한다. 이미지/PDF BOX는 정규화 좌표를 실제 렌더링 원본 미디어의 폭·높이로 변환한다. HWP/HWPX는 SVG의 실제 글자 좌표와 API의 `matchedText`를 클라이언트에서 정확히 대조해 일치할 때만 하이라이트하며, API/원본 콘텐츠를 외부로 노출하지 않는다. |
 | 공통 | 위 네 M5 operation | loading/empty/error/403을 전용 상태로 표시하고 서버 원문, raw artifact/object key/presigned URL은 렌더링하지 않는다. |
 
 ---
@@ -515,7 +516,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 
 | 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
 | --- | --- | --- |
-| S-009 `/reviews/{reviewId}/support` | `listReviewSuggestions`, `recordSuggestionDecision` | 추천 문구를 조회하고 `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED`를 저장한다. `MODIFIED_AND_USED`는 요청 전 `finalText`를 필수 검증하며 저장 후 목록을 다시 조회한다. |
+| S-009 `/reviews/{reviewId}/support` | `listReviewSuggestions`, `recordSuggestionDecision` | 추천 문구를 조회해 검토 문구와 권고 문구를 별도 비교 필드로 표시하고 `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED`를 저장한다. `MODIFIED_AND_USED`는 요청 전 `finalText`를 필수 검증하며 저장 후 목록을 다시 조회한다. |
 | S-010 `/reviews/{reviewId}/results/qa` | `getReviewSummary`, `getAdvertisement`, `askComplianceQuestion` | 현재 검토의 상품군·광고유형·기준 적용일을 질문 범위에 자동 적용한다. 질문 결과의 답변 요약·상세·고정 근거·참고 문구를 표시하며, 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. |
 | S-011 `/reviews/{reviewId}/support` | `listOpinionDrafts`, `createOpinionDraft`, `updateOpinionDraft` | 최신 초안을 조회하고 없으면 생성한다. 원본 `draftContent`를 유지한 채 담당자 `finalContent`를 저장하고 다시 조회한다. |
 | S-012 `/reviews/{reviewId}/support` | `createReviewReport`, `getReviewReport`, `downloadReviewReport` | HWPX/PDF 리포트의 생성 형식·준비 상태와 다운로드를 표시한다. 응답의 식별자·해시는 클라이언트 동작에만 사용하고 기본 화면에는 표시하지 않는다. 다운로드는 Bearer 권한을 확인하며 변환 실패는 원본 HWPX와 분리한다. |

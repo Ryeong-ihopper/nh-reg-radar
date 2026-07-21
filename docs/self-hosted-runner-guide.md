@@ -1,0 +1,79 @@
+# GitHub-hosted CI 및 Self-hosted Compose 배포 운영 가이드
+
+## 문서 현행 정보
+
+| 항목 | 내용 |
+| --- | --- |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-07-22 |
+
+## 변경 이력
+
+| 버전 | 기준일 | 변경 내용 |
+| --- | --- | --- |
+| v1.1 | 2026-07-22 | 결정적 CI·문서 동기화·수동 외부 AI 평가를 GitHub-hosted runner로 전환하고 배포 runner만 self-hosted로 유지 |
+| v1.0 | 2026-07-21 | Self-hosted CI·Compose CD runner 등록, Environment 설정, 배포·rollback 절차를 최초 작성 |
+
+## 목적
+
+GitHub-hosted runner에서 결정적 검증을 실행하고, 검증된 `dev` revision만 내부망 development Compose 환경에 배포한다. 이 문서는 deployment runner 등록과 GitHub 설정의 운영 절차를 제공한다. 비밀값 자체는 GitHub, 문서, 로그에 기록하지 않는다.
+
+## Runner 분리와 label
+
+| 용도 | 필수 label | 권한 |
+| --- | --- | --- |
+| 결정적 CI | GitHub-hosted `ubuntu-latest` | checkout, Docker build/ephemeral Compose smoke. 운영 `.env` 접근 금지 |
+| 문서 동기화 | GitHub-hosted `ubuntu-latest` | Notion environment secret만 접근 |
+| 실제 외부 AI 평가 | GitHub-hosted `ubuntu-latest` | 승인된 external AI environment secret만 접근 |
+| 개발 배포 | `self-hosted`, `linux`, `x64`, `nh-ad-deploy-dev` | development Docker daemon과 development 환경 파일만 접근 |
+| 운영 배포 | `self-hosted`, `linux`, `x64`, `nh-ad-deploy-prod` | production Docker daemon과 production 환경 파일만 접근 |
+
+GitHub-hosted CI는 deployment runner의 OS 계정·Docker daemon·환경 파일에 접근하지 않는다.
+
+## Host 사전 조건
+
+Self-hosted deployment runner OS 계정에는 GitHub Actions runner, `git`, `bash`, `timeout`, Docker Engine 및 Docker Compose v2가 필요하다. Docker socket 접근은 해당 runner 계정에만 부여하고, root shell·광범위 sudo 권한은 부여하지 않는다. GitHub-hosted runner에는 별도 사내 runner 설치나 Docker 권한 부여가 필요 없다.
+
+```bash
+git --version
+docker version
+docker compose version
+psql --version
+```
+
+GitHub repository Settings > Actions > Runners에서 deployment runner를 등록하고 해당 label을 추가한다. CI의 `actions/setup-*` 단계와 GitHub-hosted image가 Python, Node, uv, Docker/Compose를 제공한다.
+
+## GitHub Environment 설정
+
+1. Settings > Environments에서 `development`, `production`을 만든다.
+2. `production`에는 required reviewer를 설정한다. `development`에는 필요 시 팀 승인 규칙을 적용한다.
+3. 각 environment variable에 해당 runner에서만 유효한 절대 경로를 저장한다.
+
+```text
+DEPLOY_ENV_FILE=/srv/nh-ad-compliance/env/.env.dev
+# production runner:
+DEPLOY_ENV_FILE=/srv/nh-ad-compliance/env/.env.prod
+```
+
+경로는 예시일 뿐이며, `.env` 파일에는 OpenAI key, DB credential 등 비밀값을 저장할 수 있다. 해당 파일은 runner-local 권한 `0600`으로 보호하고 repository checkout 바깥에 둔다.
+
+## 배포 흐름
+
+1. `feature/*` PR을 `dev`에 병합한다.
+2. `Product CI`와 문서 거버넌스가 GitHub-hosted runner에서 통과한다.
+3. `Self-hosted Compose CD`가 Product CI의 성공한 head SHA를 checkout하여 development Compose를 배포한다.
+4. production은 Actions에서 `Self-hosted Compose CD`를 수동 실행하고 target `production`, 검증된 commit SHA, 확인 문자열 `DEPLOY_PRODUCTION`을 입력한다. GitHub Environment 승인을 받은 뒤에만 실행된다.
+5. rollback은 이전에 검증된 commit SHA를 같은 production workflow에 입력해 재배포한다.
+
+배포 workflow는 `docker compose -p nh-ad-dev` 또는 `nh-ad-prod` namespace와 `compose.yml` + `compose.prod.yml` runtime 조합으로 실행한다. development도 장기 실행 VM에서는 source mount·Vite hot reload를 쓰는 `compose.dev.yml`을 사용하지 않는다. 환경 파일의 DB, object storage, Qdrant, OpenSearch namespace는 ADR-0063 기준으로 분리되어야 한다.
+
+## 점검 및 장애 대응
+
+runner에서 다음 명령으로 배포 전 사전 조건을 확인한다.
+
+```bash
+DEPLOY_ENV_FILE=/srv/nh-ad-compliance/env/.env.dev \
+  scripts/ci/verify_self_hosted_runner.sh --deployment
+```
+
+workflow 실패 시 Actions log에는 service 이름과 health 상태만 확인하고, `.env` 내용이나 container environment를 출력하지 않는다. 원인 분석이 필요하면 해당 환경의 제한된 운영 계정으로 Compose logs를 확인한다. 자동 rollback은 하지 않으며, 검증된 이전 revision을 재배포한다.

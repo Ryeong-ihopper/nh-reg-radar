@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - develop
+      - dev
   workflow_dispatch:
 
 permissions:
@@ -249,8 +249,8 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - name: Verify PostgreSQL client
+        run: psql --version
 
       - name: Install Python workspace
         run: uv sync --all-packages --dev

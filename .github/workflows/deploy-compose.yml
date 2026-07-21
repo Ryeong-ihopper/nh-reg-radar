@@ -1,0 +1,73 @@
+name: Self-hosted Compose CD
+
+on:
+  workflow_run:
+    workflows: [Product CI]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment target
+        required: true
+        type: choice
+        options: [development, production]
+      ref:
+        description: Immutable commit SHA or protected branch ref to deploy
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY_PRODUCTION only for production
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-development:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'development')
+    runs-on: [self-hosted, linux, x64, nh-ad-deploy-dev]
+    environment: development
+    concurrency:
+      group: nh-ad-development-compose
+      cancel-in-progress: false
+    steps:
+      - name: Check out verified revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
+
+      - name: Validate self-hosted deployment prerequisites
+        run: scripts/ci/verify_self_hosted_runner.sh --deployment
+
+      - name: Deploy development Compose stack
+        env:
+          DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE }}
+        run: scripts/deploy-compose.sh --environment dev
+
+  deploy-production:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.environment == 'production' &&
+      inputs.confirmation == 'DEPLOY_PRODUCTION'
+    runs-on: [self-hosted, linux, x64, nh-ad-deploy-prod]
+    environment: production
+    concurrency:
+      group: nh-ad-production-compose
+      cancel-in-progress: false
+    steps:
+      - name: Check out approved revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Validate self-hosted deployment prerequisites
+        run: scripts/ci/verify_self_hosted_runner.sh --deployment
+
+      - name: Deploy production Compose stack
+        env:
+          DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE }}
+        run: scripts/deploy-compose.sh --environment prod

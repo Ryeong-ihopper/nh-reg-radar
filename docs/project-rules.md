@@ -4,13 +4,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.19 |
-| 기준일 | 2026-07-20 |
+| 현행 버전 | v1.21 |
+| 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.21 | 2026-07-22 | ADR-0080을 GitHub-hosted CI와 self-hosted 환경별 Compose CD 분리로 갱신 |
+| v1.20 | 2026-07-21 | ADR-0080에 따라 self-hosted CI·환경별 Compose CD runner 분리, `dev` 성공 revision 배포와 production 수동 승인·환경 파일 격리 기준을 추가 |
 | v1.19 | 2026-07-20 | document-processor를 Python 3.13/OpenJDK 25 private Compose service로 고정하고 HWP/HWPX 광고·기준자료가 공용 hybrid 계약과 구성요소 artifact 경계를 사용하도록 운영 기준을 구체화 |
 | v1.18 | 2026-07-20 | ADR-0079에 따라 HWP/HWPX hybrid parser 기준을 추가하고, 신규 ADR·프론트엔드 감사 문서의 Notion 게시 범위와 최초 페이지 생성 절차를 동기화 |
 | v1.17 | 2026-07-20 | 개발 Compose 기준자료 초기 적재는 PDF/HWP/HWPX parser service와 단일 writer lock을 사용하고 완료 후 두 검색 인덱스 상태를 확인하는 기준을 추가 |
@@ -734,6 +736,12 @@ Git은 코드와 배포 구성의 단일 진실원천이다. 운영 변경은 PR
 | Drift | Argo CD/Flux 차이 감지 시 수동 변경 여부를 확인하고 실제 환경을 Git 기준으로 원복하거나 승인된 Git 변경으로 수렴 |
 
 Self-hosted Runner는 내부망 image build·registry push·GitOps PR 생성에 사용할 수 있지만 운영 manifest를 우회해 직접 배포하지 않는다. 운영에서는 `latest` tag를 금지하고 release tag 또는 commit SHA만 사용한다.
+
+### 10.4.1 Self-hosted Compose CD
+
+PoC Compose 환경은 ADR-0080의 예외적 배포 경계를 사용한다. 결정적 CI·문서 동기화·수동 외부 AI 평가는 GitHub-hosted `ubuntu-latest`에서 실행하며, development 배포는 `nh-ad-deploy-dev`, production 배포는 `nh-ad-deploy-prod` label의 self-hosted runner에서 실행한다. GitHub-hosted CI는 운영 환경 파일이나 deployment Docker daemon에 접근할 수 없다.
+
+`dev` push에서 Product CI가 성공한 정확한 head SHA만 development Compose에 자동 반영한다. 장기 실행 development VM도 `compose.yml` + `compose.prod.yml` runtime을 사용하며, source mount·hot reload 전용 `compose.dev.yml`은 로컬 개발에만 사용한다. production은 `workflow_dispatch`, `production` GitHub Environment 승인, `DEPLOY_PRODUCTION` 확인 문자열, 검증할 commit SHA를 모두 요구하며 main push만으로 자동 배포하지 않는다. `.env.dev`와 `.env.prod`는 runner checkout 밖의 권한 제한된 절대 경로에만 두고, GitHub Environment variable `DEPLOY_ENV_FILE`에는 경로만 저장한다. 상세 등록·복구 절차는 `docs/self-hosted-runner-guide.md`를 따른다.
 
 ---
 

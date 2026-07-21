@@ -260,12 +260,12 @@ test("renders a converted HWP preview with verified text locations over the orig
       annotations.annotations[0],
       {
         ...annotations.annotations[1],
-        annotationId: "ANN-M5-HWP-BOX",
-        annotationDisplayMode: "BOX",
-        annotationStatus: "LOCATED",
+        annotationId: "ANN-M5-HWP-SVG",
+        annotationDisplayMode: "TEXT_HIGHLIGHT",
+        annotationStatus: "PARTIALLY_LOCATED",
         locationConfidence: 0.9,
-        displayReason: "STRUCTURE_LAYOUT_COORDINATE",
-        coordinate: { sourceWidth: 1240, sourceHeight: 1754, sourceUnit: "point", x: 96, y: 120, width: 320, height: 34, normalizedX: 96 / 1240, normalizedY: 120 / 1754, normalizedWidth: 320 / 1240, normalizedHeight: 34 / 1754, rotation: 0, coordinateConfidence: 0.9 },
+        displayReason: "SVG_TEXT_COORDINATE",
+        coordinate: null,
       },
     ],
   };
@@ -275,8 +275,9 @@ test("renders a converted HWP preview with verified text locations over the orig
     urls.push(url);
     if (url.includes("/annotations")) return response(hwpAnnotations);
     if (url.includes("/preview/content")) {
-      return new Response(new Blob(["<svg><text>한글 광고</text></svg>"], { type: "image/svg+xml" }), {
+      return new Response("<svg viewBox='0 0 1240 1754'><text x='96' y='120' font-size='28'>중도해지</text></svg>", {
         status: 200,
+        headers: { "Content-Type": "image/svg+xml" },
       });
     }
     if (url.includes("/preview?")) {
@@ -298,9 +299,9 @@ test("renders a converted HWP preview with verified text locations over the orig
     "src",
     "blob:m5-preview",
   );
-  const hwpBox = screen.getByRole("button", { name: "중도해지 안내 Annotation" });
+  const hwpBox = await screen.findByRole("button", { name: "중도해지 안내 Annotation" });
   expect(preview.closest(".annotation-media")).toContainElement(hwpBox);
-  expect(hwpBox).toHaveStyle({ left: `${(96 / 1240) * 100}%`, top: `${(120 / 1754) * 100}%` });
+  expect(hwpBox).toHaveStyle({ left: `${(96 / 1240) * 100}%`, top: `${((120 - 28) / 1754) * 100}%` });
   expect(screen.queryByRole("heading", { name: "HWP/HWPX 텍스트 위치" })).not.toBeInTheDocument();
   expect(screen.queryByText("광고 원본을 불러오는 중입니다.")).not.toBeInTheDocument();
   expect(urls.some((url) => url.includes("/preview?"))).toBe(true);

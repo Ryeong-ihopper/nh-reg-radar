@@ -221,6 +221,7 @@ npm --prefix apps/frontend run build
 | [DB 명세서](docs/database-specification.md) | ERD 개요, 테이블, 인덱스, 보관 정책, Qdrant/OpenSearch 설계 | 저장 데이터와 관계 확인 | 스키마, 마이그레이션, 쿼리, 검색 저장소 구현 기준 |
 | [테스트케이스](docs/test-cases.md) | 기능별 정상/예외/권한/비기능/E2E 테스트, 결함 분류, 완료 기준 | 검수 기준과 테스트 범위 확인 | 단위/통합/E2E 테스트 케이스 생성과 회귀 검증 기준 |
 | [프로젝트 규칙](docs/project-rules.md) | 개발 방식, AI 활용 기준, 저장소 구성, 문서 관리, TDD, CI/CD, 브랜치/PR, ADR | 팀 개발 규칙과 운영 기준 확인 | 코드 작성 방식, 문서 변경 방식, AI 사용 제한, 품질 기준 준수 |
+| [GitHub-hosted CI·Self-hosted 배포 가이드](docs/self-hosted-runner-guide.md) | CI 실행 환경, deployment runner label, GitHub Environment, Compose CD, rollback 절차 | GitHub-hosted CI와 내부망 배포 runner를 구성 | CI·배포 권한·비밀값·배포 경계 확인 |
 | [의사결정 필요사항](docs/adr-candidates.md) | ADR 관리 기준, 개발/AI/프론트엔드/백엔드/DB/RAG/인프라/보안 관련 미결정 항목 | 아직 결정되지 않은 항목 확인 | 구현 전 의사결정 필요 여부와 ADR 후보 식별 |
 | [개발 일정 및 Notion 칸반 보드 구성안](docs/development-schedule-and-notion-kanban.md) | 개발 로드맵, 스프린트, 칸반 속성, Epic, 마일스톤, 리스크 | 일정과 작업 관리 방식 확인 | 작업 분해, 우선순위, 마일스톤 기반 진행 계획 수립 |
 | [참조 레포지토리](docs/reference-repositories.md) | 참고할 외부/내부 레포지토리 목록 | 유사 구현이나 참고 자료 확인 | 구현 패턴, 기술 선택, 샘플 구조 탐색의 출발점 |

@@ -36,6 +36,10 @@ test("uses the generated M6 client for suggestion decision and immutable report 
   expect(await screen.findByText("국내 최고")).toBeInTheDocument();
   expect(screen.getByText("무조건 이득")).toBeInTheDocument();
   const secondSuggestion = screen.getByRole("article", { name: "추천 문구 무조건 이득" });
+  expect(within(secondSuggestion).getByText("검토 문구")).toBeInTheDocument();
+  expect(within(secondSuggestion).getByText("권고 문구")).toBeInTheDocument();
+  expect(within(secondSuggestion).getByText("무조건 이득")).toBeInTheDocument();
+  expect(within(secondSuggestion).getByText("조건 충족 시 혜택")).toBeInTheDocument();
   fireEvent.change(within(secondSuggestion).getByLabelText("판단"), { target: { value: "MODIFIED_AND_USED" } });
   fireEvent.change(within(secondSuggestion).getByLabelText("최종 문구"), { target: { value: "수정 문구" } });
   fireEvent.click(within(secondSuggestion).getByRole("button", { name: "담당자 판단 저장" }));

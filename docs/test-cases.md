@@ -280,7 +280,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-013 | 재시도 한도 초과 최종 실패 | retryCount가 maxRetries에 도달 | 추가 실패 발생 | jobStatus `FAILED_FINAL`, dead_lettered_at, failedReasonCode 저장 | `review_jobs`, `audit_logs` | P0 |
 | TC-REV-014 | 상태 조회 retry 필드 반환 | `RETRY_PENDING` job 존재 | 상태 조회 API 호출 | retryCount, maxRetries, nextRetryAt, isRetryable, failedReasonCode 반환 | `review_jobs`, `review_steps` | P0 |
 | TC-REV-015 | 기준 적용일 기본값 | S-004 진입 | 검토 요청 폼 표시 | date 입력값이 사용자의 로컬 오늘 날짜이며 수정 가능 | frontend | P1 |
-| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, 구조 파서 좌표가 결합된 문구는 실제 SVG 원본 위 BOX로 표시한다. offset만 있는 문구는 원본 아래에 별도 하이라이트하지 않고 위치 미확정 목록으로 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
+| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, 구조 파서 좌표가 결합된 문구 또는 SVG 실제 글자 좌표와 `matchedText`가 정확히 일치한 문구를 실제 SVG 원본 위에 표시한다. 일치하지 않는 offset은 위치 미확정 목록으로 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
 | TC-REV-017 | 판독 불가와 확인 필요 안내 구분 | `OCR_UNREADABLE` 및 근거/상품조건 사유의 `CHECK_REQUIRED` fixture 준비 | S-005 상태 조회 | 판독 불가는 기술 일시 오류만 자동 재시도한다는 안내와 원본 품질 개선 후 재분석 안내를, 일반 확인 필요는 원인 범주 확인 안내를 각각 표시한다 | frontend | P1 |
 
 ---
@@ -408,7 +408,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ANN-004 | 위험도별 Annotation 필터 | 위험도별 영역 존재 | riskLevel 조건 조회 | 해당 위험도 영역만 반환 | `annotations` | P1 |
 | TC-ANN-005 | Annotation 단건 상세 연결 | reviewItemId 존재 | Annotation 또는 목록 항목 클릭 후 상세 조회 | 검토 항목 상세 결과 반환 | `review_items` | P0 |
 | TC-ANN-006 | 좌표 없는 검토 항목 처리 | OCR 좌표 없음 | Annotation 조회 | `LIST_ONLY` 또는 `UNAVAILABLE` 상태로 목록과 상세 패널에 표시 | `review_items`, `annotations` | P1 |
-| TC-ANN-007 | HWP/HWPX 원본 위치 표시 | HWP/HWPX 문서에서 구조 좌표와 문구 위치가 결합됨 | Annotation 조회·S-007 진입 | document-processor의 text 또는 연관 layout 좌표를 hybrid parser가 보존하고 `BOX` Annotation이 private SVG 원본 위에 표시된다. 좌표 없는 offset은 `TEXT_HIGHLIGHT` 계약으로 반환될 수 있으나 UI는 위치 미확정 목록으로만 표시한다. | `annotations`, frontend | P1 |
+| TC-ANN-007 | HWP/HWPX 원본 위치 표시 | HWP/HWPX 문서에서 구조 좌표 또는 SVG 글자 좌표와 문구 위치가 결합됨 | Annotation 조회·S-007 진입 | document-processor의 text 또는 연관 layout 좌표를 hybrid parser가 보존한 `BOX` Annotation은 private SVG 원본 위에 표시된다. 좌표 없는 `TEXT_HIGHLIGHT`도 SVG 글자 좌표와 `matchedText`가 정확히 일치하면 원본 위에 표시하며, 일치하지 않는 offset은 위치 미확정 목록에만 표시한다. | `annotations`, frontend | P1 |
 | TC-ANN-008 | 일부 위치 특정 처리 | 일부 문구만 매칭 | Annotation 조회 | `PARTIALLY_LOCATED` 상태와 특정된 문구만 반환 | `annotations` | P1 |
 | TC-ANN-009 | 문서 단위 이슈 표시 | 위치 없는 문서 전체 이슈 존재 | Annotation 조회 | `DOCUMENT_LEVEL_ISSUE` 상태로 목록/상세 표시 | `review_items`, `annotations` | P1 |
 | TC-ANN-010 | Annotation 위치 신뢰도 임계값 적용 | location confidence 0.80, 0.79, 0.49 fixture 준비 | Annotation 조회 | LOCATED, LOW_CONFIDENCE/PARTIALLY_LOCATED, NOT_LOCATED 상태 분리 | `annotations` | P1 |
@@ -698,6 +698,9 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-INFRA-004 | DB 최소권한 및 privileged credential 격리 | migration role 관리, app DDL, readonly write를 실제 DB에서 시도하고 workflow/config/image/artifact에서 bootstrap/admin 자격증명 주입을 검사 | 모든 금지 SQL이 거부되고 privileged 자격증명은 일회성 bootstrap/probe 경계 밖에 존재하지 않으며 runtime DSN과 migration DSN identity가 다름 | P0 |
 | TC-NFR-INFRA-005 | dev/prod namespace 격리 | env example과 rendered Compose에서 PostgreSQL DB, MinIO bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 비교하고 교차 환경 접근 probe 실행 | 모든 namespace 값이 환경별로 다르고 dev 자격증명으로 prod namespace 접근이 거부됨 | P0 |
 | TC-NFR-INFRA-006 | 신규 개발자 로컬 전체 기동 | `.env.dev.example`을 복사하고 `scripts/local-dev.sh up` 실행 후 migration·공통/dev seed·전체 health와 브라우저 API 주소를 확인하며 `down`/`reset`을 재실행 | 외부 provider credential 없이 두 synthetic 계정 로그인과 frontend/backend/worker 접근이 가능하고, `down`은 volume 보존, `reset`은 해당 Compose project volume만 삭제 후 빈 DB부터 재구성 | P0 |
+| TC-NFR-INFRA-007 | CI·배포 runner 사전 조건 | GitHub-hosted CI와 deployment label runner에서 workflow/preflight 실행 | CI는 `ubuntu-latest`에서 Docker Compose smoke를 격리 실행하고, deployment runner만 runner-local 절대 `DEPLOY_ENV_FILE`까지 검증하며 secret 내용은 출력하지 않음 | P0 |
+| TC-NFR-INFRA-008 | Development Compose CD | `dev` Product CI 성공 workflow_run으로 CD 실행 | 성공한 정확한 head SHA가 `nh-ad-deploy-dev`에서 checkout되고 `nh-ad-dev` Compose stack의 필수 서비스가 healthy 상태가 됨 | P0 |
+| TC-NFR-INFRA-009 | Production Compose CD 승인 경계 | production 수동 배포 요청을 confirmation 또는 environment 승인 없이 실행 | `DEPLOY_PRODUCTION` 확인 문자열, production environment 승인, `nh-ad-deploy-prod` runner가 모두 없으면 production 배포 job이 실행되지 않음 | P0 |
 
 ## 19.7 M2 계약·통합 trace Gate
 

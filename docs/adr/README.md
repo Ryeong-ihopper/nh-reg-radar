@@ -104,6 +104,7 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0077](ADR-0077-git-notion-one-way-document-sync-policy.md) | Accepted | Git-Notion 단방향 문서 자동 동기화 정책 | ADR 후보 043 |
 | [ADR-0078](ADR-0078-poc-two-account-operation-profile.md) | Accepted | PoC 2계정 운영 프로필 정책 | ADR 후보 044 |
 | [ADR-0079](ADR-0079-hwp-hwpx-hybrid-parser-composition.md) | Accepted | HWP/HWPX 이중 원천 Hybrid Parser 구성 정책 | ADR 후보 045 |
+| [ADR-0080](ADR-0080-self-hosted-runner-compose-cd-policy.md) | Accepted | GitHub-hosted CI 및 Self-hosted Compose CD 정책 | CI·배포 실행 경계 결정 |
 
 ## 결정 대기 질문지
 
