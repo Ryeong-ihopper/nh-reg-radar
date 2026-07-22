@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.15 |
-| 기준일 | 2026-07-20 |
+| 현행 버전 | v1.17 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.17 | 2026-07-23 | 0010 Q&A 검토별 세션 revision을 현행 head로 지정하고 DB privilege/recovery smoke 검증 revision을 동기화 |
+| v1.16 | 2026-07-23 | 0010 revision으로 Q&A 세션에 `review_id`를 추가해 질문·답변 이력을 검토 단위로 분리하고 사용자·검토·생성시각 색인을 추가 |
 | v1.15 | 2026-07-20 | HWP hybrid 실행 시 rhwp·document-processor를 미선택 `PARSER_RAW`, aligner 병합본을 선택 `NORMALIZED_DOCUMENT`로 보존하는 구현 기준을 확정 |
 | v1.14 | 2026-07-20 | ADR-0079 HWP/HWPX hybrid parser의 구성요소 raw artifact와 단일 병합 산출물 provenance 영속화 기준을 추가 |
 | v1.13 | 2026-07-20 | 규정·가이드라인 초기 적재 시 standard version metadata에 parser provenance와 구조 통계를 보존하는 기준을 추가 |
@@ -294,7 +296,9 @@ M7 backend runtime은 `PostgresValidationRepository`를 통해 데이터셋·판
 
 ### 운영 정합성 revision
 
-`0009_operational_consistency`는 기존 owner revision을 수정하지 않고 `0008_m8_support_privileges`를 상속한다. `ocr_text_blocks`와 `layout_blocks`의 좌표 물리명을 `x`, `y`, `width`, `height`로 통일하고 normalized 좌표와 rotation 정밀도를 본 명세에 맞춘다. `ocr_text_blocks.normalized_text`에는 built-in `to_tsvector('simple', ...)` 표현식 기반 `idx_ocr_blocks_text_gin`을 생성한다. Worker SQL은 0009 head의 물리 컬럼명만 사용하며 배포·복구 smoke는 `0009_operational_consistency`를 현행 head로 확인한다.
+`0009_operational_consistency`는 기존 owner revision을 수정하지 않고 `0008_m8_support_privileges`를 상속한다. `ocr_text_blocks`와 `layout_blocks`의 좌표 물리명을 `x`, `y`, `width`, `height`로 통일하고 normalized 좌표와 rotation 정밀도를 본 명세에 맞춘다. `ocr_text_blocks.normalized_text`에는 built-in `to_tsvector('simple', ...)` 표현식 기반 `idx_ocr_blocks_text_gin`을 생성한다. Worker SQL은 0009의 물리 컬럼명만 사용한다.
+
+`0010_qa_review_sessions`는 `rag.qa_sessions.review_id`를 nullable FK로 추가하고 `(user_id, review_id, created_at)` 색인을 생성한다. 기존 공용 Q&A 이력은 `NULL`을 유지하므로 파괴적 데이터 변환 없이 보존된다. 배포·복구 smoke와 DB privilege probe는 이 revision을 현행 head로 확인한다.
 
 ---
 
@@ -1289,6 +1293,7 @@ AI가 생성한 보완 문구 및 대체 문구를 관리한다.
 |---|---|---:|---:|---:|---|
 | qa_session_id | varchar(50) | Y |  | Y | Q&A 세션 ID |
 | user_id | varchar(100) |  | users | Y | 사용자 ID |
+| review_id | varchar(50) |  | reviews |  | Q&A가 연결된 검토 ID. 기존 범용 이력은 NULL을 허용 |
 | product_group | varchar(50) |  |  |  | 상품군 |
 | advertisement_type | varchar(50) |  |  |  | 광고유형 |
 | standard_effective_date | date |  |  |  | 기준 적용일 |

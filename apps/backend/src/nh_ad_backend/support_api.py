@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request, Response
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 
 from nh_ad_backend.domain import CurrentUser
 from nh_ad_backend.support import SupportService
@@ -37,8 +37,12 @@ def install_support_routes(
         return service.question(current, await request.json(), request.state.trace_id)
 
     @router.get("/qa/questions", operation_id="listComplianceQuestions")
-    async def questions(current: Actor) -> list[dict[str, object]]:
-        return service.list_questions(current)
+    async def questions(
+        request: Request,
+        current: Actor,
+        review_id: str | None = Query(default=None, alias="reviewId"),
+    ) -> list[dict[str, object]]:
+        return service.list_questions(current, review_id, request.state.trace_id)
 
     @router.post("/reviews/{reviewId}/opinion-drafts", operation_id="createOpinionDraft")
     async def create_draft(

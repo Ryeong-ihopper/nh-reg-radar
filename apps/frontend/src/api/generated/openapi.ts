@@ -1729,6 +1729,8 @@ export interface components {
             advertisementType?: string | null;
             /** Format: date */
             standardEffectiveDate?: string | null;
+            reviewId?: string | null;
+            qaSessionId?: string | null;
         };
         QaEvidence: {
             evidenceId: string;
@@ -1739,12 +1741,17 @@ export interface components {
         };
         QaAnswer: {
             qaId: string;
+            qaSessionId: string;
+            question: string;
             answerSummary: string;
             answerDetail: string;
             evidences: components["schemas"]["QaEvidence"][];
             suggestedPhrases: string[];
             needsHumanReview: boolean;
+            /** Format: date-time */
+            createdAt: string;
         };
+        QaAnswerList: components["schemas"]["QaAnswer"][];
         OpinionDraftRequest: {
             includeReviewItemIds?: string[];
             templateType?: string;
@@ -3326,7 +3333,9 @@ export interface operations {
     };
     listComplianceQuestions: {
         parameters: {
-            query?: never;
+            query?: {
+                reviewId?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3339,7 +3348,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QaAnswer"];
+                    "application/json": components["schemas"]["QaAnswerList"];
                 };
             };
             401: components["responses"]["Unauthorized"];

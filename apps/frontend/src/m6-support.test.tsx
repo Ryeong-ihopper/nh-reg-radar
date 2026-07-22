@@ -71,9 +71,11 @@ test("provides evidence-backed Q&A as a dedicated fourth-step tab with the curre
         departmentId: "DPT-M6", registeredBy: "USR-M6", registeredAt: "2026-07-21T09:00:00Z", reviewStatus: "REVIEW_COMPLETED", files: [],
       });
     }
+    if (url.endsWith("/qa/questions?reviewId=REV-M6")) return response([]);
     if (url.endsWith("/qa/questions")) {
       return response({
-        qaId: "QA-1", answerSummary: "조건을 함께 표시해야 합니다.", answerDetail: "우대 조건과 적용 기준을 광고물에 명확히 기재해 주세요.",
+        qaId: "QA-1", qaSessionId: "QAS-1", question: "우대금리 문구를 사용할 수 있나요?", createdAt: "2026-07-21T09:01:00Z",
+        answerSummary: "조건을 함께 표시해야 합니다.", answerDetail: "우대 조건과 적용 기준을 광고물에 명확히 기재해 주세요.",
         evidences: [{ evidenceId: "EVD-1", standardVersionId: "STDV-M6", title: "예금상품 광고 기준", matchedText: "우대 조건을 명시한다." }],
         suggestedPhrases: ["조건 충족 시 우대 혜택을 제공받을 수 있습니다."], needsHumanReview: false,
       });
@@ -87,7 +89,7 @@ test("provides evidence-backed Q&A as a dedicated fourth-step tab with the curre
   expect(screen.getByRole("link", { name: "광고 규정 Q&A" })).toHaveAttribute("href", "/reviews/REV-M6/results/qa");
   expect(await screen.findByText("예금 · 영업점 전단 · 기준 적용일 2026-07-21")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("질문"), { target: { value: "우대금리 문구를 사용할 수 있나요?" } });
-  fireEvent.click(screen.getByRole("button", { name: "질문하기" }));
+  fireEvent.click(screen.getByRole("button", { name: "질문 보내기" }));
 
   expect(await screen.findByText("조건을 함께 표시해야 합니다.")).toBeInTheDocument();
   expect(screen.getByText("예금상품 광고 기준")).toBeInTheDocument();
@@ -98,6 +100,8 @@ test("provides evidence-backed Q&A as a dedicated fourth-step tab with the curre
     productGroup: "DEPOSIT",
     advertisementType: "BRANCH_FLYER",
     standardEffectiveDate: "2026-07-21",
+    reviewId: "REV-M6",
+    qaSessionId: null,
   });
 });
 

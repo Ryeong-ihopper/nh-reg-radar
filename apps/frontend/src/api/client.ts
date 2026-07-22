@@ -467,6 +467,10 @@ export const api = {
     return request<QaAnswer>("/qa/questions", accessToken, { method: "POST", body: JSON.stringify(input) });
   },
 
+  listComplianceQuestions(accessToken: string, reviewId: string): Promise<QaAnswer[]> {
+    return request<QaAnswer[]>(`/qa/questions${queryString({ reviewId })}`, accessToken);
+  },
+
   listOpinionDrafts(accessToken: string, reviewId: string): Promise<OpinionDraft[]> {
     return request<OpinionDraft[]>(`/reviews/${encodeURIComponent(reviewId)}/opinion-drafts`, accessToken);
   },

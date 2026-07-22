@@ -390,7 +390,7 @@ run_restart_and_outages() {
     --set=ON_ERROR_STOP=1 --username migration --dbname "$database_name" \
     --command 'SELECT version_num FROM app.alembic_version;' \
     >"$migration_revision"
-  run_with_timeout "$probe_timeout_seconds" grep -qx 0009_operational_consistency \
+  run_with_timeout "$probe_timeout_seconds" grep -qx 0010_qa_review_sessions \
     "$migration_revision"
 }
 

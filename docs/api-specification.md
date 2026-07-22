@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.22 |
+| 현행 버전 | v1.23 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.23 | 2026-07-23 | Q&A를 검토별 대화 세션으로 범위 지정하고 질문·세션·생성시각을 반환하며, 이력 조회는 `reviewId`로 현재 검토만 복원하도록 정정 |
 | v1.22 | 2026-07-23 | refresh token rotation 응답도 로그인 사용자 컨텍스트를 반환하도록 정정해 새로고침 세션 복원 시 보호 화면 렌더링 계약을 일치 |
 | v1.21 | 2026-07-23 | PDF preview content가 원본 PDF bytes가 아닌 페이지 단위 PNG raster만 반환하는 실제 runtime OpenAPI 계약으로 정정 |
 | v1.20 | 2026-07-22 | PDF preview descriptor의 페이지 수 경량 조회, 요청 페이지 단위 raster 생성과 인증 backend 내부 TTL/LRU 캐시 경계를 명시 |
@@ -1622,7 +1623,9 @@ Chunk API는 deterministic ID 생성과 인덱스 상태 검증에 필요한 버
   "question": "적금 모바일 배너에서 '국내 최고 수준의 혜택'이라는 표현을 사용할 수 있나요?",
   "productGroup": "SAVINGS",
   "advertisementType": "MOBILE_BANNER",
-  "standardEffectiveDate": "2026-07-02"
+  "standardEffectiveDate": "2026-07-02",
+  "reviewId": "REV-0001",
+  "qaSessionId": null
 }
 ```
 
@@ -1633,6 +1636,9 @@ Chunk API는 deterministic ID 생성과 인덱스 상태 검증에 필요한 버
 ```json
 {
   "qaId": "QA-0001",
+  "qaSessionId": "QAS-0001",
+  "question": "적금 모바일 배너에서 '국내 최고 수준의 혜택'이라는 표현을 사용할 수 있나요?",
+  "createdAt": "2026-07-23T09:00:00Z",
   "answerSummary": "객관적 근거 없이 '국내 최고 수준' 표현을 사용하는 것은 과장 표현으로 해석될 수 있어 주의가 필요합니다.",
   "answerDetail": "해당 표현을 사용하려면 객관적 비교 근거가 필요하며, 근거가 부족한 경우 조건부 표현 또는 구체적 혜택 설명으로 완화하는 것이 적절합니다.",
   "evidences": [
@@ -1659,18 +1665,15 @@ Chunk API는 deterministic ID 생성과 인덱스 상태 검증에 필요한 버
 | --- | --- |
 | Method | GET |
 | URI | `/api/v1/qa/questions` |
-| 설명 | 광고 규정 Q&A 이력을 조회한다. |
+| 설명 | 현재 검토에 연결된 Q&A 이력만 시간순으로 조회한다. |
 
 ### Query Parameters
 
 | 이름 | 필수 | 설명 |
 | --- | --- | --- |
-| keyword | N | 질문 검색어 |
-| productGroup | N | 상품군 |
-| fromDate | N | 시작일 |
-| toDate | N | 종료일 |
-| page | N | 페이지 번호 |
-| size | N | 페이지 크기 |
+| reviewId | Y (S-010) | 현재 검토 ID. 같은 검토의 세션과 질문·답변만 반환한다. |
+
+`qaSessionId`를 포함한 POST는 해당 사용자·검토에 속한 세션만 재사용할 수 있다. 첫 POST는 세션을 생성하며, 이력의 각 원소는 `qaSessionId`, `question`, `createdAt`과 답변·근거를 함께 반환한다.
 
 ---
 

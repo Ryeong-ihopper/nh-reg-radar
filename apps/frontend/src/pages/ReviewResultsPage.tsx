@@ -362,7 +362,6 @@ export function ReviewAnnotationsPage() {
       {annotations.isError && !isForbidden(annotations.error) ? <ErrorState error={annotations.error} onRetry={() => void annotations.refetch()} /> : null}
       {annotations.data?.annotations.length === 0 ? <p className="state-message">표시할 Annotation이 없습니다.</p> : null}
       {annotations.data && annotations.data.annotations.length > 0 ? <>
-        {lowConfidence.length > 0 ? <aside className="state-message state-warning" aria-label="위치 신뢰도 확인 필요"><strong>위치 확인 필요 {lowConfidence.length}건</strong><ul>{lowConfidence.map((annotation) => <li key={annotation.annotationId}>{annotation.targetText} · {annotation.annotationStatus}</li>)}</ul></aside> : null}
         <div className="annotation-layout"><div className="annotation-preview-panel">
           {preview.isFetching ? <LoadingState label="광고 원본을 불러오는 중입니다." /> : null}
           {preview.isError ? <ErrorState error={preview.error} onRetry={() => void preview.refetch()} /> : null}
@@ -379,6 +378,7 @@ export function ReviewAnnotationsPage() {
           {selected ? <><h3>{selected.targetText}</h3><dl className="compact-detail"><div><dt>검토 유형</dt><dd>{selected.reviewType}</dd></div><div><dt>위험도</dt><dd>{RISK_LABELS[selected.riskLevel]}</dd></div><div><dt>표시 상태</dt><dd>{selected.annotationStatus}</dd></div><div><dt>표시 사유</dt><dd>{selected.displayReason}</dd></div></dl><Link to={`/reviews/${encodeURIComponent(reviewId)}/results/items?reviewItemId=${encodeURIComponent(selected.reviewItemId)}`}>판단 사유와 근거 보기</Link></> : <p>Annotation 또는 위치 미확정 항목을 선택하면 상세 정보가 표시됩니다.</p>}
           <h3>전체 Annotation</h3><div className="annotation-list">{annotations.data.annotations.map((annotation) => <AnnotationButton key={annotation.annotationId} annotation={annotation} selected={annotation.reviewItemId === selectedId} onSelect={() => setSelectedId(annotation.reviewItemId)} />)}</div>
         </aside></div>
+        {lowConfidence.length > 0 ? <aside className="state-message state-warning annotation-low-confidence" aria-label="위치 신뢰도 확인 필요"><strong>위치 확인 필요 {lowConfidence.length}건</strong><p>아래 항목은 원본의 정확한 위치를 자동으로 확정하지 못했습니다. 원본과 상세 판단을 함께 확인해 주세요.</p><ul>{lowConfidence.map((annotation) => <li key={annotation.annotationId}>{annotation.targetText} · {annotation.annotationStatus}</li>)}</ul></aside> : null}
       </> : null}
       <p className="mobile-review-notice">정밀 Annotation 검토는 PC/노트북 사용을 권장합니다.</p>
       <div className="form-actions"><Link className="button-link button-secondary" to={`/reviews/${encodeURIComponent(reviewId)}/results`}>요약으로</Link><Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results/items`}>상세 결과</Link></div>

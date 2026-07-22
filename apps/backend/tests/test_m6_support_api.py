@@ -151,7 +151,13 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
             cors_allowed_origins="http://localhost:5173",
             refresh_cookie_secure=False,
         ),
-        replace(services, support=SupportService(audit_sink=repository.add_audit_event)),
+        replace(
+            services,
+            support=SupportService(
+                audit_sink=repository.add_audit_event,
+                reviews=services.reviews,
+            ),
+        ),
     )
     with TestClient(app) as client:
         product_token, _ = login(client)
@@ -244,4 +250,58 @@ def test_m6_support_routes_cover_all_mutating_and_lookup_flows(
                 f"/api/v1/comparisons/{comparison.json()['comparisonId']}", headers=product_headers
             ).status_code
             == 200
+        )
+
+
+def test_qa_conversation_is_scoped_to_review_and_reuses_its_session(
+    services: ApplicationServices, repository: InMemoryRepository
+) -> None:
+    app = create_app(
+        Settings(
+            app_env="test",
+            jwt_secret=JWT_SECRET,
+            cors_allowed_origins="http://localhost:5173",
+            refresh_cookie_secure=False,
+        ),
+        replace(
+            services,
+            support=SupportService(
+                audit_sink=repository.add_audit_event,
+                reviews=services.reviews,
+            ),
+        ),
+    )
+    with TestClient(app) as client:
+        product_token, _ = login(client)
+        product_headers = {"Authorization": f"Bearer {product_token}"}
+        first = client.post(
+            "/api/v1/qa/questions",
+            headers=product_headers,
+            json={"question": "첫 질문", "reviewId": "REV-0001"},
+        )
+        assert first.status_code == 200
+        first_body = first.json()
+        assert first_body["question"] == "첫 질문"
+        assert first_body["qaSessionId"].startswith("QAS-")
+
+        second = client.post(
+            "/api/v1/qa/questions",
+            headers=product_headers,
+            json={
+                "question": "이어서 질문",
+                "reviewId": "REV-0001",
+                "qaSessionId": first_body["qaSessionId"],
+            },
+        )
+        assert second.status_code == 200
+        assert second.json()["qaSessionId"] == first_body["qaSessionId"]
+
+        history = client.get("/api/v1/qa/questions?reviewId=REV-0001", headers=product_headers)
+        assert history.status_code == 200
+        assert [message["question"] for message in history.json()] == ["첫 질문", "이어서 질문"]
+        assert (
+            client.get(
+                "/api/v1/qa/questions?reviewId=REV-NOT-OWNED", headers=product_headers
+            ).json()
+            == []
         )

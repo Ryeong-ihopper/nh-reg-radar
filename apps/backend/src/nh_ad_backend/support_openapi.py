@@ -135,6 +135,8 @@ SUPPORT_OPENAPI: dict[str, Any] = {
                     "productGroup": {"type": ["string", "null"]},
                     "advertisementType": {"type": ["string", "null"]},
                     "standardEffectiveDate": {"type": ["string", "null"], "format": "date"},
+                    "reviewId": {"type": ["string", "null"]},
+                    "qaSessionId": {"type": ["string", "null"]},
                 },
             },
             "QaEvidence": {
@@ -154,14 +156,19 @@ SUPPORT_OPENAPI: dict[str, Any] = {
                 "additionalProperties": False,
                 "required": [
                     "qaId",
+                    "qaSessionId",
+                    "question",
                     "answerSummary",
                     "answerDetail",
                     "evidences",
                     "suggestedPhrases",
                     "needsHumanReview",
+                    "createdAt",
                 ],
                 "properties": {
                     "qaId": {"type": "string"},
+                    "qaSessionId": {"type": "string"},
+                    "question": {"type": "string"},
                     "answerSummary": {"type": "string"},
                     "answerDetail": {"type": "string"},
                     "evidences": {
@@ -170,7 +177,12 @@ SUPPORT_OPENAPI: dict[str, Any] = {
                     },
                     "suggestedPhrases": {"type": "array", "items": {"type": "string"}},
                     "needsHumanReview": {"type": "boolean"},
+                    "createdAt": {"type": "string", "format": "date-time"},
                 },
+            },
+            "QaAnswerList": {
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/QaAnswer"},
             },
             "OpinionDraftRequest": {
                 "type": "object",
@@ -346,7 +358,8 @@ SUPPORT_OPENAPI: dict[str, Any] = {
             },
             "get": {
                 "operationId": "listComplianceQuestions",
-                "responses": _json_response("QaAnswer", "401", "403"),
+                "parameters": [{"name": "reviewId", "in": "query", "schema": {"type": "string"}}],
+                "responses": _json_response("QaAnswerList", "401", "403"),
             },
         },
         "/reviews/{reviewId}/opinion-drafts": {

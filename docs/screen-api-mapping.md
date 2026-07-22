@@ -8,12 +8,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.46 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.47 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.47 | 2026-07-23 | S-007 원본 미리보기 폭맞춤·위치 확인 필요 하단 배치와 S-010 검토별 Q&A 이력 조회/세션 재개 계약을 추가 |
 | v1.46 | 2026-07-22 | S-007 PDF 원본은 descriptor의 경량 페이지 수 조회 후 content 한 페이지를 조회하며, 동일 파일·페이지 재표시는 서버 cache를 사용하고 OpenDataLoader PDF 좌표는 실제 페이지 좌상단 정규화 값으로 표시하도록 정정 |
 | v1.45 | 2026-07-22 | 개발 VM Vite 서버가 `nh-compliance.ihopper.co.kr` Host 요청을 명시 허용하도록 추가 |
 | v1.44 | 2026-07-22 | S-005 SSE 진행 상태 stream과 S-008 `includeAppropriate` 기본 비포함·사용자 전체 보기 전환을 매핑 |
@@ -433,8 +434,9 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 화면 진입 | 현재 검토 요약·광고물 조회 | `/reviews/{reviewId}/summary` → `/advertisements/{advertisementId}` | GET | `reviewId`, `advertisementId` | 기준 적용일, 상품군, 광고유형 | 별도 탭의 질문 범위로 자동 적용하고 현재 검토 기준으로 표시 |
-| 질문하기 클릭 | 광고 규정 질의응답 요청 | `/qa/questions` | POST | `question`, `productGroup`, `advertisementType`, `standardEffectiveDate` | 답변 요약, 상세 설명, 근거, 추천 문구, 담당자 검토 필요 여부 | 답변 영역 |
-| 결과 요약/검토 및 리포트 탭 이동 | 화면 전환 | - | - | `reviewId` | - | Q&A 요청·응답은 화면 상태로 유지하고 결과 확인의 공통 탭 간에 이동 |
+| 화면 진입 | 현재 검토 Q&A 이력 조회 | `/qa/questions?reviewId={reviewId}` | GET | `reviewId` | 세션 ID, 질문, 답변, 근거, 생성 시각 | 같은 검토의 가장 최근 대화 세션을 복원 |
+| 질문 보내기 클릭 | 광고 규정 질의응답 요청 | `/qa/questions` | POST | `question`, `reviewId`, `qaSessionId`, `productGroup`, `advertisementType`, `standardEffectiveDate` | 세션 ID, 질문, 답변 요약, 상세 설명, 근거, 추천 문구, 담당자 검토 필요 여부 | 첫 질문은 세션 생성, 후속 질문은 현재 세션에 추가 |
+| 결과 요약/검토 및 리포트 탭 이동 | 화면 전환 | - | - | `reviewId` | - | Q&A는 서버에 저장하므로 재진입 시 이력을 복원 |
 
 ---
 

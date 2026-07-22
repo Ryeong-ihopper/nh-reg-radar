@@ -6,12 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.81 |
+| 현행 버전 | v1.83 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.83 | 2026-07-23 | 검토별 Q&A migration 0010을 현행 DB head로 지정하고 CI privilege/recovery smoke의 revision 검증을 동기화 |
+| v1.82 | 2026-07-23 | S-007 폭맞춤·위치 확인 필요 하단 배치, S-010 검토별 Q&A 이력 복원·세션 재개 및 대화형 화면 회귀 기준을 추가 |
 | v1.81 | 2026-07-23 | refresh 응답의 사용자 컨텍스트와 token-only 구버전 응답에서 로그인 화면으로 안전 복귀하는 세션 복원 회귀 기준을 추가 |
 | v1.80 | 2026-07-23 | 배포 후 이전 SPA shell이 남아 오류 화면에 고정되지 않도록 index HTML 무캐시와 로그인 복구 action 회귀 기준을 추가 |
 | v1.79 | 2026-07-23 | PDF preview content의 반환 형식을 실제 페이지 단위 PNG raster 계약으로 정정하는 OpenAPI parity 회귀 기준을 추가 |
@@ -67,7 +69,7 @@
 | v1.31 | 2026-07-16 | 신규 개발자 로컬 Compose 진입점의 설정 검증, migration·seed·health 순서, frontend API 주소, 재실행·중지·volume 초기화 검증 기준 추가 |
 | v1.30 | 2026-07-16 | Git `main` Markdown 변경의 Notion 자동 증분 갱신, page ID 보존, mapping fail-closed, 페이지별 rollback·재실행·secret 격리 검증 기준 추가 |
 | v1.29 | 2026-07-16 | 팀 Git 브랜치·PR·Conventional Commits·release/hotfix 역반영과 GitOps immutable 승격·rollback 정책의 수동 검증 기준 추가 |
-| v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 현행 0009 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
+| v1.28 | 2026-07-16 | Product CI가 Python OpenAPI parity 테스트 전에 pinned Node 도구를 설치하고, DB privilege probe가 빈 DB 대신 당시 현행 revision·대표 업무 relation을 검증하도록 회귀 기준 수정 |
 | v1.27 | 2026-07-16 | Notion 수동 게시의 93개 Markdown 선별, 번호형 계층, secret 격리, 재시도·실패 정리와 페이지별 내용 검증 회귀 기준 통합 |
 | v1.27 | 2026-07-16 | 승인 샘플 PDF/이미지의 OpenAI opt-in 추출·구조화 결과와 규정 PDF 적재/OpenSearch 근거 조회 수동 검증을 추가 |
 | v1.26 | 2026-07-16 | 운영 교차검증에서 발견된 enum/read-path 500, refresh replay·bootstrap, worker lease·poison replay, targetIndexes, OCR DB 정합성과 frontend 흐름 회귀 Gate 추가 |
@@ -839,7 +841,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 | 검증 범위 | 실행/증거 | 기대 결과 |
 | --- | --- | --- |
-| 구현 경로 | `README.md`, `docs/functional-specification.md` | backend/worker runtime, frontend client/generated contract, OpenAPI `0.8.0`, migration `0001`~`0009` 경로가 저장소 실제 경로와 일치 |
+| 구현 경로 | `README.md`, `docs/functional-specification.md` | backend/worker runtime, frontend client/generated contract, OpenAPI `0.8.0`, migration `0001`~`0010` 경로가 저장소 실제 경로와 일치 |
 | Provider 경계 | release/external-AI workflow와 `-m "not external_ai and not slow"` | provider-free 자동 Gate와 credentialed `external_ai` 수동 평가를 분리하고 서로의 성공을 대체하지 않음 |
 | 일정/Kanban | `docs/development-schedule-and-notion-kanban.md` | 구현 증거가 있는 task만 `Done`; 실제 provider, 고객 검증·피드백, 배포·tag, 미집계 P0/P1/Critical 기준은 `Backlog`/`Blocked` 유지 |
 | 문서 정합성 | `scripts/check-doc-consistency.sh`, `python3 -m scripts.doc_guard validate --scope working`, governance unit test | metadata·변경 이력·링크·traceability 0 error |

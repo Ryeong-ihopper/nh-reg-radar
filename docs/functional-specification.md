@@ -6,12 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.36 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.38 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.38 | 2026-07-23 | Q&A 검토별 세션 migration 0010을 현행 DB head로 지정하고 privilege·복구 검증 경계를 동기화 |
+| v1.37 | 2026-07-23 | 광고 규정 Q&A는 검토별 대화 세션을 생성·재개하고 질문/답변/근거를 이력으로 보존하며, S-007은 원본 폭맞춤과 위치 미확정 안내 하단 배치를 적용 |
 | v1.36 | 2026-07-22 | PDF 미리보기 descriptor는 페이지 수만 조회하고 content는 요청 페이지 단위 200-DPI raster로 생성·서버 캐시하며, 일반 PDF의 PDF 좌하단 pt 좌표를 실제 페이지 canvas 기준 좌상단 정규화 좌표로 변환하도록 보강 |
 | v1.35 | 2026-07-22 | 검토 진행 상태는 SSE로 변경을 전달하고, 명시적 위반이 없는 적정 결과는 기본 목록·주요 리스크에서 숨기되 사용자가 전체 결과를 선택해 확인하도록 보완 |
 | v1.34 | 2026-07-22 | 시스템 관리자가 광고물 목록에서 현재 페이지 전체 선택 또는 개별 선택으로 삭제할 수 있도록 보완 |
@@ -332,7 +334,7 @@ Worker runtime은 supervised `JobRunner` 시작/종료, truthful readiness, 처�
 
 반복 Compose up에서 `db-bootstrap`은 활성 `$PGDATA/postmaster.pid`가 있으면 별도 postmaster를 시작하지 않고 이미 실행 중인 PostgreSQL과 NOLOGIN bootstrap/product-role 상태를 검증한 뒤 종료한다. 검증 실패는 fail-closed이며, 같은 volume에서 bootstrap 컨테이너만 재생성해도 데이터·role/ACL·PostgreSQL identity가 보존되고 PANIC/invalid checkpoint/interrupted recovery 흔적을 허용하지 않는다.
 
-M8 구현 증거의 실제 경로는 backend `apps/backend/src/nh_ad_backend/main.py`와 capability별 `*_api.py`, worker `apps/worker/src/nh_ad_worker/main.py`·`runtime.py`·`postgres.py`, frontend `apps/frontend/src/App.tsx`·`api/client.ts`·`api/generated/openapi.ts`, migration `apps/backend/migrations/versions/0001`~`0009`이다. 원천 `openapi/openapi.yaml`의 현행 metadata version은 `0.8.0`이며 generated client는 이 계약과 clean diff를 유지한다.
+M8 구현 증거의 실제 경로는 backend `apps/backend/src/nh_ad_backend/main.py`와 capability별 `*_api.py`, worker `apps/worker/src/nh_ad_worker/main.py`·`runtime.py`·`postgres.py`, frontend `apps/frontend/src/App.tsx`·`api/client.ts`·`api/generated/openapi.ts`, migration `apps/backend/migrations/versions/0001`~`0010`이다. 원천 `openapi/openapi.yaml`의 현행 metadata version은 `0.8.0`이며 generated client는 이 계약과 clean diff를 유지한다.
 
 자동 릴리스 판단은 `.github/workflows/release-readiness.yml`의 provider-free Gate만 사용한다. 이 Gate는 외부 provider credential, live inference, 고객사 원문 없이 고정 fixture와 G009 trace, deterministic E2E/release 회귀를 실행한다. `.github/workflows/external-ai-evaluation.yml`은 승인 환경에서 credential과 `external_ai` marker를 사용하는 별도 수동 평가이며, 실행 여부나 결과를 provider-free 성공으로 대체하지 않는다.
 
@@ -1233,6 +1235,8 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 | 상품군 | 선택 | 답변 범위 제한에 사용 |
 | 광고유형 | 선택 | 답변 범위 제한에 사용 |
 | 기준 적용일 | 선택 | 최신 기준 또는 특정 시점 기준 적용 |
+| 검토 ID | 자동 | 현재 광고 검토의 대화 이력을 분리하는 범위 |
+| Q&A 세션 ID | 자동 | 첫 질문에서 생성하고 후속 질문은 같은 세션으로 이어 간다. |
 
 ---
 
@@ -1272,6 +1276,7 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 ### 6) 수용 기준
 
 - 답변에는 관련 근거가 함께 표시되어야 한다.
+- 같은 검토의 재방문 시에는 저장된 질문·답변 이력을 복원하고, 다른 검토의 Q&A는 섞지 않아야 한다.
 - 근거가 부족한 경우 단정적 답변을 하지 않아야 한다.
 
 ---

@@ -133,7 +133,7 @@ class DatabaseBootstrapContractTests(unittest.TestCase):
             "audit.audit_logs",
         ):
             self.assertIn(relation, text)
-        self.assertIn("0009_operational_consistency", text)
+        self.assertIn("0010_qa_review_sessions", text)
 
     def test_product_ci_installs_openapi_tooling_before_python_contract_tests(self) -> None:
         text = PRODUCT_CI.read_text()

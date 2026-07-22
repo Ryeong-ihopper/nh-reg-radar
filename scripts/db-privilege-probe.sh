@@ -45,7 +45,7 @@ expect_denied() {
 schema_count="$(query "$NH_DB_MIGRATION_URL" "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('app','rag','validation','audit')")"
 [[ "$schema_count" == "4" ]]
 migration_revision="$(query "$NH_DB_MIGRATION_URL" 'SELECT version_num FROM app.alembic_version')"
-[[ "$migration_revision" == "0009_operational_consistency" ]]
+[[ "$migration_revision" == "0010_qa_review_sessions" ]]
 expected_relation_count="$(query "$NH_DB_MIGRATION_URL" "SELECT count(*) FROM (VALUES ('app.users'), ('app.ocr_text_blocks'), ('rag.evidences'), ('validation.validation_datasets'), ('audit.audit_logs')) AS expected(relation_name) WHERE to_regclass(relation_name) IS NOT NULL")"
 [[ "$expected_relation_count" == "5" ]]
 

@@ -34,7 +34,12 @@ class SupportRepository(Protocol):
     def get_suggestion(self, suggestion_id: str) -> dict[str, Any] | None: ...
     def save_decision(self, decision: dict[str, Any]) -> None: ...
     def save_question(self, actor: CurrentUser, question: dict[str, Any]) -> None: ...
-    def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]: ...
+    def session_belongs_to(
+        self, actor: CurrentUser, session_id: str, review_id: str | None
+    ) -> bool: ...
+    def list_questions(
+        self, actor: CurrentUser, review_id: str | None = None
+    ) -> list[dict[str, Any]]: ...
     def save_draft(self, draft: dict[str, Any]) -> None: ...
     def list_drafts(self, review_id: str) -> list[dict[str, Any]]: ...
     def get_draft(self, draft_id: str) -> dict[str, Any] | None: ...
@@ -97,9 +102,27 @@ class InMemorySupportRepository:
         with self._lock:
             self.questions.append({**deepcopy(question), "userId": actor.user_id})
 
-    def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]:
+    def session_belongs_to(
+        self, actor: CurrentUser, session_id: str, review_id: str | None
+    ) -> bool:
         with self._lock:
-            return [deepcopy(value) for value in self.questions if value["userId"] == actor.user_id]
+            return any(
+                value["userId"] == actor.user_id
+                and value["sessionId"] == session_id
+                and value.get("reviewId") == review_id
+                for value in self.questions
+            )
+
+    def list_questions(
+        self, actor: CurrentUser, review_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                deepcopy(value)
+                for value in self.questions
+                if value["userId"] == actor.user_id
+                and (review_id is None or value.get("reviewId") == review_id)
+            ]
 
     def save_draft(self, draft: dict[str, Any]) -> None:
         with self._lock:
@@ -219,25 +242,27 @@ class PostgresSupportRepository:
 
     def save_question(self, actor: CurrentUser, question: dict[str, Any]) -> None:
         with self._engine.begin() as connection:
-            connection.execute(
-                text("""
+            if question["createSession"]:
+                connection.execute(
+                    text("""
                     INSERT INTO rag.qa_sessions
-                    (qa_session_id,user_id,product_group,advertisement_type,standard_effective_date,
+                    (qa_session_id,user_id,review_id,product_group,advertisement_type,standard_effective_date,
                      standard_version_ids,title,created_at)
-                    VALUES (:session_id,:user_id,:product_group,:advertisement_type,:effective_date,
+                    VALUES (:session_id,:user_id,:review_id,:product_group,:advertisement_type,:effective_date,
                             CAST(:versions AS jsonb),:title,:created_at)
-                """),
-                {
-                    "session_id": question["sessionId"],
-                    "user_id": actor.user_id,
-                    "product_group": question["productGroup"],
-                    "advertisement_type": question["advertisementType"],
-                    "effective_date": question["standardEffectiveDate"],
-                    "versions": json.dumps(question["standardVersionIds"]),
-                    "title": question["question"][:500],
-                    "created_at": question["createdAt"],
-                },
-            )
+                    """),
+                    {
+                        "session_id": question["sessionId"],
+                        "user_id": actor.user_id,
+                        "review_id": question["reviewId"],
+                        "product_group": question["productGroup"],
+                        "advertisement_type": question["advertisementType"],
+                        "effective_date": question["standardEffectiveDate"],
+                        "versions": json.dumps(question["standardVersionIds"]),
+                        "title": question["question"][:500],
+                        "created_at": question["createdAt"],
+                    },
+                )
             answer = question["answer"]
             connection.execute(
                 text("""
@@ -260,21 +285,51 @@ class PostgresSupportRepository:
                 },
             )
 
-    def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]:
+    def session_belongs_to(
+        self, actor: CurrentUser, session_id: str, review_id: str | None
+    ) -> bool:
+        with self._engine.connect() as connection:
+            return (
+                connection.execute(
+                    text("""
+                    SELECT 1 FROM rag.qa_sessions
+                     WHERE qa_session_id=:session_id AND user_id=:user_id
+                       AND (:review_id IS NULL OR review_id=:review_id)
+                """),
+                    {"session_id": session_id, "user_id": actor.user_id, "review_id": review_id},
+                ).first()
+                is not None
+            )
+
+    def list_questions(
+        self, actor: CurrentUser, review_id: str | None = None
+    ) -> list[dict[str, Any]]:
         with self._engine.connect() as connection:
             rows = (
                 connection.execute(
                     text("""
-                    SELECT m.raw_response_json
+                    SELECT m.raw_response_json, m.question, m.qa_message_id, m.created_at,
+                           s.qa_session_id
                       FROM rag.qa_messages m JOIN rag.qa_sessions s USING (qa_session_id)
-                     WHERE s.user_id=:user_id ORDER BY m.created_at,m.qa_message_id
+                     WHERE s.user_id=:user_id
+                       AND (:review_id IS NULL OR s.review_id=:review_id)
+                     ORDER BY m.created_at,m.qa_message_id
                 """),
-                    {"user_id": actor.user_id},
+                    {"user_id": actor.user_id, "review_id": review_id},
                 )
-                .scalars()
+                .mappings()
                 .all()
             )
-        return [dict(value) for value in rows]
+        return [
+            {
+                **dict(row["raw_response_json"]),
+                "qaId": row["qa_message_id"],
+                "qaSessionId": row["qa_session_id"],
+                "question": row["question"],
+                "createdAt": _iso(row["created_at"]),
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _draft(row: Any) -> dict[str, Any]:
@@ -731,33 +786,57 @@ class SupportService:
         question = body.get("question")
         if not isinstance(question, str) or not question.strip():
             raise ServiceError(400, "BAD_REQUEST", "질문을 입력해 주세요.")
+        review_id = body.get("reviewId")
+        if review_id is not None and (not isinstance(review_id, str) or not review_id.strip()):
+            raise ServiceError(400, "BAD_REQUEST", "검토 식별자를 확인해 주세요.")
+        if review_id:
+            self._authorize_review(actor, review_id, trace_id)
+        requested_session_id = body.get("qaSessionId")
+        if requested_session_id is not None and (
+            not isinstance(requested_session_id, str)
+            or not requested_session_id.strip()
+            or not self.repository.session_belongs_to(actor, requested_session_id, review_id)
+        ):
+            raise ServiceError(403, "FORBIDDEN", "현재 검토의 Q&A 세션에 접근할 수 없습니다.")
+        session_id = requested_session_id or self.repository.next_identifier("QAS")
+        created_at = self._now()
         answer: dict[str, Any] = {
             "qaId": self.repository.next_identifier("QA"),
+            "qaSessionId": session_id,
+            "question": question.strip(),
             "answerSummary": "확인 가능한 근거가 부족할 수 있습니다.",
             "answerDetail": "자동 확정 답변이 아니며 담당자 확인이 필요합니다.",
             "evidences": [],
             "suggestedPhrases": [],
             "needsHumanReview": True,
+            "createdAt": _iso(created_at),
         }
         self.repository.save_question(
             actor,
             {
-                "sessionId": self.repository.next_identifier("QAS"),
+                "sessionId": session_id,
+                "createSession": requested_session_id is None,
+                "reviewId": review_id,
                 "question": question.strip(),
                 "productGroup": body.get("productGroup"),
                 "advertisementType": body.get("advertisementType"),
                 "standardEffectiveDate": body.get("standardEffectiveDate"),
                 "standardVersionIds": [],
                 "answer": deepcopy(answer),
-                "createdAt": self._now(),
+                "createdAt": created_at,
             },
         )
         self._audit(actor, "QA_QUESTION_CREATE", answer["qaId"], trace_id)
         return answer
 
-    def list_questions(self, actor: CurrentUser) -> list[dict[str, Any]]:
+    def list_questions(
+        self, actor: CurrentUser, review_id: str | None = None, trace_id: str = "support-direct"
+    ) -> list[dict[str, Any]]:
+        if review_id:
+            self._authorize_review(actor, review_id, trace_id)
         return [
-            deepcopy(value.get("answer", value)) for value in self.repository.list_questions(actor)
+            deepcopy(value.get("answer", value))
+            for value in self.repository.list_questions(actor, review_id)
         ]
 
     def drafts_for(

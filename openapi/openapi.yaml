@@ -1295,13 +1295,18 @@ paths:
         - BearerAuth: []
     get:
       operationId: listComplianceQuestions
+      parameters:
+        - name: reviewId
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: Scoped support output returned.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/QaAnswer"
+                $ref: "#/components/schemas/QaAnswerList"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4340,6 +4345,14 @@ components:
             - string
             - "null"
           format: date
+        reviewId:
+          type:
+            - string
+            - "null"
+        qaSessionId:
+          type:
+            - string
+            - "null"
     QaEvidence:
       type: object
       additionalProperties: false
@@ -4366,13 +4379,20 @@ components:
       additionalProperties: false
       required:
         - qaId
+        - qaSessionId
+        - question
         - answerSummary
         - answerDetail
         - evidences
         - suggestedPhrases
         - needsHumanReview
+        - createdAt
       properties:
         qaId:
+          type: string
+        qaSessionId:
+          type: string
+        question:
           type: string
         answerSummary:
           type: string
@@ -4388,6 +4408,13 @@ components:
             type: string
         needsHumanReview:
           type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    QaAnswerList:
+      type: array
+      items:
+        $ref: "#/components/schemas/QaAnswer"
     OpinionDraftRequest:
       type: object
       additionalProperties: false
