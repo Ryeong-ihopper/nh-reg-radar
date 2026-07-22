@@ -3123,7 +3123,6 @@ export interface operations {
                 content: {
                     "image/png": string;
                     "image/jpeg": string;
-                    "application/pdf": string;
                     "image/svg+xml": string;
                 };
             };

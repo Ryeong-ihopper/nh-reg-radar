@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.20 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.21 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.21 | 2026-07-23 | PDF preview content가 원본 PDF bytes가 아닌 페이지 단위 PNG raster만 반환하는 실제 runtime OpenAPI 계약으로 정정 |
 | v1.20 | 2026-07-22 | PDF preview descriptor의 페이지 수 경량 조회, 요청 페이지 단위 raster 생성과 인증 backend 내부 TTL/LRU 캐시 경계를 명시 |
 | v1.19 | 2026-07-22 | 검토 진행 변경 SSE endpoint와 검토 항목의 `includeAppropriate` 기본 비포함 조회 계약을 추가 |
 | v1.18 | 2026-07-22 | PDF preview를 OCR과 동일한 200-DPI 페이지 PNG로 렌더링해 Annotation 정규화 좌표와 미리보기 좌표 원천을 고정 |

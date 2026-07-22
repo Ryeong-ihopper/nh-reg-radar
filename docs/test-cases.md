@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.78 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.79 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.79 | 2026-07-23 | PDF preview content의 반환 형식을 실제 페이지 단위 PNG raster 계약으로 정정하는 OpenAPI parity 회귀 기준을 추가 |
 | v1.78 | 2026-07-22 | PDF descriptor가 raster를 중복 생성하지 않고 요청 페이지 단위 renderer·bounded server cache를 사용하며, OpenDataLoader PDF lower-left pt box를 실제 페이지 top-left 정규화 좌표로 변환하는 회귀 기준을 추가 |
 | v1.77 | 2026-07-22 | SSE 진행 상태 갱신과 적정 결과 기본 비표시·명시적 전체 보기 회귀 기준을 추가 |
 | v1.76 | 2026-07-22 | 시스템 관리자 광고물 목록의 개별·현재 페이지 전체 선택 및 항목별 삭제 회귀 기준을 추가 |
@@ -427,7 +428,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ANN-009 | 문서 단위 이슈 표시 | 위치 없는 문서 전체 이슈 존재 | Annotation 조회 | `DOCUMENT_LEVEL_ISSUE` 상태로 목록/상세 표시 | `review_items`, `annotations` | P1 |
 | TC-ANN-010 | Annotation 위치 신뢰도 임계값 적용 | location confidence 0.80, 0.79, 0.49 fixture 준비 | Annotation 조회 | LOCATED, LOW_CONFIDENCE/PARTIALLY_LOCATED, NOT_LOCATED 상태 분리 | `annotations` | P1 |
 | TC-ANN-011 | Annotation Coordinate object 응답 | BOX Annotation 존재 | `/reviews/{id}/annotations` 호출 | `coordinate` object에 source/원본/정규화 좌표, rotation, coordinateConfidence 반환 | `/reviews/{id}/annotations` | P0 |
-| TC-FILE-001 | 파일 미리보기 조회 | PNG/JPEG/PDF/HWP/HWPX fileId 존재 | 상세의 미리보기 선택 | 권한 검증된 backend proxy가 이미지·`application/pdf` 원본 bytes 또는 HWP/HWPX의 sanitize된 `image/svg+xml` 변환본을 반환한다. PDF는 browser object, HWP/HWPX는 이미지형 SVG와 페이지 이동으로 표시한다. | `advertisement_files` | P0 |
+| TC-FILE-001 | 파일 미리보기 조회 | PNG/JPEG/PDF/HWP/HWPX fileId 존재 | 상세의 미리보기 선택 | 권한 검증된 backend proxy가 PNG/JPEG 원본 또는 PDF의 요청 페이지 PNG raster, HWP/HWPX의 sanitize된 `image/svg+xml` 변환본을 반환한다. PDF와 HWP/HWPX는 각각 PNG/SVG 이미지형 미리보기와 페이지 이동으로 표시한다. | `advertisement_files` | P0 |
 | TC-FILE-002 | 존재하지 않는 파일 미리보기 | 잘못된 fileId | preview API 호출 | 404 NOT_FOUND 반환 | - | P1 |
 
 ---

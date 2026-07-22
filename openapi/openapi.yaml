@@ -1060,10 +1060,6 @@ paths:
               schema:
                 type: string
                 format: binary
-            application/pdf:
-              schema:
-                type: string
-                format: binary
             image/svg+xml:
               schema:
                 type: string

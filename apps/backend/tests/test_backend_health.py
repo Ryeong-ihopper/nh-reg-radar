@@ -88,6 +88,16 @@ def test_runtime_openapi_semantically_matches_static_contract(tmp_path: Path) ->
     assert comparison.returncode == 0, comparison.stderr
 
 
+def test_pdf_preview_content_contract_returns_page_raster_only() -> None:
+    document = TestClient(create_app(Settings(app_env="test"))).get("/openapi.json").json()
+
+    content = document["paths"]["/files/{fileId}/preview/content"]["get"]["responses"]["200"][
+        "content"
+    ]
+    assert "image/png" in content
+    assert "application/pdf" not in content
+
+
 def _operations(document: dict[str, object]) -> set[tuple[str, str, str]]:
     methods = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
     paths = document["paths"]
