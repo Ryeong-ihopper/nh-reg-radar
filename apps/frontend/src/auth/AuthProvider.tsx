@@ -9,6 +9,12 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
   const refresh = useCallback(async () => {
     try {
       const response = await api.refresh();
+      // Keep the protected workspace closed during a rolling backend/frontend
+      // deployment if an old backend responds with a token-only payload.
+      if (!response.user) {
+        setSession(null);
+        return null;
+      }
       setSession({ accessToken: response.accessToken, user: response.user });
       return response;
     } catch {

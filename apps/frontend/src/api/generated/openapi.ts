@@ -2716,7 +2716,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AccessTokenResponse"];
+                    "application/json": components["schemas"]["AuthTokenResponse"];
                 };
             };
             /** @description Unauthorized */

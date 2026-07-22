@@ -74,11 +74,11 @@
   "openapi": {
     "version": "0.8.0",
     "path": "openapi/openapi.yaml",
-    "sha256": "41a7ec6877e9410e4474ac7d6e0eabe78790da86b0365cdab0bff4197a117ebd"
+    "sha256": "021e073023597d679e9828ecae173a046b3ab29a23ae0550e960f4133b867a64"
   },
   "generated_client": {
     "path": "apps/frontend/src/api/generated/openapi.ts",
-    "sha256": "042589d464a5e0188e6e2d0dc88c362bc0a3293397817960b9fff518c4259008"
+    "sha256": "f6d678d6d8819f45cc02655ad6610505acb2711c7e504f4c7ce65d2b5ad017fa"
   },
   "migration": {
     "revision": "0008_m8_support_privileges",

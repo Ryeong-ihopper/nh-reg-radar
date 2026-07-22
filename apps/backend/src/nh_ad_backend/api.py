@@ -489,7 +489,7 @@ def install_routes(
 
     @router.post(
         "/auth/refresh",
-        response_model=AccessTokenResponse,
+        response_model=AuthTokenResponse,
         operation_id="refreshAccessToken",
         responses={
             200: {"headers": {"Set-Cookie": {"schema": {"type": "string"}}}},
@@ -502,11 +502,13 @@ def install_routes(
         refresh_token: Annotated[str | None, Depends(refresh_cookie_scheme)] = None,
         origin: Annotated[str | None, Header(alias="Origin")] = None,
         referer: Annotated[str | None, Header(alias="Referer", include_in_schema=False)] = None,
-    ) -> AccessTokenResponse:
+    ) -> AuthTokenResponse:
         check_origin(origin, referer)
         if not refresh_token:
             raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
-        access_token, rotated_token = services.auth.refresh(refresh_token, request.state.trace_id)
+        access_token, rotated_token, user = services.auth.refresh(
+            refresh_token, request.state.trace_id
+        )
         response.set_cookie(
             "refreshToken",
             rotated_token,
@@ -517,10 +519,11 @@ def install_routes(
             path="/api/v1/auth",
         )
         response.headers["Cache-Control"] = "no-store"
-        return AccessTokenResponse(
+        return AuthTokenResponse(
             accessToken=access_token,
             tokenType="Bearer",
             expiresIn=1800,
+            user=_user_response(user),
         )
 
     @router.post(

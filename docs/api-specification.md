@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.21 |
+| 현행 버전 | v1.22 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.22 | 2026-07-23 | refresh token rotation 응답도 로그인 사용자 컨텍스트를 반환하도록 정정해 새로고침 세션 복원 시 보호 화면 렌더링 계약을 일치 |
 | v1.21 | 2026-07-23 | PDF preview content가 원본 PDF bytes가 아닌 페이지 단위 PNG raster만 반환하는 실제 runtime OpenAPI 계약으로 정정 |
 | v1.20 | 2026-07-22 | PDF preview descriptor의 페이지 수 경량 조회, 요청 페이지 단위 raster 생성과 인증 backend 내부 TTL/LRU 캐시 경계를 명시 |
 | v1.19 | 2026-07-22 | 검토 진행 변경 SSE endpoint와 검토 항목의 `includeAppropriate` 기본 비포함 조회 계약을 추가 |
@@ -450,7 +451,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 | --- | --- |
 | Method | POST |
 | URI | `/api/v1/auth/refresh` |
-| 설명 | 유효한 refresh token cookie로 새 access token을 발급한다. 성공 시 refresh token을 rotation한다. ADR-0057 기준 Origin 또는 Referer allowlist 검증을 적용한다. |
+| 설명 | 유효한 refresh token cookie로 새 access token과 로그인 사용자 컨텍스트를 발급한다. 성공 시 refresh token을 rotation한다. ADR-0057 기준 Origin 또는 Referer allowlist 검증을 적용한다. |
 
 ### Response
 
@@ -458,7 +459,14 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 {
   "accessToken": "eyJhbGciOi...",
   "tokenType": "Bearer",
-  "expiresIn": 1800
+  "expiresIn": 1800,
+  "user": {
+    "userId": "USR-001",
+    "userName": "홍길동",
+    "departmentId": "DPT-001",
+    "departmentName": "상품부",
+    "roles": ["PRODUCT_DEPARTMENT_USER"]
+  }
 }
 ```
 

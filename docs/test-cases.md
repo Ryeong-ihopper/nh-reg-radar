@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.80 |
+| 현행 버전 | v1.81 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.81 | 2026-07-23 | refresh 응답의 사용자 컨텍스트와 token-only 구버전 응답에서 로그인 화면으로 안전 복귀하는 세션 복원 회귀 기준을 추가 |
 | v1.80 | 2026-07-23 | 배포 후 이전 SPA shell이 남아 오류 화면에 고정되지 않도록 index HTML 무캐시와 로그인 복구 action 회귀 기준을 추가 |
 | v1.79 | 2026-07-23 | PDF preview content의 반환 형식을 실제 페이지 단위 PNG raster 계약으로 정정하는 OpenAPI parity 회귀 기준을 추가 |
 | v1.78 | 2026-07-22 | PDF descriptor가 raster를 중복 생성하지 않고 요청 페이지 단위 renderer·bounded server cache를 사용하며, OpenDataLoader PDF lower-left pt box를 실제 페이지 top-left 정규화 좌표로 변환하는 회귀 기준을 추가 |
@@ -222,7 +223,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-COM-007 | 상품군 공통 코드 조회 | 공통코드 등록됨 | `/codes/product-groups` 호출 | 상품군 코드 목록 반환 | GET `/codes/{codeGroup}` | P1 |
 | TC-COM-008 | 광고유형 공통 코드 조회 | 공통코드 등록됨 | `/codes/advertisement-types` 호출 | 광고유형 코드 목록 반환 | GET `/codes/{codeGroup}` | P1 |
 | TC-COM-009 | 오류 응답 표준 메시지 | 오류 발생 조건 준비 | 오류 API 호출 | ADR-0045 기준 code, message, traceId 반환 및 민감정보 미노출 | 공통 | P0 |
-| TC-COM-010 | Refresh token 갱신 | 유효한 refresh token cookie 보유 | `/auth/refresh` 호출 | 새 accessToken 반환, refresh token rotation | POST `/auth/refresh` | P0 |
+| TC-COM-010 | Refresh token 갱신 | 유효한 refresh token cookie 보유 | `/auth/refresh` 호출 | 새 accessToken·사용자 컨텍스트 반환, refresh token rotation | POST `/auth/refresh` | P0 |
 | TC-COM-011 | 로그아웃 후 refresh 실패 | 로그아웃 수행 | `/auth/refresh` 재호출 | 401 UNAUTHORIZED 반환 | POST `/auth/logout`, POST `/auth/refresh` | P0 |
 | TC-COM-012 | 권한 변경 후 기존 token 거부 | 사용자 권한 변경됨 | 기존 access token으로 보호 API 호출 | token_version 불일치로 401 UNAUTHORIZED 반환 | 공통 | P0 |
 | TC-COM-013 | Refresh token 평문 저장 금지 | 로그인 성공 | DB와 로그 확인 | refresh token 원문 미저장, token_hash만 저장 | `refresh_tokens`, 로그 | P0 |

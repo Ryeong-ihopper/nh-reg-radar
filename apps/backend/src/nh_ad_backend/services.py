@@ -124,7 +124,7 @@ class AuthService:
             raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
         return current_user(user)
 
-    def refresh(self, refresh_token: str, trace_id: str) -> tuple[str, str]:
+    def refresh(self, refresh_token: str, trace_id: str) -> tuple[str, str, User]:
         now = self._now()
         session = self.repository.get_refresh_session(self.tokens.hash_refresh_token(refresh_token))
         if session is None:
@@ -163,7 +163,7 @@ class AuthService:
             self._audit(user, "TOKEN_REFRESH", "FAILURE", "REFRESH_TOKEN_REUSE", trace_id)
             raise ServiceError(401, "UNAUTHORIZED", "로그인이 필요합니다.")
         self._audit(user, "TOKEN_REFRESH", "SUCCESS", None, trace_id)
-        return self.tokens.issue_access_token(user), new_token
+        return self.tokens.issue_access_token(user), new_token, user
 
     def logout(self, refresh_token: str, trace_id: str) -> None:
         now = self._now()

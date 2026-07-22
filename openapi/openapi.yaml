@@ -679,7 +679,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AccessTokenResponse"
+                $ref: "#/components/schemas/AuthTokenResponse"
           headers:
             Set-Cookie:
               schema:

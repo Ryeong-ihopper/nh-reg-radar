@@ -114,6 +114,19 @@ test("restores an httpOnly refresh-cookie session before rendering a protected d
   expect(new Headers(calls[1].init?.headers).get("Authorization")).toBe("Bearer restored-token");
 });
 
+test("returns to login instead of rendering a protected route when refresh lacks user context", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("/auth/refresh")) {
+      return response({ accessToken: "legacy-token", tokenType: "Bearer", expiresIn: 1800 });
+    }
+    throw new Error(`Unexpected request: ${String(input)}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements"]}><App /></MemoryRouter>);
+
+  expect(await screen.findByRole("heading", { name: "로그인" })).toBeInTheDocument();
+});
+
 test("refreshes once after a 401, retries with the rotated token, and synchronizes the session", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   let listAttempts = 0;

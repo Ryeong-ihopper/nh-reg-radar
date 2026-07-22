@@ -66,6 +66,13 @@ def test_refresh_rotation_origin_logout_and_version_revoke(
     )
     assert rotated.status_code == 200
     assert rotated.cookies["refreshToken"] != refresh_token
+    assert rotated.json()["user"] == {
+        "userId": "user-a",
+        "userName": "상품담당A",
+        "departmentId": "DPT-A",
+        "departmentName": "상품부 A",
+        "roles": ["PRODUCT_DEPARTMENT_USER"],
+    }
     replay = client.post(
         "/api/v1/auth/refresh",
         cookies={"refreshToken": refresh_token},
