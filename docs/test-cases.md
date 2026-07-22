@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.79 |
+| 현행 버전 | v1.80 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.80 | 2026-07-23 | 배포 후 이전 SPA shell이 남아 오류 화면에 고정되지 않도록 index HTML 무캐시와 로그인 복구 action 회귀 기준을 추가 |
 | v1.79 | 2026-07-23 | PDF preview content의 반환 형식을 실제 페이지 단위 PNG raster 계약으로 정정하는 OpenAPI parity 회귀 기준을 추가 |
 | v1.78 | 2026-07-22 | PDF descriptor가 raster를 중복 생성하지 않고 요청 페이지 단위 renderer·bounded server cache를 사용하며, OpenDataLoader PDF lower-left pt box를 실제 페이지 top-left 정규화 좌표로 변환하는 회귀 기준을 추가 |
 | v1.77 | 2026-07-22 | SSE 진행 상태 갱신과 적정 결과 기본 비표시·명시적 전체 보기 회귀 기준을 추가 |
@@ -650,6 +651,7 @@ S-014 component/integration 테스트는 기존 `TC-STD-001`~`TC-STD-018`과 `TC
 | TC-NFR-SEC-008 | CORS allowlist 검증 | 미허용 Origin에서 API 호출 | CORS 차단 또는 403 처리 | P0 |
 | TC-NFR-SEC-009 | 보안 헤더 검증 | 주요 화면/API 응답 확인 | nosniff, Referrer-Policy, X-Frame-Options 또는 CSP 적용 | P1 |
 | TC-NFR-SEC-010 | 민감 응답 캐시 방지 | 로그인/사용자 정보/refresh 응답 확인 | Cache-Control no-store 또는 동등 기준 적용 | P1 |
+| TC-NFR-SEC-011 | SPA shell 배포 캐시 방지 | `/`, `/login`, 임의 SPA deep link 응답과 배포 후 기존 탭 복구 확인 | `/index.html`은 `Cache-Control: no-store, max-age=0`, 보안 헤더를 유지하고 오류 화면은 cache-busting 로그인 복구 action을 제공 | P1 |
 
 ## 19.2 성능
 

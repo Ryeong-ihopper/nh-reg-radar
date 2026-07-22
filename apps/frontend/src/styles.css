@@ -877,6 +877,7 @@ progress {
 
 .fatal-error-content h1 { margin-top: 0; }
 .fatal-error-content p { margin-bottom: 0; color: #5f6877; }
+.fatal-error-content .button-secondary { margin-top: 1.25rem; }
 
 /* Design system refresh: see DESIGN.md. */
 :root {

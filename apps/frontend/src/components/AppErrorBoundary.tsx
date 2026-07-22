@@ -25,7 +25,14 @@ export class AppErrorBoundary extends Component<Props, State> {
         <main role="alert" className="fatal-error">
           <div className="fatal-error-content">
             <h1>화면을 불러오지 못했습니다.</h1>
-            <p>잠시 후 다시 시도해 주세요.</p>
+            <p>세션 또는 화면 버전이 만료되었을 수 있습니다. 로그인 화면을 다시 열어 주세요.</p>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => window.location.replace(`/login?recovery=${Date.now()}`)}
+            >
+              로그인 화면으로 다시 열기
+            </button>
           </div>
         </main>
       );

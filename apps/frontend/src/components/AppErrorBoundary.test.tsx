@@ -17,6 +17,7 @@ test("renders a safe fallback when a child fails", () => {
   );
 
   expect(screen.getByRole("alert")).toHaveTextContent("화면을 불러오지 못했습니다.");
+  expect(screen.getByRole("button", { name: "로그인 화면으로 다시 열기" })).toBeInTheDocument();
   expect(document.querySelector(".fatal-error-content")).toBeInTheDocument();
   consoleSpy.mockRestore();
 });

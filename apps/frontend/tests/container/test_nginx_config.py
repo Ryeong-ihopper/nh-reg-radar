@@ -50,6 +50,14 @@ class NginxConfigTests(unittest.TestCase):
     def test_spa_fallback_is_limited_to_non_api_routes(self) -> None:
         self.assertIn("try_files $uri $uri/ /index.html;", _location_block(self.config, "/"))
 
+    def test_spa_shell_is_not_cached_across_deployments(self) -> None:
+        shell = _location_block(self.config, "= /index.html")
+        self.assertIn('add_header Cache-Control "no-store, max-age=0" always;', shell)
+        # nginx add_header directives do not inherit into a child location, so
+        # the shell location must retain the browser security baseline too.
+        self.assertIn('add_header X-Content-Type-Options "nosniff" always;', shell)
+        self.assertIn('add_header Content-Security-Policy "default-src \'self\'', shell)
+
     def test_security_headers_apply_to_success_and_error_responses(self) -> None:
         expected = {
             'add_header X-Content-Type-Options "nosniff" always;',
@@ -199,6 +207,7 @@ class NginxBlackBoxTests(unittest.TestCase):
         with urllib.request.urlopen(self._url("/nested/client/route"), timeout=2) as response:
             self.assertEqual("frontend-spa", response.read().decode())
             self.assert_security_headers(response)
+            self.assertEqual("no-store, max-age=0", response.headers["Cache-Control"])
 
     def test_missing_api_route_does_not_fall_back_to_spa(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as raised:
