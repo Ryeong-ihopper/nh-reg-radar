@@ -6,12 +6,18 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.72 |
+| 현행 버전 | v1.78 |
 | 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.78 | 2026-07-22 | PDF descriptor가 raster를 중복 생성하지 않고 요청 페이지 단위 renderer·bounded server cache를 사용하며, OpenDataLoader PDF lower-left pt box를 실제 페이지 top-left 정규화 좌표로 변환하는 회귀 기준을 추가 |
+| v1.77 | 2026-07-22 | SSE 진행 상태 갱신과 적정 결과 기본 비표시·명시적 전체 보기 회귀 기준을 추가 |
+| v1.76 | 2026-07-22 | 시스템 관리자 광고물 목록의 개별·현재 페이지 전체 선택 및 항목별 삭제 회귀 기준을 추가 |
+| v1.75 | 2026-07-22 | 공용 개발 VM reverse proxy가 frontend 사설 IP 바인딩만 통해 UI와 `/api` 프록시를 제공하고 내부 서비스 포트를 노출하지 않는 smoke 기준을 추가 |
+| v1.74 | 2026-07-22 | 시스템 관리자 광고물 삭제 시 목록·상세·원본 파일과 연결 검토 결과가 비노출되고 감사 로그가 남는 회귀 기준을 추가 |
+| v1.73 | 2026-07-22 | PNG/JPEG/PDF는 실제 전체 raster canvas로 정규화 좌표를 계산하고 PDF preview는 OCR과 동일한 200-DPI PNG를 사용하며, HWP/HWPX는 SVG 텍스트 일치 시에만 표시하는 회귀 기준을 추가 |
 | --- | --- | --- |
 | v1.72 | 2026-07-22 | ADR-0081의 Parser/OCR·외부 AI 활성화 분리 회귀 기준을 추가 |
 | v1.71 | 2026-07-21 | HWP/HWPX Annotation은 구조 파서의 text/layout 좌표가 결합된 경우에만 원본 SVG 위 BOX로 표시하고, offset만 있는 항목을 원본 아래 Text IR 하이라이트로 분리하지 않는 회귀 기준을 추가 |
@@ -256,6 +262,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ADV-012 | 광고명 조건 검색 | 광고물 등록됨 | keyword 조건으로 목록 조회 | 조건에 맞는 광고물만 반환 | GET `/advertisements` | P1 |
 | TC-ADV-013 | 상품군/광고유형 필터 | 복수 광고물 등록됨 | `productGroup`, `advertisementType` 조건 조회 | 조건 일치 목록 반환 | GET `/advertisements` | P1 |
 | TC-ADV-014 | 광고물 상세 조회 | 광고물 ID 존재 | 상세 조회 API 호출 | 광고 기본정보, 파일 목록 반환 | GET `/advertisements/{id}` | P0 |
+| TC-ADV-016 | 시스템 관리자 광고물 삭제 | 광고물·파일·검토 결과가 연결되어 있음 | 시스템 관리자가 DELETE `/advertisements/{id}` 호출 | 204 반환, 광고물·원본 파일·연결 검토 결과는 일반 조회에서 비노출, `ADVERTISEMENT_DELETE` 감사 로그 저장 | advertisements, advertisement_files, audit_logs | P0 |
+| TC-ADV-017 | 시스템 관리자 목록 선택 삭제 | 광고물 목록이 2건 이상이고 시스템 관리자 로그인 | 개별 선택 또는 현재 페이지 전체 선택 후 삭제 확인 | 선택된 항목마다 기존 DELETE API를 호출하고 완료·부분 실패 후 목록을 최신화한다. 일반 역할에는 checkbox·삭제 action을 표시하지 않는다. | 프론트엔드 회귀/API | P0 |
 | TC-ADV-015 | 존재하지 않는 광고물 조회 | 잘못된 광고물 ID 사용 | 상세 조회 API 호출 | 404 NOT_FOUND 반환 | GET `/advertisements/{id}` | P1 |
 | TC-ADV-016 | 광고물 기본정보 수정 | 광고물 ID 존재 | 광고명/메모 수정 API 호출 | 수정 성공, updated_at 갱신 | PATCH `/advertisements/{id}` | P1 |
 | TC-ADV-017 | 수정본 등록 | 기존 광고물 존재 | 수정본 파일 업로드 | revision 생성, 상태 `REVISED` | `advertisement_revisions` | P1 |
@@ -271,6 +279,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-003 | 이미 분석 중인 광고물 재요청 | 기존 상태 `ANALYZING` | 검토 요청 API 재호출 | `REVIEW_ALREADY_RUNNING` 반환 | `reviews` | P0 |
 | TC-REV-004 | 존재하지 않는 광고물 검토 요청 | 잘못된 광고물 ID | 검토 요청 API 호출 | 404 NOT_FOUND 반환 | - | P0 |
 | TC-REV-005 | 검토 진행 상태 조회 | reviewId 존재 | 상태 조회 API 호출 | currentStep, progressRate, steps 반환 | `review_jobs`, `review_steps` | P0 |
+| TC-REV-017 | SSE 검토 진행 갱신 | 진행 중 reviewId 존재 | `GET /reviews/{reviewId}/events` 연결 후 Job 단계 변경 | 변경 시 `progress` event가 전달되고 terminal 상태에서 종료한다. 연결 불가 시 화면은 30초 조회 fallback을 사용한다. | `review_jobs`, `review_steps` | P0 |
+| TC-REV-018 | 적정 결과 기본 비표시 | 적정·수정 필요 검토 항목 공존 | 항목별 결과 기본 조회 후 `적정 항목도 보기` 선택 | 기본 조회는 `APPROPRIATE`를 제외하고, 명시적 선택 또는 `resultStatus=APPROPRIATE` 조회는 적정 항목을 반환한다. 주요 리스크에도 적정 항목을 포함하지 않는다. | `review_items` | P0 |
 | TC-REV-006 | 검토 완료 상태 조회 | 분석 완료됨 | 상태 조회 API 호출 | 상태 `REVIEW_COMPLETED`, progressRate 100 및 모든 `review_steps`가 `COMPLETED`로 반환 | `reviews`, `review_steps` | P0 |
 | TC-REV-007 | 검토 실패 상태 조회 | 분석 실패 발생 | 상태 조회 API 호출 | 상태 `REVIEW_FAILED`, failedReason 반환 | `reviews`, `review_jobs` | P1 |
 | TC-REV-008 | AI 재분석 요청 | 기존 reviewId 존재 | rerun API 호출 | newReviewId 생성, 이전 review 유지 | `reviews`, `review_jobs` | P1 |
@@ -281,7 +291,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-013 | 재시도 한도 초과 최종 실패 | retryCount가 maxRetries에 도달 | 추가 실패 발생 | jobStatus `FAILED_FINAL`, dead_lettered_at, failedReasonCode 저장 | `review_jobs`, `audit_logs` | P0 |
 | TC-REV-014 | 상태 조회 retry 필드 반환 | `RETRY_PENDING` job 존재 | 상태 조회 API 호출 | retryCount, maxRetries, nextRetryAt, isRetryable, failedReasonCode 반환 | `review_jobs`, `review_steps` | P0 |
 | TC-REV-015 | 기준 적용일 기본값 | S-004 진입 | 검토 요청 폼 표시 | date 입력값이 사용자의 로컬 오늘 날짜이며 수정 가능 | frontend | P1 |
-| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, 구조 파서 좌표가 결합된 문구 또는 SVG 실제 글자 좌표와 `matchedText`가 정확히 일치한 문구를 실제 SVG 원본 위에 표시한다. 일치하지 않는 offset은 위치 미확정 목록으로 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
+| TC-REV-016 | HWP/HWPX Annotation 표시 | HWP/HWPX 결과 존재 | S-007 진입 | private SVG preview descriptor/content를 호출해 loading을 끝내고, 구조 좌표는 SVG 화면에 직접 BOX로 투영하지 않는다. SVG 실제 글자 좌표와 `matchedText`가 정확히 일치한 문구만 실제 SVG 원본 위에 표시하고, 일치하지 않는 offset은 위치 미확정 목록으로 표시한다. 변환 실패는 terminal 안내를 표시한다. | frontend | P0 |
+| TC-REV-018 | 광고 원본 좌표 원천 일치 | PNG/JPEG/PDF와 OCR 결과 준비 | S-007 진입 | PNG/JPEG는 실제 파일 canvas, PDF는 OCR과 동일한 200-DPI preview PNG를 사용한다. OCR의 sourceWidth/sourceHeight는 검출 문구 최대치가 아닌 전체 raster canvas이고 BOX는 media wrapper 내부에 표시된다. | parser-service, backend, frontend | P0 |
 | TC-REV-017 | 판독 불가와 확인 필요 안내 구분 | `OCR_UNREADABLE` 및 근거/상품조건 사유의 `CHECK_REQUIRED` fixture 준비 | S-005 상태 조회 | 판독 불가는 기술 일시 오류만 자동 재시도한다는 안내와 원본 품질 개선 후 재분석 안내를, 일반 확인 필요는 원인 범주 확인 안내를 각각 표시한다 | frontend | P1 |
 
 ---
@@ -327,6 +338,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-LIVE-005 | embedding endpoint/model 교체 | 새 OpenAI-compatible endpoint/model/dimension 및 새 Qdrant collection 설정 | 기존 collection을 재사용하지 않고 기준자료 재적재/재색인 | 새 vector dimension과 model metadata로만 검색하며, dimension 불일치/endpoint 오류는 `SEARCH_UNAVAILABLE` 또는 적재 실패로 종료된다. | Qdrant/reindex jobs | P1/manual |
 | TC-LIVE-006 | 승인 PDF paid provider 종단간 검토 | TC-LIVE-001 완료, 동일 Redis URL/queue를 사용하는 backend·worker Compose, 유효한 opt-in key | 승인 PDF를 업로드하고 검토 요청 후 job 종료까지 조회 | `OCR_EXTRACTION`→근거 검색→결과 저장이 완료되고 review는 `CHECK_REQUIRED` 또는 정책상 최종 상태, job은 `COMPLETED`가 된다. OCR ID는 review별로 유일하고 근거 score는 0~1, source는 `KEYWORD`/`VECTOR`/`HYBRID`/`RULE_METADATA` 중 하나다. key/raw provider 응답은 노출되지 않는다. | review/jobs/ocr/results | P0/manual |
 | TC-LIVE-007 | ADR-0079 실제 엔진 E2E | `opendataloader-pdf`, `PaddleOCR`, `rhwp`, `document-processor` private Compose service 및 유효한 opt-in key | 일반 PDF, 스캔 PDF/PNG, 문단·표가 있는 HWP/HWPX 승인 샘플을 각각 업로드·검토 요청하고 완료 상태까지 조회 | PDF/이미지는 지정 parser를 사용하고 HWP/HWPX 선택 parser는 `hwp-hybrid`이며 기준 텍스트 보존·문단/표 구조·service health·단일 NormalizedDocument·최종 결과 저장이 확인된다. OpenAI는 구조화 판단에만 사용한다. | parser services/review/jobs/results | P0/manual |
+| TC-LIVE-008 | 개발 VM reverse proxy 인입 | `FRONTEND_BIND_ADDRESS=<VM 사설 IP>`, frontend port, HTTPS reverse proxy 설정 | proxy 도메인과 VM 사설 IP frontend port로 `/`, `/api/v1/health` 호출하고 backend·DB·parser 포트의 외부 연결을 확인 | frontend와 `/api` 프록시가 200을 반환하며, backend·DB·검색·parser/OCR 포트는 외부 인입 대상이 아니다. | frontend/proxy/network | P0/manual |
 | TC-LAY-001 | 제목/본문/유의사항 영역 분리 | 레이아웃 있는 광고 등록 | AI 검토 실행 | `layout_blocks`에 TITLE, BODY, NOTICE 저장 | `layout_blocks` | P1 |
 | TC-LAY-002 | 버튼/배너 영역 인식 | 모바일 배너 등록 | AI 검토 실행 | BUTTON, BANNER 영역 저장 | `layout_blocks` | P2 |
 | TC-LAY-003 | 레이아웃 신뢰도 저장 | 레이아웃 분석 실행 | 결과 확인 | confidence_score 저장 | `layout_blocks` | P2 |

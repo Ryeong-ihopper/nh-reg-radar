@@ -149,7 +149,7 @@ export function ReviewItemsPage() {
   const { search } = useLocation();
   const initialReviewItemId = useMemo(() => new URLSearchParams(search).get("reviewItemId") ?? "", [search]);
   const [selectedId, setSelectedId] = useState(initialReviewItemId);
-  const [filters, setFilters] = useState<ReviewItemSearch>({ page: 1, size: 20 });
+  const [filters, setFilters] = useState<ReviewItemSearch>({ page: 1, size: 20, includeAppropriate: false });
   const items = useQuery({
     queryKey: ["review-items", reviewId, filters],
     queryFn: () => api.listReviewItems(session?.accessToken ?? "", reviewId, filters),
@@ -192,7 +192,9 @@ export function ReviewItemsPage() {
         <label>검토 유형<select value={filters.reviewType ?? ""} onChange={(event) => setFilter("reviewType", event.target.value)}><option value="">전체</option>{Object.entries(REVIEW_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>위험도<select value={filters.riskLevel ?? ""} onChange={(event) => setFilter("riskLevel", event.target.value)}><option value="">전체</option>{Object.entries(RISK_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>판정 결과<select value={filters.resultStatus ?? ""} onChange={(event) => setFilter("resultStatus", event.target.value)}><option value="">전체</option>{Object.entries(RESULT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="result-filter-toggle"><input type="checkbox" checked={filters.includeAppropriate ?? false} onChange={(event) => setFilters((current) => ({ ...current, includeAppropriate: event.target.checked, page: 1 }))} /> 적정 항목도 보기</label>
       </div>
+      {!filters.includeAppropriate && !filters.resultStatus ? <p className="panel-note">명시적 위반이 확인되지 않은 적정 항목은 기본적으로 숨깁니다. 필요하면 ‘적정 항목도 보기’를 선택하세요.</p> : null}
       {items.isPending ? <LoadingState label="상세 검토 결과를 불러오는 중입니다." /> : null}
       {items.isError && isForbidden(items.error) ? <ForbiddenState /> : null}
       {items.isError && !isForbidden(items.error) ? <ErrorState error={items.error} onRetry={() => void items.refetch()} /> : null}
@@ -259,12 +261,7 @@ function useSvgTextBoxes(preview: Blob | undefined, annotations: ReviewAnnotatio
       if (root.localName !== "svg") return;
       const viewBox = (root.getAttribute("viewBox") ?? "").trim().split(/\s+/).map(Number);
       if (viewBox.length !== 4 || viewBox.some((value) => !Number.isFinite(value)) || viewBox[2] <= 0 || viewBox[3] <= 0) return;
-      const glyphs = [...root.querySelectorAll("text")].flatMap((node) => {
-        const value = (node.textContent ?? "").replace(/\s+/g, ""); const x = Number(node.getAttribute("x")); const baseline = Number(node.getAttribute("y")); const fontSize = Number(node.getAttribute("font-size") ?? 12);
-        if (!value || !Number.isFinite(x) || !Number.isFinite(baseline) || !Number.isFinite(fontSize)) return [];
-        const width = Number(node.getAttribute("textLength")) || fontSize * 0.55 * value.length;
-        return [...value].map((character, index) => ({ character, x: x + width * index / value.length, y: baseline - fontSize, width: width / value.length, height: fontSize * 1.2 }));
-      });
+      const glyphs = svgGlyphs(root);
       const stream = glyphs.map((glyph) => glyph.character).join("");
       const next = annotations.flatMap((annotation) => {
         const target = (annotation.matchedText ?? annotation.targetText).replace(/\s+/g, ""); const start = target ? stream.indexOf(target) : -1;
@@ -277,6 +274,29 @@ function useSvgTextBoxes(preview: Blob | undefined, annotations: ReviewAnnotatio
     return () => { active = false; };
   }, [preview, annotations]);
   return boxes;
+}
+
+function svgGlyphs(root: Element): Array<{ character: string; x: number; y: number; width: number; height: number }> {
+  const values: Array<{ character: string; x: number; y: number; width: number; height: number }> = [];
+  for (const text of root.querySelectorAll("text")) {
+    const fontSize = Number(text.getAttribute("font-size") ?? 12);
+    const rootX = Number(text.getAttribute("x") ?? 0);
+    let baseline = Number(text.getAttribute("y") ?? fontSize);
+    if (!Number.isFinite(fontSize) || !Number.isFinite(rootX) || !Number.isFinite(baseline)) continue;
+    const spans = [...text.querySelectorAll(":scope > tspan")];
+    const lines = spans.length > 0 ? spans : [text];
+    for (const line of lines) {
+      const x = Number(line.getAttribute("x") ?? rootX);
+      const explicitY = line.getAttribute("y");
+      const dy = Number(line.getAttribute("dy") ?? 0);
+      baseline = explicitY === null ? baseline + (Number.isFinite(dy) ? dy : 0) : Number(explicitY);
+      const content = (line.textContent ?? "").replace(/\s+/g, "");
+      if (!content || !Number.isFinite(x) || !Number.isFinite(baseline)) continue;
+      const width = Number(line.getAttribute("textLength")) || fontSize * 0.55 * content.length;
+      values.push(...[...content].map((character, index) => ({ character, x: x + width * index / content.length, y: baseline - fontSize, width: width / content.length, height: fontSize * 1.2 })));
+    }
+  }
+  return values;
 }
 
 function AnnotationButton({ annotation, selected, onSelect }: { annotation: ReviewAnnotation; selected: boolean; onSelect: () => void }) {
@@ -348,7 +368,7 @@ export function ReviewAnnotationsPage() {
           {preview.isError ? <ErrorState error={preview.error} onRetry={() => void preview.refetch()} /> : null}
           {previewUrl ? <div ref={annotationCanvasRef} className="annotation-canvas" tabIndex={-1} aria-label="광고 원본 위치 미리보기">
             <div className="annotation-media">
-              {preview.data?.type === "application/pdf" ? <object data={previewUrl} type="application/pdf" aria-label="PDF 광고 원본 미리보기" /> : <img src={previewUrl} alt="광고 원본 미리보기" />}
+              <img src={previewUrl} alt="광고 원본 미리보기" />
               {boxes.map((annotation) => <button key={annotation.annotationId} type="button" className="annotation-box" aria-label={`${annotation.targetText} Annotation`} data-risk={annotation.riskLevel} aria-pressed={annotation.reviewItemId === selectedId} onClick={() => setSelectedId(annotation.reviewItemId)} style={{ left: `${(annotation.coordinate?.normalizedX ?? 0) * 100}%`, top: `${(annotation.coordinate?.normalizedY ?? 0) * 100}%`, width: `${(annotation.coordinate?.normalizedWidth ?? 0) * 100}%`, height: `${(annotation.coordinate?.normalizedHeight ?? 0) * 100}%` }} />)}
               {svgTextBoxes.map((box) => <button key={box.annotation.annotationId} type="button" className="annotation-box" aria-label={`${box.annotation.targetText} Annotation`} data-risk={box.annotation.riskLevel} aria-pressed={box.annotation.reviewItemId === selectedId} onClick={() => setSelectedId(box.annotation.reviewItemId)} style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.width * 100}%`, height: `${box.height * 100}%` }} />)}
             </div>

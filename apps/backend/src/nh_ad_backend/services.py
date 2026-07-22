@@ -346,6 +346,27 @@ class AdvertisementService:
             if AuthorizationService.can_read_advertisement(actor, advertisement)
         ]
 
+    def delete(self, actor: CurrentUser, advertisement_id: str, trace_id: str) -> None:
+        if "SYSTEM_ADMIN" not in actor.roles:
+            self._audit(
+                actor, "ADVERTISEMENT_DELETE", "DENIED", "ROLE_REQUIRED", advertisement_id, trace_id
+            )
+            raise ServiceError(403, "FORBIDDEN", "시스템 관리자만 광고물을 삭제할 수 있습니다.")
+        files = self.repository.delete_advertisement(advertisement_id)
+        if files is None:
+            raise ServiceError(404, "NOT_FOUND", "요청한 대상을 찾을 수 없습니다.")
+        for file in files:
+            self.storage.delete(file.storage_key)
+        self._audit(
+            actor,
+            "ADVERTISEMENT_DELETE",
+            "SUCCESS",
+            None,
+            advertisement_id,
+            trace_id,
+            {"fileCount": str(len(files)), "reviewResults": "HIDDEN"},
+        )
+
     def create_revision(
         self,
         actor: CurrentUser,

@@ -8,12 +8,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.41 |
-| 기준일 | 2026-07-21 |
+| 현행 버전 | v1.46 |
+| 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.46 | 2026-07-22 | S-007 PDF 원본은 descriptor의 경량 페이지 수 조회 후 content 한 페이지를 조회하며, 동일 파일·페이지 재표시는 서버 cache를 사용하고 OpenDataLoader PDF 좌표는 실제 페이지 좌상단 정규화 값으로 표시하도록 정정 |
+| v1.45 | 2026-07-22 | 개발 VM Vite 서버가 `nh-compliance.ihopper.co.kr` Host 요청을 명시 허용하도록 추가 |
+| v1.44 | 2026-07-22 | S-005 SSE 진행 상태 stream과 S-008 `includeAppropriate` 기본 비포함·사용자 전체 보기 전환을 매핑 |
+| v1.43 | 2026-07-22 | S-002 시스템 관리자 목록에서 현재 페이지 개별·전체 선택 삭제가 기존 DELETE 계약을 항목별로 호출하도록 추가 |
+| v1.42 | 2026-07-22 | 시스템 관리자 전용 광고물 삭제 API와 삭제 후 목록 복귀·원본/연결 검토 결과 비노출 화면 흐름을 추가 |
 | v1.41 | 2026-07-21 | S-007 HWP/HWPX는 private SVG의 실제 글자 좌표와 `matchedText`의 정확 일치 시 원본 하이라이트를 허용하고, S-009는 원문·권고 문구 비교 필드를 표시하도록 정정 (API 계약 변경 없음) |
 | v1.40 | 2026-07-21 | S-007 HWP/HWPX는 document-processor text/layout 좌표가 결합된 Annotation만 private SVG 원본 위 BOX로 표시하고, offset만 있는 항목은 원본 위치 미확정으로 처리하도록 정정 (API 계약 변경 없음) |
 | v1.39 | 2026-07-21 | 4단계 `/reviews/{reviewId}/support` 탭의 사용자 노출 명칭을 `검토 및 리포트`로 통일 (API 계약 변경 없음) |
@@ -205,9 +210,11 @@ M2 1차 화면은 OpenAPI v0.2.0 `AdvertisementPage`에 잠긴 광고물 ID·광
 | --- | --- | --- | --- | --- | --- | --- |
 | 목록 ID 클릭 | M2 광고물 기본 상세 | `/advertisements/{advertisementId}` | GET | `advertisementId` | `AdvertisementDetail`, 안전한 `AdvertisementFile` 메타데이터 | `/advertisements/{advertisementId}` 기본정보·파일 목록 |
 | 광고물 상세 진입 | 기존 검토 이력 조회 | `/advertisements/{advertisementId}/reviews` | GET | `advertisementId` | `ReviewHistory[]`: 회차, 검토 상태, 위험도, 요청·완료일 | 최근 검토를 우선 표시하고 진행 중이면 S-005, 완료·확인 필요이면 S-006 복귀 링크 제공 |
+| 시스템 관리자 삭제 | 광고물·연결 결과 비노출 | `/advertisements/{advertisementId}` | DELETE | `advertisementId` | `204 No Content` | 확인 대화상자 뒤 목록으로 복귀한다. 삭제 후 원본 파일과 연결 검토 결과는 일반 조회 경로에서 표시하지 않는다. |
+| 시스템 관리자 선택 삭제 | 현재 페이지 광고물 일괄 삭제 | `/advertisements/{advertisementId}` | DELETE (항목별) | 선택한 `advertisementId` 목록 | 각 항목 `204 No Content` | 개별 선택 또는 현재 페이지 전체 선택 뒤 확인 대화상자를 표시한다. 별도 bulk API는 만들지 않으며 완료·실패 후 목록을 다시 조회한다. |
 | 단건 권한 거부 | 부서 scope 거부 | `/advertisements/{advertisementId}` | GET | 타 부서 `advertisementId` | 403 `ErrorResponse` | 전용 권한 안내. raw message, object key, presigned URL 미표시 |
 | 파일 미리보기 클릭 | 미리보기 descriptor 조회 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo=1` | `FilePreview`, backend 상대 `previewPath` | 안전한 content 경로 검증 후 다음 호출 |
-| descriptor 검증 후 | 렌더링 이미지 조회 | `/files/{fileId}/preview/content` | GET | `fileId`, `pageNo` | `image/png`/`image/jpeg`/`application/pdf` 또는 HWP/HWPX 변환 `image/svg+xml` binary | object URL로 화면 미리보기. HWP/HWPX SVG는 이미지처럼 가로폭에 맞춰 렌더링하고 가로 스크롤 없이 세로 스크롤로 확인한다. Bearer 인증 유지 |
+| descriptor 검증 후 | 렌더링 이미지 조회 | `/files/{fileId}/preview/content` | GET | `fileId`, `pageNo` | PNG/JPEG 또는 PDF의 OCR 동일 200-DPI PNG, HWP/HWPX 변환 `image/svg+xml` binary | object URL로 화면 미리보기. HWP/HWPX SVG는 이미지처럼 가로폭에 맞춰 렌더링하고 가로 스크롤 없이 세로 스크롤로 확인한다. Bearer 인증 유지 |
 | 파일 다운로드 클릭 | 원본 파일 proxy 다운로드 | `/files/{fileId}/download` | GET | `fileId` | binary, `Content-Disposition` | 파일명으로 저장. Bearer 인증 유지 |
 | 파일 권한 거부 | 부서 scope 거부 | 위 파일 API | GET | 타 부서 `fileId` | 403 `ErrorResponse` | 미리보기/다운로드 전용 권한 안내. raw message, bucket, object key 미표시 |
 
@@ -377,9 +384,9 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
 | --- | --- | --- |
 | S-006 `/reviews/{reviewId}/results` | `getReviewSummary` | 종합 위험도·집계·주요 리스크를 표시하고 `EvidenceStatus`의 검색 장애와 업무적 근거 부족을 서로 다른 안내로 표시한다. |
-| S-008 `/reviews/{reviewId}/results/items` | `listReviewItems`, `getReviewItem` | `reviewType`, `riskLevel`, `resultStatus` query를 생성 타입으로 전달한다. 문구를 우선 표시하고 검토 유형·판정·위험도는 칩으로 보조하며, 상세의 판단 방식·수정 권고·근거 상태는 표로 표시한다. Coordinate가 있으면 원본 미리보기의 해당 위치로 이동한다. |
+| S-008 `/reviews/{reviewId}/results/items` | `listReviewItems`, `getReviewItem` | 기본 조회는 `includeAppropriate=false`로 적정 항목을 숨기며 사용자가 전체 보기 전환 시 이를 true로 바꾼다. `reviewType`, `riskLevel`, `resultStatus` query도 생성 타입으로 전달한다. 문구를 우선 표시하고 검토 유형·판정·위험도는 칩으로 보조하며, 상세의 판단 방식·수정 권고·근거 상태는 표로 표시한다. Coordinate가 있으면 원본 미리보기의 해당 위치로 이동한다. |
 | S-007 `/reviews/{reviewId}/results/annotations` | `listReviewAnnotations` | `pageNo`, `reviewType`, `riskLevel` query와 BOX/TEXT_HIGHLIGHT/LIST_ONLY/UNAVAILABLE 표시 모드를 소비하며, 위치 신뢰도 확인 목록을 유지한다. |
-| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. Annotation의 `fileType`은 업무상 분류이므로 렌더링 형식 판정에 사용하지 않고 preview 콘텐츠 MIME 타입을 사용한다. 이미지와 HWP/HWPX 변환 SVG는 가로폭에 맞춰 표시한다. 이미지/PDF BOX는 정규화 좌표를 실제 렌더링 원본 미디어의 폭·높이로 변환한다. HWP/HWPX는 SVG의 실제 글자 좌표와 API의 `matchedText`를 클라이언트에서 정확히 대조해 일치할 때만 하이라이트하며, API/원본 콘텐츠를 외부로 노출하지 않는다. |
+| S-007 원본 미리보기 | `getFilePreview` 후 `/files/{fileId}/preview/content` | Bearer 인증으로 descriptor의 동일 origin content만 Blob URL로 표시한다. PDF descriptor는 페이지 수만 확인하고 content에서 선택 페이지 raster를 한 번만 불러온다. Annotation의 `fileType`은 업무상 분류이므로 렌더링 형식 판정에 사용하지 않고 preview 콘텐츠 MIME 타입을 사용한다. 이미지와 PDF raster, HWP/HWPX 변환 SVG는 원본 media와 동일한 positioned wrapper 안에 가로폭 기준으로 표시한다. PNG/JPEG/PDF BOX는 실제 원본 페이지의 좌상단 정규화 좌표를 그 media 폭·높이로 변환한다. HWP/HWPX는 구조 좌표를 직접 BOX로 사용하지 않고 SVG 실제 글자 좌표와 API의 `matchedText`를 정확히 대조해 일치할 때만 하이라이트하며, API/원본 콘텐츠를 외부로 노출하지 않는다. |
 | 공통 | 위 네 M5 operation | loading/empty/error/403을 전용 상태로 표시하고 서버 원문, raw artifact/object key/presigned URL은 렌더링하지 않는다. |
 
 ---

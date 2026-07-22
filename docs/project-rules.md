@@ -4,14 +4,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.23 |
+| 현행 버전 | v1.25 |
 | 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
-| v1.23 | 2026-07-22 | PR 제목을 소문자 Conventional type과 콜론·한글 요약으로 통일 |
+| v1.25 | 2026-07-22 | 공용 개발 VM은 Vite/reload 개발 override가 아닌 production Compose profile로 실행하고 frontend 사설 IP ingress만 선택 허용하는 기준을 추가 |
+| v1.24 | 2026-07-22 | Conventional Commit 한글 요약은 종결 어미 없이 변경 행위를 간결하게 표기하도록 정정 |
+| v1.23 | 2026-07-22 | PR 제목을 소문자 Conventional type과 콜론·한글 요약으로 통일하고 공용 개발 VM reverse proxy 인입은 frontend만 사설 IP에 선택적으로 바인딩하며 나머지 Compose 포트는 비공개로 유지하는 기준을 추가 |
 | v1.22 | 2026-07-22 | ADR-0081에 따라 private Parser/OCR와 외부 AI 활성화 설정을 분리 |
 | v1.21 | 2026-07-22 | ADR-0080을 GitHub-hosted CI와 self-hosted 환경별 Compose CD 분리로 갱신 |
 | v1.20 | 2026-07-21 | ADR-0080에 따라 self-hosted CI·환경별 Compose CD runner 분리, `dev` 성공 revision 배포와 production 수동 승인·환경 파일 격리 기준을 추가 |
@@ -478,6 +480,8 @@ uv add --dev package-name
 | 데이터 기준 | 제공받은 샘플 데이터와 개발용 데이터만 사용 |
 | 포트 기준 | 필요한 포트만 허용하고 서비스 내부 포트는 내부 네트워크 또는 reverse proxy로 제한 |
 
+공용 개발 VM의 HTTPS reverse proxy는 frontend 포트 하나만 대상으로 한다. 장기 실행은 `compose.yml`과 `compose.prod.yml`로 구성하며, Vite/reload를 포함하는 `compose.dev.yml`은 개발자 로컬 작업에만 사용한다. reverse proxy가 VM 사설망에서 접속해야 할 때만 환경 파일의 `FRONTEND_BIND_ADDRESS`를 VM 사설 IP로 설정한다. backend·worker·DB·검색·parser/OCR 포트는 이 설정으로 노출하지 않는다.
+
 개발 VM이 필요한 경우 인프라 담당자에게 신청한다.
 
 신청 시 다음 정보를 포함한다.
@@ -782,7 +786,7 @@ CI 실패 상태에서는 병합하지 않는다. `hotfix/*`를 `main`에만 반
 <type>: <한글 요약>
 ```
 
-허용 type은 `feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`이다. 제목의 요약은 한글로 작성하며 scope는 사용하지 않는다. 한 커밋에는 하나의 논리적 변경만 담고 `WIP`, `final`, `test` 같은 의미 없는 제목은 사용하지 않는다. 예: `fix: 갱신 토큰 재사용 방지`, `ci: 현행 마이그레이션 head 검증`.
+허용 type은 `feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`이다. 제목의 요약은 한글로 작성하며 scope는 사용하지 않는다. 요약은 `한다`·`됩니다` 같은 종결 어미를 쓰지 않고 변경 행위를 간결한 명사형 또는 동사 어간으로 끝낸다. 예: `fix: 개발 도메인 Vite 접근 허용`. 한 커밋에는 하나의 논리적 변경만 담고 `WIP`, `final`, `test` 같은 의미 없는 제목은 사용하지 않는다. 예: `fix: 갱신 토큰 재사용 방지`, `ci: 현행 마이그레이션 head 검증`.
 
 ## 11.4 PR 및 리뷰 기준
 

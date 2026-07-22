@@ -173,6 +173,10 @@ test("filters S-008, opens deterministic detail, and preserves rule result durin
 
   render(<MemoryRouter initialEntries={["/reviews/REV-M5/results/items"]}><App initialSession={session} /></MemoryRouter>);
   expect(await screen.findByText("국내 최고 혜택")).toBeInTheDocument();
+  await waitFor(() => expect(urls.some((url) => url.includes("includeAppropriate=false"))).toBe(true));
+  expect(screen.getByText(/명시적 위반이 확인되지 않은 적정 항목은 기본적으로 숨깁니다/)).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText("적정 항목도 보기"));
+  await waitFor(() => expect(urls.some((url) => url.includes("includeAppropriate=true"))).toBe(true));
   fireEvent.change(screen.getByLabelText("위험도"), { target: { value: "HIGH" } });
   await waitFor(() => expect(urls.some((url) => url.includes("riskLevel=HIGH"))).toBe(true));
   fireEvent.click(await screen.findByRole("button", { name: /국내 최고 혜택/ }));
@@ -304,7 +308,7 @@ test("renders a converted HWP preview with verified text locations over the orig
   expect(hwpBox).toHaveStyle({ left: `${(96 / 1240) * 100}%`, top: `${((120 - 28) / 1754) * 100}%` });
   expect(screen.queryByRole("heading", { name: "HWP/HWPX 텍스트 위치" })).not.toBeInTheDocument();
   expect(screen.queryByText("광고 원본을 불러오는 중입니다.")).not.toBeInTheDocument();
-  expect(urls.some((url) => url.includes("/preview?"))).toBe(true);
+  expect(urls.some((url) => url.includes("/preview?"))).toBe(false);
   expect(urls.some((url) => url.includes("/preview/content"))).toBe(true);
 });
 

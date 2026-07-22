@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { api, ApiError, type ReviewProgress } from "../api/client";
+import { api, ApiError, resolveApiUrl, type ReviewProgress } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { PageHeader } from "../components/PageHeader";
@@ -47,17 +47,57 @@ export function ReviewProgressPage() {
   const { reviewId = "" } = useParams();
   const { session } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [terminalProgress, setTerminalProgress] = useState<ReviewProgress | null>(null);
   const progress = useQuery({
     queryKey: ["review-progress", reviewId],
     queryFn: () => api.getReviewStatus(session?.accessToken ?? "", reviewId),
     enabled: Boolean(reviewId),
     retry: false,
+    // SSE delivers normal updates. Keep a slow fallback for proxies or browsers
+    // that cannot retain a streaming response.
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data && TERMINAL_JOB_STATUSES.has(data.jobStatus) ? false : 5_000;
+      return data && TERMINAL_JOB_STATUSES.has(data.jobStatus) ? false : 30_000;
     },
   });
+  useEffect(() => {
+    if (!reviewId || !session?.accessToken) return;
+    const controller = new AbortController();
+    let buffered = "";
+    const publish = (payload: string) => {
+      try {
+        const value = JSON.parse(payload) as ReviewProgress;
+        queryClient.setQueryData(["review-progress", reviewId], value);
+        if (TERMINAL_JOB_STATUSES.has(value.jobStatus)) controller.abort();
+      } catch {
+        // Ignore one malformed event; the regular fallback query remains available.
+      }
+    };
+    void fetch(resolveApiUrl(`/reviews/${encodeURIComponent(reviewId)}/events`), {
+      headers: { Authorization: `Bearer ${session.accessToken}`, Accept: "text/event-stream" },
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok || !response.body) throw new Error("SSE_CONNECTION_FAILED");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (!controller.signal.aborted) {
+        const next = await reader.read();
+        if (next.done) break;
+        buffered += decoder.decode(next.value, { stream: true });
+        const events = buffered.split("\n\n");
+        buffered = events.pop() ?? "";
+        events.forEach((event) => {
+          const data = event.split("\n").find((line) => line.startsWith("data: "));
+          if (data) publish(data.slice(6));
+        });
+      }
+    }).catch(() => {
+      // Polling remains intentionally silent fallback; the page must work through
+      // a buffering proxy or a temporarily unavailable SSE connection.
+    });
+    return () => controller.abort();
+  }, [queryClient, reviewId, session?.accessToken]);
   useEffect(() => {
     setTerminalProgress(null);
   }, [reviewId]);

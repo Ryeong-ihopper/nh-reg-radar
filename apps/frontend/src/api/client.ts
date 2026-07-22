@@ -154,7 +154,7 @@ function apiBaseUrl(): string {
   return configured ? configured.replace(/\/$/, "") : "/api/v1";
 }
 
-function resolveApiUrl(path: string): string {
+export function resolveApiUrl(path: string): string {
   if (path.startsWith("/api/v1/")) {
     return `${apiBaseUrl()}${path.slice("/api/v1".length)}`;
   }
@@ -266,6 +266,10 @@ export const api = {
     return request<AdvertisementDetail>(`/advertisements/${encodeURIComponent(advertisementId)}`, accessToken);
   },
 
+  deleteAdvertisement(accessToken: string, advertisementId: string): Promise<void> {
+    return request<void>(`/advertisements/${encodeURIComponent(advertisementId)}`, accessToken, { method: "DELETE" });
+  },
+
   getFilePreview(accessToken: string, fileId: string, pageNo = 1): Promise<FilePreview> {
     return request<FilePreview>(`/files/${encodeURIComponent(fileId)}/preview?pageNo=${pageNo}`, accessToken);
   },
@@ -280,7 +284,10 @@ export const api = {
   },
 
   async getFilePreviewContent(accessToken: string, fileId: string, pageNo = 1): Promise<Blob> {
-    return (await this.getFilePreviewAsset(accessToken, fileId, pageNo)).blob;
+    return requestBlob(
+      `/files/${encodeURIComponent(fileId)}/preview/content?pageNo=${pageNo}`,
+      accessToken,
+    );
   },
 
   downloadFile(accessToken: string, fileId: string): Promise<Blob> {

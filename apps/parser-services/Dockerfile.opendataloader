@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends default-jre-headless \
+    && apt-get install -y --no-install-recommends default-jre-headless poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 COPY apps/parser-services/requirements-common.txt ./
 RUN pip install --no-cache-dir -r requirements-common.txt opendataloader-pdf

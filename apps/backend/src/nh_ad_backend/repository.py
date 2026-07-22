@@ -39,6 +39,7 @@ class Repository(Protocol):
     def add_revision(self, revision: AdvertisementRevision) -> None: ...
     def get_revision(self, revision_id: str) -> AdvertisementRevision | None: ...
     def get_advertisement(self, advertisement_id: str) -> Advertisement | None: ...
+    def delete_advertisement(self, advertisement_id: str) -> list[AdvertisementFile] | None: ...
     def get_file(self, file_id: str) -> tuple[Advertisement, AdvertisementFile] | None: ...
     def list_advertisements(self, actor: CurrentUser) -> list[Advertisement]: ...
     def add_audit_event(self, event: AuditEvent) -> None: ...
@@ -131,6 +132,18 @@ class InMemoryRepository:
         if advertisement is None:
             return None
         return advertisement
+
+    def delete_advertisement(self, advertisement_id: str) -> list[AdvertisementFile] | None:
+        with self._lock:
+            advertisement = self.advertisements.pop(advertisement_id, None)
+            if advertisement is None:
+                return None
+            self.revisions = {
+                revision_id: revision
+                for revision_id, revision in self.revisions.items()
+                if revision.advertisement_id != advertisement_id
+            }
+            return list(advertisement.files)
 
     def add_revision(self, revision: AdvertisementRevision) -> None:
         with self._lock:
@@ -606,6 +619,45 @@ class PostgresRepository:
                 {"id": advertisement_id},
             ).first()
         return self._to_advertisement(row, self._files(advertisement_id)) if row else None
+
+    def delete_advertisement(self, advertisement_id: str) -> list[AdvertisementFile] | None:
+        with self._engine.begin() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT advertisement_id FROM app.advertisements "
+                    "WHERE advertisement_id=:id AND NOT is_deleted FOR UPDATE"
+                ),
+                {"id": advertisement_id},
+            ).first()
+            if row is None:
+                return None
+            files = (
+                connection.execute(
+                    text("SELECT * FROM app.advertisement_files WHERE advertisement_id=:id"),
+                    {"id": advertisement_id},
+                )
+                .mappings()
+                .all()
+            )
+            connection.execute(
+                text(
+                    "UPDATE app.advertisements SET is_deleted=true, updated_at=now() WHERE advertisement_id=:id"
+                ),
+                {"id": advertisement_id},
+            )
+        return [
+            AdvertisementFile(
+                file_id=row["file_id"],
+                file_type=row["file_type"],
+                original_file_name=row["original_file_name"],
+                storage_key=row["object_key"],
+                mime_type=row["mime_type"],
+                file_size=row["file_size"],
+                checksum=row["checksum_sha256"] or "",
+                revision_id=row["revision_id"],
+            )
+            for row in files
+        ]
 
     def get_file(self, file_id: str) -> tuple[Advertisement, AdvertisementFile] | None:
         with self._engine.connect() as connection:

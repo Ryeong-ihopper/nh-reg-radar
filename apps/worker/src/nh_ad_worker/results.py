@@ -324,7 +324,20 @@ class ReviewResultEngine:
         coordinate = block.coordinate
         confidence = coordinate.coordinate_confidence if coordinate else block.confidence_score
         location_confidence: float | None = confidence
-        if coordinate is not None and confidence >= 0.50:
+        # HWP/HWPX structure coordinates describe the document model, whereas
+        # the browser preview is an rhwp SVG rendering.  Use the canonical text
+        # anchor there so the UI can resolve against the rendered glyphs instead
+        # of drawing a plausible-looking but shifted structural rectangle.
+        if (
+            document.parser_name == "hwp-hybrid"
+            and block.normalized_start_offset is not None
+            and block.text_path
+        ):
+            coordinate = None
+            display_mode = "TEXT_HIGHLIGHT"
+            status = "PARTIALLY_LOCATED" if confidence < 0.80 else "LOCATED"
+            display_reason = "RENDERED_SVG_TEXT_MATCH"
+        elif coordinate is not None and confidence >= 0.50:
             display_mode = "BOX"
             status = "LOCATED" if confidence >= 0.80 else "LOW_CONFIDENCE"
             display_reason = "NORMALIZED_COORDINATE"

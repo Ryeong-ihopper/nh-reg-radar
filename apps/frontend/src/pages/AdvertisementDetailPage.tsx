@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -17,6 +17,8 @@ function reviewDestination(reviewId: string, status: string): string {
 
 export function AdvertisementDetailPage() {
   const { advertisementId = "" } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { session } = useAuth();
   const query = useQuery({
     queryKey: ["advertisement", advertisementId],
@@ -31,6 +33,14 @@ export function AdvertisementDetailPage() {
     retry: false,
   });
   const reviewHistory = Array.isArray(reviews.data) ? reviews.data : [];
+  const deleteAdvertisement = useMutation({
+    mutationFn: () => api.deleteAdvertisement(session?.accessToken ?? "", advertisementId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["advertisements"] });
+      navigate("/advertisements", { replace: true });
+    },
+  });
+  const isSystemAdmin = session?.user.roles.includes("SYSTEM_ADMIN") ?? false;
 
   return (
     <section className="advertisement-detail-page" aria-labelledby="advertisement-detail-heading">
@@ -43,7 +53,11 @@ export function AdvertisementDetailPage() {
         <WorkflowSteps current={2} advertisementId={advertisementId} />
         <header className="advertisement-detail-hero">
           <div><p className="eyebrow">2단계 · 원본 확인</p><h2 id="advertisement-detail-heading">{query.data.advertisementName}</h2></div>
-          <div className="detail-hero-actions"><Link className="button-link button-secondary" to="/advertisements">목록으로</Link><Link className="button-link" to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>AI 검토 요청</Link></div>
+          <div className="detail-hero-actions"><Link className="button-link button-secondary" to="/advertisements">목록으로</Link><Link className="button-link" to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>AI 검토 요청</Link>{isSystemAdmin ? <button className="button-danger" type="button" disabled={deleteAdvertisement.isPending} onClick={() => {
+            if (window.confirm("광고 원본과 연결된 검토 결과를 목록에서 삭제합니다. 계속하시겠습니까?")) {
+              deleteAdvertisement.mutate();
+            }
+          }}>{deleteAdvertisement.isPending ? "삭제 중..." : "광고물 삭제"}</button> : null}</div>
         </header>
         <div className="advertisement-detail-workspace">
           <div className="detail-document-panel"><div className="detail-panel-heading"><h3>광고 원본</h3></div>
@@ -63,6 +77,7 @@ export function AdvertisementDetailPage() {
             {reviewHistory.length > 0 ? <ol>{reviewHistory.slice(0, 5).map((review) => <li key={review.reviewId}><div><strong>{review.reviewRound}차 검토</strong><StatusBadge status={review.reviewStatus} /></div><small>{new Date(review.requestedAt).toLocaleString("ko-KR")}{review.overallRiskLevel ? ` · 위험도 ${riskLevelLabel(review.overallRiskLevel)}` : ""}</small><Link to={reviewDestination(review.reviewId, review.reviewStatus)}>{["CHECK_REQUIRED", "REVIEW_COMPLETED"].includes(review.reviewStatus) ? "결과 확인" : "진행 상태 확인"}</Link></li>)}</ol> : null}
           </div>
           <div className="detail-next-step"><strong>새로운 검토가 필요한가요?</strong><p>원본과 기본 정보를 확인한 뒤 검토 항목과 기준일을 선택합니다.</p><Link to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>새 AI 검토 요청</Link></div></aside>
+          {deleteAdvertisement.isError ? <ErrorState error={deleteAdvertisement.error} onRetry={() => deleteAdvertisement.mutate()} /> : null}
         </div>
       </> : null}
     </section>

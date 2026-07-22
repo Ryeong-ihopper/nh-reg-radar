@@ -6,12 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.17 |
-| 기준일 | 2026-07-20 |
+| 현행 버전 | v1.20 |
+| 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.20 | 2026-07-22 | PDF preview descriptor의 페이지 수 경량 조회, 요청 페이지 단위 raster 생성과 인증 backend 내부 TTL/LRU 캐시 경계를 명시 |
+| v1.19 | 2026-07-22 | 검토 진행 변경 SSE endpoint와 검토 항목의 `includeAppropriate` 기본 비포함 조회 계약을 추가 |
+| v1.18 | 2026-07-22 | PDF preview를 OCR과 동일한 200-DPI 페이지 PNG로 렌더링해 Annotation 정규화 좌표와 미리보기 좌표 원천을 고정 |
 | v1.17 | 2026-07-20 | ADR-0079 HWP/HWPX hybrid parser의 단일 NormalizedDocument와 `hwp-hybrid` provenance 기준을 내부 계약에 반영 |
 | v1.16 | 2026-07-20 | `ProductGroup` enum과 공통 코드에 `LOAN`을 추가해 대출 광고 등록·기준자료 분류 계약을 동기화 |
 | --- | --- | --- |
@@ -72,7 +75,7 @@
 | --- | --- |
 | Auth API | PoC 로그인, 로그아웃, token 발급 |
 | Common API | 공통 코드, 사용자 정보, 파일 미리보기 |
-| Advertisement API | 광고물 등록, 조회, 수정, 수정본 등록 |
+| Advertisement API | 광고물 등록, 조회, 수정, 수정본 등록, 시스템 관리자 삭제 |
 | Review API | AI 검토 요청, 진행 상태 조회, 재분석 |
 | Review Result API | 검토 결과 요약, 상세 결과, 화면 Annotation 조회 |
 | Evidence API | 법령, 내부기준, 심의사례 등 근거 검색 및 상세 조회 |
@@ -540,7 +543,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 }
 ```
 
-`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다. content는 PNG/JPEG 또는 원본 PDF를 동일한 backend proxy로 반환한다. HWP/HWPX는 browser가 원본을 직접 해석하지 않고, backend가 private `rhwp` 변환 서비스로부터 받은 sanitize된 `image/svg+xml` 페이지를 반환한다. 변환 불가 시 `422 HWP_PREVIEW_FAILED`, 변환 서비스 미가용 시 `503 HWP_PREVIEW_UNAVAILABLE`을 반환하며 클라이언트는 원본 다운로드 action을 유지한다.
+`previewPath`는 권한 검증을 다시 수행하는 queryless backend 상대 경로만 포함한다. 실제 content 요청 시 클라이언트가 `pageNo` query를 붙이며, Object Storage key, bucket, 내부 경로, presigned URL은 응답하지 않는다. PNG/JPEG는 원본을 proxy로 반환한다. PDF descriptor는 private renderer의 `pdfinfo` 기반 페이지 수만 조회하고, content 요청에서만 PaddleOCR과 동일한 200-DPI PNG 한 페이지를 생성한다. backend process는 파일 checksum+페이지 번호 기준 bounded TTL/LRU cache를 사용해 동일 원본의 재표시·descriptor/content 연속 호출을 재렌더링하지 않으며, 응답은 계속 `Cache-Control: no-store`로 유지한다. PDF Annotation 좌표는 PDF canvas의 좌상단 정규화 좌표로 변환되어 해당 raster와 일치해야 한다. HWP/HWPX는 browser가 원본을 직접 해석하지 않고, backend가 private `rhwp` 변환 서비스로부터 받은 sanitize된 `image/svg+xml` 페이지를 반환한다. PDF 변환 실패·미가용은 각각 `422 PDF_PREVIEW_FAILED`, `503 PDF_PREVIEW_UNAVAILABLE`, HWP/HWPX 변환 실패·미가용은 각각 `422 HWP_PREVIEW_FAILED`, `503 HWP_PREVIEW_UNAVAILABLE`을 반환하며 클라이언트는 원본 다운로드 action을 유지한다.
 
 ---
 
@@ -698,7 +701,22 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 
 ---
 
-## 5.4 광고물 기본정보 수정
+## 5.4 광고물 삭제
+
+| 항목 | 내용 |
+| --- | --- |
+| Method | DELETE |
+| URI | `/api/v1/advertisements/{advertisementId}` |
+| 권한 | `SYSTEM_ADMIN` |
+| 설명 | 광고물과 연결된 원본 파일을 정리하고 광고물·검토 결과를 일반 조회 경로에서 논리 삭제한다. 삭제 행위는 감사 로그에 남긴다. |
+| Response | `204 No Content` |
+| 오류 | `401`, `403`, `404` |
+
+삭제된 광고물은 목록·상세·파일 preview/download·연결 검토 결과에서 조회할 수 없다. 감사·운영상의 행 이력은 유지하며, 삭제 API는 일반 사용자 또는 준법/기준 담당자에게 허용하지 않는다.
+
+---
+
+## 5.5 광고물 기본정보 수정
 
 | 항목 | 내용 |
 | --- | --- |
@@ -728,7 +746,7 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 
 ---
 
-## 5.5 수정본 광고물 등록
+## 5.6 수정본 광고물 등록
 
 | 항목 | 내용 |
 | --- | --- |
@@ -810,6 +828,10 @@ ID 생성 및 저장 기준은 [ADR-0028: ID 생성 규칙](adr/ADR-0028-id-gene
 ---
 
 ## 6.2 AI 검토 진행 상태 조회
+
+`GET /api/v1/reviews/{reviewId}/events`는 `text/event-stream`으로 변경된 `ReviewProgress`를 `progress` event에 전달한다. terminal 상태에서 stream을 종료하며, 클라이언트는 연결 실패 시 status 조회를 fallback으로 사용한다.
+
+## 6.2.1 SSE 진행 상태 스트림
 
 | 항목 | 내용 |
 | --- | --- |

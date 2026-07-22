@@ -4,7 +4,7 @@ import notoSansKoreanUrl from "@fontsource/noto-sans-kr/files/noto-sans-kr-korea
 import { api, ApiError, type AdvertisementFile, userMessage } from "../api/client";
 import { fileTypeLabel, formatFileSize } from "./displayLabels";
 
-type PreviewAsset = { url: string; pageNo: number; totalPages: number };
+type PreviewAsset = { url: string; mimeType: string; pageNo: number; totalPages: number };
 
 export type PreviewFocus = { normalizedY: number };
 
@@ -54,7 +54,6 @@ export function FileActions({ accessToken, file, autoPreview = false, focusTarge
   const previewUrlRef = useRef<string | null>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previewSupported = supportsPreview(file);
-  const isPdf = file.fileName.toLowerCase().endsWith(".pdf");
   const isHwp = /\.(hwp|hwpx)$/i.test(file.fileName);
 
   useEffect(() => () => {
@@ -73,7 +72,7 @@ export function FileActions({ accessToken, file, autoPreview = false, focusTarge
         : asset.blob;
       const objectUrl = URL.createObjectURL(previewBlob);
       previewUrlRef.current = objectUrl;
-      setPreview({ url: objectUrl, pageNo: asset.descriptor.pageNo, totalPages: asset.descriptor.totalPages });
+      setPreview({ url: objectUrl, mimeType: previewBlob.type, pageNo: asset.descriptor.pageNo, totalPages: asset.descriptor.totalPages });
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 403 ? "파일 미리보기 권한이 없습니다." : userMessage(cause));
     } finally {
@@ -131,7 +130,7 @@ export function FileActions({ accessToken, file, autoPreview = false, focusTarge
       {preview ? <div className="file-preview-panel">
         <div className="file-preview-toolbar"><span>{isHwp ? "한글 문서 변환 미리보기" : "원본 미리보기"}</span>{preview.totalPages > 1 ? <div className="preview-pagination"><button type="button" className="button-secondary" disabled={pending !== null || preview.pageNo <= 1} onClick={() => void loadPreview(preview.pageNo - 1)}>이전 페이지</button><strong>{preview.pageNo} / {preview.totalPages}</strong><button type="button" className="button-secondary" disabled={pending !== null || preview.pageNo >= preview.totalPages} onClick={() => void loadPreview(preview.pageNo + 1)}>다음 페이지</button></div> : null}</div>
         <div ref={previewViewportRef} className="file-preview-viewport" tabIndex={-1} aria-label="원본 미리보기 영역">
-          {isPdf ? <object className="file-preview" data={preview.url} type="application/pdf" aria-label={`${file.fileName} 미리보기`} /> : <img className="file-preview" src={preview.url} alt={`${file.fileName} 미리보기`} onLoad={focusPreview} />}
+          <img className="file-preview" src={preview.url} alt={`${file.fileName} 미리보기`} onLoad={focusPreview} data-preview-mime-type={preview.mimeType} />
         </div>
       </div> : null}
     </article>

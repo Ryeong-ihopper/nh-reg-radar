@@ -6,6 +6,8 @@ info:
   version: 0.8.0
 servers:
   - url: /api/v1
+tags:
+  - name: Advertisements
 paths:
   /standards:
     get:
@@ -453,6 +455,29 @@ paths:
           $ref: "#/components/responses/NotFound"
       security:
         - BearerAuth: []
+  /reviews/{reviewId}/events:
+    get:
+      tags:
+        - Reviews
+      operationId: streamReviewProgress
+      description: Streams PostgreSQL-sourced review progress changes as server-sent events.
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+      responses:
+        "200":
+          description: Progress events. Each `progress` event contains a ReviewProgress payload.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      security:
+        - BearerAuth: []
   /reviews/{reviewId}/rerun:
     post:
       tags:
@@ -522,6 +547,7 @@ paths:
         - $ref: "#/components/parameters/ReviewTypeQuery"
         - $ref: "#/components/parameters/RiskLevelQuery"
         - $ref: "#/components/parameters/ResultStatusQuery"
+        - $ref: "#/components/parameters/IncludeAppropriateQuery"
         - $ref: "#/components/parameters/EvidenceRequiredQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/Size"
@@ -918,6 +944,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
           description: Not Found
+    delete:
+      summary: Delete Advertisement
+      description: System administrators logically delete an advertisement and hide its review results.
+      operationId: deleteAdvertisement
+      tags:
+        - Advertisements
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: advertisementId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^ADV-[A-Za-z0-9-]+$
+      responses:
+        "204":
+          description: Advertisement and related review results are no longer available.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /files/{fileId}/preview:
     get:
       summary: Get File Preview
@@ -5104,6 +5154,13 @@ components:
       name: evidenceRequired
       schema:
         type: boolean
+    IncludeAppropriateQuery:
+      in: query
+      name: includeAppropriate
+      description: Includes appropriate items; omitted values show actionable results only.
+      schema:
+        type: boolean
+        default: false
     PageNoQuery:
       in: query
       name: pageNo

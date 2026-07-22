@@ -53,7 +53,11 @@ scripts/setup-dev-tools.sh
 cp .env.dev.example .env.dev
 ```
 
-`.env.dev`는 Git에 포함되지 않습니다. 예제의 비밀번호와 secret은 개인 로컬 개발 전용이며 공유 VM이나 운영 환경에서 재사용하지 않습니다. 포트를 변경하면 `FRONTEND_PORT`/`BACKEND_PORT`와 함께 `CORS_ALLOWED_ORIGINS`/`VITE_API_BASE_URL`도 같은 주소로 맞춥니다.
+`.env.dev`는 Git에 포함되지 않습니다. 예제의 비밀번호와 secret은 개인 로컬 개발 전용이며 공유 VM이나 운영 환경에서 재사용하지 않습니다. 기본 `VITE_API_BASE_URL=/api/v1`에서는 Vite 개발 서버가 `/api` 요청을 Compose 내부 `backend:8000`으로 프록시하므로, 개발 VM의 외부 reverse proxy는 frontend 포트 하나만 연결해도 됩니다. 별도 backend 주소를 쓰는 경우에만 `VITE_API_PROXY_TARGET`을 설정합니다. 포트를 변경하면 `FRONTEND_PORT`/`BACKEND_PORT`와 함께 `CORS_ALLOWED_ORIGINS`도 같은 주소 기준으로 맞춥니다.
+
+공용 개발 VM에서 reverse proxy가 frontend에 연결해야 하면 `.env.dev`에 `FRONTEND_BIND_ADDRESS=<VM 사설 IP>`를 설정한다. 예: `FRONTEND_BIND_ADDRESS=172.24.0.121`, `FRONTEND_PORT=8080`. 기본값은 `127.0.0.1`이므로 로컬 개발 서비스는 외부에 노출되지 않는다. backend·DB·parser/OCR 포트는 계속 loopback 또는 Compose 내부 네트워크에만 둔다.
+
+공용 개발 VM의 장기 실행 환경은 `compose.dev.yml`의 Vite·reload 모드가 아니라 `compose.prod.yml`을 사용한다. frontend는 Nginx 정적 번들로 제공하고 backend·worker도 production image로 실행한다. 따라서 화면 성능과 실행 조건은 운영에 가깝게 유지하면서 환경 변수·Compose 프로젝트명만 개발용으로 분리한다.
 
 ### 4. 전체 스택 초기화 및 실행
 

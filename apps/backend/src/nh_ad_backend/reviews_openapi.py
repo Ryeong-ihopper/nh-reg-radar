@@ -327,6 +327,23 @@ REVIEWS_OPENAPI: dict[str, Any] = {
                 },
             }
         },
+        "/reviews/{reviewId}/events": {
+            "get": {
+                "tags": ["Reviews"],
+                "operationId": "streamReviewProgress",
+                "description": "Streams PostgreSQL-sourced review progress changes as server-sent events.",
+                "parameters": [{"$ref": "#/components/parameters/ReviewId"}],
+                "responses": {
+                    "200": {
+                        "description": "Progress events. Each progress event contains a ReviewProgress payload.",
+                        "content": {"text/event-stream": {"schema": {"type": "string"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                },
+            }
+        },
         "/reviews/{reviewId}/rerun": {
             "post": {
                 "tags": ["Reviews"],

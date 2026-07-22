@@ -121,6 +121,7 @@ services:
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
       EMBEDDING_ALLOW_INSECURE_HTTP: ${EMBEDDING_ALLOW_INSECURE_HTTP:-false}
       OPENDATALOADER_PDF_ENDPOINT: http://opendataloader-pdf:8091
+      PADDLEOCR_ENDPOINT: http://paddleocr:8092
       RHWP_ENDPOINT: http://rhwp:8093
       DOCUMENT_PROCESSOR_ENDPOINT: http://document-processor:8094
       HWP_STRUCTURE_ATTEMPTS: ${HWP_STRUCTURE_ATTEMPTS:-3}
@@ -133,6 +134,8 @@ services:
       minio-bootstrap:
         condition: service_completed_successfully
       opendataloader-pdf:
+        condition: service_healthy
+      paddleocr:
         condition: service_healthy
       rhwp:
         condition: service_healthy

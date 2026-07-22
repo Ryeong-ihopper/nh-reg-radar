@@ -211,6 +211,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reviews/{reviewId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Streams PostgreSQL-sourced review progress changes as server-sent events. */
+        get: operations["streamReviewProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reviews/{reviewId}/rerun": {
         parameters: {
             query?: never;
@@ -410,7 +427,11 @@ export interface paths {
         get: operations["getAdvertisement"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Advertisement
+         * @description System administrators logically delete an advertisement and hide its review results.
+         */
+        delete: operations["deleteAdvertisement"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2023,6 +2044,8 @@ export interface components {
         RiskLevelQuery: components["schemas"]["RiskLevel"];
         ResultStatusQuery: components["schemas"]["ReviewResultStatus"];
         EvidenceRequiredQuery: boolean;
+        /** @description Includes appropriate items; omitted values show actionable results only. */
+        IncludeAppropriateQuery: boolean;
         PageNoQuery: number;
         SuggestionId: string;
         DraftId: string;
@@ -2457,6 +2480,31 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    streamReviewProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Progress events. Each `progress` event contains a ReviewProgress payload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     rerunReview: {
         parameters: {
             query?: never;
@@ -2520,6 +2568,8 @@ export interface operations {
                 reviewType?: components["parameters"]["ReviewTypeQuery"];
                 riskLevel?: components["parameters"]["RiskLevelQuery"];
                 resultStatus?: components["parameters"]["ResultStatusQuery"];
+                /** @description Includes appropriate items; omitted values show actionable results only. */
+                includeAppropriate?: components["parameters"]["IncludeAppropriateQuery"];
                 evidenceRequired?: components["parameters"]["EvidenceRequiredQuery"];
                 page?: components["parameters"]["Page"];
                 size?: components["parameters"]["Size"];
@@ -2958,6 +3008,29 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+        };
+    };
+    deleteAdvertisement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                advertisementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Advertisement and related review results are no longer available. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getFilePreview: {

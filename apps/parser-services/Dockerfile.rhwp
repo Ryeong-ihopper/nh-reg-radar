@@ -3,10 +3,21 @@ FROM rust:1.93.1-bookworm AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git pkg-config libfontconfig1-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN git clone https://github.com/edwardkim/rhwp.git /src/rhwp \
-    && cd /src/rhwp \
-    && git checkout 93862a4e16df59834ebce46d91e948cd739208e9 \
-    && cargo build --release
+RUN set -eux; \
+    for attempt in 1 2 3; do \
+      rm -rf /src/rhwp; \
+      git init /src/rhwp; \
+      cd /src/rhwp; \
+      git remote add origin https://github.com/edwardkim/rhwp.git; \
+      if git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+        fetch --depth=1 origin 93862a4e16df59834ebce46d91e948cd739208e9; then \
+        git checkout --detach FETCH_HEAD; \
+        break; \
+      fi; \
+      test "$attempt" = 3 && exit 1; \
+      sleep "$attempt"; \
+    done; \
+    cargo build --release
 
 FROM python:3.12-slim
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -73,6 +74,90 @@ def test_service_preserves_text_ir_offsets_when_an_engine_provides_them() -> Non
     assert block["textPath"] == "pages/1"
     assert block["rawStartOffset"] == 0
     assert block["normalizedEndOffset"] == 5
+
+
+def test_opendataloader_converts_pdf_lower_left_boxes_to_page_local_top_left(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setitem(
+        sys.modules, "opendataloader_pdf", SimpleNamespace(convert=lambda **_kwargs: None)
+    )
+    from opendataloader_app import OpenDataLoaderEngine
+
+    request = ParseRequest(
+        sourceFileId="FILE-1",
+        reviewId="REV-1",
+        fileName="ad.pdf",
+        mimeType="application/pdf",
+        contentBase64="cGRm",
+    )
+    monkeypatch.setattr(
+        "opendataloader_app.tempfile.TemporaryDirectory", lambda: _TemporaryDirectory(tmp_path)
+    )
+    monkeypatch.setattr(
+        "opendataloader_app._load_elements",
+        lambda _output: [(1, "하단 기준 문구", 100.0, 700.0, 300.0, 740.0)],
+    )
+    monkeypatch.setattr(
+        "opendataloader_app._pdf_page_dimensions", lambda _source, _count: {1: (595.0, 841.0)}
+    )
+
+    document = NormalizedDocument.model_validate(OpenDataLoaderEngine().parse(request, b"pdf"))
+
+    assert document.pages[0].unit == "point"
+    assert document.pages[0].width == 595
+    coordinate = document.text_blocks[0].coordinate
+    assert coordinate is not None
+    assert coordinate.source_unit == "point"
+    assert coordinate.y == 101
+    assert coordinate.normalized_y == 101 / 841
+
+
+def test_paddle_pdf_preview_renders_only_the_requested_page(monkeypatch, tmp_path) -> None:
+    class FakePaddleOCR:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=FakePaddleOCR))
+    from paddleocr_app import _render_pdf_page
+
+    commands: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        Path(command[-1]).with_suffix(".png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    monkeypatch.setattr("paddleocr_app.subprocess.run", fake_run)
+
+    rendered = _render_pdf_page(tmp_path / "source.pdf", tmp_path, 3)
+
+    assert rendered.name == "preview.png"
+    assert commands == [
+        [
+            "pdftoppm",
+            "-png",
+            "-r",
+            "200",
+            "-f",
+            "3",
+            "-l",
+            "3",
+            "-singlefile",
+            str(tmp_path / "source.pdf"),
+            str(tmp_path / "preview"),
+        ]
+    ]
+
+
+def test_opendataloader_reads_pdfinfo_single_page_output(monkeypatch, tmp_path) -> None:
+    from opendataloader_app import _pdf_page_dimensions
+
+    monkeypatch.setattr(
+        "opendataloader_app.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="Page    1 size: 595 x 841 pts (A4)\n"),
+    )
+
+    assert _pdf_page_dimensions(tmp_path / "source.pdf", 1) == {1: (595.0, 841.0)}
 
 
 def test_hwpx_preview_keeps_document_text_and_removes_active_svg_nodes() -> None:

@@ -6,12 +6,17 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.31 |
+| 현행 버전 | v1.36 |
 | 기준일 | 2026-07-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.36 | 2026-07-22 | PDF 미리보기 descriptor는 페이지 수만 조회하고 content는 요청 페이지 단위 200-DPI raster로 생성·서버 캐시하며, 일반 PDF의 PDF 좌하단 pt 좌표를 실제 페이지 canvas 기준 좌상단 정규화 좌표로 변환하도록 보강 |
+| v1.35 | 2026-07-22 | 검토 진행 상태는 SSE로 변경을 전달하고, 명시적 위반이 없는 적정 결과는 기본 목록·주요 리스크에서 숨기되 사용자가 전체 결과를 선택해 확인하도록 보완 |
+| v1.34 | 2026-07-22 | 시스템 관리자가 광고물 목록에서 현재 페이지 전체 선택 또는 개별 선택으로 삭제할 수 있도록 보완 |
+| v1.33 | 2026-07-22 | 시스템 관리자의 광고물 논리 삭제, 원본 파일 정리 및 연결 검토 결과 비노출 정책을 추가 |
+| v1.32 | 2026-07-22 | OCR 정규화 좌표를 검출 범위가 아닌 전체 raster canvas로 고정하고, PDF 미리보기도 동일 200-DPI raster를 사용하며 HWP/HWPX는 SVG 텍스트 일치 위치만 표시하도록 정정 |
 | --- | --- | --- |
 | v1.31 | 2026-07-22 | ADR-0081에 따라 private Parser/OCR와 외부 AI 활성화 설정을 분리 |
 | v1.30 | 2026-07-20 | ADR-0079를 실제 `hwp-hybrid` 라우팅, Python 3.13/OpenJDK 25 document-processor private service, 구성요소 artifact 보존과 광고·기준자료 공용 계약으로 구현 |
@@ -101,6 +106,7 @@
 | 기능 | 상품부서 담당자 | 준법감시 담당자 | 기준 관리자 | 시스템 관리자 |
 | --- | --- | --- | --- | --- |
 | 광고물 등록 | 가능 | 가능 | 불가 | 가능 |
+| 광고물 삭제 | 불가 | 불가 | 불가 | 가능 |
 | AI 검토 요청 | 가능 | 가능 | 불가 | 가능 |
 | AI 검토 결과 조회 | 본인/부서 건 | 전체 또는 권한 범위 | 불가 | 전체 |
 | 수정 권고 확인 | 가능 | 가능 | 불가 | 가능 |
@@ -288,7 +294,7 @@ M2는 `reviews`, Parser/OCR, 기준자료 검색, 검토 결과/Annotation, 리�
 | 라우팅 | PDF/복합 PDF `opendataloader-pdf`, 이미지/스캔 PDF `PaddleOCR`, HWP/HWPX `hwp-hybrid` |
 | 품질/재시도 | 기술 retry(1/3/10분, 최대 3회)와 정책 기반 품질 재처리를 분리한다. 품질 재처리 사유와 허용·구성된 보조 adapter가 함께 있을 때만 보조 엔진을 실행하고 OCR `<0.50`은 자동 retry하지 않음 |
 | 후보 선택 | 1차·보조 결과를 confidence, 필수 필드, Text IR/Coordinate 완전성, warning 수, 판정 문구 판독성을 순서대로 비교하고 동률은 앞선 시도를 선택하여 재현 가능한 단일 결과를 확정 |
-| 위치/신뢰도 | Coordinate 원본/정규화 값, HWP/HWPX raw/normalized offset, 0.80/0.79/0.49 경계를 손실 없이 보존 |
+| 위치/신뢰도 | PNG/JPEG/PDF Coordinate는 실제 전체 raster canvas 기준 원본/정규화 값을 보존한다. PDF preview는 PaddleOCR와 같은 200-DPI raster를 사용하며 HWP/HWPX는 raw/normalized offset과 SVG 텍스트 일치 결과를 보존한다. |
 | Raw artifact | 모든 1차·보조 시도의 engine, 재처리 사유, confidence, raw artifact 참조와 선택 여부를 기록한다. HWP/HWPX는 rhwp·document-processor 구성요소를 미선택 `PARSER_RAW`, 병합 결과를 선택 `NORMALIZED_DOCUMENT`로 보존하고 Text/Layout block은 정확히 하나의 선택 산출물만 영속화한다. bucket 본문과 DB metadata/checksum을 분리하고 일반 사용자 접근 금지, 예외 접근·삭제 redacted audit, retention hold/승인 삭제 적용 |
 
 공유 계약·migration·synthetic fixture는 entry gate로 유지한다. M4 delivery는 이 경계를 변경하지 않고 Review 요청/이력/상태/재분석 handler, PostgreSQL claim/idempotency/heartbeat/retry/dead-letter/stale recovery, Redis 최소 delivery, 품질 재처리 전체 시도의 raw artifact metadata와 선택 산출물만의 Text/Layout 영속화, raw artifact checksum·권한·감사·retention lifecycle을 구현한다. claim 이후 persist/retry/complete/final transition은 `RUNNING`과 `locked_by`를 함께 비교하고, 동일 checkpoint 재실행은 idempotent no-op, 충돌 checkpoint와 예상외 처리 오류는 무한 stale loop가 아닌 최종 실패/dead-letter로 닫는다. 보조 adapter의 transient 오류도 품질 결과로 채택하지 않고 기존 기술 retry 경계로 전파한다. 실제 provider 엔진은 구성되지 않은 상태에서 성공을 가장하지 않으며 deterministic fixture adapter는 contract/integration 검증에만 명시적으로 사용한다.
@@ -309,7 +315,7 @@ live opt-in의 문서 추출은 private Compose engine service와 worker adapter
 | Structured output | PR 자동 Gate에서는 `review-structured-output-v1` fixture만 사용한다. 승인된 수동 개발 lane에서는 OpenAI Responses JSON schema를 동일 shape로 검증하되 Rule 최종 판정을 덮어쓰지 않는다. |
 | Parser/OCR opt-in | `NH_PARSER_SERVICES_ENABLED=true`이면 private service가 PDF·이미지·HWP/HWPX를 정규화하며, external AI 활성화와 독립적이다. |
 | Live provider opt-in | `NH_EXTERNAL_AI_ENABLED=true`, non-empty `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`, 승인 샘플 PDF/이미지 및 적재된 기준자료가 모두 필요하다. 키워드·vector search 및 provider 오류·미구성·비지원 형식은 fail-closed이고 PR CI는 호출하지 않는다. |
-| Annotation | 이미지/PDF BOX, HWP/HWPX TEXT_HIGHLIGHT, 좌표·offset 미확정 LIST_ONLY/UNAVAILABLE |
+| Annotation | 이미지/PDF BOX는 preview와 같은 raster canvas를 기준으로 표시하고, HWP/HWPX TEXT_HIGHLIGHT는 변환 SVG의 텍스트가 정확히 일치할 때만 표시하며 그 외는 LIST_ONLY/UNAVAILABLE |
 | Snapshot | effective date, standard/evidence/chunk version, rank/score/match source를 결과와 함께 고정 |
 
 이 entry gate는 OpenAPI v0.5.0, additive 0005 migration, synthetic fixture와 실제 `TC-RES-*`, `TC-ITEM-*`, `TC-RAG-*`, `TC-EVD-*`, `TC-ANN-*` 실행 node를 잠근다. M5 backend 실행은 이 계약을 소비해 `NormalizedDocument`에서 결정적 Rule item을 만들고, 주입된 M3 검색 경계가 RRF로 순위를 정한 Top-3을 그대로 선택한다. 검색 부족/장애와 structured schema 오류에도 기존 Rule 판정·위험도를 유지한다. worker는 parser 선택 산출물 이후 result bundle을 0005 owner table에 원자적으로 저장하고 결과 단계 완료 전에 source/version, risk rationale, evidence 명시 상태, Annotation 표시 정보를 확정한다. PR 자동 Gate의 structured 경계는 fixture callable만 허용한다. 승인된 수동 개발 lane은 OpenAI adapter를 구성할 수 있으나, provider 출력은 schema-valid advisory score로만 보존하고 Rule 판정·위험도를 변경하지 않는다.
@@ -377,6 +383,8 @@ AC-18은 1차 구현 후 명세와 일정/Kanban을 실제 결과에 맞게 동�
 3. 지원 가능한 파일이면 광고물을 저장하고 상태를 `UPLOADED`로 변경한다.
 4. 상품설명서 또는 약관이 함께 등록된 경우 광고물과 연결한다.
 5. 등록 완료 후 사용자는 AI 검토를 요청할 수 있어야 한다.
+6. 시스템 관리자는 잘못 등록된 광고물을 논리 삭제할 수 있다. 삭제된 광고물은 목록·상세·원본 파일·연결 검토 결과에서 조회할 수 없고, 삭제 행위는 감사 로그에 보존한다.
+7. 시스템 관리자는 목록에서 현재 페이지의 광고물을 개별 또는 전체 선택해 삭제할 수 있다. 선택 삭제는 기존 광고물 삭제 권한과 결과 비노출 정책을 각 항목에 동일하게 적용한다.
 
 ---
 

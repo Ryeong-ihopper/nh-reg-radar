@@ -16,6 +16,7 @@ from nh_ad_ai_providers import OpenAICompatibleEmbeddings
 from nh_ad_backend.api import ApplicationServices, error_response, install_routes
 from nh_ad_backend.openapi_runtime import generated_openapi
 from nh_ad_backend.hwp_preview import RhwpPreviewAdapter
+from nh_ad_backend.pdf_preview import PaddlePdfPreviewAdapter
 from nh_ad_backend.repository import InMemoryRepository, PostgresRepository, Repository
 from nh_ad_backend.reviews import (
     InMemoryReviewQueue,
@@ -222,6 +223,12 @@ def build_services(settings: Settings) -> ApplicationServices:
         ),
         hwp_preview=RhwpPreviewAdapter(
             settings.rhwp_endpoint, timeout_seconds=settings.hwp_preview_timeout_seconds
+        ),
+        pdf_preview=PaddlePdfPreviewAdapter(
+            settings.paddleocr_endpoint,
+            timeout_seconds=settings.pdf_preview_timeout_seconds,
+            cache_ttl_seconds=settings.pdf_preview_cache_ttl_seconds,
+            cache_max_bytes=settings.pdf_preview_cache_max_bytes,
         ),
         validation=ValidationService(
             validation_repository,

@@ -49,6 +49,12 @@ RESULTS_OPENAPI: dict[str, Any] = {
                 "name": "evidenceRequired",
                 "schema": {"type": "boolean"},
             },
+            "IncludeAppropriateQuery": {
+                "in": "query",
+                "name": "includeAppropriate",
+                "description": "Includes appropriate items; omitted values show actionable results only.",
+                "schema": {"type": "boolean", "default": False},
+            },
             "PageNoQuery": {
                 "in": "query",
                 "name": "pageNo",
@@ -465,6 +471,7 @@ RESULTS_OPENAPI: dict[str, Any] = {
                     {"$ref": "#/components/parameters/ReviewTypeQuery"},
                     {"$ref": "#/components/parameters/RiskLevelQuery"},
                     {"$ref": "#/components/parameters/ResultStatusQuery"},
+                    {"$ref": "#/components/parameters/IncludeAppropriateQuery"},
                     {"$ref": "#/components/parameters/EvidenceRequiredQuery"},
                     {"$ref": "#/components/parameters/Page"},
                     {"$ref": "#/components/parameters/Size"},

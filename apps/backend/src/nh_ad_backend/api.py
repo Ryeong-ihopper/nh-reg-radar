@@ -14,6 +14,12 @@ from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBea
 from pydantic import BaseModel, ConfigDict, Field
 
 from nh_ad_backend.hwp_preview import HwpPreview, HwpPreviewError, HwpPreviewRenderer
+from nh_ad_backend.pdf_preview import (
+    PdfPreview,
+    PdfPreviewError,
+    PdfPreviewMetadata,
+    PdfPreviewRenderer,
+)
 from nh_ad_backend.domain import (
     Advertisement as AdvertisementRecord,
     AdvertisementFile as AdvertisementFileRecord,
@@ -230,6 +236,7 @@ class ApplicationServices:
     support: SupportService | None = None
     validation: ValidationService | None = None
     hwp_preview: HwpPreviewRenderer | None = None
+    pdf_preview: PdfPreviewRenderer | None = None
 
 
 def _user_response(user: User | CurrentUser) -> UserContext:
@@ -321,6 +328,69 @@ def _render_hwp_preview(
             422,
             "HWP_PREVIEW_FAILED",
             "한글 문서 미리보기를 생성할 수 없습니다. 원본 파일을 다운로드해 확인해 주세요.",
+        ) from exc
+
+
+def _render_pdf_preview(
+    services: ApplicationServices, file: AdvertisementFileRecord, stream: Any, page_no: int
+) -> PdfPreview:
+    renderer = services.pdf_preview
+    if renderer is None:
+        raise ServiceError(
+            503,
+            "PDF_PREVIEW_UNAVAILABLE",
+            "PDF 미리보기 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        )
+    try:
+        return renderer.render(
+            file_id=file.file_id,
+            file_name=file.original_file_name,
+            mime_type=file.mime_type,
+            body=stream.read(),
+            page_no=page_no,
+        )
+    except PdfPreviewError as exc:
+        if str(exc) == "PDF_PREVIEW_UNAVAILABLE":
+            raise ServiceError(
+                503,
+                "PDF_PREVIEW_UNAVAILABLE",
+                "PDF 미리보기 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+            ) from exc
+        raise ServiceError(
+            422,
+            "PDF_PREVIEW_FAILED",
+            "PDF 미리보기를 생성할 수 없습니다. 원본 파일을 다운로드해 확인해 주세요.",
+        ) from exc
+
+
+def _describe_pdf_preview(
+    services: ApplicationServices, file: AdvertisementFileRecord, stream: Any
+) -> PdfPreviewMetadata:
+    renderer = services.pdf_preview
+    if renderer is None:
+        raise ServiceError(
+            503,
+            "PDF_PREVIEW_UNAVAILABLE",
+            "PDF 미리보기 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        )
+    try:
+        return renderer.describe(
+            file_id=file.file_id,
+            file_name=file.original_file_name,
+            mime_type=file.mime_type,
+            body=stream.read(),
+        )
+    except PdfPreviewError as exc:
+        if str(exc) == "PDF_PREVIEW_UNAVAILABLE":
+            raise ServiceError(
+                503,
+                "PDF_PREVIEW_UNAVAILABLE",
+                "PDF 미리보기 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+            ) from exc
+        raise ServiceError(
+            422,
+            "PDF_PREVIEW_FAILED",
+            "PDF 미리보기를 생성할 수 없습니다. 원본 파일을 다운로드해 확인해 주세요.",
         ) from exc
 
 
@@ -674,6 +744,22 @@ def install_routes(
             "files": [_file_response(file) for file in advertisement.files],
         }
 
+    @router.delete(
+        "/advertisements/{advertisementId}",
+        status_code=204,
+        operation_id="deleteAdvertisement",
+        responses=error_models(401, 403, 404),
+    )
+    async def delete_advertisement(
+        advertisement_id: Annotated[
+            str, Path(alias="advertisementId", pattern=r"^ADV-[A-Za-z0-9-]+$")
+        ],
+        request: Request,
+        current: Actor,
+    ) -> Response:
+        services.advertisements.delete(current, advertisement_id, request.state.trace_id)
+        return Response(status_code=204)
+
     @router.get(
         "/files/{fileId}/preview",
         response_model=FilePreview,
@@ -690,13 +776,25 @@ def install_routes(
             current, file_id, request.state.trace_id, "FILE_PREVIEW"
         )
         try:
-            rendered = _render_hwp_preview(services, file, stream, page_no)
+            hwp_preview = _render_hwp_preview(services, file, stream, page_no)
+            if hwp_preview is not None:
+                total_pages = hwp_preview.total_pages
+            elif file.mime_type == "application/pdf":
+                total_pages = _describe_pdf_preview(services, file, stream).total_pages
+                if page_no > total_pages:
+                    raise ServiceError(
+                        422,
+                        "PDF_PREVIEW_FAILED",
+                        "요청한 페이지의 미리보기를 생성할 수 없습니다.",
+                    )
+            else:
+                total_pages = 1
         finally:
             stream.close()
         return {
             "fileId": file.file_id,
             "pageNo": page_no,
-            "totalPages": rendered.total_pages if rendered else 1,
+            "totalPages": total_pages,
             "previewPath": f"/api/v1/files/{file.file_id}/preview/content",
             "width": None,
             "height": None,
@@ -711,7 +809,6 @@ def install_routes(
                 "content": {
                     "image/png": {"schema": {"type": "string", "format": "binary"}},
                     "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
-                    "application/pdf": {"schema": {"type": "string", "format": "binary"}},
                     "image/svg+xml": {"schema": {"type": "string", "format": "binary"}},
                 }
             },
@@ -740,6 +837,16 @@ def install_routes(
                     "Cache-Control": "no-store",
                     "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
                 },
+            )
+        if file.mime_type == "application/pdf":
+            try:
+                pdf_preview = _render_pdf_preview(services, file, stream, page_no)
+            finally:
+                stream.close()
+            return StreamingResponse(
+                iter([pdf_preview.body]),
+                media_type="image/png",
+                headers={"Cache-Control": "no-store"},
             )
         if file.mime_type not in {"image/png", "image/jpeg", "application/pdf"}:
             stream.close()

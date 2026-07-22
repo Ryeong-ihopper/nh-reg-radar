@@ -270,6 +270,21 @@ def test_hwpx_uses_text_offset_annotation() -> None:
     assert item.annotation.normalized_start_offset == 0
 
 
+def test_hwp_hybrid_prefers_rendered_text_to_structural_coordinates() -> None:
+    fixture = document()
+    fixture.parser_name = "hwp-hybrid"
+    fixture.text_blocks[0].text_path = "body/section[1]/paragraph[1]"
+    fixture.text_blocks[0].normalized_start_offset = 0
+    fixture.text_blocks[0].normalized_end_offset = len(fixture.text_blocks[0].normalized_text)
+
+    item = ReviewResultEngine().execute(fixture).items[0]
+
+    assert item.annotation is not None
+    assert (item.annotation.display_mode, item.annotation.status) == ("TEXT_HIGHLIGHT", "LOCATED")
+    assert item.annotation.coordinate is None
+    assert item.annotation.display_reason == "RENDERED_SVG_TEXT_MATCH"
+
+
 @pytest.mark.parametrize(
     ("text", "status", "risk"),
     [

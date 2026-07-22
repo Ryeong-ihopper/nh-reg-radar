@@ -276,6 +276,7 @@ class ResultService:
             by_type.setdefault(item.review_type, []).append(item)
         severity = {"HIGH": 4, "CHECK_REQUIRED": 3, "MEDIUM": 2, "LOW": 1}
         ordered = sorted(items, key=lambda item: severity[item.risk_level], reverse=True)
+        actionable = [item for item in ordered if item.result_status != "APPROPRIATE"]
         return {
             "reviewId": review_id,
             "advertisementId": review.advertisement_id,  # type: ignore[attr-defined]
@@ -310,7 +311,7 @@ class ResultService:
                     "reason": item.reason,
                     "evidenceStatus": item.evidence_status,
                 }
-                for item in ordered[:5]
+                for item in actionable[:5]
             ],
             "completedAt": review.completed_at,  # type: ignore[attr-defined]
         }
@@ -324,6 +325,7 @@ class ResultService:
         review_type: str | None,
         risk_level: str | None,
         result_status: str | None,
+        include_appropriate: bool,
         evidence_required: bool | None,
         page: int,
         size: int,
@@ -336,6 +338,8 @@ class ResultService:
             values = [item for item in values if item.risk_level == risk_level]
         if result_status:
             values = [item for item in values if item.result_status == result_status]
+        elif not include_appropriate:
+            values = [item for item in values if item.result_status != "APPROPRIATE"]
         if evidence_required is not None:
             values = [
                 item

@@ -5,7 +5,7 @@ from io import BytesIO
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from conftest import login
+from conftest import PdfPreviewRenderer, login
 from nh_ad_backend.repository import InMemoryRepository
 from nh_ad_backend.storage import MAX_FILE_SIZE, UploadValidationError, validate_upload
 
@@ -113,6 +113,52 @@ def test_upload_list_detail_preview_download_and_scope(
     )
 
 
+def test_system_admin_can_delete_advertisement_and_hide_its_files(
+    client: TestClient,
+    repository: InMemoryRepository,
+) -> None:
+    owner, _ = login(client, "a@example.com")
+    created = upload(client, owner)
+    assert created.status_code == 201, created.text
+    advertisement_id = created.json()["advertisementId"]
+    file_id = created.json()["files"][0]["fileId"]
+
+    denied = client.delete(
+        f"/api/v1/advertisements/{advertisement_id}",
+        headers={"Authorization": f"Bearer {owner}", "x-request-id": "req-delete-denied"},
+    )
+    assert denied.status_code == 403
+
+    admin, _ = login(client, "admin@example.com")
+    deleted = client.delete(
+        f"/api/v1/advertisements/{advertisement_id}",
+        headers={"Authorization": f"Bearer {admin}", "x-request-id": "req-delete-admin"},
+    )
+    assert deleted.status_code == 204
+    assert (
+        client.get(
+            f"/api/v1/advertisements/{advertisement_id}",
+            headers={"Authorization": f"Bearer {admin}"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"/api/v1/files/{file_id}/download",
+            headers={"Authorization": f"Bearer {admin}"},
+        ).status_code
+        == 404
+    )
+    listing = client.get("/api/v1/advertisements", headers={"Authorization": f"Bearer {admin}"})
+    assert advertisement_id not in [item["advertisementId"] for item in listing.json()["contents"]]
+    assert any(
+        event.action_type == "ADVERTISEMENT_DELETE"
+        and event.result == "SUCCESS"
+        and event.trace_id == "req-delete-admin"
+        for event in repository.audit_events
+    )
+
+
 def test_loan_is_an_available_product_group_for_registration(client: TestClient) -> None:
     token, _ = login(client, "a@example.com")
 
@@ -138,7 +184,8 @@ def test_loan_is_an_available_product_group_for_registration(client: TestClient)
     assert any(item["code"] == "LOAN" for item in codes.json())
 
 
-def test_preview_returns_the_authorized_pdf_without_reinterpreting_its_bytes(
+def test_preview_renders_pdf_to_the_same_raster_coordinate_basis_as_ocr(
+    services,
     client: TestClient,
 ) -> None:
     token, _ = login(client)
@@ -156,14 +203,25 @@ def test_preview_returns_the_authorized_pdf_without_reinterpreting_its_bytes(
     assert created.status_code == 201, created.text
     file_id = created.json()["files"][0]["fileId"]
 
+    descriptor = client.get(
+        f"/api/v1/files/{file_id}/preview?pageNo=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert descriptor.status_code == 200
+    assert descriptor.json()["totalPages"] == 2
+    renderer = services.pdf_preview
+    assert isinstance(renderer, PdfPreviewRenderer)
+    assert renderer.describe_calls == 1
+    assert renderer.render_calls == 0
     content = client.get(
         f"/api/v1/files/{file_id}/preview/content?pageNo=1",
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert content.status_code == 200
-    assert content.headers["content-type"] == "application/pdf"
-    assert content.content == PDF
+    assert content.headers["content-type"] == "image/png"
+    assert content.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert renderer.render_calls == 1
 
 
 def test_hwp_preview_is_converted_by_the_private_renderer(client: TestClient) -> None:

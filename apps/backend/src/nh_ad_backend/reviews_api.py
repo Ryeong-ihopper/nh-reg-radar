@@ -1,9 +1,13 @@
 """HTTP handlers for the frozen M4 Review API."""
 
+import asyncio
+import json
 from datetime import date
+from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from nh_ad_backend.domain import CurrentUser
@@ -22,6 +26,7 @@ ReviewType = Literal[
     "VISIBILITY",
     "OCR_QUALITY",
 ]
+TERMINAL_JOB_STATUSES = frozenset({"COMPLETED", "FAILED", "FAILED_FINAL", "CANCELED"})
 
 
 class CreateReviewRequest(StrictModel):
@@ -152,6 +157,48 @@ def install_review_routes(
         review_id: Annotated[str, Path(alias="reviewId", pattern=r"^REV-[A-Za-z0-9-]+$")],
     ) -> dict[str, object]:
         return progress(service.status(current, review_id, request.state.trace_id))
+
+    @router.get("/reviews/{reviewId}/events", operation_id="streamReviewProgress")
+    async def stream_progress(
+        request: Request,
+        current: Actor,
+        review_id: Annotated[str, Path(alias="reviewId", pattern=r"^REV-[A-Za-z0-9-]+$")],
+    ) -> StreamingResponse:
+        """Stream status changes so clients do not repeatedly refresh the page.
+
+        PostgreSQL remains the progress source of truth.  The stream emits only
+        an initial snapshot and changes; a comment heartbeat keeps proxies from
+        closing an otherwise quiet connection.
+        """
+        # Authorize before the response starts so 401/403/404 remain normal JSON
+        # errors rather than an opaque, failed EventSource connection.
+        initial = progress(service.status(current, review_id, request.state.trace_id))
+
+        async def events() -> AsyncIterator[str]:
+            previous = json.dumps(initial, ensure_ascii=False, default=str, sort_keys=True)
+            yield f"event: progress\ndata: {previous}\n\n"
+            if initial["jobStatus"] in TERMINAL_JOB_STATUSES:
+                return
+            heartbeat_after = 0
+            while not await request.is_disconnected():
+                await asyncio.sleep(2)
+                snapshot = progress(service.status(current, review_id, request.state.trace_id))
+                encoded = json.dumps(snapshot, ensure_ascii=False, default=str, sort_keys=True)
+                if encoded != previous:
+                    previous = encoded
+                    yield f"event: progress\ndata: {encoded}\n\n"
+                heartbeat_after += 2
+                if heartbeat_after >= 20:
+                    heartbeat_after = 0
+                    yield ": keepalive\n\n"
+                if snapshot["jobStatus"] in TERMINAL_JOB_STATUSES:
+                    return
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @router.post("/reviews/{reviewId}/rerun", status_code=202, operation_id="rerunReview")
     async def rerun_review(

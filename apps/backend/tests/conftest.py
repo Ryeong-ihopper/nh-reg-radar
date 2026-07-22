@@ -8,6 +8,7 @@ from pydantic import SecretStr
 
 from nh_ad_backend.api import ApplicationServices
 from nh_ad_backend.hwp_preview import HwpPreview
+from nh_ad_backend.pdf_preview import PdfPreview, PdfPreviewMetadata
 from nh_ad_backend.domain import User
 from nh_ad_backend.main import create_app
 from nh_ad_backend.repository import InMemoryRepository
@@ -32,6 +33,34 @@ class PreviewRenderer:
             raise RuntimeError("page out of range")
         return HwpPreview(
             body=b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><text>preview</text></svg>',
+            total_pages=2,
+        )
+
+
+class PdfPreviewRenderer:
+    def __init__(self) -> None:
+        self.describe_calls = 0
+        self.render_calls = 0
+
+    def describe(
+        self, *, file_id: str, file_name: str, mime_type: str, body: bytes
+    ) -> PdfPreviewMetadata:
+        del file_id, file_name, mime_type, body
+        self.describe_calls += 1
+        return PdfPreviewMetadata(total_pages=2)
+
+    def render(
+        self, *, file_id: str, file_name: str, mime_type: str, body: bytes, page_no: int
+    ) -> PdfPreview:
+        del file_id, file_name, mime_type, body
+        self.render_calls += 1
+        if page_no > 2:
+            raise RuntimeError("page out of range")
+        return PdfPreview(
+            body=(
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+                b"\x00\x00\x03\xe8\x00\x00\x07\xd0\x08\x02\x00\x00\x00"
+            ),
             total_pages=2,
         )
 
@@ -117,6 +146,7 @@ def services(repository: InMemoryRepository, clock: Clock, tmp_path: Path) -> Ap
             identifier=lambda prefix: f"{prefix}-{next(counter):04d}",
         ),
         hwp_preview=PreviewRenderer(),
+        pdf_preview=PdfPreviewRenderer(),
         standards=StandardService(
             InMemoryStandardRepository(),
             HybridSearch(

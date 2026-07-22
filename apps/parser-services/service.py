@@ -101,6 +101,7 @@ def text_block(
     width: float,
     height: float,
     confidence: float,
+    source_unit: str = "pixel",
     text_path: str | None = None,
     raw_start_offset: int | None = None,
     raw_end_offset: int | None = None,
@@ -123,7 +124,7 @@ def text_block(
         "coordinate": {
             "sourceWidth": source_width,
             "sourceHeight": source_height,
-            "sourceUnit": "pixel",
+            "sourceUnit": source_unit,
             "x": x,
             "y": y,
             "width": width,
@@ -149,8 +150,8 @@ def text_block(
     return value
 
 
-def page(page_no: int, width: float, height: float) -> dict[str, object]:
-    return {"pageNo": page_no, "width": width, "height": height, "unit": "pixel"}
+def page(page_no: int, width: float, height: float, *, unit: str = "pixel") -> dict[str, object]:
+    return {"pageNo": page_no, "width": width, "height": height, "unit": unit}
 
 
 def _confidence_status(score: float) -> str:
