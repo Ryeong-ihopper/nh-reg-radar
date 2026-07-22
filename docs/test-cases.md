@@ -861,7 +861,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | --- | --- | --- | --- | --- |
 | TC-NFR-GIT-001 | 브랜치 흐름 | 기능·릴리즈·긴급 수정 PR의 base/head 확인 | `feature/*`→`dev`, `dev`→`main`, `hotfix/*`→`main` 흐름이며 hotfix는 `dev` 역반영 PR을 포함 | P0 |
 | TC-NFR-GIT-002 | 보호 브랜치 | `main`, `dev`의 repository rule 확인 | direct/force push와 삭제가 금지되고 PR·필수 CI·승인이 요구됨 | P0 |
-| TC-NFR-GIT-003 | 커밋·PR 형식 | PR commit과 본문 검토 | Conventional Commits 제목을 사용하고 목적·영향·테스트·배포/롤백 항목이 존재 | P1 |
+| TC-NFR-GIT-003 | 커밋·PR 형식 | PR 제목·commit·본문 검토 | PR 제목과 squash commit 제목이 `<type>: <한글 요약>` 형식의 소문자 Conventional type·콜론을 사용하고, 본문에 목적·영향·테스트·배포/롤백 항목이 존재 | P1 |
 | TC-NFR-GIT-004 | 릴리즈 추적 | 운영 릴리즈의 tag·image·release note 확인 | `vMAJOR.MINOR.PATCH`와 commit SHA가 immutable image 및 릴리즈 노트에 연결됨 | P0 |
 | TC-NFR-GIT-005 | GitOps 승격·롤백 | dev/stg/prod overlay와 배포 이력 비교 | 동일 image tag를 재빌드 없이 승격하고 배포·롤백·drift 해소가 Git PR로 추적됨 | P0 |
 
