@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.25 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.26 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.26 | 2026-07-23 | §10.4.1 `workflow_run` development 자동 배포에 push·dev 브랜치·동일 저장소 source 가드 조건을 명시 |
 | v1.25 | 2026-07-22 | 공용 개발 VM은 Vite/reload 개발 override가 아닌 production Compose profile로 실행하고 frontend 사설 IP ingress만 선택 허용하는 기준을 추가 |
 | v1.24 | 2026-07-22 | Conventional Commit 한글 요약은 종결 어미 없이 변경 행위를 간결하게 표기하도록 정정 |
 | v1.23 | 2026-07-22 | PR 제목을 소문자 Conventional type과 콜론·한글 요약으로 통일하고 공용 개발 VM reverse proxy 인입은 frontend만 사설 IP에 선택적으로 바인딩하며 나머지 Compose 포트는 비공개로 유지하는 기준을 추가 |
@@ -747,7 +748,7 @@ Self-hosted Runner는 내부망 image build·registry push·GitOps PR 생성에 
 
 PoC Compose 환경은 ADR-0080의 예외적 배포 경계를 사용한다. 결정적 CI·문서 동기화·수동 외부 AI 평가는 GitHub-hosted `ubuntu-latest`에서 실행하며, development 배포는 `nh-ad-deploy-dev`, production 배포는 `nh-ad-deploy-prod` label의 self-hosted runner에서 실행한다. GitHub-hosted CI는 운영 환경 파일이나 deployment Docker daemon에 접근할 수 없다.
 
-`dev` push에서 Product CI가 성공한 정확한 head SHA만 development Compose에 자동 반영한다. 장기 실행 development VM도 `compose.yml` + `compose.prod.yml` runtime을 사용하며, source mount·hot reload 전용 `compose.dev.yml`은 로컬 개발에만 사용한다. production은 `workflow_dispatch`, `production` GitHub Environment 승인, `DEPLOY_PRODUCTION` 확인 문자열, 검증할 commit SHA를 모두 요구하며 main push만으로 자동 배포하지 않는다. `.env.dev`와 `.env.prod`는 runner checkout 밖의 권한 제한된 절대 경로에만 두고, GitHub Environment variable `DEPLOY_ENV_FILE`에는 경로만 저장한다. 상세 등록·복구 절차는 `docs/self-hosted-runner-guide.md`를 따른다.
+`dev` push에서 Product CI가 성공한 정확한 head SHA만 development Compose에 자동 반영한다. 이 `workflow_run` 자동 배포는 신뢰되지 않은 코드가 self-hosted runner에서 실행되지 않도록 `workflow_run.event == 'push'`, `head_branch == 'dev'`, `head_repository.full_name == github.repository` 조건을 모두 만족할 때만 발동한다(fork·PR 트리거 배포 배제). 장기 실행 development VM도 `compose.yml` + `compose.prod.yml` runtime을 사용하며, source mount·hot reload 전용 `compose.dev.yml`은 로컬 개발에만 사용한다. production은 `workflow_dispatch`, `production` GitHub Environment 승인, `DEPLOY_PRODUCTION` 확인 문자열, 검증할 commit SHA를 모두 요구하며 main push만으로 자동 배포하지 않는다. `.env.dev`와 `.env.prod`는 runner checkout 밖의 권한 제한된 절대 경로에만 두고, GitHub Environment variable `DEPLOY_ENV_FILE`에는 경로만 저장한다. 상세 등록·복구 절차는 `docs/self-hosted-runner-guide.md`를 따른다.
 
 ---
 

@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.1 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.2 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-07-23 | `workflow_run` development 자동 배포에 push·dev 브랜치·동일 저장소 source 가드 조건을 명시 |
 | v1.1 | 2026-07-22 | 결정적 CI·문서 동기화·수동 외부 AI 평가를 GitHub-hosted runner로 전환하고 배포 runner만 self-hosted로 유지 |
 | v1.0 | 2026-07-21 | Self-hosted CI·Compose CD runner 등록, Environment 설정, 배포·rollback 절차를 최초 작성 |
 
@@ -66,6 +67,13 @@ DEPLOY_ENV_FILE=/srv/nh-ad-compliance/env/.env.prod
 5. rollback은 이전에 검증된 commit SHA를 같은 production workflow에 입력해 재배포한다.
 
 배포 workflow는 `docker compose -p nh-ad-dev` 또는 `nh-ad-prod` namespace와 `compose.yml` + `compose.prod.yml` runtime 조합으로 실행한다. development도 장기 실행 VM에서는 source mount·Vite hot reload를 쓰는 `compose.dev.yml`을 사용하지 않는다. 환경 파일의 DB, object storage, Qdrant, OpenSearch namespace는 ADR-0063 기준으로 분리되어야 한다.
+
+`workflow_run` 기반 development 자동 배포는 신뢰되지 않은 코드가 self-hosted runner에서 실행되지 않도록 다음 조건을 모두 만족할 때만 발동한다. 이 가드는 GitHub의 secure-use 권고에 따른다.
+
+- `workflow_run.conclusion == 'success'`
+- `workflow_run.event == 'push'` (PR 트리거 실행은 배포하지 않음)
+- `workflow_run.head_branch == 'dev'`
+- `workflow_run.head_repository.full_name == github.repository` (fork 실행 배제)
 
 ## 점검 및 장애 대응
 
