@@ -55,14 +55,25 @@ jobs:
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not configured" >&2; exit 1; }
           case "$DEPLOY_PATH" in change|"") echo "DEPLOY_PATH is not configured" >&2; exit 1;; esac
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          if [ -n "${DEPLOY_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          else
+            echo "::warning::DEPLOY_KNOWN_HOSTS secret is not set; falling back to ssh-keyscan (trust-on-first-use). Ask infra to pin the host key."
+            ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
+          chmod 600 ~/.ssh/known_hosts
           eval "$(ssh-agent -s)"
           trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
           printf '%s\n' "$DEPLOY_SSH_KEY" | ssh-add - >/dev/null
-          export DEPLOY_SHA="$(git rev-parse HEAD)"
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          echo "DEPLOY_SHA=$DEPLOY_SHA" >> "$GITHUB_ENV"
+          export DEPLOY_SHA
           scripts/deploy-ssh.sh
 
       - name: Notify Mattermost (success)
@@ -71,7 +82,8 @@ jobs:
           MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
         run: |
           [ -n "${MATTERMOST_WEBHOOK_URL:-}" ] || exit 0
-          text=":white_check_mark: **dev 배포 성공** — \`${GITHUB_SHA:0:8}\` → ${{ vars.DEPLOY_HOST }} ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))"
+          sha="${DEPLOY_SHA:-$GITHUB_SHA}"
+          text=":white_check_mark: **dev 배포 성공** — \`${sha:0:8}\` → ${{ vars.DEPLOY_HOST }} ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))"
           jq -n --arg t "$text" '{text:$t}' | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$MATTERMOST_WEBHOOK_URL" >/dev/null
 
       - name: Notify Mattermost (failure)
@@ -80,7 +92,8 @@ jobs:
           MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
         run: |
           [ -n "${MATTERMOST_WEBHOOK_URL:-}" ] || exit 0
-          text=":x: **dev 배포 실패** — \`${GITHUB_SHA:0:8}\` → ${{ vars.DEPLOY_HOST }} ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))"
+          sha="${DEPLOY_SHA:-$GITHUB_SHA}"
+          text=":x: **dev 배포 실패** — \`${sha:0:8}\` → ${{ vars.DEPLOY_HOST }} ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))"
           jq -n --arg t "$text" '{text:$t}' | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$MATTERMOST_WEBHOOK_URL" >/dev/null
 
   # Production: DORMANT. NH internal closed-network deployment is a separate manual
@@ -114,12 +127,22 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           COMPOSE_PROJECT: nh-ad-prod
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_HOST" || { echo "production DEPLOY_HOST is not configured" >&2; exit 1; }
           case "$DEPLOY_PATH" in change|"") echo "production DEPLOY_PATH is not configured" >&2; exit 1;; esac
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          if [ -n "${DEPLOY_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          else
+            echo "::warning::DEPLOY_KNOWN_HOSTS secret is not set; falling back to ssh-keyscan (trust-on-first-use)."
+            ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
+          chmod 600 ~/.ssh/known_hosts
           eval "$(ssh-agent -s)"
           trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
           printf '%s\n' "$DEPLOY_SSH_KEY" | ssh-add - >/dev/null
-          export DEPLOY_SHA="$(git rev-parse HEAD)"
+          DEPLOY_SHA="$(git rev-parse HEAD)"
+          export DEPLOY_SHA
           scripts/deploy-ssh.sh
