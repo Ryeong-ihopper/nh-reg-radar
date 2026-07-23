@@ -101,11 +101,13 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0074](ADR-0074-validation-dataset-golden-label-snapshot-policy.md) | Accepted | PoC 검증 데이터셋, 정답지 및 평가 Snapshot 관리 정책 | 후속 구현 결정 |
 | [ADR-0075](ADR-0075-project-scoped-skills-distribution.md) | Accepted | 프로젝트 범위 Skills 배포 및 온보딩 설치 정책 | ADR 후보 041 |
 | [ADR-0076](ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md) | Accepted | AI 도구 Lifecycle Hook 적용 범위 및 문서 거버넌스 강제 계층 | ADR 후보 042 |
-| [ADR-0077](ADR-0077-git-notion-one-way-document-sync-policy.md) | Accepted | Git-Notion 단방향 문서 자동 동기화 정책 | ADR 후보 043 |
+| [ADR-0077](ADR-0077-git-notion-one-way-document-sync-policy.md) | Accepted | Git-Notion 단방향 문서 자동 동기화 정책 | ADR 후보 043 (원천 branch는 ADR-0083 개정) |
 | [ADR-0078](ADR-0078-poc-two-account-operation-profile.md) | Accepted | PoC 2계정 운영 프로필 정책 | ADR 후보 044 |
 | [ADR-0079](ADR-0079-hwp-hwpx-hybrid-parser-composition.md) | Accepted | HWP/HWPX 이중 원천 Hybrid Parser 구성 정책 | ADR 후보 045 |
 | [ADR-0080](ADR-0080-self-hosted-runner-compose-cd-policy.md) | Accepted | GitHub-hosted CI 및 Self-hosted Compose CD 정책 | CI·배포 실행 경계 결정 |
 | [ADR-0081](ADR-0081-parser-service-and-external-ai-activation-separation.md) | Accepted | Private Parser/OCR와 외부 AI 활성화 분리 정책 | Parser·외부 AI 설정 경계 결정 |
+| [ADR-0082](ADR-0082-development-default-branch-dev.md) | Accepted | 개발 기간 GitHub 기본 브랜치 dev 운영 정책 | ADR 후보 047 (Q76) |
+| [ADR-0083](ADR-0083-development-notion-sync-source-dev.md) | Accepted | 개발 기간 Notion 동기화 원천 dev 확장 정책 | ADR 후보 047 (Q76 후속·ADR-0077 개정) |
 
 ## 결정 대기 질문지
 

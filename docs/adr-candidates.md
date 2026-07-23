@@ -6,13 +6,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.6 |
-| 기준일 | 2026-07-22 |
+| 현행 버전 | v1.8 |
+| 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.8 | 2026-07-23 | 후보 047의 Q76을 ADR-0082(기본 브랜치 dev)·ADR-0083(Notion 원천 dev 확장)으로 확정하고 17.5 후속 구현 ADR·현황을 갱신 |
+| v1.7 | 2026-07-23 | 폐쇄망 브랜치·릴리스 전략을 ADR 후보 047(Q76·Q77)로 추가. Q76(개발 기간 기본 브랜치 `dev` 운영) 결정, Q77(폐쇄망 반입 릴리스 파이프라인·§10.4 정합) 대기 |
 | v1.6 | 2026-07-22 | ADR 후보 046을 private Parser/OCR와 외부 AI 활성화 설정 분리로 확정하고 ADR-0081 반영 |
 | v1.5 | 2026-07-20 | ADR 후보 044를 PoC 2계정 운영 프로필로 확정하고 ADR-0078 반영 |
 | v1.4 | 2026-07-16 | ADR 후보 043을 Git `main` 원본의 기존 Notion page ID 보존 단방향 자동 동기화로 확정하고 ADR-0077 반영 |
@@ -123,6 +125,7 @@ ADR 관련 문서는 다음 역할로 분리한다. 같은 내용을 여러 문�
 | 보안 | 고객사 자료 및 민감정보 처리 정책 | 높음 | 필요 |
 | 인프라 | 개발 VM 및 네트워크 구성 | 높음 | 필요 |
 | CI/CD | Self-hosted Runner 배포 방식 | 높음 | 필요 |
+| 배포·브랜치 | 폐쇄망 반입 전제 브랜치·릴리스 운영 전략 (후보 047) | 높음 | 필요 |
 | 평가 | PoC KPI 산식 및 평가 제외 기준 | 높음 | 필요 |
 | 운영 | 기준자료 버전관리 정책 | 높음 | 필요 |
 
@@ -935,6 +938,8 @@ ADR 관련 문서는 다음 역할로 분리한다. 같은 내용을 여러 문�
 | [ADR-0077](adr/ADR-0077-git-notion-one-way-document-sync-policy.md) | Git-Notion 단방향 문서 자동 동기화 정책 |
 | [ADR-0078](adr/ADR-0078-poc-two-account-operation-profile.md) | PoC 2계정 운영 프로필 정책 |
 | [ADR-0079](adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md) | HWP/HWPX 이중 원천 Hybrid Parser 구성 정책 |
+| [ADR-0082](adr/ADR-0082-development-default-branch-dev.md) | 개발 기간 GitHub 기본 브랜치 dev 운영 정책 |
+| [ADR-0083](adr/ADR-0083-development-notion-sync-source-dev.md) | 개발 기간 Notion 동기화 원천 dev 확장 정책 |
 
 ---
 
@@ -944,9 +949,9 @@ ADR 관련 문서는 다음 역할로 분리한다. 같은 내용을 여러 문�
 
 | 항목 | 현황 |
 | --- | --- |
-| 작성 완료 ADR | ADR-0001 ~ ADR-0081, 총 81건 |
-| 의사결정 질문지 | Q1 ~ Q75 모두 결정 결과 기록 완료 |
-| 현재 대기 중인 ADR 후보 | 없음 |
+| 작성 완료 ADR | ADR-0001 ~ ADR-0083, 총 83건 |
+| 의사결정 질문지 | Q1 ~ Q76 결정 결과 기록 완료, Q77 대기 |
+| 현재 대기 중인 ADR 후보 | 후보 047 (폐쇄망 브랜치·릴리스 전략) — Q76은 ADR-0082·ADR-0083으로 확정, Q77 대기 |
 | 남은 재검토 항목 | 본사업 전환, 고객사 보안 요구, 운영 데이터 확대, 성능 병목 확인 시 재검토할 항목만 존재 |
 
 정합성 기준은 다음과 같다.
@@ -1059,6 +1064,22 @@ PoC 데모와 수동 검증에 역할별 별도 계정을 여러 개 사용하�
 기존 `NH_EXTERNAL_AI_ENABLED` 하나가 OpenAI·embedding·RAG뿐 아니라 Compose 내부의 Parser/OCR adapter 조립까지 제어했다. 이 결합은 외부 LLM 호출을 허용하지 않는 개발·폐쇄망 환경에서 OCR·HWP/HWPX 정규화와 결정적 Rule 검토까지 막는다.
 
 결정 결과 `NH_PARSER_SERVICES_ENABLED`를 별도로 두고 기본값은 true로 한다. private parser는 external AI가 비활성화되어도 `NormalizedDocument` v1을 만들며, OpenAI·embedding·RAG는 기존 `NH_EXTERNAL_AI_ENABLED` opt-in에서만 활성화한다. 상세 기준은 ADR-0081을 따른다.
+
+### ADR 후보 047. 폐쇄망 반입 전제 브랜치·릴리스 운영 전략
+
+| 항목 | 내용 |
+| --- | --- |
+| 상태 | 일부 결정(Q76 결정→ADR-0082·ADR-0083, Q77 대기) |
+| 관련 질문 | Q76, Q77 |
+| 관련 ADR | ADR-0082, ADR-0083, ADR-0080, ADR-0077, ADR-0063 |
+| 승인 ADR | [ADR-0082](adr/ADR-0082-development-default-branch-dev.md)(기본 브랜치), [ADR-0083](adr/ADR-0083-development-notion-sync-source-dev.md)(Notion 원천 확장). Q77 릴리스 전략은 확정 시 신규 ADR로 승격 예정 |
+| 권고안 | 개발 기간 기본 브랜치 `dev` + `main`을 폐쇄망 반입 릴리스 기준선으로 재정의 |
+
+운영 반입이 한참 뒤인 NH 내부 폐쇄망 프로젝트에서 브랜치·릴리스 운영을 명확히 할 필요가 있다. 현재 `deploy-compose.yml`(ADR-0080)은 `dev` push의 `workflow_run`으로 dev VM에 자동 배포하도록 구성되어 있으나, GitHub `workflow_run`은 기본 브랜치의 workflow만 실행하므로 기본 브랜치가 `main`인 상태에서는 자동 배포가 발동하지 않았다. 또한 project-rules §10.4는 아직 GitOps/Kubernetes 모델을 서술해 실제 Compose CD/폐쇄망 반입 방식과 어긋난다.
+
+Q76은 결정했다. 개발 기간 GitHub 기본 브랜치를 `dev`로 전환(2026-07-23 적용)해 dev 자동 배포를 활성화하고, clone·PR·README 온보딩을 실제 개발 코드와 일치시킨다(ADR-0082). 기본 브랜치 전환으로 `main` push가 드물어져 발생하는 Notion 공유본 최신성 영향은 동기화 원천 branch를 `dev`로 확장하는 ADR-0083으로 처리하되, 실제 트리거 전환은 개수 정합·page map 확정·Notion 페이지 최초 생성(토큰 필요) 이후에 반영한다. 운영 릴리스 준비 시점의 `main` 복귀는 Q77과 함께 재검토한다.
+
+Q77은 대기 중이다. `main`을 폐쇄망 반입 릴리스 기준선으로 정의하고, `dev`→`main` 병합을 "운영 자동배포"가 아닌 "반입 후보 확정 + 버전 태그 + 반입 artifact 생성"으로 재정의하는 릴리스 CI(컨테이너 OCI archive, 의존성·모델 오프라인 번들, DB migration, SBOM, 라이선스 목록, SHA-256 checksum, 릴리스 노트, 격리 설치 리허설), 선택적 `release/*` 도입(§11.1 개정), project-rules §10.4 정합 정리를 사용자 확정 후 신규 ADR로 승격한다. 실제 NH 내부망 배포는 승인된 수동 반입 절차로 둔다.
 
 ---
 
