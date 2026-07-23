@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   m1-product-quality:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, org-ci, large]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
           python3 -m scripts.doc_guard validate --scope all
 
   m1-compose-and-health:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, org-build, large]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -222,7 +222,7 @@ jobs:
           if-no-files-found: ignore
 
   m1-db-bootstrap-privilege-probe:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, org-ci, large]
     services:
       postgres:
         image: postgres:16.9-alpine

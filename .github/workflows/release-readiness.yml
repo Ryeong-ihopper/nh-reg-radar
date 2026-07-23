@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   provider-free-release-gate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, org-ci, large]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       inputs.run_recovery_smoke
     needs: provider-free-release-gate
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, org-build, large]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

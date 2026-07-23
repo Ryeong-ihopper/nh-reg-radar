@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.30 |
+| 현행 버전 | v1.31 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.31 | 2026-07-23 | 결정적 CI·Build 워크플로(ci.yml·release-readiness.yml)를 org-ci/org-build 러너로 이전하고 §10.4.1을 이전 완료 기준으로 갱신 |
 | v1.30 | 2026-07-23 | §10.4.1에 release별 커밋 SHA 이미지 태그 롤백과 SSH host key 고정(DEPLOY_KNOWN_HOSTS) 기준을 추가 |
 | v1.29 | 2026-07-23 | §10.4.1 development 배포를 조직 공유 러너(org-cg-rookies/org-deploy) SSH release 방식으로 개정, CI/Build의 org-ci/org-build 이전 기준과 production job 비활성 보존을 명시 |
 | v1.28 | 2026-07-23 | §5.4에 미매핑 문서의 안전한 단건 최초 등록 절차와 자동 동기화 원천 전환 시 함께 변경할 항목을 명시 |
@@ -760,7 +761,7 @@ Self-hosted Runner는 내부망 image build·registry push·GitOps PR 생성에 
 
 ### 10.4.1 Self-hosted Compose CD
 
-PoC Compose 환경은 ADR-0080의 배포 경계를 사용한다. development 배포는 조직 공유 self-hosted runner(`self-hosted`, `linux`, `x64`, `org-cg-rookies`, `org-deploy`)에서 **SSH release 방식**으로 실행한다. 결정적 CI·Build는 조직 공유 러너(`org-ci`/`org-build`, `large`)로 이전하는 것을 기준으로 하며(비용·인프라 관리 주체 고려), 전환 시점까지는 GitHub-hosted `ubuntu-latest`를 사용한다.
+PoC Compose 환경은 ADR-0080의 배포 경계를 사용한다. development 배포는 조직 공유 self-hosted runner(`self-hosted`, `linux`, `x64`, `org-cg-rookies`, `org-deploy`)에서 **SSH release 방식**으로 실행한다. 결정적 CI는 `org-ci`, 이미지 빌드·Compose smoke는 `org-build`(둘 다 `large`) 조직 공유 러너에서 실행한다(비용·인프라 관리 주체 고려). 인터넷 아웃바운드가 필요한 보조 워크플로(문서 동기화·수동 외부 AI 평가·Notion 동기화)는 org 러너 아웃바운드 접근을 확인한 뒤 개별 이전하며, 그 전까지 GitHub-hosted `ubuntu-latest`를 유지한다.
 
 development 배포 흐름은 다음과 같다. 러너가 검증된 revision을 checkout하고, GitHub Environment(`development`)의 `DEPLOY_SSH_KEY`로 `DEPLOY_HOST`에 SSH 접속해 `DEPLOY_PATH/releases/<sha>`에 소스를 동기화한다. 대상 호스트에서 `compose.yml` + `compose.prod.yml`(runtime)과 대상 호스트의 공유 `env/.env.dev`로 배포하되, 이미지는 **커밋 SHA 태그(`RELEASE_TAG=<sha>`)** 로 빌드해 release마다 불변 이미지를 남긴다. health가 통과한 뒤에만 `app` 심볼릭 링크를 새 release로 원자적으로 교체한다. 실패 시 심볼릭 링크를 교체하지 않고 이전 release에 기록된 이미지 태그(`.release_tag`, 없으면 legacy `dev`)로 서비스를 복구한 뒤 workflow를 실패 처리하며, 결과는 `MATTERMOST_WEBHOOK_URL`로 알린다. SSH host key는 `DEPLOY_KNOWN_HOSTS`로 고정하고(미설정 시 `ssh-keyscan` TOFU로 경고와 함께 대체), source mount·hot reload 전용 `compose.dev.yml`은 로컬 개발에만 사용한다.
 
