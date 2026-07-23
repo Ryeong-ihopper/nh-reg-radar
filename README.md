@@ -1,256 +1,249 @@
 # nh-ad-compliance
 
-## 프로젝트 개요
+NH농협은행 금융상품 광고물의 사전 심의를 보조하는 **AI 기반 광고심의 적정성 검토 에이전트** PoC입니다.
+광고 이미지·문서·문구를 입력받아 금융광고 규정 준수 여부를 검토하고, 위반 가능성 표현과 필수 문구 누락을 근거와 함께 제시합니다.
 
-NH 농협은행 금융상품 광고물의 사전 검토 업무를 보조하기 위한 AI 기반 광고심의 적정성 검토 에이전트 프로젝트입니다. 광고 이미지, 문서, 문구를 입력받아 금융광고 규정 준수 여부를 검토하고, 위반 가능성이 있는 표현과 필수 문구 누락 여부를 근거와 함께 확인하는 것을 목표로 합니다.
+- **핵심 스택:** FastAPI backend · React(Vite) frontend · 비동기 worker(OCR·RAG·LLM) · PostgreSQL · Qdrant(벡터) · OpenSearch(키워드) · Redis(큐/캐시) · MinIO(객체 저장). 전 구성요소 Docker Compose 기반.
+- **명세 원천(Source of Truth):** Git으로 관리하는 `docs/`. Notion은 칸반·일정·회의록·공유용 읽기본.
+- **작업 시작 전 필독:** [`AGENTS.md`](AGENTS.md) · [`docs/project-rules.md`](docs/project-rules.md) · [`docs/adr/README.md`](docs/adr/README.md)
+- **현재 범위:** M0~M8 provider-free thin slice 구현·검증 완료. 실제 OCR/RAG/LLM 품질, 고객사 검증, 시연 배포는 별도 증거로만 인정([상세](#현재-구현-상태)).
 
-이 저장소의 `docs/` 경로에는 요구사항, 기능, 화면, API, DB, 테스트, 프로젝트 규칙 문서가 정리되어 있습니다. 사람과 AI 모두 작업을 시작하기 전에 아래 문서 역할을 먼저 확인하고, 변경하려는 내용과 가장 가까운 문서를 기준 문서로 삼아야 합니다.
+---
 
-개발 관련 명세 문서는 Git으로 관리되는 `docs/`를 Source of Truth로 사용합니다. Notion은 칸반, 일정, 회의록과 읽기용 공유본으로 사용하며, 구현 중 명세가 바뀌면 같은 작업 단위에서 `docs/` 문서를 함께 갱신합니다. `main`의 게시 대상 Markdown 변경은 ADR-0077에 따라 기존 Notion page ID를 유지하는 단방향 자동 동기화로 공유본에 반영합니다.
+## 저장소 구조
 
-## 현재 구현 및 운영 상태 (2026-07-20)
+```
+apps/            backend · frontend · worker · parser-services   (실행 진입점)
+packages/        ai-providers · parser-contracts · shared-types  (공용 코드)
+docs/            명세·ADR·규정 원본 (Source of Truth) — ↓ 문서 지도
+governance/      문서 정책·템플릿 (문서 거버넌스)
+scripts/         local-dev.sh · deploy-compose.sh · doc_guard 등
+infra/ openapi/  인프라 설정 · OpenAPI 계약(0.8.0)
+compose*.yml     공통(compose.yml) + dev(compose.dev.yml) + prod(compose.prod.yml)
+```
 
-M0~M8의 provider-free thin slice는 저장소의 실제 backend/worker/frontend 경로와 결정적 fixture를 기준으로 구현·검증되었습니다. 실행 진입점은 `apps/backend/src/nh_ad_backend/main.py`, `apps/worker/src/nh_ad_worker/main.py`, `apps/frontend/src/App.tsx`이며, API 호출은 `apps/frontend/src/api/client.ts`와 생성 계약 `apps/frontend/src/api/generated/openapi.ts`를 사용합니다. 원천 API 계약은 OpenAPI `0.8.0`입니다.
+상세 구성 원칙은 [프로젝트 규칙 §4 Repository 구성](docs/project-rules.md)을 따릅니다.
 
-| 구분 | 현재 기준 |
-| --- | --- |
-| Provider-free 자동 Gate | `.github/workflows/release-readiness.yml`, `governance/goal-manifests/G009-m8-release.json`, 고정 fixture 기반 E2E/release 회귀 |
-| 실제 외부 AI 수동 평가 | `.github/workflows/external-ai-evaluation.yml`의 승인된 `workflow_dispatch`; credential과 `external_ai` marker가 필요한 별도 lane |
-| Production recovery | `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages`; G011 반복 bootstrap을 먼저 검증 |
-| 문서·일정 동기화 | [기능명세서](docs/functional-specification.md), [테스트케이스](docs/test-cases.md), [프로젝트 규칙](docs/project-rules.md), [개발 일정 및 Kanban](docs/development-schedule-and-notion-kanban.md) |
+---
 
-Provider-free 성공은 실제 OCR/RAG/LLM provider 품질, 고객사 검증, 시연 환경 배포, P0/P1 전체 합계 또는 Critical 결함 0건을 대신 증명하지 않습니다. 해당 항목은 별도 증거가 생길 때까지 일정/Kanban에서 `Backlog` 또는 `Blocked`로 유지합니다.
+## 온보딩
 
-## 로컬 개발 환경 빠른 시작
+**사전 요구사항:** Git · Python 3.12 (거버넌스 스크립트) · Bash 및 POSIX 기본 도구(`local-dev.sh` 등 셸 스크립트) · Docker Engine + Compose v2 (스택 실행) · (선택) `uv`, Node.js 22 (품질 검사).
 
-처음 저장소를 받은 개발자는 아래 순서대로 실행하면 provider-free 전체 스택을 로컬에 띄울 수 있습니다. 이 경로는 Docker Compose로 frontend, backend, worker, PostgreSQL, Redis, MinIO, Qdrant, OpenSearch와 private parser/OCR 서비스를 실행하고 DB migration과 synthetic dev seed까지 적용합니다. 실제 LLM/OCR/RAG API key는 필요하지 않습니다.
+### 1단계 (필수). 저장소 준비 & 문서 거버넌스 설치
 
-### 1. 사전 요구사항
-
-| 도구 | 용도 | 확인 명령 |
-| --- | --- | --- |
-| Git | 저장소 clone 및 협업 | `git --version` |
-| Python 3.12 | 온보딩·거버넌스 스크립트 | `python3 --version` |
-| Docker Engine + Compose v2 | 전체 로컬 스택 | `docker version`, `docker compose version` |
-| `uv` | Python 의존성·품질 검사. 서비스 기동 자체에는 선택 | `uv --version` |
-| Node.js 22 + npm | OpenAPI·frontend 품질 검사. 서비스 기동 자체에는 선택 | `node --version`, `npm --version` |
-
-Docker에는 전체 스택을 실행할 수 있는 충분한 메모리와 디스크를 할당해야 합니다. 특히 OpenSearch가 시작되지 않는 Linux 환경은 [문제 해결](#문제-해결)의 `vm.max_map_count` 항목을 확인합니다.
-
-### 2. 저장소 clone과 개발 도구 설정
+가장 먼저 실행합니다. Docker 없이 **git + python3만** 있으면 됩니다.
 
 ```bash
-git clone https://github.com/bhjeon-cginside/nh-ad-compliance.git
+git clone --branch dev https://github.com/CGINSIDE-ROOKIES/nh-ad-compliance.git
 cd nh-ad-compliance
 scripts/setup-dev-tools.sh
 ```
 
-이 스크립트는 프로젝트 Claude/Codex Skills adapter를 저장소 내부의 `.agents/skills`, `.claude/skills`에 설치하고, Git pre-commit/pre-push hook을 활성화하며, 거버넌스 단위 테스트와 문서 정합성 검사를 실행합니다. `skills/`가 사람이 수정하는 유일한 원본이며 사용자 홈에는 설치하지 않습니다. 상세 기준은 [ADR-0075](docs/adr/ADR-0075-project-scoped-skills-distribution.md)를 따릅니다.
+`setup-dev-tools.sh`는 이 저장소의 **문서·명세 거버넌스 강제 계층을 부트스트랩**합니다.
 
-### 3. dev 환경 파일 생성
+- Git `core.hooksPath`를 `.githooks`로 지정 → 커밋·푸시 시 문서 정합성/명세 검사를 **강제**합니다.
+- Claude/Codex **Skills adapter**를 저장소 내부(`.agents/skills`, `.claude/skills`)에 설치합니다. 사람이 수정하는 원본은 `skills/`뿐이며 사용자 홈에는 설치하지 않습니다([ADR-0075](docs/adr/ADR-0075-project-scoped-skills-distribution.md)).
+- 거버넌스 단위 테스트 + 문서 정합성 + `doc_guard validate`를 실행해 초기 상태를 검증합니다.
 
-```bash
-cp .env.dev.example .env.dev
-```
+> 이 단계를 건너뛰면 로컬 검사와 CI 기준이 어긋나 PR 단계에서 실패합니다. 문서/명세를 바꾸는 모든 작업의 전제 조건입니다.
 
-`.env.dev`는 Git에 포함되지 않습니다. 예제의 비밀번호와 secret은 개인 로컬 개발 전용이며 공유 VM이나 운영 환경에서 재사용하지 않습니다. 기본 `VITE_API_BASE_URL=/api/v1`에서는 Vite 개발 서버가 `/api` 요청을 Compose 내부 `backend:8000`으로 프록시하므로, 개발 VM의 외부 reverse proxy는 frontend 포트 하나만 연결해도 됩니다. 별도 backend 주소를 쓰는 경우에만 `VITE_API_PROXY_TARGET`을 설정합니다. 포트를 변경하면 `FRONTEND_PORT`/`BACKEND_PORT`와 함께 `CORS_ALLOWED_ORIGINS`도 같은 주소 기준으로 맞춥니다.
+### 2단계. 로컬 스택 실행 (provider-free)
 
-공용 개발 VM에서 reverse proxy가 frontend에 연결해야 하면 `.env.dev`에 `FRONTEND_BIND_ADDRESS=<VM 사설 IP>`를 설정한다. 예: `FRONTEND_BIND_ADDRESS=172.24.0.121`, `FRONTEND_PORT=8080`. 기본값은 `127.0.0.1`이므로 로컬 개발 서비스는 외부에 노출되지 않는다. backend·DB·parser/OCR 포트는 계속 loopback 또는 Compose 내부 네트워크에만 둔다.
-
-공용 개발 VM의 장기 실행 환경은 `compose.dev.yml`의 Vite·reload 모드가 아니라 `compose.prod.yml`을 사용한다. frontend는 Nginx 정적 번들로 제공하고 backend·worker도 production image로 실행한다. 따라서 화면 성능과 실행 조건은 운영에 가깝게 유지하면서 환경 변수·Compose 프로젝트명만 개발용으로 분리한다.
-
-### 4. 전체 스택 초기화 및 실행
+Docker Compose로 frontend·backend·worker·PostgreSQL·Redis·MinIO·Qdrant·OpenSearch와 parser/OCR 서비스를 띄우고
+migration·dev seed까지 적용합니다. 기본값에서 **실제 private Parser/OCR는 실행**되고(`NH_PARSER_SERVICES_ENABLED=true`), **외부 LLM/임베딩(RAG)만 꺼져 있습니다**(`NH_EXTERNAL_AI_ENABLED=false`). 즉 외부 AI API key 없이 스택 전체와 문서 추출·규칙 기반 경로를 실행하며, 실제 AI 검토 판단은 아래 opt-in에서 활성화합니다.
 
 ```bash
-scripts/local-dev.sh up
+cp .env.dev.example .env.dev      # .env.dev는 Git 제외. 예제 secret은 개인 로컬 전용
+scripts/local-dev.sh up           # 설정 검증 → DB bootstrap → migration → seed → 전체 기동
 ```
 
-최초 실행은 이미지를 내려받고 빌드하므로 시간이 걸릴 수 있습니다. 스크립트는 다음 순서를 자동으로 수행하며 재실행해도 같은 migration과 seed를 안전하게 적용합니다.
+최초 실행은 이미지 빌드로 시간이 걸립니다. 재실행해도 동일 migration·seed를 안전하게 재적용합니다.
 
-1. Compose 설정과 dev 환경을 검증합니다.
-2. PostgreSQL 역할/bootstrap과 database health를 확인합니다.
-3. migration identity로 Alembic `head`를 적용합니다.
-4. app identity로 공통 코드와 synthetic dev 사용자만 seed합니다.
-5. 전체 서비스를 빌드하고 health/readiness 완료까지 기다립니다.
+**접속 주소**
 
-기본 synthetic 로그인 계정은 다음과 같습니다.
+| 대상 | 로컬 | dev 배포 |
+| --- | --- | --- |
+| 웹 화면 | <http://localhost:5173> | **<https://nh-compliance.ihopper.co.kr>** |
+| Backend health / OpenAPI | `:8000/health` · `:8000/openapi.json` | 내부망 전용 |
+| Worker readiness | `:8001/ready` | 내부망 전용 |
+| MinIO console | `:9001` | 내부망 전용 |
+| parser/OCR health | `:8091`~`:8094/health` | Compose 네트워크 내부 전용 |
 
-| 계정 | PoC 사용 목적 | 이메일 | 비밀번호 |
+> 브라우저는 CORS/refresh-cookie 기준과 맞도록 `127.0.0.1`이 아니라 `localhost`를 사용합니다.
+
+**기본 로그인 계정** (synthetic, 로컬 전용)
+
+| 계정 | 이메일 | 비밀번호 | 용도 |
 | --- | --- | --- | --- |
-| 업무·기준자료 테스트 | 광고 등록·AI 검토·결과 확인, 법령·가이드라인 등 기준자료 등록/개정/검색 갱신 | `test@ihopper.co.kr` | `Testihopper12#$` |
-| 시스템 관리자 | 사용자·권한·감사·시스템 운영 확인 | `admin@ihopper.co.kr` | `Testihopper12#$` |
+| 업무·기준자료 | `test@ihopper.co.kr` | `Testihopper12#$` | 광고 등록·AI 검토·기준자료 관리 |
+| 시스템 관리자 | `admin@ihopper.co.kr` | `Testihopper12#$` | 사용자·권한·감사·운영 확인 |
 
-개인 로컬 비밀번호를 바꾸려면 시작 시에만 다음처럼 전달합니다. 평문 비밀번호는 DB에 저장되지 않으며 scrypt hash만 dev seed에 전달됩니다.
-
-```bash
-NH_LOCAL_DEV_PASSWORD='다른-로컬-비밀번호-10자-이상' scripts/local-dev.sh up
-```
-
-### 5. 접속 및 정상 동작 확인
-
-| 대상 | 기본 주소 |
-| --- | --- |
-| 웹 화면 | <http://localhost:5173> |
-| Backend health | <http://localhost:8000/health> |
-| Backend OpenAPI | <http://localhost:8000/openapi.json> |
-| Worker readiness | <http://localhost:8001/ready> |
-| MinIO console | <http://localhost:9001> |
-| OpenDataLoader PDF health | <http://localhost:8091/health> |
-| PaddleOCR health | <http://localhost:8092/health> |
-| rhwp health | <http://localhost:8093/health> |
-| document-processor health | <http://localhost:8094/health> |
-
-브라우저는 CORS/refresh-cookie 기준과 일치하도록 `127.0.0.1` 대신 위 `localhost` 주소를 사용합니다. 터미널에서는 다음 명령으로 기본 상태를 확인합니다.
+**운영 명령**
 
 ```bash
-scripts/local-dev.sh status
-curl --fail http://localhost:8000/health
-curl --fail http://localhost:8001/ready
+scripts/local-dev.sh status               # 상태 확인
+scripts/local-dev.sh logs [service...]     # 로그
+scripts/local-dev.sh down                  # 중지 (volume 보존)
+scripts/local-dev.sh reset                 # volume 삭제 후 빈 DB로 재기동
 ```
 
-### 6. 실제 샘플 광고 결과 확인 (OpenAI opt-in)
+<details>
+<summary><b>실제 AI 결과 확인 (OpenAI/vLLM opt-in)</b></summary>
 
-기본 경로는 결정적(provider-free) 테스트용입니다. 실제로 광고 파일을 올려 OCR/문서 추출, 근거 검색, 구조화 LLM 판단 결과까지 확인하려면 **현재 저장소의 승인 샘플 자료만** 사용하여 아래 opt-in 절차를 실행합니다. 이는 [ADR-0002](docs/adr/ADR-0002-customer-sample-data-ai-input-policy.md)의 범위이며, 신규 고객 자료·운영 자료·개인정보/민감정보는 별도 승인이 없으면 업로드하거나 provider에 보내면 안 됩니다.
+기본 경로에서도 private Parser/OCR는 실행되며, 외부 LLM/임베딩만 꺼져 있습니다. 실제 **RAG·LLM 기반 검색·판단**을 보려면 **현재 저장소의 승인 샘플 자료만** 사용해 opt-in합니다
+([ADR-0002](docs/adr/ADR-0002-customer-sample-data-ai-input-policy.md) 범위 — 신규/운영/민감 자료 업로드 금지).
 
-1. `.env.dev`에 실제 key를 넣고 opt-in합니다. `.env.dev`는 Git ignore 대상이므로 commit하지 않습니다.
+1. `.env.dev`에 `NH_EXTERNAL_AI_ENABLED=true`, `NH_PARSER_SERVICES_ENABLED=true`, `OPENAI_API_KEY=...` 등 설정 (예제 주석 참고).
+2. `scripts/local-dev.sh up` 후 `scripts/ingest-reference-regulations.sh`로 승인 규정·가이드라인 적재.
+3. <http://localhost:5173>에서 `test@ihopper.co.kr` 로그인 → 광고 등록 → PDF/PNG/JPEG/HWP/HWPX 업로드 → AI 검토 → 결과 확인. 샘플: `docs/광고예시/`.
 
-   ```dotenv
-   NH_EXTERNAL_AI_ENABLED=true
-   NH_PARSER_SERVICES_ENABLED=true
-   OPENAI_API_KEY=sk-...
-   OPENAI_MODEL=gpt-4.1-mini
-   OPENAI_BASE_URL=https://api.openai.com/v1
-   OPENAI_TIMEOUT_SECONDS=120
-   OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-   EMBEDDING_DIMENSIONS=1536
-   ```
+- 키워드(OpenSearch)+벡터(Qdrant) 검색이 모두 성공해야 근거를 반환하며, 실패 시 `SEARCH_UNAVAILABLE`로 명시(우회 없음).
+- key 부재·기능 off 시 성공으로 가장하지 않고 review를 **fail-closed** 처리.
+- 폐쇄망 vLLM 전환: `OPENAI_BASE_URL`/`EMBEDDING_BASE_URL`을 내부 endpoint로. 임베딩 **endpoint·model·dimension** 중 하나라도 바뀌면 기존 벡터와 호환되지 않으므로 새 `QDRANT_COLLECTION`을 지정하고 전체 재색인이 필요합니다.
 
-   `NH_PARSER_SERVICES_ENABLED`는 Compose 내부 Parser/OCR 서비스만 제어하며, 외부 LLM을 사용하지 않는 OCR·HWP/HWPX 정규화에도 `true`로 유지합니다. `NH_EXTERNAL_AI_ENABLED`는 OpenAI·embedding·RAG의 opt-in입니다.
+</details>
 
-2. 서비스를 다시 빌드·기동하고 승인된 규정·가이드라인을 적재합니다.
+<details>
+<summary><b>문제 해결</b></summary>
 
-   ```bash
-   scripts/local-dev.sh up
-   scripts/ingest-reference-regulations.sh
-   ```
+- **포트 충돌:** `.env.dev`의 `FRONTEND_PORT`/`BACKEND_PORT` 변경. 프론트/백 포트 변경 시 `CORS_ALLOWED_ORIGINS`·`VITE_API_BASE_URL`도 함께.
+- **OpenSearch 미기동(Linux):** `sudo sysctl -w vm.max_map_count=262144` 후 재실행.
+- **DB/DSN 불일치:** `POSTGRES_DB` 변경 시 `NH_DB_RUNTIME_URL`·`NH_DB_MIGRATION_URL`의 database 이름도 동일하게.
+- **unhealthy:** `scripts/local-dev.sh status` · `logs <service>`로 확인.
+- **처음부터 재현:** `scripts/local-dev.sh reset`.
 
-   적재기는 `docs/규정 및 가이드라인/` 아래의 PDF/HWP/HWPX를 읽고, 표준·버전·근거 chunk를 만든 뒤 **OpenAI-compatible embedding과 Qdrant + OpenSearch hybrid index**에 재색인합니다. HWP/HWPX도 광고 검토와 같은 `hwp-hybrid` 계약을 사용합니다. 동일 파일은 SHA-256으로 식별되어 재실행 시 표준을 중복 생성하지 않고 재색인만 수행합니다.
+</details>
 
-3. <http://localhost:5173>에서 `test@ihopper.co.kr`로 로그인한 뒤 광고 등록 → PDF/PNG/JPEG/HWP/HWPX 파일 업로드 → AI 검토 요청 → 검토 결과 요약/항목/근거를 확인합니다. 같은 계정으로 **기준자료 관리**에서 법령·가이드라인·내부 기준도 등록할 수 있습니다. `admin@ihopper.co.kr`는 시스템 관리자 기능 확인에 사용합니다. 바로 사용할 수 있는 승인 샘플은 `docs/광고예시/` 아래의 예금성·대출성 파일입니다.
+---
 
-worker는 OpenAI Responses API를 **구조화 검토 판단**에만, OpenAI-compatible `/embeddings` API를 근거 검색에 사용하며 provider 원문 응답이나 API key는 저장하지 않습니다. 문서 추출은 private parser/OCR 서비스가 담당합니다. 키워드(OpenSearch)와 벡터(Qdrant) 검색은 모두 성공해야 근거를 반환하며, 어느 하나라도 비정상이면 DB scan으로 우회하지 않고 `SEARCH_UNAVAILABLE`을 결과에 명시합니다. 구조화 판단 또는 임베딩 key가 없거나 기능이 꺼져 있으면 성공으로 가장하지 않고 review를 fail-closed 처리합니다. 실제 provider 품질은 PR CI의 성공을 의미하지 않으므로 수동 검증 증거로만 취급합니다.
+## 환경 변수
 
-> **실제 Parser/OCR 서비스:** `scripts/local-dev.sh up`은 private Compose 서비스 `opendataloader-pdf`, `paddleocr`, `rhwp`, `document-processor`를 함께 기동합니다. PDF/복합 PDF는 OpenDataLoader PDF, 이미지·스캔 PDF는 PaddleOCR를 사용합니다. HWP/HWPX는 rhwp 원문 텍스트와 document-processor의 문단·표 구조를 `HwpHybridParserAdapter`가 정렬해 `parserName=hwp-hybrid`인 `NormalizedDocument` v1 하나만 후속 검토에 전달합니다. 개발자가 별도 엔진을 수동으로 띄울 필요는 없습니다. 첫 기동은 이미지 build, PaddleOCR 한국어 모델, document-processor Python 3.13/OpenJDK 25 이미지 준비 때문에 시간이 걸릴 수 있습니다. 각 엔진은 개발 환경에서만 `127.0.0.1:8091`~`8094`로 노출되며, 운영에서는 Compose 네트워크 내부만 사용합니다. 구조 서비스 장애가 설정된 3회 시도 후에도 계속되면 rhwp 텍스트를 버리지 않고 확인 필요 warning과 낮은 구조 신뢰도로 완료합니다.
+환경별 예제 파일을 복사해 사용하며, 실제 값이 든 `.env*`는 Git에 커밋하지 않습니다.
 
-#### 폐쇄망/vLLM 전환
+| 파일 | 환경 | 용도 |
+| --- | --- | --- |
+| `.env.dev.example` | 로컬 / 공용 dev VM | 로컬 개발·dev 배포. 포트·bind·parser/AI opt-in 포함 |
+| `.env.prod.example` | production | 운영 기준. 실제 값은 runner 밖 권한 제한 경로(`0600`)에 보관 |
+| `.env.example` | 공통 참고 | 공통 키 레퍼런스 |
 
-생성 LLM과 임베딩은 각각 endpoint/model을 바꿀 수 있습니다. vLLM은 OpenAI-compatible `/v1/responses`와 `/v1/embeddings` API를 제공하므로, 지원되는 생성·임베딩 모델을 별도 서버로 서빙한 뒤 다음처럼 설정합니다. 내부 HTTP endpoint는 명시적으로만 허용합니다.
+- **공용 개발 VM**은 `compose.prod.yml` runtime(Nginx 정적 번들 + production image)으로 실행하고, Vite/hot-reload인 `compose.dev.yml`은 **로컬 전용**입니다.
+- reverse proxy가 VM 사설망에서 접속하면 `FRONTEND_BIND_ADDRESS=<VM 사설 IP>` 설정. backend·DB·parser 포트는 노출하지 않습니다.
+- 주요 그룹: DB(`NH_DB_*`,`POSTGRES_*`) · 인증(`JWT_SECRET`,`CORS_ALLOWED_ORIGINS`,`REFRESH_COOKIE_SECURE`) · 스토리지(`MINIO_*`,`*_BUCKET`) · 검색(`QDRANT_COLLECTION`,`OPENSEARCH_INDEX`) · Redis(`REDIS_*_PREFIX`) · AI opt-in(`NH_EXTERNAL_AI_ENABLED`,`OPENAI_*`,`EMBEDDING_*`).
 
-```dotenv
-OPENAI_BASE_URL=http://vllm-llm.internal:8000/v1
-OPENAI_MODEL=your-generation-model
-EMBEDDING_BASE_URL=http://vllm-embedding.internal:8001/v1
-OPENAI_EMBEDDING_MODEL=your-embedding-model
-EMBEDDING_API_KEY=EMPTY
-EMBEDDING_DIMENSIONS=<served-model-vector-dimension>
-EMBEDDING_ALLOW_INSECURE_HTTP=true
-```
+상세 기준: [프로젝트 규칙 §8 개발 환경·인프라](docs/project-rules.md) / [ADR-0063 Compose 구성](docs/adr/ADR-0063-compose-base-dev-prod-override-policy.md).
 
-임베딩 model·dimension·collection을 바꾸면 기존 Qdrant vector와 호환되지 않습니다. 새 `QDRANT_COLLECTION`을 지정하고 기준자료를 다시 적재/재색인해야 합니다. 개발 예제의 기본 collection은 이전 3차원 fixture 데이터를 재사용하지 않도록 `_v2`입니다.
+---
 
-### 7. 로그, 중지, 완전 초기화
+## 배포 구조
+
+Git이 코드와 배포 구성의 단일 원천입니다. 배포는 self-hosted Compose CD로 수행합니다([ADR-0080](docs/adr/ADR-0080-self-hosted-runner-compose-cd-policy.md), [runner 가이드](docs/self-hosted-runner-guide.md)).
+
+| 환경 | 트리거 | runner | 대상 |
+| --- | --- | --- | --- |
+| **development** | `dev` push → Product CI 성공 시 `workflow_run` (트리거 구성 완료, 아래 상태 참고) | `nh-ad-deploy-dev` | 공용 dev VM → **<https://nh-compliance.ihopper.co.kr>** |
+| **production** | 현재 운영하지 않음 (폐쇄망 반입 절차·artifact 범위는 Q77 보류) | `nh-ad-deploy-prod`(예정) | **NH농협은행 내부망(폐쇄망)** |
+
+- 결정적 CI·문서 동기화·외부 AI 평가는 GitHub-hosted `ubuntu-latest`에서 실행합니다.
+- **dev 자동 배포 상태:** 기본 브랜치를 `dev`로 운영해 `deploy-compose.yml`의 `workflow_run` 트리거가 등록되었습니다. 다만 **`nh-ad-deploy-dev` self-hosted runner 등록과 최초 배포 성공 이후에 운영이 시작**됩니다(현재 runner 미등록·CD 실행 이력 없음). runner 등록 절차는 [배포 runner 가이드](docs/self-hosted-runner-guide.md)를 따릅니다.
+- `main`은 향후 **폐쇄망 반입 릴리스 기준선**으로 사용할 예정입니다. `dev`→`main` 병합은 운영 자동배포가 아니라 버전 태그와 반입 후보 확정을 의미하며, 오프라인 번들·SBOM·SHA-256 checksum 자동 생성과 production 배포 파이프라인은 **반입 절차 확정(Q77) 후 구현**합니다. 실제 NH 내부망 배포는 승인된 수동 반입으로 수행합니다(운영은 release tag/commit SHA만 사용, `latest` 금지).
+- **production 폐쇄망 제약:** 외부 인터넷·public 레지스트리에 접근할 수 없으므로 생성 LLM·임베딩은 내부 vLLM 등 폐쇄망 endpoint로 전환하고([2단계 opt-in 참고](#온보딩)), 이미지·의존성은 사전 반입한 내부 자산만 사용합니다. 세부 전략은 ADR 후보(Q76 결정·Q77 보류)로 정리 중입니다.
+
+---
+
+## 개발 기여
+
+### 이슈·작업 관리
+- **GitHub Issue**로 작업 이력을 관리하는 것을 팀 운영 방침으로 합니다. 기능·수정·문서·운영 작업은 가급적 착수 전 Issue로 등록해 논의·결정·변경 이력을 남깁니다.
+- **Notion 칸반 보드**에는 해당 Issue **링크**를 카드에 남겨 진행 상황(스프린트·Epic·마일스톤)을 관리합니다. 보드 구성은 [개발 일정 및 Notion 칸반](docs/development-schedule-and-notion-kanban.md)을 따릅니다.
+- 브랜치·PR에 Issue를 연결하는 것을 권장합니다: 브랜치 `<type>/<issue-number>-<short-description>` 또는 `<type>/<short-description>`, PR 본문에 `#<issue-number>` 참조. (명명 규칙 원문은 [프로젝트 규칙 §11.3](docs/project-rules.md))
+- 착수 전 관련 명세와 Accepted ADR을 확인합니다.
+
+### 브랜치·PR 흐름
+
+| 변경 | 흐름 | 병합 |
+| --- | --- | --- |
+| 기능·수정 | `feature/*` → `dev` | Squash |
+| 문서 | `docs/*` → `dev` | Squash |
+| 릴리즈 | `dev` → `main` (+ `vX.Y.Z` tag) | Merge commit |
+| 긴급 | `hotfix/*` → `main` → `dev` 역반영 | Merge commit |
+
+- `main`·`dev`는 보호 대상 브랜치 — **팀 정책상** 직접 push·force push·삭제 금지, PR + CI + 최소 1명(권장 2명) 승인 필수. (실제 GitHub branch protection 적용 여부는 저장소 플랜·설정에 따름)
+- 브랜치: `<type>/<short-description>`. 커밋: `<type>: <한글 요약>` (Conventional Commits, type: `feat|fix|hotfix|refactor|docs|test|chore|ci`).
+- PR 본문은 [`pull_request_template.md`](.github/pull_request_template.md) 체크리스트(API 계약·문서 정합성·AI 산출물·배포/롤백)를 채웁니다.
+
+### 완료 전 검사
 
 ```bash
-# 전체 또는 특정 서비스 로그
-scripts/local-dev.sh logs
-scripts/local-dev.sh logs backend worker
-
-# 컨테이너만 중지하고 로컬 데이터 volume은 보존
-scripts/local-dev.sh down
-
-# 컨테이너와 로컬 volume을 삭제한 뒤 빈 DB부터 다시 기동
-scripts/local-dev.sh reset
-```
-
-`reset`은 해당 `.env.dev`의 `COMPOSE_PROJECT_NAME`에 속한 PostgreSQL, MinIO, Redis, Qdrant, OpenSearch 로컬 데이터를 삭제합니다. 공유 프로젝트 이름을 사용하지 않습니다.
-
-### 문제 해결
-
-- **포트가 이미 사용 중임**: `.env.dev`의 `FRONTEND_PORT`, `BACKEND_PORT` 등 충돌 포트를 변경합니다. frontend/backend 포트를 바꿀 때는 `CORS_ALLOWED_ORIGINS`와 `VITE_API_BASE_URL`도 함께 변경합니다.
-- **DB/DSN 일치 오류**: `POSTGRES_DB`를 변경했다면 `NH_DB_RUNTIME_URL`과 `NH_DB_MIGRATION_URL` 마지막 database 이름도 동일하게 변경합니다.
-- **OpenSearch가 기동하지 않음**: Linux host에서 `vm.max_map_count`가 낮다면 `sudo sysctl -w vm.max_map_count=262144` 적용 후 다시 실행합니다.
-- **서비스가 unhealthy임**: `scripts/local-dev.sh status`와 `scripts/local-dev.sh logs <service>`로 원인을 확인합니다.
-- **DB schema 또는 seed를 처음부터 재현해야 함**: `scripts/local-dev.sh reset`을 실행합니다.
-- **외부 AI 기능을 기대했으나 동작하지 않음**: 기본 로컬 경로는 고정 fixture와 provider-free adapter만 사용합니다. 실제 외부 엔진 평가는 별도의 승인된 수동 workflow와 credential이 필요합니다.
-
-## 개발 도구 및 문서 거버넌스
-
-PoC의 문서 거버넌스는 AI 도구별 lifecycle hook을 필수 설치하지 않습니다. `AGENTS.md`, `CLAUDE.md`, Skills는 작업 지침으로 사용하고, Git pre-commit/pre-push와 CI를 공통 강제 계층으로 사용합니다. 상세 기준은 [ADR-0076](docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md)을 따릅니다.
-
-개발 중에는 다음 명령으로 변경 영향과 정합성을 직접 확인할 수 있습니다.
-
-```bash
-python3 -m scripts.doc_guard impact --scope working
+# 문서 거버넌스 (필수) — Git hook과 CI가 동일 기준으로 강제
+python3 -m scripts.doc_guard impact --scope working     # 동기화 대상 확인
 scripts/check-doc-consistency.sh
 python3 -m scripts.doc_guard validate --scope working
-```
 
-정책 설정과 문서 템플릿은 [문서 거버넌스 가이드](governance/README.md)를 기준으로 사용합니다.
-
-로컬에서 CI와 가까운 품질 검사를 직접 실행하려면 다음 의존성을 설치한 뒤 검사합니다.
-
-```bash
-uv sync --all-packages --dev
-npm ci --ignore-scripts
-npm --prefix apps/frontend ci
-
-uv run ruff check .
-uv run mypy
+# CI와 가까운 품질 검사 (최초 1회 의존성 설치 필요)
+uv sync --all-packages --dev && npm ci --ignore-scripts && npm --prefix apps/frontend ci
+uv run ruff check . && uv run mypy
 uv run python -m pytest -m "not external_ai and not slow"
 npm run openapi:check
-npm --prefix apps/frontend run lint
-npm --prefix apps/frontend run typecheck
-npm --prefix apps/frontend run test
-npm --prefix apps/frontend run build
+npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck && npm --prefix apps/frontend run test && npm --prefix apps/frontend run build
 ```
 
-## 문서 참조 가이드
+전체 규칙은 [프로젝트 규칙](docs/project-rules.md)의 §10 CI/CD · §11 브랜치·PR · §12 ADR을 따릅니다.
 
-| 문서 | 주요 내용 | 사람이 볼 때 | AI가 볼 때 |
-| --- | --- | --- | --- |
-| [요구사항 정의서](docs/requirements-definition.md) | 프로젝트 목적, 적용 범위, 사용자, 업무/기능/데이터/비기능 요구사항, 수용 기준 | 무엇을 만들어야 하는지 확인 | 요구사항 변경, 기능 우선순위 판단, 누락 요구사항 검토의 기준 |
-| [기능명세서](docs/functional-specification.md) | 화면별 기능, 입력값, 처리 규칙, 출력값, 예외 처리, 권한, 수용 기준 | 기능 동작 방식을 상세 확인 | 구현 단위, 상태 전이, 예외 처리, 테스트 조건 도출의 기준 |
-| [화면설계서](docs/screen-specification.md) | 메뉴 구조, 공통 화면 구성, 화면별 UI 구성, 버튼, 이동 흐름, 팝업, 메시지 | 사용자가 보는 화면과 흐름 확인 | 프론트엔드 화면/컴포넌트/라우팅 구현 기준 |
-| [프론트엔드 구현 감사 및 개편 기준](docs/frontend-implementation-audit.md) | 화면기획 대비 구현 감사, 공통 UX 개편 범위, 로컬 화면 캡처 검증 | 현재 프론트엔드 구현 품질과 보완 기준 확인 | 화면 개편과 시각 회귀 검증의 보조 기준 |
-| [화면-API 매핑표](docs/screen-api-mapping.md) | 화면별 호출 API, 호출 시점, 요청/응답값, 사용자 액션별 API 흐름 | 화면과 백엔드 연결 방식 확인 | 프론트엔드-백엔드 연동, API 호출 누락 검토 기준 |
-| [API 명세서](docs/api-specification.md) | API 설계 원칙, 공통 규격, 엔드포인트, 요청/응답 모델, 호출 흐름 | 외부/내부 연동 규격 확인 | 백엔드 라우터, DTO, 클라이언트 타입, API 테스트 작성 기준 |
-| [API 계약 동기화 기준](docs/api-contract-sync-policy.md) | OpenAPI, API 명세, 구현, 생성 타입 간 원천과 동기화 절차 | API 계약 변경 순서와 검증 기준 확인 | 계약 변경 시 함께 수정할 파일과 CI Gate 판단 기준 |
-| [DB 명세서](docs/database-specification.md) | ERD 개요, 테이블, 인덱스, 보관 정책, Qdrant/OpenSearch 설계 | 저장 데이터와 관계 확인 | 스키마, 마이그레이션, 쿼리, 검색 저장소 구현 기준 |
-| [테스트케이스](docs/test-cases.md) | 기능별 정상/예외/권한/비기능/E2E 테스트, 결함 분류, 완료 기준 | 검수 기준과 테스트 범위 확인 | 단위/통합/E2E 테스트 케이스 생성과 회귀 검증 기준 |
-| [프로젝트 규칙](docs/project-rules.md) | 개발 방식, AI 활용 기준, 저장소 구성, 문서 관리, TDD, CI/CD, 브랜치/PR, ADR | 팀 개발 규칙과 운영 기준 확인 | 코드 작성 방식, 문서 변경 방식, AI 사용 제한, 품질 기준 준수 |
-| [GitHub-hosted CI·Self-hosted 배포 가이드](docs/self-hosted-runner-guide.md) | CI 실행 환경, deployment runner label, GitHub Environment, Compose CD, rollback 절차 | GitHub-hosted CI와 내부망 배포 runner를 구성 | CI·배포 권한·비밀값·배포 경계 확인 |
-| [의사결정 필요사항](docs/adr-candidates.md) | ADR 관리 기준, 개발/AI/프론트엔드/백엔드/DB/RAG/인프라/보안 관련 미결정 항목 | 아직 결정되지 않은 항목 확인 | 구현 전 의사결정 필요 여부와 ADR 후보 식별 |
-| [개발 일정 및 Notion 칸반 보드 구성안](docs/development-schedule-and-notion-kanban.md) | 개발 로드맵, 스프린트, 칸반 속성, Epic, 마일스톤, 리스크 | 일정과 작업 관리 방식 확인 | 작업 분해, 우선순위, 마일스톤 기반 진행 계획 수립 |
-| [참조 레포지토리](docs/reference-repositories.md) | 참고할 외부/내부 레포지토리 목록 | 유사 구현이나 참고 자료 확인 | 구현 패턴, 기술 선택, 샘플 구조 탐색의 출발점 |
-| [PoC KPI 산식 기준표](docs/poc-kpi-formulas.md) | KPI 분모·분자, 집계 단위, 반올림 기준 | PoC 평가 결과 산정 방식 확인 | 평가 쿼리와 집계 테스트의 공식 산식 기준 |
-| [PoC 평가 제외 기준표](docs/poc-evaluation-exclusion-criteria.md) | OCR 판독 불가 등 평가 제외 사유와 승인 기준 | 평가 제외 여부와 근거 확인 | KPI 분모 제외 로직과 감사 기록 검증 기준 |
-| [위험도 산정 기준표](docs/risk-assessment-criteria.md) | 위험도 등급, 점수, 사유 코드와 판정 우선순위 | 검토 결과의 위험도 판단 기준 확인 | Rule/RAG/LLM 결과를 최종 위험도로 변환하는 기준 |
+---
 
-## 작업 목적별 우선 참조 순서
+## 문서 & 거버넌스
 
-| 작업 | 우선 확인 문서 |
+`docs/`가 명세 원천이며, `main`의 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다.
+문서·구현 변경 시 같은 작업 단위에서 관련 명세를 함께 갱신합니다([문서 거버넌스 가이드](governance/README.md), [ADR-0076](docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md)).
+
+### 문서 지도
+
+| 문서 | 주요 내용 |
 | --- | --- |
-| 신규 기능 정의 | 요구사항 정의서 -> 기능명세서 -> 테스트케이스 |
-| 화면 구현/수정 | 화면설계서 -> 화면-API 매핑표 -> 기능명세서 |
-| API 구현/수정 | API 명세서 -> 화면-API 매핑표 -> DB 명세서 -> 테스트케이스 |
-| DB/검색 구조 변경 | DB 명세서 -> API 명세서 -> 의사결정 필요사항 |
-| AI 검토 로직/RAG 구현 | 요구사항 정의서 -> 기능명세서 -> DB 명세서 -> 테스트케이스 |
-| 테스트 작성/검수 | 테스트케이스 -> 기능명세서 -> API 명세서 |
-| 개발 방식/품질 기준 확인 | 프로젝트 규칙 -> 의사결정 필요사항 |
-| 일정/작업 분해 | 개발 일정 및 Notion 칸반 보드 구성안 -> 요구사항 정의서 |
+| [요구사항 정의서](docs/requirements-definition.md) | 목적·범위·사용자·업무/기능/데이터/비기능 요구사항·수용 기준 |
+| [기능명세서](docs/functional-specification.md) | 화면별 기능·입출력·처리 규칙·예외·권한 |
+| [화면설계서](docs/screen-specification.md) | 메뉴·화면 구성·이동 흐름·팝업·메시지 |
+| [화면-API 매핑표](docs/screen-api-mapping.md) | 화면별 호출 API·시점·요청/응답 |
+| [API 명세서](docs/api-specification.md) | 설계 원칙·공통 규격·엔드포인트·모델 |
+| [API 계약 동기화 기준](docs/api-contract-sync-policy.md) | OpenAPI·명세·구현·생성 타입 동기화 절차 |
+| [DB 명세서](docs/database-specification.md) | ERD·테이블·인덱스·보관 정책·Qdrant/OpenSearch |
+| [테스트케이스](docs/test-cases.md) | 정상/예외/권한/비기능/E2E·완료 기준 |
+| [프로젝트 규칙](docs/project-rules.md) | 개발 방식·AI 활용·저장소·문서·TDD·CI/CD·브랜치/PR·ADR |
+| [CI·배포 가이드](docs/self-hosted-runner-guide.md) | CI 실행 환경·배포 runner·Environment·rollback |
+| [의사결정 필요사항](docs/adr-candidates.md) | ADR 기준·미결정 항목 |
+| [개발 일정 및 Notion 칸반](docs/development-schedule-and-notion-kanban.md) | 로드맵·스프린트·Epic·마일스톤·리스크 |
+| [위험도 산정 기준표](docs/risk-assessment-criteria.md) · [KPI 산식](docs/poc-kpi-formulas.md) · [평가 제외 기준](docs/poc-evaluation-exclusion-criteria.md) · [참조 레포](docs/reference-repositories.md) | PoC 평가·참고 자료 |
 
-활성 Markdown 문서의 파일명은 영문 kebab-case를 사용합니다. 문서 화면에 표시되는 한글 제목과 파일명을 분리하고, 파일 경로를 바꾸면 저장소 전체의 링크와 자동화 설정을 같은 변경에서 갱신합니다.
+**작업 목적별 우선 참조**
+
+| 작업 | 우선 확인 |
+| --- | --- |
+| 신규 기능 정의 | 요구사항 → 기능명세 → 테스트케이스 |
+| 화면 구현/수정 | 화면설계서 → 화면-API 매핑표 → 기능명세 |
+| API 구현/수정 | API 명세 → 화면-API 매핑표 → DB 명세 → 테스트케이스 |
+| DB/검색 구조 변경 | DB 명세 → API 명세 → 의사결정 필요사항 |
+| AI 검토/RAG | 요구사항 → 기능명세 → DB 명세 → 테스트케이스 |
+| 테스트 작성/검수 | 테스트케이스 → 기능명세 → API 명세 |
+
+> 활성 Markdown 파일명은 영문 kebab-case. 파일 경로 변경 시 저장소 전체의 링크·자동화를 같은 변경에서 갱신합니다.
+
+---
+
+## 현재 구현 상태
+
+M0~M8 provider-free thin slice가 실제 backend/worker/frontend 경로와 결정적 fixture 기준으로 구현·검증되었습니다.
+Provider-free 성공은 실제 OCR/RAG/LLM 품질, 고객사 검증, 시연 배포, 결함 0건을 대신 증명하지 않으며, 해당 항목은 증거가 생길 때까지 일정/칸반에서 `Backlog`/`Blocked`로 유지합니다.
+
+| 구분 | 기준 |
+| --- | --- |
+| provider-free 자동 Gate | `.github/workflows/release-readiness.yml`, `governance/goal-manifests/G009-m8-release.json`, 고정 fixture E2E |
+| 실제 외부 AI 수동 평가 | `.github/workflows/external-ai-evaluation.yml` 승인 `workflow_dispatch`(credential + `external_ai` marker) |
+| Production recovery | `bash scripts/release-smoke.sh --env-file .env.prod.example --fresh-project --with-restart-and-outages` |
+
+---
 
 ## 원본 자료
 
-`docs/규정 및 가이드라인/`, `docs/광고예시/`, `docs/계획서/`에는 광고심의 규정, 예시 광고물, 사업 계획 관련 원본 파일이 포함되어 있습니다. 이 자료들은 요구사항과 기능명세를 검증하거나 AI 검토 기준을 보강할 때 참고합니다.
+`docs/규정 및 가이드라인/`, `docs/광고예시/`, `docs/계획서/`에 광고심의 규정·예시 광고물·사업 계획 원본이 있습니다.
+요구사항·기능명세 검증과 AI 검토 기준 보강에 참고합니다.
