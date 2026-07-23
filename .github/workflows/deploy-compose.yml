@@ -25,6 +25,8 @@ permissions:
   contents: read
 
 jobs:
+  # Development: SSH release deploy to the shared dev VM. Auto after Product CI on dev,
+  # or manual workflow_dispatch (environment=development).
   deploy-development:
     if: >-
       (github.event_name == 'workflow_run' &&
@@ -33,7 +35,7 @@ jobs:
         github.event.workflow_run.head_branch == 'dev' &&
         github.event.workflow_run.head_repository.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'development')
-    runs-on: [self-hosted, linux, x64, nh-ad-deploy-dev]
+    runs-on: [self-hosted, linux, x64, org-cg-rookies, org-deploy]
     environment: development
     concurrency:
       group: nh-ad-development-compose
@@ -43,21 +45,55 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Validate self-hosted deployment prerequisites
-        run: scripts/ci/verify_self_hosted_runner.sh --deployment
-
-      - name: Deploy development Compose stack
+      - name: Deploy to development VM over SSH
         env:
-          DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE }}
-        run: scripts/deploy-compose.sh --environment dev
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not configured" >&2; exit 1; }
+          case "$DEPLOY_PATH" in change|"") echo "DEPLOY_PATH is not configured" >&2; exit 1;; esac
+          eval "$(ssh-agent -s)"
+          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" | ssh-add - >/dev/null
+          export DEPLOY_SHA="$(git rev-parse HEAD)"
+          scripts/deploy-ssh.sh
 
+      - name: Notify Mattermost (success)
+        if: success()
+        env:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
+        run: |
+          [ -n "${MATTERMOST_WEBHOOK_URL:-}" ] || exit 0
+          text=":white_check_mark: **dev 배포 성공** — \`${GITHUB_SHA:0:8}\` → ${{ vars.DEPLOY_HOST }} ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))"
+          jq -n --arg t "$text" '{text:$t}' | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$MATTERMOST_WEBHOOK_URL" >/dev/null
+
+      - name: Notify Mattermost (failure)
+        if: failure()
+        env:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
+        run: |
+          [ -n "${MATTERMOST_WEBHOOK_URL:-}" ] || exit 0
+          text=":x: **dev 배포 실패** — \`${GITHUB_SHA:0:8}\` → ${{ vars.DEPLOY_HOST }} ([run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}))"
+          jq -n --arg t "$text" '{text:$t}' | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$MATTERMOST_WEBHOOK_URL" >/dev/null
+
+  # Production: DORMANT. NH internal closed-network deployment is a separate manual
+  # import (ADR-0083); this job is preserved for a possible future external prod
+  # server. It never runs automatically and requires an explicit workflow_dispatch
+  # with environment=production and confirmation=DEPLOY_PRODUCTION, plus production
+  # environment variables (currently placeholders).
   deploy-production:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.environment == 'production' &&
       inputs.confirmation == 'DEPLOY_PRODUCTION'
-    runs-on: [self-hosted, linux, x64, nh-ad-deploy-prod]
+    runs-on: [self-hosted, linux, x64, org-cg-rookies, org-deploy]
     environment: production
     concurrency:
       group: nh-ad-production-compose
@@ -67,11 +103,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Validate self-hosted deployment prerequisites
-        run: scripts/ci/verify_self_hosted_runner.sh --deployment
-
-      - name: Deploy production Compose stack
+      - name: Deploy to production over SSH
         env:
-          DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE }}
-        run: scripts/deploy-compose.sh --environment prod
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          COMPOSE_PROJECT: nh-ad-prod
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" || { echo "production DEPLOY_HOST is not configured" >&2; exit 1; }
+          case "$DEPLOY_PATH" in change|"") echo "production DEPLOY_PATH is not configured" >&2; exit 1;; esac
+          eval "$(ssh-agent -s)"
+          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" | ssh-add - >/dev/null
+          export DEPLOY_SHA="$(git rev-parse HEAD)"
+          scripts/deploy-ssh.sh

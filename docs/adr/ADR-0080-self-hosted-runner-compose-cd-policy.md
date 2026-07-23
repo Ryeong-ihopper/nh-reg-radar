@@ -5,7 +5,9 @@
 | 상태 | Accepted |
 | 날짜 | 2026-07-21 |
 | 관련 문서 | 프로젝트 규칙, 테스트케이스, Docker Compose 운영 가이드 |
-| 관련 ADR | ADR-0063, ADR-0064, ADR-0077 |
+| 관련 ADR | ADR-0063, ADR-0064, ADR-0077, ADR-0082, ADR-0083 |
+
+> 개정(2026-07-23): 인프라팀의 조직 공유 러너 도입에 따라 development 배포 실행 방식을 **runner-local Docker에서 조직 공유 러너(`org-cg-rookies`, `org-deploy`)의 SSH release 배포로 변경**한다. 러너가 `DEPLOY_HOST`에 SSH 접속해 `DEPLOY_PATH/releases/<sha>`에 배포하고 health 확인 후 `app` 심볼릭 링크를 교체한다. 결정적 CI·Build는 `org-ci`/`org-build`로 이전(비용·인프라 관리)한다. production 자동 배포 job은 비활성 보존하며 실제 운영은 NH 폐쇄망 수동 반입(ADR-0083)을 사용한다. 아래 원문의 runner-local·`DEPLOY_ENV_FILE` 서술은 이 개정으로 대체된다. 현행 기준은 project-rules §10.4.1과 `deploy-compose.yml`/`scripts/deploy-ssh.sh`다.
 
 ## 배경
 

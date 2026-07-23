@@ -4,30 +4,33 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.2 |
+| 현행 버전 | v1.3 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.3 | 2026-07-23 | 조직 공유 러너(org-ci/org-build/org-deploy) 도입과 SSH release 배포 전환을 반영해 label 표를 갱신하고 후속 전면 개정 범위를 명시 |
 | v1.2 | 2026-07-23 | `workflow_run` development 자동 배포에 push·dev 브랜치·동일 저장소 source 가드 조건을 명시 |
 | v1.1 | 2026-07-22 | 결정적 CI·문서 동기화·수동 외부 AI 평가를 GitHub-hosted runner로 전환하고 배포 runner만 self-hosted로 유지 |
 | v1.0 | 2026-07-21 | Self-hosted CI·Compose CD runner 등록, Environment 설정, 배포·rollback 절차를 최초 작성 |
 
 ## 목적
 
-GitHub-hosted runner에서 결정적 검증을 실행하고, 검증된 `dev` revision만 내부망 development Compose 환경에 배포한다. 이 문서는 deployment runner 등록과 GitHub 설정의 운영 절차를 제공한다. 비밀값 자체는 GitHub, 문서, 로그에 기록하지 않는다.
+검증된 `dev` revision을 조직 공유 self-hosted runner에서 **SSH release 방식**으로 development VM에 배포한다. 이 문서는 runner label·GitHub 설정·배포 흐름의 운영 절차를 제공한다. 비밀값 자체는 GitHub, 문서, 로그에 기록하지 않는다.
+
+> 개정 예정: 인프라팀의 조직 공유 러너(`org-ci`/`org-build`/`org-deploy`) 도입과 SSH release 배포로 전환되어(project-rules §10.4.1, `deploy-compose.yml`, `scripts/deploy-ssh.sh` 기준) 아래 일부 절 중 runner-local·`DEPLOY_ENV_FILE` 서술은 후속 전면 개정에서 정리한다. 현행 유효 기준은 §10.4.1과 워크플로다.
 
 ## Runner 분리와 label
 
 | 용도 | 필수 label | 권한 |
 | --- | --- | --- |
-| 결정적 CI | GitHub-hosted `ubuntu-latest` | checkout, Docker build/ephemeral Compose smoke. 운영 `.env` 접근 금지 |
+| 결정적 CI | `org-ci`, `large` (전환 전 GitHub-hosted `ubuntu-latest`) | checkout, Docker build/ephemeral Compose smoke. 운영 `.env` 접근 금지 |
+| Build | `org-build`, `large` | 이미지 build·push |
 | 문서 동기화 | GitHub-hosted `ubuntu-latest` | Notion environment secret만 접근 |
 | 실제 외부 AI 평가 | GitHub-hosted `ubuntu-latest` | 승인된 external AI environment secret만 접근 |
-| 개발 배포 | `self-hosted`, `linux`, `x64`, `nh-ad-deploy-dev` | development Docker daemon과 development 환경 파일만 접근 |
-| 운영 배포 | `self-hosted`, `linux`, `x64`, `nh-ad-deploy-prod` | production Docker daemon과 production 환경 파일만 접근 |
+| 개발/운영 배포 | `self-hosted`, `linux`, `x64`, `org-cg-rookies`, `org-deploy` | `DEPLOY_SSH_KEY`로 `DEPLOY_HOST`에 SSH 접속, 대상 호스트의 `DEPLOY_PATH`·`env/.env.dev`만 사용 (운영 job은 비활성 보존) |
 
 GitHub-hosted CI는 deployment runner의 OS 계정·Docker daemon·환경 파일에 접근하지 않는다.
 
