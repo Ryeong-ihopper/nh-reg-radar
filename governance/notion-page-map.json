@@ -589,25 +589,25 @@
     {
       "source_path": "docs/adr/ADR-0080-self-hosted-runner-compose-cd-policy.md",
       "section": "adr",
-      "page_id": null,
+      "page_id": "3a61847f-058f-811e-b1da-c36de72751e0",
       "state": "active"
     },
     {
       "source_path": "docs/adr/ADR-0081-parser-service-and-external-ai-activation-separation.md",
       "section": "adr",
-      "page_id": null,
+      "page_id": "3a61847f-058f-8139-9664-f73805ce8c8d",
       "state": "active"
     },
     {
       "source_path": "docs/adr/ADR-0082-development-default-branch-dev.md",
       "section": "adr",
-      "page_id": null,
+      "page_id": "3a61847f-058f-816e-965c-e14cda68dcfd",
       "state": "active"
     },
     {
       "source_path": "docs/adr/ADR-0083-development-notion-sync-source-dev.md",
       "section": "adr",
-      "page_id": null,
+      "page_id": "3a61847f-058f-8103-be7b-fab3d85fa6e1",
       "state": "active"
     },
     {
