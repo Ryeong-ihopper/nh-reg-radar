@@ -5,11 +5,11 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
 MODE="${1:---publish}"
-REPOSITORY="${GITHUB_REPOSITORY:-bhjeon-cginside/nh-ad-compliance}"
+REPOSITORY="${GITHUB_REPOSITORY:-CGINSIDE-ROOKIES/nh-ad-compliance}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
-EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-97}"
-EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-16}"
-EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-81}"
+EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-102}"
+EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-17}"
+EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-85}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 PAGE_MAP_PATH="${NOTION_PAGE_MAP_PATH:-governance/notion-page-map.json}"
 SYNC_BASE_SHA="${NOTION_SYNC_BASE_SHA:-}"
@@ -49,6 +49,7 @@ list_general_files() {
     docs/poc-kpi-formulas.md \
     docs/poc-evaluation-exclusion-criteria.md \
     docs/risk-assessment-criteria.md \
+    docs/self-hosted-runner-guide.md \
     docs/frontend-implementation-audit.md
 }
 
@@ -88,7 +89,7 @@ display_title() {
   title="$(source_title "$source_path")"
   if [ "$section" = "general" ] && [ "$order" = "00" ]; then
     printf '%s\n' "$title"
-  elif [ "$source_path" = "docs/frontend-implementation-audit.md" ]; then
+  elif [ "$source_path" = "docs/frontend-implementation-audit.md" ] || [ "$source_path" = "docs/self-hosted-runner-guide.md" ]; then
     printf '참고. %s\n' "$title"
   elif [ "$section" = "general" ] || [ "$order" = "00" ] || [ "$order" = "01" ]; then
     printf '%s. %s\n' "$order" "$title"
@@ -720,6 +721,25 @@ sync_documents() {
   list_sync_paths >"$sync_file"
   validate_sync_paths "$sync_file"
 
+  if [ "$ALLOW_CREATE" = "1" ]; then
+    local create_path_count
+    local create_path
+    local create_mapped_id
+    create_path_count="$(grep -c . "$sync_file" || true)"
+    if [ -z "$SYNC_PATHS" ] || [ "$create_path_count" -ne 1 ]; then
+      echo "allow_create requires exactly one explicit NOTION_SYNC_PATHS entry (one page per run)" >&2
+      rm -rf "$temp_dir"
+      exit 1
+    fi
+    create_path="$(sed -n '1p' "$sync_file")"
+    create_mapped_id="$(jq -r --arg p "$create_path" '.pages[] | select(.source_path == $p) | .page_id // "null"' "$PAGE_MAP_PATH")"
+    if [ "$create_mapped_id" != "null" ]; then
+      echo "allow_create target is already mapped; creation not needed: $create_path" >&2
+      rm -rf "$temp_dir"
+      exit 1
+    fi
+  fi
+
   while IFS=$'\t' read -r section order source_path title; do
     if ! grep -Fxq "$source_path" "$sync_file"; then
       continue
@@ -744,9 +764,8 @@ sync_documents() {
     fi
   done < <(print_manifest)
 
-  lock_page "$adr_page_id"
-  lock_page "$root_page_id"
-
+  # Write the result artifact before final container locks so created/updated
+  # page IDs are always recoverable even if a later locking step fails.
   jq -s \
     --arg root_page_id "$root_page_id" \
     --arg root_page_url "$root_page_url" \
@@ -755,6 +774,9 @@ sync_documents() {
     --arg commit_sha "$COMMIT_SHA" \
     '{root_page_id:$root_page_id,root_page_url:$root_page_url,adr_page_id:$adr_page_id,base_commit:$base_commit,commit_sha:$commit_sha,synced_count:length,pages:.}' \
     "$result_jsonl" >notion-sync-result.json
+
+  lock_page "$adr_page_id"
+  lock_page "$root_page_id"
 
   synced_count="$(jq -r '.synced_count' notion-sync-result.json)"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then

@@ -2,7 +2,7 @@
   "version": 1,
   "root_page_id": "39c1847f-058f-80de-9c3f-d66ebe8b906f",
   "adr_page_id": "39d1847f-058f-812d-ab3c-c2673803724d",
-  "last_published_commit": "deb54fc31421aac5d5847ed660667039a0029338",
+  "last_published_commit": "4caee98ab68e9de599ec82eafbbefc6136cd93a0",
   "pages": [
     {
       "source_path": "docs/project-rules.md",
@@ -584,6 +584,36 @@
       "source_path": "docs/adr/ADR-0079-hwp-hwpx-hybrid-parser-composition.md",
       "section": "adr",
       "page_id": "3a31847f-058f-815c-96ea-dfcf013fc02f",
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0080-self-hosted-runner-compose-cd-policy.md",
+      "section": "adr",
+      "page_id": null,
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0081-parser-service-and-external-ai-activation-separation.md",
+      "section": "adr",
+      "page_id": null,
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0082-development-default-branch-dev.md",
+      "section": "adr",
+      "page_id": null,
+      "state": "active"
+    },
+    {
+      "source_path": "docs/adr/ADR-0083-development-notion-sync-source-dev.md",
+      "section": "adr",
+      "page_id": null,
+      "state": "active"
+    },
+    {
+      "source_path": "docs/self-hosted-runner-guide.md",
+      "section": "general",
+      "page_id": null,
       "state": "active"
     }
   ]

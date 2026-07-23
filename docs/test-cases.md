@@ -6,12 +6,16 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.83 |
+| 현행 버전 | v1.87 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.87 | 2026-07-23 | TC-NFR-DOC-014에 기매핑 경로 거부와 쓰기·생성 호출 전 차단 기준을 명확화 |
+| v1.86 | 2026-07-23 | Notion 단건 생성 강제(TC-NFR-DOC-014)와 생성 ID 복구 가능성(TC-NFR-DOC-015)을 코드 강제 기준으로 보강 |
+| v1.85 | 2026-07-23 | Notion 안전 단건 신규 생성(`sync_paths`) 테스트 TC-NFR-DOC-014를 추가 |
+| v1.84 | 2026-07-23 | Notion 동기화 테스트(19.18)의 기대 문서 수를 현행 102개(일반 17·ADR 85)로 갱신 |
 | v1.83 | 2026-07-23 | 검토별 Q&A migration 0010을 현행 DB head로 지정하고 CI privilege/recovery smoke의 revision 검증을 동기화 |
 | v1.82 | 2026-07-23 | S-007 폭맞춤·위치 확인 필요 하단 배치, S-010 검토별 Q&A 이력 복원·세션 재개 및 대화형 화면 회귀 기준을 추가 |
 | v1.81 | 2026-07-23 | refresh 응답의 사용자 컨텍스트와 token-only 구버전 응답에서 로그인 화면으로 안전 복귀하는 세션 복원 회귀 기준을 추가 |
@@ -855,11 +859,11 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 ## 19.18 Notion 문서 단방향 동기화 테스트
 
-이 절의 기대 개수 97개와 제외 개수 33개는 ADR-0079 추가 commit 기준이다. Git `main`이 원본이며 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
+이 절의 기대 개수 102개와 제외 개수 33개는 ADR-0083 추가 commit 기준이다. Git `main`이 원본이며 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
 
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
-| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 97개가 선택되고 일반 16개·ADR 81개로 완전히 분류되며 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
+| TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 102개가 선택되고 일반 17개·ADR 85개로 완전히 분류되며 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
 | TC-NFR-DOC-002 | page map 완전성 | manifest와 `governance/notion-page-map.json`을 비교 | 모든 source path가 중복 없이 하나의 올바른 parent/page ID에 매핑되고 누락·중복은 동기화 전에 실패함 | P0 |
 | TC-NFR-DOC-003 | 자동 실행 범위·실패 수렴 | `main`에 Markdown과 비문서 파일을 각각 push하고 중간 동기화 실패 후 다음 문서 변경을 push | 게시 대상 Markdown 변경에만 실행되고 마지막 성공 동기화 commit부터 현재까지를 선택하여 이전 실패 문서도 다음 실행에 다시 포함됨 | P0 |
 | TC-NFR-DOC-004 | 기존 페이지 증분 갱신 | 매핑된 문서 하나를 변경하고 동기화 | 기존 page ID·URL을 유지한 채 공식 CLI page update로 본문과 제목이 Git 원본으로 교체됨 | P0 |
@@ -872,6 +876,8 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-DOC-011 | mapping fail-closed | source path 누락·중복·잘못된 parent map으로 동기화 | Notion 변경 전에 실패하고 제목 추측으로 임의 페이지를 생성·삭제하지 않음 | P0 |
 | TC-NFR-DOC-012 | 수동 복구 실행 | 확인 문자열과 기준 commit을 지정해 `workflow_dispatch` 실행 | 자동 실행과 같은 검증·rollback 경로로 기준 commit 이후 변경 문서만 재동기화함 | P1 |
 | TC-NFR-DOC-013 | 신규 문서 최초 페이지 생성 | 게시 manifest에 신규 Markdown을 추가하고 page map에 `page_id: null`로 등록한 뒤 일반 동기화와 `allow_create=true` 수동 동기화를 각각 실행 | 일반 동기화는 Notion을 변경하지 않고 실패하며, 검토된 수동 실행만 페이지를 생성·검증하고 artifact에 page ID/URL을 남김 | P0 |
+| TC-NFR-DOC-014 | 안전한 단건 신규 생성 강제 | `allow_create=true`로 빈 선택·다중 `sync_paths`·이미 매핑된 경로를 각각 동기화 시도하고, 정확히 한 개의 미매핑 경로로 실행 | 빈·다중·기(旣)매핑 선택은 Notion 쓰기·생성 호출 전에 거부되고(create/update 0회), 한 실행에서 한 페이지만 생성·검증되며 각 실행 후 artifact의 page ID를 page map에 확정 | P0 |
+| TC-NFR-DOC-015 | 생성 ID 복구 가능성 | 페이지 생성 성공 후 최종 컨테이너 잠금을 Mock으로 실패시킴 | 동기화는 실패하지만 생성된 page ID가 `notion-sync-result.json` artifact에 기록되어 재실행 중복 없이 page map 확정에 사용할 수 있음 | P0 |
 
 ## 19.19 Git 협업 및 GitOps 정책 수동 테스트
 
