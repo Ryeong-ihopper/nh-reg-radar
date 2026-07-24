@@ -6,12 +6,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.87 |
+| 현행 버전 | v1.89 |
 | 기준일 | 2026-07-23 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.89 | 2026-07-23 | TC-NFR-INFRA-008에 release별 SHA 이미지 태그 기반 롤백 기준을 반영 |
+| v1.88 | 2026-07-23 | TC-NFR-INFRA-007~009를 조직 공유 러너 SSH release 배포·production 비활성 경계 기준으로 갱신 |
 | v1.87 | 2026-07-23 | TC-NFR-DOC-014에 기매핑 경로 거부와 쓰기·생성 호출 전 차단 기준을 명확화 |
 | v1.86 | 2026-07-23 | Notion 단건 생성 강제(TC-NFR-DOC-014)와 생성 ID 복구 가능성(TC-NFR-DOC-015)을 코드 강제 기준으로 보강 |
 | v1.85 | 2026-07-23 | Notion 안전 단건 신규 생성(`sync_paths`) 테스트 TC-NFR-DOC-014를 추가 |
@@ -722,9 +724,9 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-INFRA-004 | DB 최소권한 및 privileged credential 격리 | migration role 관리, app DDL, readonly write를 실제 DB에서 시도하고 workflow/config/image/artifact에서 bootstrap/admin 자격증명 주입을 검사 | 모든 금지 SQL이 거부되고 privileged 자격증명은 일회성 bootstrap/probe 경계 밖에 존재하지 않으며 runtime DSN과 migration DSN identity가 다름 | P0 |
 | TC-NFR-INFRA-005 | dev/prod namespace 격리 | env example과 rendered Compose에서 PostgreSQL DB, MinIO bucket, Qdrant collection, OpenSearch index, Redis queue/cache prefix를 비교하고 교차 환경 접근 probe 실행 | 모든 namespace 값이 환경별로 다르고 dev 자격증명으로 prod namespace 접근이 거부됨 | P0 |
 | TC-NFR-INFRA-006 | 신규 개발자 로컬 전체 기동 | `.env.dev.example`을 복사하고 `scripts/local-dev.sh up` 실행 후 migration·공통/dev seed·전체 health와 브라우저 API 주소를 확인하며 `down`/`reset`을 재실행 | 외부 provider credential 없이 두 synthetic 계정 로그인과 frontend/backend/worker 접근이 가능하고, `down`은 volume 보존, `reset`은 해당 Compose project volume만 삭제 후 빈 DB부터 재구성 | P0 |
-| TC-NFR-INFRA-007 | CI·배포 runner 사전 조건 | GitHub-hosted CI와 deployment label runner에서 workflow/preflight 실행 | CI는 `ubuntu-latest`에서 Docker Compose smoke를 격리 실행하고, deployment runner만 runner-local 절대 `DEPLOY_ENV_FILE`까지 검증하며 secret 내용은 출력하지 않음 | P0 |
-| TC-NFR-INFRA-008 | Development Compose CD | `dev` Product CI 성공 workflow_run으로 CD 실행 | 성공한 정확한 head SHA가 `nh-ad-deploy-dev`에서 checkout되고 `nh-ad-dev` Compose stack의 필수 서비스가 healthy 상태가 됨 | P0 |
-| TC-NFR-INFRA-009 | Production Compose CD 승인 경계 | production 수동 배포 요청을 confirmation 또는 environment 승인 없이 실행 | `DEPLOY_PRODUCTION` 확인 문자열, production environment 승인, `nh-ad-deploy-prod` runner가 모두 없으면 production 배포 job이 실행되지 않음 | P0 |
+| TC-NFR-INFRA-007 | 배포 runner·secret 경계 | 조직 공유 배포 러너(`org-cg-rookies`, `org-deploy`)에서 배포 job 실행 | 배포 job만 `DEPLOY_SSH_KEY`로 `DEPLOY_HOST`에 접속하고, GitHub-hosted CI는 배포 secret·대상 호스트에 접근하지 않으며 secret 내용은 로그에 출력되지 않음 | P0 |
+| TC-NFR-INFRA-008 | Development SSH release 배포 | `dev` Product CI 성공 workflow_run(또는 development 수동 dispatch)으로 CD 실행 | 성공한 정확한 head SHA가 `DEPLOY_HOST`의 `releases/<sha>`에 동기화되고 `nh-ad-dev` Compose(`compose.yml`+`compose.prod.yml`)가 healthy가 된 뒤에만 `app` 심볼릭 링크가 교체되며(이미지는 커밋 SHA 태그로 빌드), 실패 시 링크 미교체·이전 release의 기록된 이미지 태그로 복구 | P0 |
+| TC-NFR-INFRA-009 | Production 배포 비활성 경계 | production 배포 요청을 confirmation·environment 승인 없이, 또는 production variable 미설정 상태로 실행 | `DEPLOY_PRODUCTION` 확인 문자열·`production` 승인이 없으면 job이 실행되지 않고, production `DEPLOY_HOST`/`DEPLOY_PATH`가 placeholder면 배포 전 실패하여 폐쇄망 수동 반입 경계를 침범하지 않음 | P0 |
 
 ## 19.7 M2 계약·통합 trace Gate
 

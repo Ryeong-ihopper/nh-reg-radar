@@ -96,7 +96,7 @@ class GovernanceIntegrationTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("github.event.before", workflow)
-        self.assertIn("uvx ruff check", workflow)
+        self.assertIn("uv run ruff check", workflow)
         self.assertIn("uvx basedpyright --project governance/pyrightconfig.json", workflow)
         self.assertNotIn("--base-ref HEAD~1", workflow)
 

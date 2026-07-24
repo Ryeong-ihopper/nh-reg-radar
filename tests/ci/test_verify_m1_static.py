@@ -48,10 +48,10 @@ class M1StaticVerificationTests(unittest.TestCase):
     def test_normal_ci_job_cannot_receive_privileged_credential(self) -> None:
         workflow = """\
 jobs:
-  m1-product-quality:
+  product-quality:
     runs-on: ubuntu-latest
     steps: []
-  m1-db-bootstrap-privilege-probe:
+  db-bootstrap-privilege-probe:
     runs-on: ubuntu-latest
     env:
       NH_DB_ADMIN_PASSWORD: ephemeral-ci-only
@@ -65,7 +65,7 @@ jobs:
                 workflow.replace("steps: []", "env:\n      NH_DB_ADMIN_PASSWORD: leaked"),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(VerificationError, "m1-product-quality"):
+            with self.assertRaisesRegex(VerificationError, "product-quality"):
                 verify_privileged_ci_boundary(path)
 
     def test_rendered_services_and_images_reject_privileged_environment(self) -> None:

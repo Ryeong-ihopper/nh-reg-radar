@@ -87,7 +87,7 @@ def workflow_job_blocks(text: str) -> dict[str, str]:
 
 def verify_privileged_ci_boundary(workflow_path: Path) -> None:
     blocks = workflow_job_blocks(workflow_path.read_text(encoding="utf-8"))
-    dedicated = "m1-db-bootstrap-privilege-probe"
+    dedicated = "db-bootstrap-privilege-probe"
     if dedicated not in blocks:
         raise VerificationError(f"workflow is missing dedicated job {dedicated}")
     leaking_jobs = [
