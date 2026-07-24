@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  m1-product-quality:
+  product-quality:
     runs-on: [self-hosted, linux, x64, org-ci, large]
     steps:
       - name: Check out repository
@@ -80,7 +80,7 @@ jobs:
           scripts/check-doc-consistency.sh
           python3 -m scripts.doc_guard validate --scope all
 
-  m1-compose-and-health:
+  compose-and-health:
     runs-on: [self-hosted, linux, x64, org-build, large]
     steps:
       - name: Check out repository
@@ -221,7 +221,7 @@ jobs:
           path: m1-dev-compose.log
           if-no-files-found: ignore
 
-  m1-db-bootstrap-privilege-probe:
+  db-bootstrap-privilege-probe:
     runs-on: [self-hosted, linux, x64, org-ci, large]
     services:
       postgres:
