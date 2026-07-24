@@ -27,8 +27,8 @@ jobs:
 
       - name: Check governance Python quality
         run: |
-          uvx ruff check scripts/doc_guard.py scripts/doc_governance tests/governance
-          uvx ruff format --check scripts/doc_guard.py scripts/doc_governance tests/governance
+          uv run ruff check scripts/doc_guard.py scripts/doc_governance tests/governance
+          uv run ruff format --check scripts/doc_guard.py scripts/doc_governance tests/governance
           uvx basedpyright --project governance/pyrightconfig.json
 
       - name: Run governance unit tests
