@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.31 |
-| 기준일 | 2026-07-23 |
+| 현행 버전 | v1.32 |
+| 기준일 | 2026-07-24 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.32 | 2026-07-24 | §10.4.1 폐쇄망 반입 기준선 참조를 ADR-0083→ADR-0082(main 기준선)+Q77로 정정, production job을 비활성 스켈레톤으로 명확화, 롤백을 성공 보장이 아닌 best-effort 복구 시도로 정확화, production Environment에 required reviewer가 미설정임을 명시 |
 | v1.31 | 2026-07-23 | 결정적 CI·Build 워크플로(ci.yml·release-readiness.yml)를 org-ci/org-build 러너로 이전하고 §10.4.1을 이전 완료 기준으로 갱신 |
 | v1.30 | 2026-07-23 | §10.4.1에 release별 커밋 SHA 이미지 태그 롤백과 SSH host key 고정(DEPLOY_KNOWN_HOSTS) 기준을 추가 |
 | v1.29 | 2026-07-23 | §10.4.1 development 배포를 조직 공유 러너(org-cg-rookies/org-deploy) SSH release 방식으로 개정, CI/Build의 org-ci/org-build 이전 기준과 production job 비활성 보존을 명시 |
@@ -763,11 +764,11 @@ Self-hosted Runner는 내부망 image build·registry push·GitOps PR 생성에 
 
 PoC Compose 환경은 ADR-0080의 배포 경계를 사용한다. development 배포는 조직 공유 self-hosted runner(`self-hosted`, `linux`, `x64`, `org-cg-rookies`, `org-deploy`)에서 **SSH release 방식**으로 실행한다. 결정적 CI는 `org-ci`, 이미지 빌드·Compose smoke는 `org-build`(둘 다 `large`) 조직 공유 러너에서 실행한다(비용·인프라 관리 주체 고려). 인터넷 아웃바운드가 필요한 보조 워크플로(문서 동기화·수동 외부 AI 평가·Notion 동기화)는 org 러너 아웃바운드 접근을 확인한 뒤 개별 이전하며, 그 전까지 GitHub-hosted `ubuntu-latest`를 유지한다.
 
-development 배포 흐름은 다음과 같다. 러너가 검증된 revision을 checkout하고, GitHub Environment(`development`)의 `DEPLOY_SSH_KEY`로 `DEPLOY_HOST`에 SSH 접속해 `DEPLOY_PATH/releases/<sha>`에 소스를 동기화한다. 대상 호스트에서 `compose.yml` + `compose.prod.yml`(runtime)과 대상 호스트의 공유 `env/.env.dev`로 배포하되, 이미지는 **커밋 SHA 태그(`RELEASE_TAG=<sha>`)** 로 빌드해 release마다 불변 이미지를 남긴다. health가 통과한 뒤에만 `app` 심볼릭 링크를 새 release로 원자적으로 교체한다. 실패 시 심볼릭 링크를 교체하지 않고 이전 release에 기록된 이미지 태그(`.release_tag`, 없으면 legacy `dev`)로 서비스를 복구한 뒤 workflow를 실패 처리하며, 결과는 `MATTERMOST_WEBHOOK_URL`로 알린다. SSH host key는 `DEPLOY_KNOWN_HOSTS`로 고정하고(미설정 시 `ssh-keyscan` TOFU로 경고와 함께 대체), source mount·hot reload 전용 `compose.dev.yml`은 로컬 개발에만 사용한다.
+development 배포 흐름은 다음과 같다. 러너가 검증된 revision을 checkout하고, GitHub Environment(`development`)의 `DEPLOY_SSH_KEY`로 `DEPLOY_HOST`에 SSH 접속해 `DEPLOY_PATH/releases/<sha>`에 소스를 동기화한다. 대상 호스트에서 `compose.yml` + `compose.prod.yml`(runtime)과 대상 호스트의 공유 `env/.env.dev`로 배포하되, 이미지는 **커밋 SHA 태그(`RELEASE_TAG=<sha>`)** 로 빌드해 release마다 불변 이미지를 남긴다. health가 통과한 뒤에만 `app` 심볼릭 링크를 새 release로 원자적으로 교체한다. 실패 시 심볼릭 링크를 교체하지 않고 이전 release에 기록된 이미지 태그(`.release_tag`, 없으면 legacy `dev`)로 서비스 복구를 **시도**한 뒤(복구 단계는 실패를 무시하므로 성공을 보장하지 않으며, 복구 자체가 실패하면 대상 호스트에서 수동 확인이 필요하다) workflow를 실패 처리하며, 결과는 `MATTERMOST_WEBHOOK_URL`로 알린다. SSH host key는 `DEPLOY_KNOWN_HOSTS`로 고정하고(미설정 시 `ssh-keyscan` TOFU로 경고와 함께 대체), source mount·hot reload 전용 `compose.dev.yml`은 로컬 개발에만 사용한다.
 
 `dev` push에서 Product CI가 성공한 정확한 head SHA만 development에 자동 반영한다. 이 `workflow_run` 자동 배포는 신뢰되지 않은 코드가 실행되지 않도록 `workflow_run.event == 'push'`, `head_branch == 'dev'`, `head_repository.full_name == github.repository` 조건을 모두 만족할 때만 발동한다(fork·PR 트리거 배포 배제). 배포 대상·경로·계정은 `development` Environment variable `DEPLOY_HOST`/`DEPLOY_PATH`/`DEPLOY_PORT`/`DEPLOY_USER`로 주입하고, `.env.dev`는 러너 checkout 밖 대상 호스트의 권한 제한 경로(`0600`)에 둔다.
 
-production은 현재 NH 내부 폐쇄망 수동 반입(ADR-0083)을 사용하며 자동 배포하지 않는다. workflow의 production job은 향후 외부 prod 서버 제공에 대비해 **비활성 상태로 보존**하며, `workflow_dispatch` + `production` 승인 + `DEPLOY_PRODUCTION` 확인 문자열을 모두 요구하고 production variable이 실제 값으로 설정되기 전에는 실행하지 않는다. 상세 등록·복구 절차는 `docs/self-hosted-runner-guide.md`를 따른다.
+production은 현재 NH 내부 폐쇄망 수동 반입을 사용하며 자동 배포하지 않는다(`main` 릴리스 기준선은 ADR-0082, 폐쇄망 반입 릴리스 전략은 Q77 결정 대기). workflow의 production job은 아직 production-ready 구현이 아닌 **비활성 코드 스켈레톤**으로 보존하며(`scripts/deploy-ssh.sh`가 항상 `env/.env.dev`를 사용해 production 전용 env 경계가 없음), `workflow_dispatch` + `environment=production` 선택 + `DEPLOY_PRODUCTION` 확인 문자열을 요구하고 production variable이 실제 값으로 설정되기 전에는 실행하지 않는다. 다만 현재 production Environment에는 required reviewer 등 protection rule이 설정돼 있지 않으므로, 승인 통제가 필요하면 별도 정책으로 활성화한다. 상세 등록·복구 절차는 `docs/self-hosted-runner-guide.md`를 따른다.
 
 ---
 

@@ -6,7 +6,7 @@ NH농협은행 금융상품 광고물의 사전 심의를 보조하는 **AI 기�
 - **핵심 스택:** FastAPI backend · React(Vite) frontend · 비동기 worker(OCR·RAG·LLM) · PostgreSQL · Qdrant(벡터) · OpenSearch(키워드) · Redis(큐/캐시) · MinIO(객체 저장). 전 구성요소 Docker Compose 기반.
 - **명세 원천(Source of Truth):** Git으로 관리하는 `docs/`. Notion은 칸반·일정·회의록·공유용 읽기본.
 - **작업 시작 전 필독:** [`AGENTS.md`](AGENTS.md) · [`docs/project-rules.md`](docs/project-rules.md) · [`docs/adr/README.md`](docs/adr/README.md)
-- **현재 범위:** M0~M8 provider-free thin slice 구현·검증 완료. 실제 OCR/RAG/LLM 품질, 고객사 검증, 시연 배포는 별도 증거로만 인정([상세](#현재-구현-상태)).
+- **현재 범위:** M0~M8 provider-free thin slice 구현·검증 완료, dev 자동 배포 동작 확인. 실제 OCR/RAG/LLM 품질과 고객 시연·검증은 별도 증거로만 인정([상세](#현재-구현-상태)).
 
 ---
 
@@ -32,7 +32,7 @@ compose*.yml     공통(compose.yml) + dev(compose.dev.yml) + prod(compose.prod.
 
 ### 1단계 (필수). 저장소 준비 & 문서 거버넌스 설치
 
-가장 먼저 실행합니다. Docker 없이 **git + python3만** 있으면 됩니다.
+가장 먼저 실행합니다. Docker 없이 **Git · Python 3.12 · Bash/POSIX 도구**만 있으면 됩니다. private 저장소이므로 clone 전에 저장소 접근 권한과 GitHub 인증(HTTPS PAT 또는 SSH)이 필요합니다.
 
 ```bash
 git clone --branch dev https://github.com/CGINSIDE-ROOKIES/nh-ad-compliance.git
@@ -99,7 +99,7 @@ scripts/local-dev.sh reset                 # volume 삭제 후 빈 DB로 재기�
 3. <http://localhost:5173>에서 `test@ihopper.co.kr` 로그인 → 광고 등록 → PDF/PNG/JPEG/HWP/HWPX 업로드 → AI 검토 → 결과 확인. 샘플: `docs/광고예시/`.
 
 - 키워드(OpenSearch)+벡터(Qdrant) 검색이 모두 성공해야 근거를 반환하며, 실패 시 `SEARCH_UNAVAILABLE`로 명시(우회 없음).
-- key 부재·기능 off 시 성공으로 가장하지 않고 review를 **fail-closed** 처리.
+- 외부 AI를 켜지 않은 기본(provider-free) 상태에서는 Parser/OCR·규칙 경로가 실행되고 외부 검색·LLM 판단만 수행되지 않으며, **검토 흐름 자체는 정상 완료**됩니다. 반면 `NH_EXTERNAL_AI_ENABLED=true`인데 필수 key·model이 없으면 worker가 시작 단계에서 설정 오류(`OPENAI_*_NOT_CONFIGURED`)로 실패합니다.
 - 폐쇄망 vLLM 전환: `OPENAI_BASE_URL`/`EMBEDDING_BASE_URL`을 내부 endpoint로. 임베딩 **endpoint·model·dimension** 중 하나라도 바뀌면 기존 벡터와 호환되지 않으므로 새 `QDRANT_COLLECTION`을 지정하고 전체 재색인이 필요합니다.
 
 </details>
@@ -141,11 +141,12 @@ Git이 코드와 배포 구성의 단일 원천입니다. 배포는 self-hosted 
 
 | 환경 | 트리거 | runner | 대상 |
 | --- | --- | --- | --- |
-| **development** | `dev` push → Product CI 성공 시 `workflow_run` (트리거 구성 완료, 아래 상태 참고) | `nh-ad-deploy-dev` | 공용 dev VM → **<https://nh-compliance.ihopper.co.kr>** |
-| **production** | 현재 운영하지 않음 (폐쇄망 반입 절차·artifact 범위는 Q77 보류) | `nh-ad-deploy-prod`(예정) | **NH농협은행 내부망(폐쇄망)** |
+| **development** | `dev` push → Product CI 성공 시 `workflow_run` **자동 배포** (수동 `workflow_dispatch`도 지원) | self-hosted 조직 러너 (`org-cg-rookies`·`org-deploy`) | 공용 dev VM → **<https://nh-compliance.ihopper.co.kr>** |
+| **production (외부, 향후)** | 비활성 코드 스켈레톤 — 실행 금지 (아래 설명) | `org-deploy` 라벨 (전용 env 경계 미구현) | 향후 외부 prod 서버 |
+| **NH 내부망 반입** | 승인된 **수동 반입** (자동 배포 아님) | — (러너 미사용) | **NH농협은행 내부망(폐쇄망)** |
 
-- 결정적 CI·문서 동기화·외부 AI 평가는 GitHub-hosted `ubuntu-latest`에서 실행합니다.
-- **dev 자동 배포 상태:** 기본 브랜치를 `dev`로 운영해 `deploy-compose.yml`의 `workflow_run` 트리거가 등록되었습니다. 다만 **`nh-ad-deploy-dev` self-hosted runner 등록과 최초 배포 성공 이후에 운영이 시작**됩니다(현재 runner 미등록·CD 실행 이력 없음). runner 등록 절차는 [배포 runner 가이드](docs/self-hosted-runner-guide.md)를 따릅니다.
+- **CI/CD 실행 환경:** Product CI(`ci.yml`)·provider-free 릴리스 게이트(`release-readiness.yml`)·배포(`deploy-compose.yml`)는 **조직 공유 self-hosted 러너**(`org-ci`·`org-build`·`org-deploy`)에서 실행합니다. 문서 거버넌스(`document-governance.yml`)·Notion 동기화(`notion-docs-publish-test.yml`)·외부 AI 평가(`external-ai-evaluation.yml`)는 GitHub-hosted `ubuntu-latest`에서 실행합니다.
+- **dev 자동 배포 (운영 중):** 기본 브랜치가 `dev`이고 `org-deploy` 러너가 등록되어, `dev` push → Product CI 성공 시 `deploy-compose.yml`이 `workflow_run`으로 **자동 배포**됩니다. 배포는 SSH release 방식(릴리스 디렉터리 + `app` 심링크 교체, commit SHA 이미지 태그 기반 롤백)이며, 최근 병합이 dev VM에 정상 자동 배포됨을 확인했습니다. 세부 절차는 [배포 runner 가이드](docs/self-hosted-runner-guide.md)를 따릅니다.
 - `main`은 향후 **폐쇄망 반입 릴리스 기준선**으로 사용할 예정입니다. `dev`→`main` 병합은 운영 자동배포가 아니라 버전 태그와 반입 후보 확정을 의미하며, 오프라인 번들·SBOM·SHA-256 checksum 자동 생성과 production 배포 파이프라인은 **반입 절차 확정(Q77) 후 구현**합니다. 실제 NH 내부망 배포는 승인된 수동 반입으로 수행합니다(운영은 release tag/commit SHA만 사용, `latest` 금지).
 - **production 폐쇄망 제약:** 외부 인터넷·public 레지스트리에 접근할 수 없으므로 생성 LLM·임베딩은 내부 vLLM 등 폐쇄망 endpoint로 전환하고([2단계 opt-in 참고](#온보딩)), 이미지·의존성은 사전 반입한 내부 자산만 사용합니다. 세부 전략은 ADR 후보(Q76 결정·Q77 보류)로 정리 중입니다.
 
@@ -182,7 +183,7 @@ python3 -m scripts.doc_guard validate --scope working
 
 # CI와 가까운 품질 검사 (최초 1회 의존성 설치 필요)
 uv sync --all-packages --dev && npm ci --ignore-scripts && npm --prefix apps/frontend ci
-uv run ruff check . && uv run mypy
+uv run ruff check . && uv run ruff format --check apps/backend apps/worker scripts/ci scripts/check_environment_isolation.py tests/ci tests/integration && uv run mypy
 uv run python -m pytest -m "not external_ai and not slow"
 npm run openapi:check
 npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck && npm --prefix apps/frontend run test && npm --prefix apps/frontend run build
@@ -194,7 +195,7 @@ npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck 
 
 ## 문서 & 거버넌스
 
-`docs/`가 명세 원천이며, `main`의 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다.
+`docs/`가 명세 원천이며, 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다. **현재 트리거는 `main` 기준**이며, ADR-0083에 따라 page-map 등록 완료(현재 `docs/self-hosted-runner-guide.md` 1건 미등록) 후 `dev` 트리거로 전환할 예정입니다. 전환 전까지 Git의 `docs/`가 최신 Source of Truth입니다.
 문서·구현 변경 시 같은 작업 단위에서 관련 명세를 함께 갱신합니다([문서 거버넌스 가이드](governance/README.md), [ADR-0076](docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md)).
 
 ### 문서 지도
@@ -233,7 +234,7 @@ npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck 
 ## 현재 구현 상태
 
 M0~M8 provider-free thin slice가 실제 backend/worker/frontend 경로와 결정적 fixture 기준으로 구현·검증되었습니다.
-Provider-free 성공은 실제 OCR/RAG/LLM 품질, 고객사 검증, 시연 배포, 결함 0건을 대신 증명하지 않으며, 해당 항목은 증거가 생길 때까지 일정/칸반에서 `Backlog`/`Blocked`로 유지합니다.
+dev 공용 VM 자동 배포는 동작을 확인했으나, provider-free 성공은 실제 OCR/RAG/LLM 품질, 고객 시연·검증, 결함 0건을 대신 증명하지 않으며, 해당 항목은 증거가 생길 때까지 일정/칸반에서 `Backlog`/`Blocked`로 유지합니다.
 
 | 구분 | 기준 |
 | --- | --- |

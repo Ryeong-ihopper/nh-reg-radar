@@ -1,4 +1,4 @@
-name: M8 Manual External AI Evaluation
+name: Manual External AI Evaluation
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: M8 Provider-Free Release Readiness
+name: Provider-Free Release Readiness
 
 on:
   pull_request:
