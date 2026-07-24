@@ -195,7 +195,7 @@ npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck 
 
 ## 문서 & 거버넌스
 
-`docs/`가 명세 원천이며, 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다. **현재 트리거는 `main` 기준**이며, ADR-0083에 따라 page-map 등록 완료(현재 `docs/self-hosted-runner-guide.md` 1건 미등록) 후 `dev` 트리거로 전환할 예정입니다. 전환 전까지 Git의 `docs/`가 최신 Source of Truth입니다.
+`docs/`가 명세 원천이며, 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다. **현재 트리거는 `main` 기준**이며, ADR-0083에 따른 page-map 등록이 완료(전 문서 등록, `page_id` null 0건)되어 `dev` 트리거 전환 전제조건이 충족됐습니다(전환 자체는 별도 결정 사안). 전환 전까지 Git의 `docs/`가 최신 Source of Truth입니다.
 문서·구현 변경 시 같은 작업 단위에서 관련 명세를 함께 갱신합니다([문서 거버넌스 가이드](governance/README.md), [ADR-0076](docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md)).
 
 ### 문서 지도
