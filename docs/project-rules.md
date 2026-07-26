@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.32 |
-| 기준일 | 2026-07-24 |
+| 현행 버전 | v1.33 |
+| 기준일 | 2026-07-26 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.33 | 2026-07-26 | §5.4에 page-map 기반 read-only Notion Docs Preflight 기준을 추가(canonical `--validate-map` 선행, mutation 금지, 전용 read-only 토큰(`NOTION_READONLY_API_TOKEN`)·`notion-readonly` Environment로 자격 경계 제한) |
 | v1.32 | 2026-07-24 | §10.4.1 폐쇄망 반입 기준선 참조를 ADR-0083→ADR-0082(main 기준선)+Q77로 정정, production job을 비활성 스켈레톤으로 명확화, 롤백을 성공 보장이 아닌 best-effort 복구 시도로 정확화, production Environment에 required reviewer가 미설정임을 명시 |
 | v1.31 | 2026-07-23 | 결정적 CI·Build 워크플로(ci.yml·release-readiness.yml)를 org-ci/org-build 러너로 이전하고 §10.4.1을 이전 완료 기준으로 갱신 |
 | v1.30 | 2026-07-23 | §10.4.1에 release별 커밋 SHA 이미지 태그 롤백과 SSH host key 고정(DEPLOY_KNOWN_HOSTS) 기준을 추가 |
@@ -338,6 +339,7 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 | --- | --- |
 | 자동 실행 | `main`에 게시 대상 Markdown 변경이 push되면 `.github/workflows/notion-docs-publish-test.yml` 실행 |
 | 수동 실행 | 초기 전환·장애 복구 시 `workflow_dispatch`를 확인 문자열 `SYNC_DEV_DOCS`와 기준 commit으로 실행 |
+| 사전 진단 | 페이지 손상(접근 불가·휴지통·부모 불일치·ID 불일치·`truncated`·알 수 없는 block) 진단은 read-only `.github/workflows/notion-docs-preflight.yml`(`scripts/notion-docs-preflight.sh`)로 수행한다. 대상은 page-map의 source path로 지정하고, Notion 호출 전 `--validate-map`으로 게시 계약을 검증하며, create/update/unlock/trash 없이 GET만 사용하고 허용 메타 필드만 산출한다(본문·제목·댓글·토큰 미출력). 자격은 **쓰기 토큰으로 fallback하지 않는 전용 read-only integration token(`NOTION_READONLY_API_TOKEN`)**만 사용하고 `notion-readonly` Environment(배포 브랜치 `dev` 제한)로 범위를 제한한다 |
 | 게시 도구 | 공식 Notion CLI를 사용하는 `scripts/publish-notion-docs-test.sh` |
 | 게시 대상 | Git이 추적하는 `docs/*.md`, `docs/**/*.md` Markdown 102개. 일반 문서 17개와 ADR 문서 85개 |
 | 제외 대상 | `docs/`의 HWP/HWPX, PDF, PNG, YAML 등 비 Markdown 파일과 Git 비추적 파일 |

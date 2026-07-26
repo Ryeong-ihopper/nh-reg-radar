@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.89 |
-| 기준일 | 2026-07-23 |
+| 현행 버전 | v1.90 |
+| 기준일 | 2026-07-26 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.90 | 2026-07-26 | Notion 페이지 read-only 사전 진단 회귀 TC-NFR-DOC-016을 추가 |
 | v1.89 | 2026-07-23 | TC-NFR-INFRA-008에 release별 SHA 이미지 태그 기반 롤백 기준을 반영 |
 | v1.88 | 2026-07-23 | TC-NFR-INFRA-007~009를 조직 공유 러너 SSH release 배포·production 비활성 경계 기준으로 갱신 |
 | v1.87 | 2026-07-23 | TC-NFR-DOC-014에 기매핑 경로 거부와 쓰기·생성 호출 전 차단 기준을 명확화 |
@@ -880,6 +881,7 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 | TC-NFR-DOC-013 | 신규 문서 최초 페이지 생성 | 게시 manifest에 신규 Markdown을 추가하고 page map에 `page_id: null`로 등록한 뒤 일반 동기화와 `allow_create=true` 수동 동기화를 각각 실행 | 일반 동기화는 Notion을 변경하지 않고 실패하며, 검토된 수동 실행만 페이지를 생성·검증하고 artifact에 page ID/URL을 남김 | P0 |
 | TC-NFR-DOC-014 | 안전한 단건 신규 생성 강제 | `allow_create=true`로 빈 선택·다중 `sync_paths`·이미 매핑된 경로를 각각 동기화 시도하고, 정확히 한 개의 미매핑 경로로 실행 | 빈·다중·기(旣)매핑 선택은 Notion 쓰기·생성 호출 전에 거부되고(create/update 0회), 한 실행에서 한 페이지만 생성·검증되며 각 실행 후 artifact의 page ID를 page map에 확정 | P0 |
 | TC-NFR-DOC-015 | 생성 ID 복구 가능성 | 페이지 생성 성공 후 최종 컨테이너 잠금을 Mock으로 실패시킴 | 동기화는 실패하지만 생성된 page ID가 `notion-sync-result.json` artifact에 기록되어 재실행 중복 없이 page map 확정에 사용할 수 있음 | P0 |
+| TC-NFR-DOC-016 | Notion 페이지 read-only 사전 진단 | page-map 기반 preflight로 정상·ID 불일치·휴지통·잘못된 parent·`truncated`·알 수 없는 block·접근 불가(403/404) 페이지를 Mock으로 검사 | 각 상태를 정확히 분류하고 create/update/unlock/trash 호출 0회, 본문·토큰 미출력, 허용 필드만 산출하며 문제 발견 시 비정상 종료 | P1 |
 
 ## 19.19 Git 협업 및 GitOps 정책 수동 테스트
 

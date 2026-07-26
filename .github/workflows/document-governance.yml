@@ -34,6 +34,9 @@ jobs:
       - name: Run governance unit tests
         run: python3 -m unittest discover -s tests/governance -v
 
+      - name: Run Notion docs preflight contract test
+        run: bash tests/notion-preflight-script-test.sh
+
       - name: Check document links and contract examples
         run: scripts/check-doc-consistency.sh
 
