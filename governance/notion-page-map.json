@@ -95,12 +95,6 @@
       "state": "active"
     },
     {
-      "source_path": "docs/frontend-implementation-audit.md",
-      "section": "general",
-      "page_id": "3a31847f-058f-810c-82ff-d2ae29b81c01",
-      "state": "active"
-    },
-    {
       "source_path": "docs/adr/README.md",
       "section": "adr",
       "page_id": "39d1847f-058f-814a-ac87-cfd8308d832b",

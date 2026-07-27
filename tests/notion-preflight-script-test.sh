@@ -31,7 +31,7 @@ cat >"$scenarios" <<'JSON'
   "docs/poc-evaluation-exclusion-criteria.md": "unlocked",
   "docs/adr-candidates.md": "schemabad",
   "docs/screen-api-mapping.md": "parentless",
-  "docs/frontend-implementation-audit.md": "gone",
+  "docs/api-contract-sync-policy.md": "gone",
   "docs/api-specification.md": "truncated",
   "docs/database-specification.md": "unknown",
   "docs/screen-specification.md": "deepschemabad",
@@ -106,7 +106,7 @@ status_of() { jq -r --arg p "$1" '.pages[]|select(.source_path==$p)|.status' "$r
 [ "$(status_of docs/poc-evaluation-exclusion-criteria.md)" = "unlocked" ]   || fail "unlocked"
 [ "$(status_of docs/adr-candidates.md)" = "schema_invalid" ]                || fail "schema_invalid phase1"
 [ "$(status_of docs/screen-api-mapping.md)" = "schema_invalid" ]            || fail "schema_invalid parentless"
-[ "$(status_of docs/frontend-implementation-audit.md)" = "inaccessible" ]   || fail "inaccessible"
+[ "$(status_of docs/api-contract-sync-policy.md)" = "inaccessible" ]   || fail "inaccessible"
 [ "$(status_of docs/api-specification.md)" = "truncated" ]                  || fail "truncated"
 [ "$(status_of docs/database-specification.md)" = "unknown_blocks" ]        || fail "unknown_blocks"
 [ "$(status_of docs/screen-specification.md)" = "schema_invalid" ]          || fail "schema_invalid deep"
@@ -116,14 +116,14 @@ status_of() { jq -r --arg p "$1" '.pages[]|select(.source_path==$p)|.status' "$r
 jq -e '.pages[]|select(.source_path=="docs/project-rules.md")|.in_trash==false and .is_locked==true and .truncated==false and .unknown_block_count==0 and .accessible==true' "$result" >/dev/null || fail "typed ok"
 jq -e '.pages[]|select(.source_path=="docs/database-specification.md")|.unknown_block_count==2' "$result" >/dev/null || fail "unknown int"
 jq -e '.pages[]|select(.source_path=="docs/poc-kpi-formulas.md")|.truncated==null and .unknown_block_count==null' "$result" >/dev/null || fail "non-deep null"
-jq -e '.pages[]|select(.source_path=="docs/frontend-implementation-audit.md")|.accessible==false and .actual_id==null' "$result" >/dev/null || fail "inaccessible nulls"
+jq -e '.pages[]|select(.source_path=="docs/api-contract-sync-policy.md")|.accessible==false and .actual_id==null' "$result" >/dev/null || fail "inaccessible nulls"
 # provenance + non-zero exit
 jq -e '.commit_sha and .page_map_sha256 and (.resolved_deep_paths|length>0)' "$result" >/dev/null || fail "provenance"
 [ "$exit_code" -ne 0 ] || fail "expected non-zero exit"
 
 # retry hard caps: an inaccessible page is retried at most 3 times and, despite the
 # oversized delay request, the whole run stays fast (fixed <=1s sleeps, no exponential).
-gone_id="$(jq -r '.pages[]|select(.source_path=="docs/frontend-implementation-audit.md").page_id' "$REAL_MAP")"
+gone_id="$(jq -r '.pages[]|select(.source_path=="docs/api-contract-sync-policy.md").page_id' "$REAL_MAP")"
 gone_calls="$(grep -cxF "api v1/pages/$gone_id" "$call_log" || true)"
 [ "$gone_calls" -eq 3 ] || fail "retry attempts not capped at 3 (got $gone_calls)"
 [ "$elapsed" -lt 30 ] || fail "retry sleep not capped (elapsed ${elapsed}s with delay=99)"
