@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.96 |
+| 현행 버전 | v1.97 |
 | 기준일 | 2026-07-28 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.97 | 2026-07-28 | 서로 다른 케이스가 공유하던 식별자 6건을 정리. 참조가 가리키는 케이스와 원본 작업 커밋의 등재 순서를 기준으로 기존 식별자를 보존하고, 나중에 등재된 행에 새 번호를 부여: 대출 상품군 등록 `TC-ADV-014`→`TC-ADV-018`, 시스템 관리자 광고물 삭제 `TC-ADV-016`→`TC-ADV-019`, 시스템 관리자 목록 선택 삭제 `TC-ADV-017`→`TC-ADV-020`, 규정·가이드라인 초기 적재 `TC-STD-015`→`TC-STD-024`, SSE 검토 진행 갱신 `TC-REV-017`→`TC-REV-019`, 적정 결과 기본 비표시 `TC-REV-018`→`TC-REV-020`. 아울러 표 중간 빈 줄로 표에서 떨어져 나와 있던 규정·가이드라인 초기 적재 행을 16장 기준자료 표로 옮겼다 |
 | v1.96 | 2026-07-28 | 광고 규정 Q&A 대화형 입력줄의 Enter 전송·IME 보호·전송 중 표시·실패 질문 다건 보존과 재시도·이력 캐시 경쟁·이력 조회 완료 전 전송 차단을 TC-QA-011~018로 추가 |
 | v1.95 | 2026-07-28 | 광고 규정 Q&A 탭의 공통 탭 바 배치와 대화 목록 내부 스크롤 회귀를 TC-QA-009·TC-QA-010으로 추가하고, TC-QA-010에 화면 폭 구간별 높이 상한 확인을 포함 |
 | v1.94 | 2026-07-28 | Q&A 검토 필터 조회의 실제 PostgreSQL 회귀 TC-QA-008을 추가하고 M8 Postgres 하네스가 현행 migration head를 사용하도록 기준을 갱신 |
@@ -268,9 +269,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ADV-008 | 파일 크기 초과 | 50MB 초과 파일 준비 | 광고물 등록 API 호출 | `FILE_SIZE_EXCEEDED` 반환 | - | P0 |
 | TC-ADV-009 | HWP/HWPX 광고물 등록 | hwp 또는 hwpx 광고 파일 준비 | 광고물 등록 API 호출 | 광고물 ID 생성, 분석 가능 여부 저장 | `advertisement_files` | P0 |
 | TC-ADV-010 | 상품설명서/약관 포함 등록 | 광고 파일, 상품설명서, 약관 준비 | 광고물 등록 API 호출 | 파일 3건 저장, 파일 유형 구분 | `advertisement_files` | P1 |
-| TC-ADV-014 | 대출 상품군 등록 | 대출 광고 파일 준비 | `productGroup=LOAN`으로 광고물 등록 | 대출 코드가 공통 코드에 노출되고 광고물에 저장된다. 대출 전용 기준자료가 없으면 후속 검토는 근거 부족 확인 필요로 처리한다. | `common_codes`, `advertisements` | P1 |
-
-| TC-STD-015 | 규정·가이드라인 초기 적재 | 승인된 PDF/HWP/HWPX 규정·가이드라인과 parser service 준비 | `scripts/ingest-reference-regulations.sh` 실행 | 모든 지원 문서가 source hash 기준으로 중복 없이 standard version으로 등록되고 Qdrant·OpenSearch에 색인된다. metadata에 parser 이름·버전·구조 통계가 저장된다. | `standards`, `standard_versions`, `evidence_chunks`, Qdrant, OpenSearch | P0 |
+| TC-ADV-018 | 대출 상품군 등록 | 대출 광고 파일 준비 | `productGroup=LOAN`으로 광고물 등록 | 대출 코드가 공통 코드에 노출되고 광고물에 저장된다. 대출 전용 기준자료가 없으면 후속 검토는 근거 부족 확인 필요로 처리한다. | `common_codes`, `advertisements` | P1 |
 
 ## 4.2 광고물 조회/수정
 
@@ -280,8 +279,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-ADV-012 | 광고명 조건 검색 | 광고물 등록됨 | keyword 조건으로 목록 조회 | 조건에 맞는 광고물만 반환 | GET `/advertisements` | P1 |
 | TC-ADV-013 | 상품군/광고유형 필터 | 복수 광고물 등록됨 | `productGroup`, `advertisementType` 조건 조회 | 조건 일치 목록 반환 | GET `/advertisements` | P1 |
 | TC-ADV-014 | 광고물 상세 조회 | 광고물 ID 존재 | 상세 조회 API 호출 | 광고 기본정보, 파일 목록 반환 | GET `/advertisements/{id}` | P0 |
-| TC-ADV-016 | 시스템 관리자 광고물 삭제 | 광고물·파일·검토 결과가 연결되어 있음 | 시스템 관리자가 DELETE `/advertisements/{id}` 호출 | 204 반환, 광고물·원본 파일·연결 검토 결과는 일반 조회에서 비노출, `ADVERTISEMENT_DELETE` 감사 로그 저장 | advertisements, advertisement_files, audit_logs | P0 |
-| TC-ADV-017 | 시스템 관리자 목록 선택 삭제 | 광고물 목록이 2건 이상이고 시스템 관리자 로그인 | 개별 선택 또는 현재 페이지 전체 선택 후 삭제 확인 | 선택된 항목마다 기존 DELETE API를 호출하고 완료·부분 실패 후 목록을 최신화한다. 일반 역할에는 checkbox·삭제 action을 표시하지 않는다. | 프론트엔드 회귀/API | P0 |
+| TC-ADV-019 | 시스템 관리자 광고물 삭제 | 광고물·파일·검토 결과가 연결되어 있음 | 시스템 관리자가 DELETE `/advertisements/{id}` 호출 | 204 반환, 광고물·원본 파일·연결 검토 결과는 일반 조회에서 비노출, `ADVERTISEMENT_DELETE` 감사 로그 저장 | advertisements, advertisement_files, audit_logs | P0 |
+| TC-ADV-020 | 시스템 관리자 목록 선택 삭제 | 광고물 목록이 2건 이상이고 시스템 관리자 로그인 | 개별 선택 또는 현재 페이지 전체 선택 후 삭제 확인 | 선택된 항목마다 기존 DELETE API를 호출하고 완료·부분 실패 후 목록을 최신화한다. 일반 역할에는 checkbox·삭제 action을 표시하지 않는다. | 프론트엔드 회귀/API | P0 |
 | TC-ADV-015 | 존재하지 않는 광고물 조회 | 잘못된 광고물 ID 사용 | 상세 조회 API 호출 | 404 NOT_FOUND 반환 | GET `/advertisements/{id}` | P1 |
 | TC-ADV-016 | 광고물 기본정보 수정 | 광고물 ID 존재 | 광고명/메모 수정 API 호출 | 수정 성공, updated_at 갱신 | PATCH `/advertisements/{id}` | P1 |
 | TC-ADV-017 | 수정본 등록 | 기존 광고물 존재 | 수정본 파일 업로드 | revision 생성, 상태 `REVISED` | `advertisement_revisions` | P1 |
@@ -297,8 +296,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-003 | 이미 분석 중인 광고물 재요청 | 기존 상태 `ANALYZING` | 검토 요청 API 재호출 | `REVIEW_ALREADY_RUNNING` 반환 | `reviews` | P0 |
 | TC-REV-004 | 존재하지 않는 광고물 검토 요청 | 잘못된 광고물 ID | 검토 요청 API 호출 | 404 NOT_FOUND 반환 | - | P0 |
 | TC-REV-005 | 검토 진행 상태 조회 | reviewId 존재 | 상태 조회 API 호출 | currentStep, progressRate, steps 반환 | `review_jobs`, `review_steps` | P0 |
-| TC-REV-017 | SSE 검토 진행 갱신 | 진행 중 reviewId 존재 | `GET /reviews/{reviewId}/events` 연결 후 Job 단계 변경 | 변경 시 `progress` event가 전달되고 terminal 상태에서 종료한다. 연결 불가 시 화면은 30초 조회 fallback을 사용한다. | `review_jobs`, `review_steps` | P0 |
-| TC-REV-018 | 적정 결과 기본 비표시 | 적정·수정 필요 검토 항목 공존 | 항목별 결과 기본 조회 후 `적정 항목도 보기` 선택 | 기본 조회는 `APPROPRIATE`를 제외하고, 명시적 선택 또는 `resultStatus=APPROPRIATE` 조회는 적정 항목을 반환한다. 주요 리스크에도 적정 항목을 포함하지 않는다. | `review_items` | P0 |
+| TC-REV-019 | SSE 검토 진행 갱신 | 진행 중 reviewId 존재 | `GET /reviews/{reviewId}/events` 연결 후 Job 단계 변경 | 변경 시 `progress` event가 전달되고 terminal 상태에서 종료한다. 연결 불가 시 화면은 30초 조회 fallback을 사용한다. | `review_jobs`, `review_steps` | P0 |
+| TC-REV-020 | 적정 결과 기본 비표시 | 적정·수정 필요 검토 항목 공존 | 항목별 결과 기본 조회 후 `적정 항목도 보기` 선택 | 기본 조회는 `APPROPRIATE`를 제외하고, 명시적 선택 또는 `resultStatus=APPROPRIATE` 조회는 적정 항목을 반환한다. 주요 리스크에도 적정 항목을 포함하지 않는다. | `review_items` | P0 |
 | TC-REV-006 | 검토 완료 상태 조회 | 분석 완료됨 | 상태 조회 API 호출 | 상태 `REVIEW_COMPLETED`, progressRate 100 및 모든 `review_steps`가 `COMPLETED`로 반환 | `reviews`, `review_steps` | P0 |
 | TC-REV-007 | 검토 실패 상태 조회 | 분석 실패 발생 | 상태 조회 API 호출 | 상태 `REVIEW_FAILED`, failedReason 반환 | `reviews`, `review_jobs` | P1 |
 | TC-REV-008 | AI 재분석 요청 | 기존 reviewId 존재 | rerun API 호출 | newReviewId 생성, 이전 review 유지 | `reviews`, `review_jobs` | P1 |
@@ -573,6 +572,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-STD-021 | OpenSearch synonym 검색 | synonymVersion이 적용된 기준자료 색인 | 동의어 표현으로 기준자료 검색 | 동의어가 적용되어 관련 chunk가 검색됨 | OpenSearch | P1 |
 | TC-STD-022 | OpenSearch highlight 반환 | chunkText/title match가 있는 검색어 준비 | Chunk 상세 또는 검색 결과 조회 | `chunkText`, `title` highlight 또는 snippet 반환 | OpenSearch, API | P1 |
 | TC-STD-023 | analyzer/synonym 변경 재색인 | opensearchAnalyzerVersion 또는 synonymVersion 변경 | `KEYWORD_ONLY` 또는 `INDEX_ONLY` 재색인 실행 | OpenSearch document version 갱신, 검색 결과 정상 반환 | `standard_reindex_jobs`, OpenSearch | P1 |
+| TC-STD-024 | 규정·가이드라인 초기 적재 | 승인된 PDF/HWP/HWPX 규정·가이드라인과 parser service 준비 | `scripts/ingest-reference-regulations.sh` 실행 | 모든 지원 문서가 source hash 기준으로 중복 없이 standard version으로 등록되고 Qdrant·OpenSearch에 색인된다. metadata에 parser 이름·버전·구조 통계가 저장된다. | `standards`, `standard_versions`, `evidence_chunks`, Qdrant, OpenSearch | P0 |
 
 ## 16.1 S-014 프론트엔드 통합 검증 기준
 
