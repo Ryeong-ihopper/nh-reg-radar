@@ -1459,18 +1459,6 @@ main {
 }
 
 /* Fourth-step Q&A keeps the source advertisement beside a durable, evidence-backed conversation. */
-.qa-page-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: end;
-  margin-bottom: 1.25rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--line);
-}
-.qa-page-heading h2, .qa-page-heading p { margin: 0; }
-.qa-page-heading > div > p:last-child { margin-top: 0.5rem; color: var(--muted); }
-.qa-page-heading .review-navigation { margin: 0; }
 .review-workspace--qa { grid-template-columns: minmax(26rem, 1.2fr) minmax(26rem, 1fr); }
 .review-workspace--qa .review-original-panel .file-preview-viewport { max-height: min(72vh, 64rem); }
 .qa-chat-panel {
@@ -1510,8 +1498,10 @@ main {
 .qa-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; padding: 0.9rem; border-top: 1px solid var(--line); background: #fff; }
 .qa-composer textarea { min-height: 3rem; max-height: 10rem; padding: 0.7rem 0.8rem; resize: vertical; }
 .qa-composer button { align-self: end; }
-@media (max-width: 1050px) { .review-workspace--qa { grid-template-columns: 1fr; } .qa-chat-panel { min-height: 36rem; max-height: none; } }
-@media (max-width: 700px) { .qa-page-heading { grid-template-columns: 1fr; } .qa-composer { grid-template-columns: 1fr; } .qa-composer button { width: 100%; } }
+/* 좁은 폭에서도 높이 상한을 유지해야 .qa-message-list 안에서만 스크롤된다. 상한을 none으로 두면
+   목록이 이력 길이만큼 늘어나 내부 overflow가 생기지 않고 문서 전체가 스크롤된다. */
+@media (max-width: 1050px) { .review-workspace--qa { grid-template-columns: 1fr; } .qa-chat-panel { min-height: 36rem; max-height: clamp(36rem, 80vh, 52rem); } }
+@media (max-width: 700px) { .qa-composer { grid-template-columns: 1fr; } .qa-composer button { width: 100%; } }
 
 /* Calm operational navigation: no coloured sidebar states or decorative card stacking. */
 .app-sidebar { background: #fff; }

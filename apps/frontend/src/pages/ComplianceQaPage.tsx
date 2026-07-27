@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, type QaAnswer, type QaQuestionInput } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { advertisementTypeLabel, productGroupLabel } from "../components/displayLabels";
+import { PageHeader } from "../components/PageHeader";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { ReviewNavigation } from "../components/ReviewNavigation";
 import { ReviewOriginalPanel } from "../components/ReviewOriginalPanel";
@@ -30,7 +31,7 @@ export function ComplianceQaPage() {
   const token = session?.accessToken ?? "";
   const queryClient = useQueryClient();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const summary = useQuery({ queryKey: ["review-summary", reviewId], queryFn: () => api.getReviewSummary(token, reviewId), enabled: Boolean(token && reviewId), retry: false });
   const advertisement = useQuery({ queryKey: ["advertisement", summary.data?.advertisementId], queryFn: () => api.getAdvertisement(token, summary.data?.advertisementId ?? ""), enabled: Boolean(token && summary.data?.advertisementId), retry: false });
   const history = useQuery({ queryKey: ["qa-history", reviewId], queryFn: () => api.listComplianceQuestions(token, reviewId), enabled: Boolean(token && reviewId), retry: false });
@@ -51,9 +52,14 @@ export function ComplianceQaPage() {
     },
   });
 
+  // 문서 전체가 아니라 대화 목록 안에서만 스크롤한다. scrollIntoView는 상위 스크롤 컨테이너까지
+  // 함께 움직여 상단 탭 바가 밀려 보이므로 사용하지 않는다.
   useEffect(() => {
-    const scroll = chatEndRef.current?.scrollIntoView;
-    if (typeof scroll === "function") scroll.call(chatEndRef.current, { block: "end", behavior: "smooth" });
+    if (messages.length === 0 && !question.isPending) return;
+    const list = messageListRef.current;
+    if (!list) return;
+    if (typeof list.scrollTo === "function") list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+    else list.scrollTop = list.scrollHeight;
   }, [messages.length, question.isPending]);
 
   const hasReviewContext = Boolean(summary.data && advertisement.data);
@@ -70,7 +76,8 @@ export function ComplianceQaPage() {
 
   return <section className="compliance-qa-page" aria-labelledby="compliance-qa-heading">
     <WorkflowSteps current={4} advertisementId={summary.data?.advertisementId} reviewId={reviewId} />
-    <header className="qa-page-heading"><div><p className="eyebrow">4단계 · 결과 확인</p><h2 id="compliance-qa-heading">광고 규정 Q&A</h2><p>광고 원본을 보며 현재 검토 기준에 대해 질문하고, 근거와 함께 답변을 확인합니다.</p></div><ReviewNavigation reviewId={reviewId} /></header>
+    <PageHeader headingId="compliance-qa-heading" eyebrow="4단계 · 결과 확인" title="광고 규정 Q&A" description="광고 원본을 보며 현재 검토 기준에 대해 질문하고, 근거와 함께 답변을 확인합니다." />
+    <ReviewNavigation reviewId={reviewId} />
     {summary.isPending || advertisement.isPending ? <LoadingState label="검토 맥락을 불러오는 중입니다." /> : null}
     {summary.isError ? <ErrorState error={summary.error} onRetry={() => void summary.refetch()} /> : null}
     {advertisement.isError ? <ErrorState error={advertisement.error} onRetry={() => void advertisement.refetch()} /> : null}
@@ -80,11 +87,10 @@ export function ComplianceQaPage() {
         <header className="qa-chat-header"><div><p className="eyebrow">현재 검토 기준</p><h3>광고 규정에 질문하기</h3></div><p className="qa-context" aria-live="polite">{contextLabel}</p></header>
         {history.isPending ? <LoadingState label="이전 질의응답을 불러오는 중입니다." /> : null}
         {history.isError ? <ErrorState error={history.error} onRetry={() => void history.refetch()} /> : null}
-        <div className="qa-message-list" aria-live="polite">
+        <div className="qa-message-list" aria-live="polite" ref={messageListRef}>
           {messages.length === 0 && !history.isPending ? <div className="qa-empty-state"><h3>무엇을 확인할까요?</h3><p>예: 우대금리 문구에 함께 표시해야 할 조건은 무엇인가요?</p></div> : null}
           {messages.map((answer) => <div className="qa-turn" key={answer.qaId}><article className="qa-message qa-message--user"><div className="qa-message-label">질문</div><p>{answer.question}</p></article><QaAnswerMessage answer={answer} /></div>)}
           {question.isPending ? <article className="qa-message qa-message--assistant qa-message--pending" aria-label="답변 생성 중"><div className="qa-message-label">규정 안내</div><p>기준자료를 확인하고 답변을 준비하고 있습니다.</p></article> : null}
-          <div ref={chatEndRef} />
         </div>
         {question.isError ? <ErrorState error={question.error} /> : null}
         <form onSubmit={submitQuestion} className="qa-composer"><label className="visually-hidden" htmlFor="qa-question">질문</label><textarea id="qa-question" name="question" required placeholder="광고 문구 또는 표시 방법에 대해 질문해 주세요." /><button type="submit" disabled={question.isPending || !hasReviewContext}>{question.isPending ? "답변 생성 중..." : "질문 보내기"}</button></form>

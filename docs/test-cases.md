@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.94 |
+| 현행 버전 | v1.95 |
 | 기준일 | 2026-07-28 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.95 | 2026-07-28 | 광고 규정 Q&A 탭의 공통 탭 바 배치와 대화 목록 내부 스크롤 회귀를 TC-QA-009·TC-QA-010으로 추가하고, TC-QA-010에 화면 폭 구간별 높이 상한 확인을 포함 |
 | v1.94 | 2026-07-28 | Q&A 검토 필터 조회의 실제 PostgreSQL 회귀 TC-QA-008을 추가하고 M8 Postgres 하네스가 현행 migration head를 사용하도록 기준을 갱신 |
 | v1.93 | 2026-07-27 | Notion 자동 동기화 원천 `dev` 전환과 성공 run 조회의 `--event push` 기준을 TC-NFR-DOC-003에 반영 |
 | v1.92 | 2026-07-27 | 19.18 Notion 동기화 기대 문서 수를 102개(일반 17·ADR 85)로 갱신하고 아키텍처 구성도 모음(`docs/architecture-overview.md`) 참고 문서 편입을 반영 |
@@ -479,6 +480,8 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-QA-006 | 빈 질문 요청 | question 공백 | Q&A 요청 | 400 BAD_REQUEST 반환 | - | P1 |
 | TC-QA-007 | 4단계 Q&A 탭과 검토 맥락 적용 | 완료된 reviewId·광고물·기준 적용일 존재 | `/reviews/{reviewId}/results/qa` 진입 후 질문 제출 | 결과 확인 공통 탭에 `광고 규정 Q&A`가 표시되고, `getReviewSummary`·`getAdvertisement`의 상품군·광고유형·기준 적용일이 `/qa/questions` 요청에 자동 포함된다. 답변 요약·상세·근거·참고 문구와 `needsHumanReview` 안내를 구분해 표시한다. | `ReviewSummary`, `AdvertisementDetail`, `/qa/questions` | P1 |
 | TC-QA-008 | Q&A 검토 필터 조회 | 실제 PostgreSQL 스키마(head) | `reviewId` 지정과 미지정으로 `/qa/questions` 조회, 세션 소유 확인 경로 함께 실행 | 두 경우 모두 SQL 계획 오류 없이 조회되고 이력이 없으면 빈 목록 반환 | `qa_sessions`, `qa_messages` | P1 |
+| TC-QA-009 | Q&A 탭의 공통 탭 바 배치 | 완료된 reviewId 존재 | `/reviews/{reviewId}/results/qa` 진입 후 탭 바 DOM 위치 확인 | 탭 바가 페이지 헤더 안에 중첩되지 않고 헤더 다음 형제 블록으로 놓여 S-006~S-009와 같은 위치·폭을 유지한다 | S-010 화면 구조 | P2 |
+| TC-QA-010 | Q&A 대화 목록 스크롤 범위 | 이력 없음과 이력 존재 두 경우, 데스크톱과 1050px 이하 폭 | Q&A 탭 진입 후 스크롤 동작과 대화 패널 높이 상한 확인 | 이력이 없으면 스크롤이 발생하지 않고, 이력이 있으면 문서가 아니라 대화 목록 컨테이너 안에서만 스크롤되어 탭 바가 밀리지 않는다. 모든 폭 구간에서 대화 패널의 높이 상한이 유지된다 | S-010 화면 구조 | P2 |
 
 ---
 
