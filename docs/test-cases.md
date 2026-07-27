@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.93 |
-| 기준일 | 2026-07-27 |
+| 현행 버전 | v1.94 |
+| 기준일 | 2026-07-28 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.94 | 2026-07-28 | Q&A 검토 필터 조회의 실제 PostgreSQL 회귀 TC-QA-008을 추가하고 M8 Postgres 하네스가 현행 migration head를 사용하도록 기준을 갱신 |
 | v1.93 | 2026-07-27 | Notion 자동 동기화 원천 `dev` 전환과 성공 run 조회의 `--event push` 기준을 TC-NFR-DOC-003에 반영 |
 | v1.92 | 2026-07-27 | 19.18 Notion 동기화 기대 문서 수를 102개(일반 17·ADR 85)로 갱신하고 아키텍처 구성도 모음(`docs/architecture-overview.md`) 참고 문서 편입을 반영 |
 | v1.91 | 2026-07-27 | Notion 게시 대상 문서 수를 101개(일반 16·ADR 85)로 갱신 |
@@ -477,6 +478,7 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-QA-005 | Q&A 이력 조회 | 질문 이력 존재 | `/qa/questions` 호출 | 질문/답변 이력 반환 | `qa_messages` | P2 |
 | TC-QA-006 | 빈 질문 요청 | question 공백 | Q&A 요청 | 400 BAD_REQUEST 반환 | - | P1 |
 | TC-QA-007 | 4단계 Q&A 탭과 검토 맥락 적용 | 완료된 reviewId·광고물·기준 적용일 존재 | `/reviews/{reviewId}/results/qa` 진입 후 질문 제출 | 결과 확인 공통 탭에 `광고 규정 Q&A`가 표시되고, `getReviewSummary`·`getAdvertisement`의 상품군·광고유형·기준 적용일이 `/qa/questions` 요청에 자동 포함된다. 답변 요약·상세·근거·참고 문구와 `needsHumanReview` 안내를 구분해 표시한다. | `ReviewSummary`, `AdvertisementDetail`, `/qa/questions` | P1 |
+| TC-QA-008 | Q&A 검토 필터 조회 | 실제 PostgreSQL 스키마(head) | `reviewId` 지정과 미지정으로 `/qa/questions` 조회, 세션 소유 확인 경로 함께 실행 | 두 경우 모두 SQL 계획 오류 없이 조회되고 이력이 없으면 빈 목록 반환 | `qa_sessions`, `qa_messages` | P1 |
 
 ---
 

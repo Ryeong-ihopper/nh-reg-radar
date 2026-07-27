@@ -294,7 +294,7 @@ class PostgresSupportRepository:
                     text("""
                     SELECT 1 FROM rag.qa_sessions
                      WHERE qa_session_id=:session_id AND user_id=:user_id
-                       AND (:review_id IS NULL OR review_id=:review_id)
+                       AND (CAST(:review_id AS text) IS NULL OR review_id=:review_id)
                 """),
                     {"session_id": session_id, "user_id": actor.user_id, "review_id": review_id},
                 ).first()
@@ -312,7 +312,7 @@ class PostgresSupportRepository:
                            s.qa_session_id
                       FROM rag.qa_messages m JOIN rag.qa_sessions s USING (qa_session_id)
                      WHERE s.user_id=:user_id
-                       AND (:review_id IS NULL OR s.review_id=:review_id)
+                       AND (CAST(:review_id AS text) IS NULL OR s.review_id=:review_id)
                      ORDER BY m.created_at,m.qa_message_id
                 """),
                     {"user_id": actor.user_id, "review_id": review_id},

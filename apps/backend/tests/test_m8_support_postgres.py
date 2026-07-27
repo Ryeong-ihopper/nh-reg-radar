@@ -125,7 +125,7 @@ def postgres_url() -> Iterator[str]:
             "-c",
             "apps/backend/alembic.ini",
             "upgrade",
-            "0008_m8_support_privileges",
+            "head",
             env=env,
         )
         yield f"postgresql+psycopg://app:app@127.0.0.1:{port}/postgres"
@@ -450,4 +450,31 @@ def test_postgres_support_outputs_and_revision_survive_service_restart(
             "req-m8-wrong-revision",
         )
     assert raised.value.status_code == 400
+    engine.dispose()
+
+
+def test_postgres_qa_session_filters_accept_a_review_id_parameter(postgres_url: str) -> None:
+    """Regression for #27: PostgreSQL must be able to type the review filter parameter.
+
+    `(:review_id IS NULL OR ...)` left the bind parameter untyped, so PostgreSQL failed
+    at planning time with `AmbiguousParameter` and the API returned a plain 500 whenever
+    the Q&A screen filtered by review. Planning fails regardless of stored rows, so this
+    exercises both filters against the real database without seeding sessions.
+    """
+    engine = create_engine(postgres_url, pool_pre_ping=True)
+    repository = PostgresSupportRepository(engine)
+    actor = CurrentUser(
+        "qa-filter-user",
+        "QA 필터",
+        "DPT-M8",
+        "M8 상품부",
+        ("COMPLIANCE_REVIEWER",),
+        1,
+    )
+
+    assert repository.list_questions(actor, "REV-does-not-exist") == []
+    assert repository.list_questions(actor) == []
+    assert repository.session_belongs_to(actor, "QA-does-not-exist", "REV-does-not-exist") is False
+    assert repository.session_belongs_to(actor, "QA-does-not-exist", None) is False
+
     engine.dispose()
