@@ -8,12 +8,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.49 |
+| 현행 버전 | v1.50 |
 | 기준일 | 2026-07-28 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.50 | 2026-07-28 | S-010에서 검토 식별자가 바뀌면 이전 검토의 Q&A 세션을 요청에 사용하지 않는 기준을 반영 (API 계약 변경 없음) |
 | v1.49 | 2026-07-28 | S-010 질문 전송 시 진행 중인 이력 조회를 먼저 취소하고, 성공 시 즉시 재조회 없이 응답 메시지를 추가하는 기준을 반영. 이전 질의응답 조회가 끝나기 전에는 전송하지 않으며, 실패한 질문은 같은 질문 내용으로 현재 검토 세션에 개별 재호출한다 (API 계약 변경 없음) |
 | v1.48 | 2026-07-28 | S-010 Q&A 탭의 공통 탭 바 배치와 대화 목록 내부 스크롤 기준을 화면설계서와 정합하도록 반영 (API 계약 변경 없음) |
 | v1.47 | 2026-07-23 | S-007 원본 미리보기 폭맞춤·위치 확인 필요 하단 배치와 S-010 검토별 Q&A 이력 조회/세션 재개 계약을 추가 |
@@ -528,7 +529,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 화면/route | 생성 operation | 실행 상태 및 화면 반영 |
 | --- | --- | --- |
 | S-009 `/reviews/{reviewId}/support` | `listReviewSuggestions`, `recordSuggestionDecision` | 추천 문구를 조회해 검토 문구와 권고 문구를 별도 비교 필드로 표시하고 `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED`를 저장한다. `MODIFIED_AND_USED`는 요청 전 `finalText`를 필수 검증하며 저장 후 목록을 다시 조회한다. |
-| S-010 `/reviews/{reviewId}/results/qa` | `getReviewSummary`, `getAdvertisement`, `askComplianceQuestion` | 현재 검토의 상품군·광고유형·기준 적용일을 질문 범위에 자동 적용한다. 질문 결과의 답변 요약·상세·고정 근거·참고 문구를 표시하며, 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. 전송에 실패한 질문은 같은 질문 내용으로 다시 호출할 수 있게 유지한다. 재호출 시 질문 범위(세션, 상품군, 광고유형, 기준 적용일)는 현재 검토 상태로 다시 구성한다. 미해결 실패 질문이 여러 건이면 각각을 독립적으로 재호출하고, 재호출이 성공한 질문만 실패 상태에서 제외한다. |
+| S-010 `/reviews/{reviewId}/results/qa` | `getReviewSummary`, `getAdvertisement`, `askComplianceQuestion` | 현재 검토의 상품군·광고유형·기준 적용일을 질문 범위에 자동 적용한다. 질문 결과의 답변 요약·상세·고정 근거·참고 문구를 표시하며, 근거가 없고 `needsHumanReview=true`이면 확정 답변 대신 담당자 확인 안내와 빈 근거 상태를 표시한다. 전송에 실패한 질문은 같은 질문 내용으로 다시 호출할 수 있게 유지한다. 재호출 시 질문 범위(세션, 상품군, 광고유형, 기준 적용일)는 현재 검토 상태로 다시 구성한다. 미해결 실패 질문이 여러 건이면 각각을 독립적으로 재호출하고, 재호출이 성공한 질문만 실패 상태에서 제외한다. 검토 식별자가 바뀌면 이전 검토의 `qaSessionId`를 사용하지 않는다. |
 | S-011 `/reviews/{reviewId}/support` | `listOpinionDrafts`, `createOpinionDraft`, `updateOpinionDraft` | 최신 초안을 조회하고 없으면 생성한다. 원본 `draftContent`를 유지한 채 담당자 `finalContent`를 저장하고 다시 조회한다. |
 | S-012 `/reviews/{reviewId}/support` | `createReviewReport`, `getReviewReport`, `downloadReviewReport` | HWPX/PDF 리포트의 생성 형식·준비 상태와 다운로드를 표시한다. 응답의 식별자·해시는 클라이언트 동작에만 사용하고 기본 화면에는 표시하지 않는다. 다운로드는 Bearer 권한을 확인하며 변환 실패는 원본 HWPX와 분리한다. |
 | S-013 `/advertisements/{advertisementId}/comparisons` | `createAdvertisementComparison`, `getAdvertisementComparison` | 기존 검토에서 진입해 수정본을 비교하고 해결·미해결·신규 확인 건수와 항목을 표시한다. 비교 API의 식별자는 요청에만 사용하며 기본 화면에는 노출하지 않는다. |

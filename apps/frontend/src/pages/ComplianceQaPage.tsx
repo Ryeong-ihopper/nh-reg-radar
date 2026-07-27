@@ -36,6 +36,13 @@ function QaAnswerMessage({ answer }: { answer: QaAnswer }) {
 
 export function ComplianceQaPage() {
   const { reviewId = "" } = useParams();
+  // `/reviews/:reviewId/results/qa`는 reviewId만 바뀌면 같은 컴포넌트를 재사용한다. 그러면
+  // 이전 검토의 초안, 실패한 질문, 활성 Q&A 세션이 다음 검토 화면에 그대로 남는다. 검토가
+  // 바뀌면 다른 화면이므로 key로 remount해 화면 상태를 이어받지 않는다.
+  return <ComplianceQaScreen key={reviewId} reviewId={reviewId} />;
+}
+
+function ComplianceQaScreen({ reviewId }: { reviewId: string }) {
   const { session } = useAuth();
   const token = session?.accessToken ?? "";
   const queryClient = useQueryClient();
