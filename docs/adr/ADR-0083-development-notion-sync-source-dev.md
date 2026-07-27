@@ -7,6 +7,8 @@
 | 관련 문서 | 프로젝트 규칙, 테스트케이스, notion-page-map |
 | 관련 ADR | ADR-0077(개정), ADR-0082 |
 
+> 롤아웃 완료(2026-07-27): 롤아웃 전제를 모두 충족한 뒤 push 트리거 원천을 `dev`로 전환했다. page map은 게시 대상 102개(일반 17·ADR 85)에 `page_id` null 0건이고, 기준 commit `4caee98`→`10050ce` catch-up 동기화가 27건 갱신·전부 verified로 완료됐으며 read-only preflight는 102개 전부 정상(problems 0)을 확인했다. 성공 run 조회에는 `--event push`를 지정해 수동 단건 `workflow_dispatch`가 전체 동기화 기준점으로 오인되지 않게 한다.
+
 ## 배경
 
 ADR-0077은 Git `main`의 Markdown을 Notion `개발 문서` 페이지에 단방향 자동 동기화한다. ADR-0082로 개발 기간 기본 브랜치를 `dev`로 전환하면서 `main` push가 드물어졌고, `main` 기준 동기화만 유지하면 개발 명세의 Notion 공유본이 장기간 갱신되지 않는다. 개발 중에도 공유본을 최신으로 유지하려는 요구가 있다.
@@ -39,18 +41,28 @@ ADR-0077은 Git `main`의 Markdown을 Notion `개발 문서` 페이지에 단방
 - 롤아웃 완료 후 `dev` merge마다 게시 대상 Markdown 변경이 Notion 공유본에 반영되어 최신성이 향상된다.
 - Notion 갱신 빈도가 증가하므로 실패 알림과 멱등 재실행 운영 부담이 늘 수 있다.
 - ADR-0077은 원천 branch 차원에서 본 ADR로 개정된다. 나머지 조항은 유효하다.
-- 트리거 전환 전까지 Notion 공유본은 기존 `main` 기준으로 유지된다.
+- 트리거 전환 전까지 Notion 공유본은 기존 `main` 기준으로 유지됐고, 전환(2026-07-27) 이후에는 `dev` 기준으로 유지된다.
 
 ## 검증
 
-- 롤아웃 전제 3의 최초 생성 후 page map의 신규 page ID가 확정되었는지 확인한다.
-- 트리거 전환 후 `dev` push에서 변경분만 갱신되고 개수·매핑 검증이 통과하는지 확인한다.
+- 롤아웃 전제 3의 최초 생성 후 page map의 신규 page ID가 확정되었는지 확인한다. (완료: `docs/self-hosted-runner-guide.md`·`docs/architecture-overview.md` 단건 생성 후 page map 확정, `page_id` null 0건)
+- 트리거 전환 후 `dev` push에서 변경분만 갱신되고 개수·매핑 검증이 통과하는지 확인한다. (전환 직후 최초 자동 실행에서 관찰 예정)
 - mock Notion 회귀 테스트는 원천 branch 확장 후에도 update·검증·rollback·재실행·매핑 누락 경계를 유지한다.
 
 ## 후속 조치
 
-- 운영 담당자가 Notion workspace에서 신규 문서 페이지를 최초 생성하고 page map을 확정한다(토큰 필요).
-- page map 확정 후 workflow push 트리거 원천을 `dev`로 전환하는 별도 변경을 반영한다.
+완료 항목과 증거는 다음과 같다.
+
+| 항목 | 상태·증거 |
+| --- | --- |
+| 신규 문서 페이지 최초 생성·page map 확정 | 완료 — 단건 `allow_create` 실행 후 page map 확정, 게시 대상 102개(일반 17·ADR 85)에 `page_id` null 0건 |
+| 기준 commit부터 catch-up 동기화 | 완료 — run `30240482822`(`4caee98`→`10050ce`): 27건 updated, created 0, 전부 verified |
+| 게시 계층 건강도 확인 | 완료 — read-only preflight run `30240767272`: 102건 확인, problems 0 |
+| workflow push 트리거 원천 `dev` 전환 | 완료 — `push.branches`·성공 run 조회(`--branch dev --event push`)를 함께 변경, page map baseline `10050ce` |
+
+남은 후속 조치는 다음과 같다.
+
+- 전환 후 최초 `dev` push 자동 동기화 결과(변경분 선택 범위·검증 통과)를 관찰한다.
 - 릴리스 준비 시 원천 `main` 복귀 여부를 ADR-0082·Q77과 함께 결정한다.
 
 ## 관련 문서

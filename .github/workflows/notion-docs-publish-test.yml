@@ -3,7 +3,7 @@ name: Notion Docs Sync
 on:
   push:
     branches:
-      - main
+      - dev
     paths:
       - "docs/*.md"
       - "docs/**/*.md"
@@ -79,7 +79,8 @@ jobs:
             base_sha="$(
               gh run list \
                 --workflow .github/workflows/notion-docs-publish-test.yml \
-                --branch main \
+                --branch dev \
+                --event push \
                 --status success \
                 --limit 1 \
                 --json headSha \

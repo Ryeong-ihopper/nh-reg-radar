@@ -20,11 +20,26 @@ if grep -q 'NOTION_API_TOKEN' <<<"$job_environment"; then
   exit 1
 fi
 grep -q '^  push:$' "$workflow_path"
-grep -q '      - main' "$workflow_path"
+grep -q '      - dev' "$workflow_path"
 grep -q 'SYNC_DEV_DOCS' "$workflow_path"
 grep -q 'scripts/publish-notion-docs-test.sh --sync' "$workflow_path"
-grep -q 'gh run list' "$workflow_path"
-grep -q -- '--status success' "$workflow_path"
+
+# The automatic sync source is a paired change: push trigger, run lookup branch and
+# event filter must stay consistent. Assert the lookup conditions inside the single
+# "Select synchronization base" step so flipping one side alone fails here.
+sync_base_step="$(
+  awk '/^      - name: Select synchronization base$/{flag=1} /^      - name: Install official Notion CLI$/{flag=0} flag' \
+    "$workflow_path"
+)"
+test -n "$sync_base_step"
+grep -q 'gh run list' <<<"$sync_base_step"
+grep -q -- '--branch dev' <<<"$sync_base_step"
+grep -q -- '--event push' <<<"$sync_base_step"
+grep -q -- '--status success' <<<"$sync_base_step"
+if grep -q -- '--branch main' <<<"$sync_base_step"; then
+  echo "sync base lookup must not target main after the dev source flip" >&2
+  exit 1
+fi
 
 checkout_step="$(
   awk '

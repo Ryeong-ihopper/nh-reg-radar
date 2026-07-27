@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.35 |
+| 현행 버전 | v1.36 |
 | 기준일 | 2026-07-27 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.36 | 2026-07-27 | ADR-0083 롤아웃 전제 충족에 따라 Notion 자동 동기화 원천을 `main`에서 `dev`로 전환하고(성공 run 조회에 `--event push` 추가) page map baseline을 최신 동기화 commit으로 갱신 |
 | v1.35 | 2026-07-27 | §5.4 Notion 게시 대상을 102개(일반 17·ADR 85)로 갱신하고 아키텍처 구성도 모음(`docs/architecture-overview.md`)을 `참고` 보조 문서 게시 목록에 편입 |
 | v1.34 | 2026-07-27 | 완료된 프론트엔드 구현 감사 문서를 게시 대상에서 제거하고(101개, 일반 16·ADR 85) 로컬 화면 캡처 검증 절차를 §3.2로 이전 |
 | v1.33 | 2026-07-26 | §5.4에 page-map 기반 read-only Notion Docs Preflight 기준을 추가(canonical `--validate-map` 선행, mutation 금지, 전용 read-only 토큰(`NOTION_READONLY_API_TOKEN`)·`notion-readonly` Environment로 자격 경계 제한) |
@@ -341,7 +342,7 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 
 | 항목 | 테스트 기준 |
 | --- | --- |
-| 자동 실행 | `main`에 게시 대상 Markdown 변경이 push되면 `.github/workflows/notion-docs-publish-test.yml` 실행 |
+| 자동 실행 | `dev`에 게시 대상 Markdown 변경이 push되면 `.github/workflows/notion-docs-publish-test.yml` 실행 |
 | 수동 실행 | 초기 전환·장애 복구 시 `workflow_dispatch`를 확인 문자열 `SYNC_DEV_DOCS`와 기준 commit으로 실행 |
 | 사전 진단 | 페이지 손상(접근 불가·휴지통·부모 불일치·ID 불일치·`truncated`·알 수 없는 block) 진단은 read-only `.github/workflows/notion-docs-preflight.yml`(`scripts/notion-docs-preflight.sh`)로 수행한다. 대상은 page-map의 source path로 지정하고, Notion 호출 전 `--validate-map`으로 게시 계약을 검증하며, create/update/unlock/trash 없이 GET만 사용하고 허용 메타 필드만 산출한다(본문·제목·댓글·토큰 미출력). 자격은 **쓰기 토큰으로 fallback하지 않는 전용 read-only integration token(`NOTION_READONLY_API_TOKEN`)**만 사용하고 `notion-readonly` Environment(배포 브랜치 `dev` 제한)로 범위를 제한한다 |
 | 게시 도구 | 공식 Notion CLI를 사용하는 `scripts/publish-notion-docs-test.sh` |
@@ -353,7 +354,7 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 | ADR 문서 | 마지막 `15. ADR` 페이지 아래에 `docs/adr/` 문서 85개 게시 |
 | 본문 | Git Markdown 본문만 게시하며 배포 안내, 원본 경로, commit, 동기화 시각과 별도 문서 목록을 Notion 본문에 추가하지 않음 |
 | 내부 링크 | 상대 Markdown 링크를 같은 commit의 GitHub 원문 절대 링크로 변환 |
-| 변경 선택 | `main`의 마지막 성공 동기화 commit(없으면 page map baseline) 또는 수동 기준 commit부터 현재 commit까지 변경된 Markdown을 갱신하여 이전 실패분도 다음 실행에 포함 |
+| 변경 선택 | `dev`의 마지막 성공 push 동기화 commit(없으면 page map baseline) 또는 수동 기준 commit부터 현재 commit까지 변경된 Markdown을 갱신하여 이전 실패분도 다음 실행에 포함 |
 | 추적 정보 | 기준/대상 commit, Git 원본 경로, 원본 SHA-256, Notion page ID/URL과 action은 GitHub Actions 결과 artifact에만 기록 |
 | 잠금 | 대상 문서만 갱신 직전에 잠금 해제하고 페이지별 검증 완료 즉시 다시 잠금 |
 | 내용 검증 | 제목, 본문 대표 구문, `truncated=false`, 알 수 없는 block 없음 확인 |
@@ -362,9 +363,9 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 | Secret 범위 | `NOTION_API_TOKEN`은 설정 검증, 연결 확인, 게시 단계에만 주입하고 외부 CLI 설치 단계와 job 공통 환경에는 노출하지 않으며, checkout credential도 설치 단계 전에 저장소에 유지하지 않음 |
 | 변경 요청 | Notion 댓글로 의견을 수집하되 공식 변경은 Git branch/PR에서 수행 |
 
-GitHub Actions의 `NOTION_API_TOKEN` secret과 `NOTION_PARENT_PAGE_ID`, `NOTION_WORKSPACE_ID` variable을 사용하며 token 값은 로그나 산출물에 기록하지 않는다. Notion은 공유본이므로 직접 본문 편집은 다음 동기화에서 Git 원본으로 대체될 수 있다. 신규·삭제·이름 변경은 page map과 공유 URL 영향이 있으므로 자동 추론하지 않고 별도 검토한다. 현재 private repository 플랜에서는 branch protection을 사용할 수 없어 Notion workflow는 merge 전 차단 Gate가 아니라 `main` 반영 후 운영 동기화 및 실패 알림 계층으로 사용한다.
+GitHub Actions의 `NOTION_API_TOKEN` secret과 `NOTION_PARENT_PAGE_ID`, `NOTION_WORKSPACE_ID` variable을 사용하며 token 값은 로그나 산출물에 기록하지 않는다. Notion은 공유본이므로 직접 본문 편집은 다음 동기화에서 Git 원본으로 대체될 수 있다. 신규·삭제·이름 변경은 page map과 공유 URL 영향이 있으므로 자동 추론하지 않고 별도 검토한다. 현재 private repository 플랜에서는 branch protection을 사용할 수 없어 Notion workflow는 merge 전 차단 Gate가 아니라 `dev` 반영 후 운영 동기화 및 실패 알림 계층으로 사용한다.
 
-신규 Markdown을 Notion에 최초 반영할 때는 게시 manifest와 예상 개수를 갱신하고 page map에 `page_id: null`로 검토된 항목을 추가한다. 해당 branch에서 `workflow_dispatch`를 `SYNC_DEV_DOCS`, 기준 commit, `allow_create=true`로 실행한 후 artifact의 생성 page ID를 page map에 기록한다. page ID가 Git에 확정된 다음부터는 일반 `main` push가 기존 페이지를 자동 갱신한다.
+신규 Markdown을 Notion에 최초 반영할 때는 게시 manifest와 예상 개수를 갱신하고 page map에 `page_id: null`로 검토된 항목을 추가한다. 해당 branch에서 `workflow_dispatch`를 `SYNC_DEV_DOCS`, 기준 commit, `allow_create=true`로 실행한 후 artifact의 생성 page ID를 page map에 기록한다. page ID가 Git에 확정된 다음부터는 일반 `dev` push가 기존 페이지를 자동 갱신한다.
 
 미매핑 문서가 여러 개일 때의 안전한 최초 등록 절차는 다음을 따른다.
 
@@ -374,7 +375,7 @@ GitHub Actions의 `NOTION_API_TOKEN` secret과 `NOTION_PARENT_PAGE_ID`, `NOTION_
 4. artifact가 없는 취소·runner 중단은 Notion에서 실제 생성 여부를 대조한 뒤에만 재실행한다.
 5. 다음 dispatch는 반드시 직전 page map commit을 포함한 동일 branch ref를 사용한다.
 6. 미매핑 문서를 모두 등록하고 page map의 `null`이 0개임을 확인한 뒤 PR로 `dev`에 병합한다.
-7. 자동 동기화 원천을 `dev`로 전환할 때는 후속 PR에서 workflow의 `push.branches`와 성공 run 조회(`gh run list --branch`)를 **함께** `main`→`dev`로 변경한다.
+7. 자동 동기화 원천은 ADR-0083 롤아웃 전제를 충족한 뒤 `dev`로 전환했다(2026-07-27). workflow의 `push.branches`와 성공 run 조회(`gh run list --branch`)를 함께 `dev`로 변경하고, 성공 run 조회에는 `--event push`를 지정해 수동 단건 `workflow_dispatch`가 전체 동기화 기준점으로 오인되지 않게 한다.
 
 ---
 

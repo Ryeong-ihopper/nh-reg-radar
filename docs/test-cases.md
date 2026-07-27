@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.92 |
+| 현행 버전 | v1.93 |
 | 기준일 | 2026-07-27 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.93 | 2026-07-27 | Notion 자동 동기화 원천 `dev` 전환과 성공 run 조회의 `--event push` 기준을 TC-NFR-DOC-003에 반영 |
 | v1.92 | 2026-07-27 | 19.18 Notion 동기화 기대 문서 수를 102개(일반 17·ADR 85)로 갱신하고 아키텍처 구성도 모음(`docs/architecture-overview.md`) 참고 문서 편입을 반영 |
 | v1.91 | 2026-07-27 | Notion 게시 대상 문서 수를 101개(일반 16·ADR 85)로 갱신 |
 | v1.90 | 2026-07-26 | Notion 페이지 read-only 사전 진단 회귀 TC-NFR-DOC-016을 추가 |
@@ -864,13 +865,13 @@ fixture의 SHA-256을 goal manifest에서 검증한다.
 
 ## 19.18 Notion 문서 단방향 동기화 테스트
 
-이 절의 기대 개수 102개와 제외 개수 33개는 현행 게시 manifest 기준이다. Git `main`이 원본이며 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
+이 절의 기대 개수 102개와 제외 개수 33개는 현행 게시 manifest 기준이다. Git `dev`가 자동 동기화 원천이며(ADR-0083 전환, 2026-07-27) 기존 Notion page ID와 댓글·공유 URL을 유지하는 증분 갱신을 검증한다.
 
 | TC ID | 테스트 항목 | 테스트 절차 | 기대 결과 | 우선순위 |
 | --- | --- | --- | --- | --- |
 | TC-NFR-DOC-001 | 게시 대상 선별 | 게시 스크립트를 dry-run으로 실행 | Git 추적 Markdown 102개가 선택되고 일반 17개·ADR 85개로 완전히 분류되며 비 Markdown 33개와 비추적 파일은 제외됨 | P0 |
 | TC-NFR-DOC-002 | page map 완전성 | manifest와 `governance/notion-page-map.json`을 비교 | 모든 source path가 중복 없이 하나의 올바른 parent/page ID에 매핑되고 누락·중복은 동기화 전에 실패함 | P0 |
-| TC-NFR-DOC-003 | 자동 실행 범위·실패 수렴 | `main`에 Markdown과 비문서 파일을 각각 push하고 중간 동기화 실패 후 다음 문서 변경을 push | 게시 대상 Markdown 변경에만 실행되고 마지막 성공 동기화 commit부터 현재까지를 선택하여 이전 실패 문서도 다음 실행에 다시 포함됨 | P0 |
+| TC-NFR-DOC-003 | 자동 실행 범위·실패 수렴 | `dev`에 Markdown과 비문서 파일을 각각 push하고 중간 동기화 실패 후 다음 문서 변경을 push | 게시 대상 Markdown 변경에만 실행되고 마지막 성공 push 동기화 commit부터 현재까지를 선택하여 이전 실패 문서도 다음 실행에 다시 포함되며, 수동 단건 `workflow_dispatch`는 기준점으로 사용되지 않음 | P0 |
 | TC-NFR-DOC-004 | 기존 페이지 증분 갱신 | 매핑된 문서 하나를 변경하고 동기화 | 기존 page ID·URL을 유지한 채 공식 CLI page update로 본문과 제목이 Git 원본으로 교체됨 | P0 |
 | TC-NFR-DOC-005 | 본문과 링크 | 갱신된 문서의 Notion Markdown을 재조회 | Git 문서 내용만 표시되고 게시 메타데이터가 없으며 상대 Markdown 링크는 대상 commit GitHub 절대 링크로 변환됨 | P0 |
 | TC-NFR-DOC-006 | 잠금·내용 완전성 | 갱신 완료 페이지를 API로 재조회 | `is_locked=true`, 제목·대표 본문 일치, `truncated=false`, unknown block 0건임 | P0 |
