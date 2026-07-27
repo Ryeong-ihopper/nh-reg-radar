@@ -1483,7 +1483,12 @@ main {
 .qa-message--pending { color: var(--muted); }
 .qa-message h3, .qa-message h4, .qa-message p { margin-top: 0; }
 .qa-message h3 { margin-bottom: 0.65rem; font-size: 1rem; }
-.qa-message-label { margin-bottom: 0.45rem; color: #667085; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; }
+.qa-message-label { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.45rem; color: #667085; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; }
+.qa-message-time { flex: 0 0 auto; color: #98a2b3; font-size: 0.68rem; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.qa-message--sending { opacity: 0.72; }
+.qa-message--failed { border-color: #f0c4c4; background: #fdf3f3; }
+.qa-message--failed .qa-message-time { color: #b42318; }
+.qa-message--failed button { margin-top: 0.6rem; }
 .qa-message--user .qa-message-label { color: #475467; }
 .qa-message--user p { margin-bottom: 0; white-space: pre-wrap; }
 .qa-answer-detail { margin-bottom: 0; color: #344054; line-height: 1.7; white-space: pre-wrap; }
@@ -1495,9 +1500,15 @@ main {
 .qa-empty-state { width: min(100%, 40rem); padding: 1.25rem; border: 1px dashed #cbd5e1; border-radius: 0.7rem; color: var(--muted); background: #fff; }
 .qa-empty-state h3 { margin: 0 0 0.5rem; color: var(--ink); }
 .qa-empty-state p { margin: 0; }
-.qa-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; padding: 0.9rem; border-top: 1px solid var(--line); background: #fff; }
-.qa-composer textarea { min-height: 3rem; max-height: 10rem; padding: 0.7rem 0.8rem; resize: vertical; }
-.qa-composer button { align-self: end; }
+.qa-composer { display: grid; gap: 0.4rem; padding: 0.9rem; border-top: 1px solid var(--line); background: #fff; }
+/* 채팅 입력줄: 입력창과 전송 버튼을 하나의 필드처럼 묶어 보이게 한다. */
+.qa-composer-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.6rem; align-items: end; padding: 0.45rem 0.45rem 0.45rem 0.6rem; border: 1px solid #d5dbe6; border-radius: 1.15rem; background: #fff; }
+.qa-composer-field:focus-within { border-color: #9abaaa; box-shadow: 0 0 0 3px var(--primary-soft); }
+/* 높이는 입력 내용에 맞춰 스크립트가 늘리고, 상한과 넘침 처리는 여기서 고정한다. */
+.qa-composer textarea { min-height: 2.4rem; max-height: 10rem; padding: 0.5rem 0.2rem; overflow-y: auto; border: 0; background: transparent; resize: none; }
+.qa-composer textarea:focus-visible { outline: none; }
+.qa-composer button { align-self: end; border-radius: 0.9rem; }
+.qa-composer-hint { margin: 0; padding-left: 0.7rem; color: var(--muted); font-size: 0.72rem; }
 /* 좁은 폭에서도 높이 상한을 유지해야 .qa-message-list 안에서만 스크롤된다. 상한을 none으로 두면
    목록이 이력 길이만큼 늘어나 내부 overflow가 생기지 않고 문서 전체가 스크롤된다. */
 @media (max-width: 1050px) { .review-workspace--qa { grid-template-columns: 1fr; } .qa-chat-panel { min-height: 36rem; max-height: clamp(36rem, 80vh, 52rem); } }
