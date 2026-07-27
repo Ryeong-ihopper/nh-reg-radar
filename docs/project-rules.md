@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.34 |
+| 현행 버전 | v1.35 |
 | 기준일 | 2026-07-27 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.35 | 2026-07-27 | §5.4 Notion 게시 대상을 102개(일반 17·ADR 85)로 갱신하고 아키텍처 구성도 모음(`docs/architecture-overview.md`)을 `참고` 보조 문서 게시 목록에 편입 |
 | v1.34 | 2026-07-27 | 완료된 프론트엔드 구현 감사 문서를 게시 대상에서 제거하고(101개, 일반 16·ADR 85) 로컬 화면 캡처 검증 절차를 §3.2로 이전 |
 | v1.33 | 2026-07-26 | §5.4에 page-map 기반 read-only Notion Docs Preflight 기준을 추가(canonical `--validate-map` 선행, mutation 금지, 전용 read-only 토큰(`NOTION_READONLY_API_TOKEN`)·`notion-readonly` Environment로 자격 경계 제한) |
 | v1.32 | 2026-07-24 | §10.4.1 폐쇄망 반입 기준선 참조를 ADR-0083→ADR-0082(main 기준선)+Q77로 정정, production job을 비활성 스켈레톤으로 명확화, 롤백을 성공 보장이 아닌 best-effort 복구 시도로 정확화, production Environment에 required reviewer가 미설정임을 명시 |
@@ -344,11 +345,11 @@ Git 문서의 Notion 공유본 운영은 [ADR-0077: Git-Notion 단방향 문서 
 | 수동 실행 | 초기 전환·장애 복구 시 `workflow_dispatch`를 확인 문자열 `SYNC_DEV_DOCS`와 기준 commit으로 실행 |
 | 사전 진단 | 페이지 손상(접근 불가·휴지통·부모 불일치·ID 불일치·`truncated`·알 수 없는 block) 진단은 read-only `.github/workflows/notion-docs-preflight.yml`(`scripts/notion-docs-preflight.sh`)로 수행한다. 대상은 page-map의 source path로 지정하고, Notion 호출 전 `--validate-map`으로 게시 계약을 검증하며, create/update/unlock/trash 없이 GET만 사용하고 허용 메타 필드만 산출한다(본문·제목·댓글·토큰 미출력). 자격은 **쓰기 토큰으로 fallback하지 않는 전용 read-only integration token(`NOTION_READONLY_API_TOKEN`)**만 사용하고 `notion-readonly` Environment(배포 브랜치 `dev` 제한)로 범위를 제한한다 |
 | 게시 도구 | 공식 Notion CLI를 사용하는 `scripts/publish-notion-docs-test.sh` |
-| 게시 대상 | Git이 추적하는 `docs/*.md`, `docs/**/*.md` Markdown 101개. 일반 문서 16개와 ADR 문서 85개 |
+| 게시 대상 | Git이 추적하는 `docs/*.md`, `docs/**/*.md` Markdown 102개. 일반 문서 17개와 ADR 문서 85개 |
 | 제외 대상 | `docs/`의 HWP/HWPX, PDF, PNG, YAML 등 비 Markdown 파일과 Git 비추적 파일 |
 | 매핑 | `governance/notion-page-map.json`의 source path-page ID를 사용하고 누락·중복·계층 불일치는 fail-closed |
 | 프로젝트 규칙 | `프로젝트 규칙`을 번호 없이 `개발 문서` 최상단에 게시하고, 다음 문서군과 구분선으로 분리 |
-| 일반 문서 | README 문서 참조 순서에 따라 프로젝트 규칙을 제외한 기준 문서 14개를 `01`~`14` 번호 제목으로 게시하고, CI·배포 가이드는 `참고` 보조 문서로 게시 |
+| 일반 문서 | README 문서 참조 순서에 따라 프로젝트 규칙을 제외한 기준 문서 14개를 `01`~`14` 번호 제목으로 게시하고, CI·배포 가이드와 아키텍처 구성도 모음은 `참고` 보조 문서로 게시 |
 | ADR 문서 | 마지막 `15. ADR` 페이지 아래에 `docs/adr/` 문서 85개 게시 |
 | 본문 | Git Markdown 본문만 게시하며 배포 안내, 원본 경로, commit, 동기화 시각과 별도 문서 목록을 Notion 본문에 추가하지 않음 |
 | 내부 링크 | 상대 Markdown 링크를 같은 commit의 GitHub 원문 절대 링크로 변환 |

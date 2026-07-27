@@ -7,8 +7,8 @@ cd "$ROOT"
 MODE="${1:---publish}"
 REPOSITORY="${GITHUB_REPOSITORY:-CGINSIDE-ROOKIES/nh-ad-compliance}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
-EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-101}"
-EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-16}"
+EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-102}"
+EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-17}"
 EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-85}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 PAGE_MAP_PATH="${NOTION_PAGE_MAP_PATH:-governance/notion-page-map.json}"
@@ -49,7 +49,8 @@ list_general_files() {
     docs/poc-kpi-formulas.md \
     docs/poc-evaluation-exclusion-criteria.md \
     docs/risk-assessment-criteria.md \
-    docs/self-hosted-runner-guide.md
+    docs/self-hosted-runner-guide.md \
+    docs/architecture-overview.md
 }
 
 list_adr_files() {
@@ -88,7 +89,7 @@ display_title() {
   title="$(source_title "$source_path")"
   if [ "$section" = "general" ] && [ "$order" = "00" ]; then
     printf '%s\n' "$title"
-  elif [ "$source_path" = "docs/self-hosted-runner-guide.md" ]; then
+  elif [ "$source_path" = "docs/self-hosted-runner-guide.md" ] || [ "$source_path" = "docs/architecture-overview.md" ]; then
     printf '참고. %s\n' "$title"
   elif [ "$section" = "general" ] || [ "$order" = "00" ] || [ "$order" = "01" ]; then
     printf '%s. %s\n' "$order" "$title"

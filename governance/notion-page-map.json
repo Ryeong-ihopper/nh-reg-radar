@@ -609,6 +609,12 @@
       "section": "general",
       "page_id": "3a71847f-058f-81bf-b023-f28c4da3b8c4",
       "state": "active"
+    },
+    {
+      "source_path": "docs/architecture-overview.md",
+      "section": "general",
+      "page_id": "3aa1847f-058f-812d-8ba9-e54f3e4819d6",
+      "state": "active"
     }
   ]
 }

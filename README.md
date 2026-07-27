@@ -26,6 +26,44 @@ compose*.yml     공통(compose.yml) + dev(compose.dev.yml) + prod(compose.prod.
 
 ---
 
+## 아키텍처 구성도
+
+전체 상세 구성도(다이어그램 14종 · 컴포넌트 · 데이터 흐름 · 상태 전이 · 모듈 의존성)는 **[아키텍처 구성도 모음](docs/architecture-overview.md)**에 있습니다. 아래는 전역 개요 1종이며, 런타임 흐름·모듈 의존성·배포·상태 전이 등은 상세 문서를 참고합니다.
+
+> **범례** — 기본색 노드: 기본 compose 구성에서 동작(문서 처리·OCR·규칙 검토 포함) · 회색 점선 노드: 외부 AI(LLM·임베딩·RAG)가 게이트되거나 미구현. 파서/OCR과 외부 AI 활성화는 분리되어 있습니다([ADR-0081](docs/adr/ADR-0081-parser-service-and-external-ai-activation-separation.md)): `NH_PARSER_SERVICES_ENABLED`(기본 `true`) / `NH_EXTERNAL_AI_ENABLED`(기본 `false`).
+
+```mermaid
+flowchart LR
+    user["상품부서·준법감시·기준관리자"] --> ui["웹 화면 (React + Vite)"]
+    ui --> api["백엔드 API (FastAPI)"]
+    api --> db[("PostgreSQL: 업무 데이터·감사·상태")]
+    api --> queue["Redis 대기열: 비동기 작업 전달"]
+    api --> object["MinIO: 광고 원본·처리 산출물"]
+
+    api --> qdrant[("Qdrant: 벡터 검색")]
+    api --> search[("OpenSearch: 키워드·정확 검색")]
+
+    queue --> worker["Worker: 검토 파이프라인"]
+    worker --> db
+    worker --> object
+    worker --> qdrant
+    worker --> search
+
+    worker --> parsers["문서 처리·OCR 사설 서비스<br/>opendataloader-pdf·PaddleOCR·rhwp·document-processor"]
+    api -. HWP/PDF 미리보기 변환 .-> parsers
+    parsers --> normalized["NormalizedDocument v1: 표준 문서 데이터"]
+    worker -. 자격증명 게이트 .-> ai["외부 임베딩·LLM (OpenAI 호환): 검색·판정 보조"]
+
+    classDef pending fill:#fafafa,stroke:#9e9e9e,stroke-dasharray:4 3,color:#616161;
+    class ai pending;
+```
+
+웹 화면은 백엔드 API로만 호출합니다. 저장소·검색 인프라는 백엔드(업로드 저장·기준자료 색인·검색)와 Worker(검토 처리)가 각자 책임으로 사용하고, 파서·OCR 사설 서비스는 Worker가 문서 파싱에, 백엔드가 HWP/PDF 미리보기 변환에 호출합니다. 파서·OCR는 기본 활성이며, 회색(외부 임베딩·LLM)만 자격증명으로 켜집니다.
+
+런타임 흐름(등록→검토→결과), 코드베이스 모듈 의존성, 배포 구성, 작업 상태 전이, 결과 추적성 다이어그램은 [아키텍처 구성도 모음](docs/architecture-overview.md)에 있습니다.
+
+---
+
 ## 온보딩
 
 **사전 요구사항:** Git · Python 3.12 (거버넌스 스크립트) · Bash 및 POSIX 기본 도구(`local-dev.sh` 등 셸 스크립트) · Docker Engine + Compose v2 (스택 실행) · (선택) `uv`, Node.js 22 (품질 검사).
@@ -195,7 +233,7 @@ npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck 
 
 ## 문서 & 거버넌스
 
-`docs/`가 명세 원천이며, 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다. **현재 트리거는 `main` 기준**이며, ADR-0083에 따른 page-map 등록이 완료(전 문서 등록, `page_id` null 0건)되어 `dev` 트리거 전환 전제조건이 충족됐습니다(전환 자체는 별도 결정 사안). 전환 전까지 Git의 `docs/`가 최신 Source of Truth입니다.
+`docs/`가 명세 원천이며, 게시 대상 Markdown은 ADR-0077에 따라 Notion 공유본으로 단방향 자동 동기화됩니다. **현재 트리거는 `main` 기준**이며, 자동 동기화는 신규 페이지를 만들지 않으므로(ADR-0077), 신규 문서는 **작업 브랜치에서 단건 `allow_create`로 페이지를 만들고 artifact의 page ID를 같은 브랜치 page-map에 확정한 뒤 병합**합니다(프로젝트 규칙 §5.4). 현재 page-map은 게시 대상 전부가 등록된 상태(`page_id` null 0건)입니다. ADR-0083의 `dev` 트리거 전환은 별도로 결정합니다. 전환 전까지 Git의 `docs/`가 최신 Source of Truth입니다.
 문서·구현 변경 시 같은 작업 단위에서 관련 명세를 함께 갱신합니다([문서 거버넌스 가이드](governance/README.md), [ADR-0076](docs/adr/ADR-0076-ai-tool-lifecycle-hook-enforcement-policy.md)).
 
 ### 문서 지도
@@ -211,6 +249,7 @@ npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck 
 | [DB 명세서](docs/database-specification.md) | ERD·테이블·인덱스·보관 정책·Qdrant/OpenSearch |
 | [테스트케이스](docs/test-cases.md) | 정상/예외/권한/비기능/E2E·완료 기준 |
 | [프로젝트 규칙](docs/project-rules.md) | 개발 방식·AI 활용·저장소·문서·TDD·CI/CD·브랜치/PR·ADR |
+| [아키텍처 구성도 모음](docs/architecture-overview.md) | 구성 다이어그램·데이터 흐름·책임 경계·구현 상태(dev 기준) |
 | [CI·배포 가이드](docs/self-hosted-runner-guide.md) | CI 실행 환경·배포 runner·Environment·rollback |
 | [의사결정 필요사항](docs/adr-candidates.md) | ADR 기준·미결정 항목 |
 | [개발 일정 및 Notion 칸반](docs/development-schedule-and-notion-kanban.md) | 로드맵·스프린트·Epic·마일스톤·리스크 |
