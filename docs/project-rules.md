@@ -4,13 +4,14 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.36 |
-| 기준일 | 2026-07-27 |
+| 현행 버전 | v1.37 |
+| 기준일 | 2026-07-28 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.37 | 2026-07-28 | §11.3에 이슈 제목(커밋·PR과 동일한 Conventional 형식)과 이슈 본문 필수 항목·연결 절차 기준을 추가하고, §11.1·§11.2의 작업 브랜치 prefix를 커밋·PR type 전체(`feature/*`는 `feat/*` 별칭)로 정합 |
 | v1.36 | 2026-07-27 | ADR-0083 롤아웃 전제 충족에 따라 Notion 자동 동기화 원천을 `main`에서 `dev`로 전환하고(성공 run 조회에 `--event push` 추가) page map baseline을 최신 동기화 commit으로 갱신 |
 | v1.35 | 2026-07-27 | §5.4 Notion 게시 대상을 102개(일반 17·ADR 85)로 갱신하고 아키텍처 구성도 모음(`docs/architecture-overview.md`)을 `참고` 보조 문서 게시 목록에 편입 |
 | v1.34 | 2026-07-27 | 완료된 프론트엔드 구현 감사 문서를 게시 대상에서 제거하고(101개, 일반 16·ADR 85) 로컬 화면 캡처 검증 절차를 §3.2로 이전 |
@@ -789,24 +790,33 @@ production은 현재 NH 내부 폐쇄망 수동 반입을 사용하며 자동 �
 | --- | --- |
 | `main` | 배포 가능한 운영 기준선과 릴리즈 이력 |
 | `dev` | 기능 통합·개발 환경 검증 기준선 |
-| `feature/*` | `dev`에서 분기하는 신규 기능·개선·일반 수정 |
+| `<type>/*` | `dev`에서 분기하는 작업 브랜치. prefix는 커밋·PR과 동일한 type(`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`)을 사용하며 `feature/*`는 `feat/*`의 허용 별칭이다 |
 | `hotfix/*` | `main`에서 분기하는 운영 장애·치명적 결함 긴급 수정 |
-| `docs/*` | 문서 전용 변경에 선택적으로 사용 |
 
 ## 11.2 병합 흐름
 
 | 변경 유형 | PR 흐름 | 병합 방식 |
 | --- | --- | --- |
-| 기능·일반 수정 | `feature/*` → `dev` | Squash merge 권장 |
+| 기능·수정·리팩터링·테스트·설정·CI | `feat|fix|refactor|test|chore|ci/*`(또는 `feature/*`) → `dev` | Squash merge 권장 |
 | 문서 | `docs/*` → `dev` | Squash merge 권장 |
 | 운영 릴리즈 | `dev` → `main` | Merge commit |
 | 긴급 수정 | `hotfix/*` → `main`, 이후 `main` → `dev` 역반영 | Merge commit |
 
 CI 실패 상태에서는 병합하지 않는다. `hotfix/*`를 `main`에만 반영하고 `dev` 역반영을 누락해서는 안 된다.
 
-## 11.3 브랜치 및 커밋 명명
+## 11.3 이슈·브랜치 및 커밋 명명
 
-브랜치는 `<type>/<short-description>` 또는 `<type>/<issue-number>-<short-description>` 형식으로 작성하며 소문자와 하이픈을 사용한다. `feature/test`, `feature/tmp`처럼 목적이 불명확한 이름은 금지한다.
+이슈 제목은 커밋·PR과 동일한 Conventional 형식을 사용한다. type은 소문자로 작성하고 scope·대괄호 접두어(`[BUG]` 등)를 사용하지 않는다.
+
+```text
+<type>: <한글 요약>
+```
+
+허용 type은 커밋과 동일하게 `feat`, `fix`, `hotfix`, `refactor`, `docs`, `test`, `chore`, `ci`이며, 결함 신고는 `fix`(운영 장애는 `hotfix`)를 사용한다. 요약은 한글로 작성하고 `한다`·`됩니다` 같은 종결 어미 대신 증상이나 대상을 간결하게 표기한다. 예: `fix: 검토 결과 화면 근거 하이라이트 누락`, `fix: dev 배포 후 worker readiness 실패`. 이슈 하나에는 하나의 문제나 작업만 담고 `버그 발견`, `확인 필요` 같은 제목은 사용하지 않는다.
+
+이슈 본문에는 결함의 경우 재현 절차, 기대 동작과 실제 동작, 확인 환경(로컬 또는 공용 개발 VM, 대상 commit)을 적고, 관련 명세와 Accepted ADR을 함께 링크한다. 작업 이슈는 목적과 완료 기준을 적는다. Notion 칸반을 운영하는 경우 해당 카드에 이슈 링크를 남겨 진행 상황을 관리하고, 착수 시 브랜치와 PR에서 이슈 번호를 참조한다.
+
+브랜치는 `<type>/<short-description>` 또는 `<type>/<issue-number>-<short-description>` 형식으로 작성하며 소문자와 하이픈을 사용한다. prefix는 이슈·커밋·PR과 같은 type을 쓰고(`feature/*`는 `feat/*` 별칭), 운영 장애 긴급 수정만 `main`에서 분기하는 `hotfix/*`를 사용한다. `feature/test`, `feature/tmp`처럼 목적이 불명확한 이름은 금지한다.
 
 커밋 제목은 Conventional Commits 형식을 사용한다.
 

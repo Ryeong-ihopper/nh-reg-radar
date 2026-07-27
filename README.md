@@ -194,7 +194,8 @@ Git이 코드와 배포 구성의 단일 원천입니다. 배포는 self-hosted 
 
 ### 이슈·작업 관리
 - **GitHub Issue**로 작업 이력을 관리하는 것을 팀 운영 방침으로 합니다. 기능·수정·문서·운영 작업은 가급적 착수 전 Issue로 등록해 논의·결정·변경 이력을 남깁니다.
-- **Notion 칸반 보드**에는 해당 Issue **링크**를 카드에 남겨 진행 상황(스프린트·Epic·마일스톤)을 관리합니다. 보드 구성은 [개발 일정 및 Notion 칸반](docs/development-schedule-and-notion-kanban.md)을 따릅니다.
+- **이슈 제목은 커밋·PR과 동일한 형식**입니다: `<type>: <한글 요약>` (소문자 type, scope·`[BUG]` 같은 대괄호 접두어 없음, 종결 어미 없음). 결함은 `fix`, 운영 장애는 `hotfix`. 예: `fix: 검토 결과 화면 근거 하이라이트 누락`. 결함 이슈에는 재현 절차·기대/실제 동작·확인 환경(위치·commit)을 적습니다 — [`.github/ISSUE_TEMPLATE`](.github/ISSUE_TEMPLATE) 템플릿이 항목을 안내합니다.
+- **Notion 칸반을 운영하는 경우** 해당 카드에 Issue **링크**를 남겨 진행 상황(스프린트·Epic·마일스톤)을 관리합니다. 보드 구성은 [개발 일정 및 Notion 칸반](docs/development-schedule-and-notion-kanban.md)을 따릅니다.
 - 브랜치·PR에 Issue를 연결하는 것을 권장합니다: 브랜치 `<type>/<issue-number>-<short-description>` 또는 `<type>/<short-description>`, PR 본문에 `#<issue-number>` 참조. (명명 규칙 원문은 [프로젝트 규칙 §11.3](docs/project-rules.md))
 - 착수 전 관련 명세와 Accepted ADR을 확인합니다.
 
@@ -202,13 +203,13 @@ Git이 코드와 배포 구성의 단일 원천입니다. 배포는 self-hosted 
 
 | 변경 | 흐름 | 병합 |
 | --- | --- | --- |
-| 기능·수정 | `feature/*` → `dev` | Squash |
+| 기능·수정·리팩터링·테스트·설정·CI | `feat/*`·`fix/*`·`refactor/*`·`test/*`·`chore/*`·`ci/*` → `dev` | Squash |
 | 문서 | `docs/*` → `dev` | Squash |
 | 릴리즈 | `dev` → `main` (+ `vX.Y.Z` tag) | Merge commit |
 | 긴급 | `hotfix/*` → `main` → `dev` 역반영 | Merge commit |
 
 - `main`·`dev`는 보호 대상 브랜치 — **팀 정책상** 직접 push·force push·삭제 금지, PR + CI + 최소 1명(권장 2명) 승인 필수. (실제 GitHub branch protection 적용 여부는 저장소 플랜·설정에 따름)
-- 브랜치: `<type>/<short-description>`. 커밋: `<type>: <한글 요약>` (Conventional Commits, type: `feat|fix|hotfix|refactor|docs|test|chore|ci`).
+- 브랜치: `<type>/<short-description>` 또는 `<type>/<issue-number>-<short-description>` (prefix는 커밋·PR과 같은 type, `feature/*`는 `feat/*` 별칭, 운영 긴급 수정만 `main`에서 분기하는 `hotfix/*`). 커밋: `<type>: <한글 요약>` (Conventional Commits, type: `feat|fix|hotfix|refactor|docs|test|chore|ci`).
 - PR 본문은 [`pull_request_template.md`](.github/pull_request_template.md) 체크리스트(API 계약·문서 정합성·AI 산출물·배포/롤백)를 채웁니다.
 
 ### 완료 전 검사
