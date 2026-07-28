@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.98 |
+| 현행 버전 | v1.99 |
 | 기준일 | 2026-07-28 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.99 | 2026-07-28 | 검토 전환 시 검토 화면 상태 격리를 TC-REV-021~023으로 추가하고 검토 화면 라우트 구성 고정을 포함 |
 | v1.98 | 2026-07-28 | 검토 전환 시 Q&A 화면 상태를 이어받지 않는 회귀를 TC-QA-019로 추가 |
 | v1.97 | 2026-07-28 | 서로 다른 케이스가 공유하던 식별자 6건을 정리. 참조가 가리키는 케이스와 원본 작업 커밋의 등재 순서를 기준으로 기존 식별자를 보존하고, 나중에 등재된 행에 새 번호를 부여: 대출 상품군 등록 `TC-ADV-014`→`TC-ADV-018`, 시스템 관리자 광고물 삭제 `TC-ADV-016`→`TC-ADV-019`, 시스템 관리자 목록 선택 삭제 `TC-ADV-017`→`TC-ADV-020`, 규정·가이드라인 초기 적재 `TC-STD-015`→`TC-STD-024`, SSE 검토 진행 갱신 `TC-REV-017`→`TC-REV-019`, 적정 결과 기본 비표시 `TC-REV-018`→`TC-REV-020`. 아울러 표 중간 빈 줄로 표에서 떨어져 나와 있던 규정·가이드라인 초기 적재 행을 16장 기준자료 표로 옮겼다 |
 | v1.96 | 2026-07-28 | 광고 규정 Q&A 대화형 입력줄의 Enter 전송·IME 보호·전송 중 표시·실패 질문 다건 보존과 재시도·이력 캐시 경쟁·이력 조회 완료 전 전송 차단을 TC-QA-011~018로 추가 |
@@ -299,6 +300,9 @@ Mock 테스트는 AI 판단 품질 자체가 아니라, AI 결과 수신 이후�
 | TC-REV-005 | 검토 진행 상태 조회 | reviewId 존재 | 상태 조회 API 호출 | currentStep, progressRate, steps 반환 | `review_jobs`, `review_steps` | P0 |
 | TC-REV-019 | SSE 검토 진행 갱신 | 진행 중 reviewId 존재 | `GET /reviews/{reviewId}/events` 연결 후 Job 단계 변경 | 변경 시 `progress` event가 전달되고 terminal 상태에서 종료한다. 연결 불가 시 화면은 30초 조회 fallback을 사용한다. | `review_jobs`, `review_steps` | P0 |
 | TC-REV-020 | 적정 결과 기본 비표시 | 적정·수정 필요 검토 항목 공존 | 항목별 결과 기본 조회 후 `적정 항목도 보기` 선택 | 기본 조회는 `APPROPRIATE`를 제외하고, 명시적 선택 또는 `resultStatus=APPROPRIATE` 조회는 적정 항목을 반환한다. 주요 리스크에도 적정 항목을 포함하지 않는다. | `review_items` | P0 |
+| TC-REV-021 | 검토 전환 시 리포트 격리 | 검토 A에서 리포트를 생성한 상태 | 검토 B의 검토 및 리포트 화면으로 직접 이동 | 검토 A의 리포트 준비 안내가 남지 않는다 | frontend | P1 |
+| TC-REV-022 | 검토 전환 시 항목 선택·필터 격리 | 검토 A에서 항목을 선택하고 적정 항목 표시를 켠 상태 | 검토 B의 항목별 검토 화면으로 직접 이동 | 선택과 필터가 초기 상태로 돌아가고 검토 A의 상세가 남지 않는다 | frontend | P1 |
+| TC-REV-023 | 검토 전환 시 좌표 화면 페이지 조건 격리 | 검토 A에서 페이지 조건을 변경한 상태 | 검토 B의 광고 화면으로 직접 이동 | 페이지 조건이 초기값으로 돌아가고 검토 B 조회에 이전 페이지 조건을 쓰지 않는다 | frontend | P2 |
 | TC-REV-006 | 검토 완료 상태 조회 | 분석 완료됨 | 상태 조회 API 호출 | 상태 `REVIEW_COMPLETED`, progressRate 100 및 모든 `review_steps`가 `COMPLETED`로 반환 | `reviews`, `review_steps` | P0 |
 | TC-REV-007 | 검토 실패 상태 조회 | 분석 실패 발생 | 상태 조회 API 호출 | 상태 `REVIEW_FAILED`, failedReason 반환 | `reviews`, `review_jobs` | P1 |
 | TC-REV-008 | AI 재분석 요청 | 기존 reviewId 존재 | rerun API 호출 | newReviewId 생성, 이전 review 유지 | `reviews`, `review_jobs` | P1 |

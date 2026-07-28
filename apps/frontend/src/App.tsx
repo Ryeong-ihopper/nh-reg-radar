@@ -5,6 +5,7 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom
 import { AuthProvider } from "./auth/AuthProvider";
 import type { AuthSession } from "./auth/context";
 import { useAuth } from "./auth/useAuth";
+import { ReviewScopedBoundary } from "./components/ReviewScopedBoundary";
 import { AdvertisementCreatePage } from "./pages/AdvertisementCreatePage";
 import { AdvertisementDetailPage } from "./pages/AdvertisementDetailPage";
 import { AdvertisementListPage } from "./pages/AdvertisementListPage";
@@ -88,12 +89,16 @@ function Shell() {
         <Route element={<ProtectedRoute allowedRoles={ADVERTISEMENT_ROLES} />}>
           <Route path="/advertisements" element={<AdvertisementListPage />} />
           <Route path="/advertisements/:advertisementId" element={<AdvertisementDetailPage />} />
-          <Route path="/reviews/:reviewId/status" element={<ReviewProgressPage />} />
-          <Route path="/reviews/:reviewId/results" element={<ReviewSummaryPage />} />
-          <Route path="/reviews/:reviewId/results/items" element={<ReviewItemsPage />} />
-          <Route path="/reviews/:reviewId/results/annotations" element={<ReviewAnnotationsPage />} />
-          <Route path="/reviews/:reviewId/results/qa" element={<ComplianceQaPage />} />
-          <Route path="/reviews/:reviewId/support" element={<M6SupportPage />} />
+          {/* 검토 화면은 모두 이 경계 아래에 둔다. 경계 밖에 두면 검토 전환 시 이전 검토의
+              화면 상태가 남는다. */}
+          <Route path="/reviews/:reviewId" element={<ReviewScopedBoundary />}>
+            <Route path="status" element={<ReviewProgressPage />} />
+            <Route path="results" element={<ReviewSummaryPage />} />
+            <Route path="results/items" element={<ReviewItemsPage />} />
+            <Route path="results/annotations" element={<ReviewAnnotationsPage />} />
+            <Route path="results/qa" element={<ComplianceQaPage />} />
+            <Route path="support" element={<M6SupportPage />} />
+          </Route>
           <Route path="/advertisements/:advertisementId/comparisons" element={<ComparisonPage />} />
         </Route>
         <Route element={<ProtectedRoute allowedRoles={CREATE_ROLES} />}>
