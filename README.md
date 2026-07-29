@@ -1,49 +1,126 @@
-# 금융 광고심의 근거 법령·규정 수집 및 변경 감지
+# reg-radar
 
-금융 광고심의에 필요한 법령·협회 규정을 자동으로 수집하고, 개정되면 **어느 조문이
-어떻게 바뀌었는지**까지 찾아내는 파이프라인.
+한국 금융 광고심의의 **근거 규정을 자동으로 수집하고, 개정되면 어느 조문이 어떻게
+바뀌었는지 조문 단위로 뽑아내는** 파이프라인.
 
-수집 대상 8건 — 법제처 4건(법률·시행령·감독규정·시행세칙), 협회 4건(금융투자협회 1,
-여신금융협회 2, 전국은행연합회 1).
+법령·행정규칙·협회 자율규제·정부 가이드라인까지 **35건**을 한 인터페이스로 다룬다.
+
+```
+$ python check_updates.py
+[변경] 금융소비자 보호에 관한 법률 시행령
+   added     부칙11     바뀐 글자 40/41자 (97.6%)
+   modified  제43조     바뀐 글자 389/789자 (49.3%)
+   modified  [별표0002] 바뀐 글자 351/1258자 (27.9%)
+```
+
+---
+
+## 왜 만들었나
+
+광고심의 담당자는 "이 광고가 어느 규정을 위반했는가"에 답해야 하는데, 근거가 되는
+규정이 **여러 곳에 흩어져 있고 각각 다른 방식으로 개정된다.** 법제처는 API를 주고,
+협회는 웹페이지나 HWP 첨부로만 주고, 어떤 곳은 버전 정보조차 없다.
+
+개정을 놓치면 옛 기준으로 심의하게 되고, 개정을 알아도 **"무엇이 바뀌었는지"** 를
+사람이 원문 대조로 찾아야 한다. 그 두 가지를 자동화한다.
+
+---
+
+## 다루는 출처
+
+| 출처 | 방식 | 변경 감지 기준 |
+|---|---|---|
+| 국가법령정보센터 — 법령 | Open API | `일련번호\|시행일자\|공포번호` |
+| 국가법령정보센터 — 행정규칙 | Open API (필드명이 다름) | 〃 |
+| 금융투자협회 | 웹 엔드포인트 + HWP 첨부 | `seq\|historySeq` |
+| 여신금융협회 · 전국은행연합회 | HWP 첨부 (세션·토큰 체인) | 원본 파일 **sha256** |
+| 금융위원회 | 게시판 첨부 (제목 검색) | 첨부 **sha256** |
+
+버전 정보를 안 주는 출처가 있어서 **기준이 출처마다 다르다.** 어댑터가 그 차이를
+흡수하고, 위쪽 로직은 `current_meta / _version_key / collect` 세 함수만 본다.
+
+---
+
+## 설계에서 신경 쓴 것
+
+### 조문 번호를 키로 쓴다
+
+diff를 위치(N번째 조문)로 잡으면 **조문 하나가 삽입될 때 뒤가 전부 밀려** 가짜 변경이
+쏟아진다. 실측으로 한 건 삽입에 456건이 오탐으로 잡혔다. 한국 법령은 조문을 끼워 넣을 때
+번호를 다시 매기지 않고 **가지번호(제80조의2)** 를 쓰므로, 조문 번호가 안정적인 키가 된다.
+
+부칙 안에도 제1조·제2조가 따로 있어 본칙과 충돌한다. 부칙마다 **공포번호나 날짜로 된
+고정 접두**를 붙여 구분한다(`부칙제31553호:제2조`).
+
+### 줄 전체가 아니라 바뀐 글자만 표시한다
+
+120자 줄에서 3글자만 바뀌어도 줄 단위 diff는 줄 전체를 변경으로 칠한다.
+글자 단위로 비교하되 너무 잘게 쪼개지지 않도록 다듬어, 한 사례에서 표시량이
+**9,804자 → 118자**로 줄었다.
+
+### 표 구조를 보존하고, 못 하면 실패한다
+
+수집한 첨부 757개 중 **64%가 표를 포함**하고(총 2,439개), 별표·별지는 표 자체가 내용이다.
+표를 한 줄로 뭉개면 어느 칸이 바뀌었는지 알 수 없어 변경 감지가 무의미해진다.
+
+표를 행·열로 복원하는 경로는 `document-processor`(JVM) 하나뿐이라 **필수 의존**으로 두고,
+쓸 수 없으면 **폴백 없이 즉시 실패**하게 했다. 조용히 품질 낮은 파서로 넘어가면
+"잘 돌아간다"고 착각한 채 깨진 데이터가 쌓인다.
+
+### "에러 없음"과 "제대로 됨"은 다르다
+
+[`quality_check.py`](quality_check.py)가 매 수집 후 자동으로 돈다. 실제로 잡아낸 것들:
+
+- 한 규정이 **조문 1개**로 수집되고 있었음 — 그 규정만 본문을 한 덩어리(35만 자)로 준다 → 605개로 정상화
+- 다운로드 실패 시 **0바이트 파일**이 남아 "파일은 있는데 내용이 없는" 상태
+- 문장 중간의 조문 인용을 새 조문으로 오인 → 중복 20건
+- 협회 별표 **143개의 내용이 통째로 비어 있었음**(68만 자) — 첨부를 받기만 하고 파싱하지 않았다
+
+전부 **에러 없이 통과하던** 것들이다.
+
+### 이미지는 파싱하지 않되 버리지도 않는다
+
+규정에 그림으로 들어간 광고 예시·도표는 OCR 없이 텍스트화할 수 없다. 그렇다고 버리면
+개정으로 그림이 바뀌어도 감지가 안 된다. 그래서 **파일로 뽑아 두고 본문에는
+내용 해시가 박힌 줄을 남긴다** — 그림이 바뀌면 해시가 바뀌어 기존 diff가 그대로 잡는다.
 
 ---
 
 ## 시작하기
 
-### 1. 사전 준비 (둘 다 필수)
+### 사전 준비 (둘 다 필수)
 
-**① 자바 런타임 JRE 17 이상**
-
-HWP·PDF에서 **표를 행·열 그대로** 뽑는 `document-processor`가 자바 기반이다.
-자바가 없으면 수집이 **실패한다**(예전엔 조용히 품질 낮은 파서로 넘어갔으나,
-표가 깨진 데이터가 쌓이는 게 더 위험해서 실패하도록 바꿨다).
+**① 자바 런타임 JRE 17+** — 표 구조 복원에 쓰는 `document-processor`가 자바 기반이다.
 
 ```bash
-java -version          # 17 이상이면 OK
+java -version          # 17 이상
 ```
-없으면 https://adoptium.net 에서 설치 후 `JAVA_HOME` 설정.
+없으면 [Adoptium](https://adoptium.net) 설치 후 `JAVA_HOME` 설정.
 
-**② 법제처 Open API 아이디**
-
-https://open.law.go.kr 에서 무료 발급(이메일 앞부분이 아이디가 된다).
+**② 법제처 Open API 아이디** — [open.law.go.kr](https://open.law.go.kr) 무료 발급(즉시).
 
 ```bash
-setx LAWGO_OC "발급받은아이디"      # Windows
+setx LAWGO_OC 발급받은아이디        # Windows
 export LAWGO_OC=발급받은아이디       # macOS/Linux
 ```
-설정하지 않으면 개발자 개인 아이디로 호출되므로 **회사에서 쓸 때는 반드시 발급받을 것.**
+설정하지 않으면 안내와 함께 종료된다.
 
-### 2. 설치
+### 설치와 첫 실행
 
 ```bash
 pip install -r requirements.txt
-python file_text.py                  # 자바·파서 정상 동작 확인
+python file_text.py                 # 자바·파서 동작 확인
+python check_updates.py             # 첫 수집 (외부 사이트 접속, 20~40분)
 ```
 
-### 3. 첫 수집
+### 선택 — HWP를 화면에서 보려면
+
+HWP 5.x는 OLE 복합문서라 브라우저가 못 그리고, LibreOffice 기본 필터는 **HWP 3.0 전용**이다.
+[H2Orestart](https://github.com/ebandal/H2Orestart/releases) 확장을 함께 설치해야 한다.
 
 ```bash
-python check_updates.py              # 8건 수집 (10~20분, 외부 사이트 접속)
+winget install TheDocumentFoundation.LibreOffice
+unopkg add --shared H2Orestart.oxt
 ```
 
 ---
@@ -52,77 +129,74 @@ python check_updates.py              # 8건 수집 (10~20분, 외부 사이트 �
 
 | 명령 | 하는 일 |
 |---|---|
-| `python check_updates.py` | 변경 감지 + 변경분만 재수집 + DB 적재 |
-| `python check_updates.py --dry` | 감지만 (아무것도 바꾸지 않음) |
-| `python check_updates.py --deep` | 본문 해시까지 비교(버전은 같은데 내용만 손본 경우 검출) |
-| `python check_updates.py 은행` | 이름에 '은행'이 든 대상만 — **실패분 재시도용** |
-| `python build_review.py` | 검수 화면 생성 → `output/_review/review.html` |
+| `python check_updates.py` | 변경 감지 → 변경분 재수집 → DB 적재 → 품질 점검 |
+| `python check_updates.py --dry` | 감지만. 아무것도 바꾸지 않는다 |
+| `python check_updates.py --deep` | 본문 해시까지 비교(버전은 그대로인데 내용만 손본 경우) |
+| `python check_updates.py --only "여신"` | 이름이 걸리는 대상만 — 실패분 재시도용 |
+| `python discover_targets.py` | 대상 추가 전 **정확한 공식 명칭 조회** |
+| `python quality_check.py` | 수집 품질 점검 |
+| `python build_review.py` | 원본 대조 화면 생성 → `output/_review/review.html` |
 | `python validate_outputs.py --live` | 수집 결과를 공식 원문과 대조 |
-| `run_api.bat` | 조회 API 실행 → http://localhost:8000/docs |
+| `uvicorn api:app` | 조회 API → http://localhost:8000/docs |
 
-테스트: `test_pipeline_db.py` `test_api.py` `test_admrul_split.py`
-`test_content_hash.py` `test_resilience.py`
-(수집 결과가 필요한 테스트는 없으면 안내 후 건너뛴다)
+> 대상을 추가할 때 이름을 사람이 옮겨 적으면 거의 틀린다. 예를 들어
+> 「표시ㆍ광고의 공정화에 관한 법률」의 구분자는 가운뎃점 `·` 이 아니라 `ㆍ` 다.
+> `discover_targets.py`로 조회한 이름을 `targets.json`에 넣을 것.
 
 ---
 
 ## 구조
 
 ```
-targets.json          수집 대상 목록 (여기에 추가하면 대상이 늘어남)
-     ↓
-check_updates.py      ★ 전체 흐름의 중심
-     ├─ law_scraper.py      법제처 (법령 + 행정규칙)
-     ├─ kofia_scraper.py    금융투자협회 (웹 스크래핑)
-     ├─ crefia_scraper.py   여신금융협회 (HWP 첨부)
-     ├─ kfb_scraper.py      전국은행연합회 (HWP 첨부, 세션+토큰 필요)
-     ├─ file_text.py        HWP/PDF → 텍스트 (표 구조 보존)
-     ├─ diff_report.py      조문 단위 비교
-     └─ ingest.py / store.py / db.py   SQLite 적재
-     ↓
-output/               결과물 (.json/.txt), files/(원본첨부),
-                      _versions/(이전 버전), _reports/(리포트·로그),
-                      regulations.db, _review/(검수 화면)
+targets.json              수집 대상 목록 — 여기에 추가하면 대상이 늘어난다
+      ↓
+check_updates.py          ★ 전체 흐름의 중심
+   ├─ law_scraper.py         법제처 (법령 + 행정규칙)
+   ├─ kofia_scraper.py       금융투자협회
+   ├─ crefia_scraper.py      여신금융협회
+   ├─ kfb_scraper.py         전국은행연합회
+   ├─ fsc_scraper.py         금융위원회
+   ├─ file_text.py           HWP/PDF → 텍스트 (표 보존 + 이미지 추출)
+   ├─ diff_report.py         조문 단위 비교
+   ├─ quality_check.py       수집 품질 점검
+   └─ ingest / store / db    SQLite 적재
+      ↓
+output/                   *.json  *.txt  files/(원본 첨부)  files/*/_img/(이미지)
+                          _versions/(이전 버전)  _reports/  regulations.db
+                          _review/review.html
 ```
 
-**코드를 처음 볼 때 순서**: `check_updates.py` → `law_scraper.py` →
-`diff_report.py` → (필요하면) `ingest.py`. 이 넷이 로직의 90%.
+**처음 읽는 순서**: `check_updates.py` → `law_scraper.py` → `diff_report.py`.
+이 셋이 로직의 대부분이다.
 
 ---
 
-## 변경 감지 방식
+## 원본 대조 화면
 
-버전이 바뀌었는지 판단하는 기준이 출처마다 다르다.
+`build_review.py`가 만드는 `review.html`은 **인터넷 없이 열리는 단일 파일**이다.
+왼쪽에 공식 원본(웹페이지 또는 첨부 파일), 오른쪽에 수집 결과를 놓고 조문 단위로 대조한다.
 
-| 출처 | 기준 | 이유 |
-|---|---|---|
-| 법제처 | `일련번호\|시행일자\|공포번호` | 공식 버전 정보를 제공 |
-| 금융투자협회 | `seq\|historySeq` | 개정마다 새 이력번호 발급 |
-| 여신협·은행연 | 원본 **파일 해시** | 버전 정보가 없음. 같은 게시글에서 첨부만 바뀌어도 잡아야 함 |
-
-평소엔 버전 정보만 확인하고(본문 미조회), `--deep`일 때만 본문까지 비교한다.
-
-**변경 시**: 기존 결과를 `output/_versions/<규정명>/<이전버전>/`로 옮기고 새로 수집한다.
-**옛 자료는 지우지 않는다.**
+- 조문·부칙·별표로 바로 점프, 양쪽 동기 스크롤
+- HWP는 같은 이름 PDF가 있으면 그것을 안내하고, 없으면 변환해 표시
+- 삭제된 별표(파일은 남아 있고 「삭제」 한 줄만 든 껍데기)를 목록에서 회색 표시
+- 「변경 내역」 탭에서 실제 개정 건의 바뀐 글자를 확인
 
 ---
 
 ## 운영 시 알아둘 것
 
-- **협회 사이트는 간헐적으로 접속이 실패한다** (금투협은 실측 3회 중 1회).
-  실패는 리포트뿐 아니라 **알림으로도** 남으므로 반드시 확인할 것. 실패분만
-  다시 돌리려면 `python check_updates.py <규정명 일부>`.
-- **중복 실행은 자동으로 차단**된다(`.run.lock`). 30분 넘게 남아 있으면 죽은
-  프로세스로 보고 무시한다.
-- `state.json`은 임시파일→교체 방식으로 저장하고 `.bak`을 남긴다. 손상되면
-  자동 복구한다.
-- 로그는 `output/_reports/app.log` (5MB × 5개 로테이션). 배치 실행은
-  `cron.log`에도 남는다.
+- **협회 사이트는 간헐적으로 응답이 끊긴다**(금투협은 실측 3회 중 1회, ~32KB에서 절단).
+  잘린 응답을 파싱하면 뒤쪽 조문이 사라져 '대량 삭제'로 오탐하므로, 문서 끝까지 왔는지
+  확인하고 아니면 다시 받는다.
+- **중복 실행 차단**(`.run.lock`). 30분 넘게 남아 있으면 죽은 프로세스로 보고 무시한다.
+- `state.json`은 임시파일→교체 방식으로 저장하고 `.bak`을 남긴다.
+- 로그는 `output/_reports/app.log` (5MB × 5 로테이션).
 
 ## 아직 안 된 것
 
 - **API 인증 없음** — 로컬 전용. 외부 공개 전 반드시 추가할 것
 - **SQLite 단일 노드** — 다중 접속이 필요하면 `sql/regulation_schema.sql`의
-  PostgreSQL 스키마로 이전(테이블·컬럼명을 동일하게 맞춰둠)
-- **Dockerfile / k8s 매니페스트는 미검증** — 배포처가 정해지지 않아 작성만 해둠
-- **`output/_versions` 보관 세대 제한 없음** — 개정이 쌓이면 용량 증가
+  PostgreSQL 스키마로 이전(테이블·컬럼명을 동일하게 맞춰 뒀다)
+- **Dockerfile / k8s 매니페스트 미검증** — 배포처가 정해지지 않아 작성만 해뒀다
+- **`output/_versions` 보관 세대 제한 없음** — 개정이 쌓이면 용량이 늘어난다
+- **OCR 미지원** — 이미지는 파일로 보관하고 해시로만 변경을 감지한다
