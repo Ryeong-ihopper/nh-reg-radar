@@ -1,0 +1,23 @@
+# 규정 수집·변경감지 파이프라인 의존성
+#   설치:  pip install -r requirements.txt
+#
+# ⚠ 사전 준비 2가지 (없으면 동작하지 않음)
+#   1) 자바 런타임 JRE 17 이상  — document-processor 가 자바 기반이다.
+#      없으면 HWP/PDF 표 구조를 복원할 수 없어 수집이 실패한다.
+#      확인: java -version      /  설치: https://adoptium.net
+#   2) 법제처 Open API 아이디   — https://open.law.go.kr 에서 무료 발급 후
+#      환경변수 설정:  setx LAWGO_OC "발급받은아이디"
+
+# 문서 파싱 (표 구조 보존) — PyPI 에 없어 GitHub 에서 직접 설치한다
+document-processor @ git+https://github.com/CGINSIDE-ROOKIES/document-processor.git
+jpype1==1.7.1
+
+# 교차검증용 보조 추출기 (검수 뷰어에서 document-processor 결과와 대조할 때만 사용)
+pdfplumber==0.11.10
+pypdf==6.14.2
+olefile==0.47
+
+# REST API
+fastapi==0.140.0
+uvicorn==0.51.0
+pydantic==2.12.5
