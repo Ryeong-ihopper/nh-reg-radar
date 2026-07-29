@@ -28,12 +28,18 @@ sys.stdout.reconfigure(encoding="utf-8")  # 콘솔 한글 깨짐 방지 (제자�
 #   신청: https://open.law.go.kr  (무료, 즉시 발급)
 # 법제처 Open API 이용자 ID. 개인 계정을 코드에 박아 두면 그대로 공유되므로
 # 기본값 없이 환경변수로만 받는다.
+# import 시점이 아니라 **실제로 호출할 때** 검사한다. 이 모듈에는 _safe() 처럼
+# API 와 무관한 함수도 있어서, import 만으로 죽으면 관련 없는 기능까지 막힌다.
 OC = os.environ.get("LAWGO_OC", "")
-if not OC:
-    raise SystemExit(
-        "환경변수 LAWGO_OC 가 필요합니다.\n"
-        "  법제처 Open API 이용자 ID(신청 시 쓴 이메일의 @ 앞부분)를 넣으세요.\n"
-        "  발급: https://open.law.go.kr (무료, 즉시)  ·  예) setx LAWGO_OC myid")
+
+
+def require_oc():
+    if not OC:
+        raise SystemExit(
+            "환경변수 LAWGO_OC 가 필요합니다.\n"
+            "  법제처 Open API 이용자 ID(신청 시 쓴 이메일의 @ 앞부분)를 넣으세요.\n"
+            "  발급: https://open.law.go.kr (무료, 즉시)  ·  예) setx LAWGO_OC myid")
+    return OC
 SITE = "https://www.law.go.kr"
 BASE = SITE + "/DRF"
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -106,6 +112,7 @@ def _safe(name):
 def search(name, kind):
     cfg = KIND[kind]
     q = urllib.parse.quote(name)
+    require_oc()
     url = f"{BASE}/lawSearch.do?OC={OC}&target={cfg['target']}&type=JSON&query={q}&display=50"
     data = json.loads(_get(url))
     items = data.get(cfg["list_root"], {}).get(cfg["list_item"], [])
@@ -164,6 +171,7 @@ def fetch_body(meta):
     cfg = KIND[meta["kind"]]
     param = cfg["fetch_param"]
     val = meta["MST"] if param == "MST" else meta["ID"]
+    require_oc()
     url = f"{BASE}/lawService.do?OC={OC}&target={cfg['target']}&type=JSON&{param}={val}"
     return json.loads(_get(url))[cfg["body_root"]]
 
