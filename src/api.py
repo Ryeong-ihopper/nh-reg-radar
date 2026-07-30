@@ -64,8 +64,10 @@ def q(sql, args=(), one=False):
 def health():
     if not os.path.exists(db.DB_PATH):
         return JSONResponse({"status": "no_db", "db": db.DB_PATH}, status_code=503)
+    # 수집 대상에서 빠진 규정은 active=0 으로 남긴다(이력은 지우지 않는다).
+    # 건수는 **현재 대상**만 센다 — targets.json 과 숫자가 어긋나면 안 된다.
     counts = q("""SELECT
-        (SELECT COUNT(*) FROM regulations)        AS regulations,
+        (SELECT COUNT(*) FROM regulations WHERE active=1) AS regulations,
         (SELECT COUNT(*) FROM regulation_versions) AS versions,
         (SELECT COUNT(*) FROM regulation_changes)  AS changes,
         (SELECT COUNT(*) FROM collection_runs)     AS runs,
@@ -76,8 +78,13 @@ def health():
 
 # ── 규정 / 버전 / 조문 ──────────────────────────────────────────────────
 @app.get("/api/regulations", tags=["규정"])
-def list_regulations(source_code: str | None = None):
-    sql = """SELECT r.regulation_id, r.name, r.document_type, r.external_id,
+def list_regulations(source_code: str | None = None, include_inactive: bool = False):
+    """수집 대상 규정 목록.
+
+    대상에서 빠진 규정은 행을 지우지 않고 active=0 으로 남긴다(변경 이력·버전을
+    보존해야 하므로). 기본 목록에서는 빼되 `include_inactive=true` 로 볼 수 있다.
+    """
+    sql = """SELECT r.regulation_id, r.name, r.document_type, r.external_id, r.active,
                     s.source_code, s.source_name,
                     v.version_id AS current_version_id, v.official_version_key,
                     v.effective_at, v.content_hash, v.collected_at,
@@ -87,8 +94,9 @@ def list_regulations(source_code: str | None = None):
              JOIN regulation_sources s USING(source_id)
              LEFT JOIN regulation_versions v ON v.version_id = r.current_version_id
              WHERE (? IS NULL OR s.source_code = ?)
+               AND (? OR r.active = 1)
              ORDER BY s.source_code, r.name"""
-    return {"items": q(sql, (source_code, source_code))}
+    return {"items": q(sql, (source_code, source_code, 1 if include_inactive else 0))}
 
 
 @app.get("/api/regulations/{regulation_id}", tags=["규정"])

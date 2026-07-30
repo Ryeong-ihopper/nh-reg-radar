@@ -45,8 +45,12 @@ srcs = sorted({r["source_code"] for r in regs})
 check("4개 출처", srcs == ["crefia", "kfb", "kofia", "lawgo"], str(srcs))
 
 print("[출처 필터]")
+# 건수를 상수로 박으면 대상이 늘 때마다 테스트가 깨진다(실측: 금투협 시행세칙 추가로 깨짐).
+# targets.json 을 기준으로 센다.
+N_KOFIA = sum(1 for t in json.load(open("targets.json", encoding="utf-8"))
+              if t["kind"] == "kofia")
 kofia = c.get("/api/regulations?source_code=kofia").json()["items"]
-check("kofia 1건", len(kofia) == 1, str([r["name"] for r in kofia]))
+check(f"kofia {N_KOFIA}건", len(kofia) == N_KOFIA, str([r["name"] for r in kofia]))
 
 print("[규정 상세 + 버전 이력]")
 rid = regs[0]["regulation_id"]
