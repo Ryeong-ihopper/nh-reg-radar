@@ -769,12 +769,7 @@ __DIFF_CSS__
 </header>
 <div id="view-changes"><div class="diff-wrap" id="diffRoot"></div></div>
 <main id="view-compare">
-  <div id="jump">
-    <h3>조문 / 별표 / 부칙 점프</h3>
-    <button class="chip" id="soloBtn" style="width:100%;margin-bottom:6px"
-            title="켜면 고른 항목 하나만 표시하고, 별표는 좌측 원본 파일도 함께 엽니다. (검색 범위도 그 항목으로 좁아집니다)">📄 한 항목만 보기</button>
-    <div id="jumpList"></div>
-  </div>
+  <div id="jump"><h3>조문 / 별표 / 부칙 점프</h3><div id="jumpList"></div></div>
   <div class="panes">
     <div class="pane left">
       <div class="pane-head">
@@ -793,7 +788,9 @@ __DIFF_CSS__
     <div class="pane right">
       <div class="pane-head">
         <span class="side out">파싱 결과</span>
-        <span class="side-note">우리 시스템이 뽑아낸 조문 — 왼쪽 원본과 같은지 확인</span>
+        <span class="side-note" id="finalNote">우리 시스템이 뽑아낸 조문 — 왼쪽 원본과 같은지 확인</span>
+        <button class="chip" id="soloOff" hidden
+                style="margin-left:auto;white-space:nowrap">✕ 전체 보기</button>
       </div>
       <div class="pane-body text" id="finalBody"><pre id="finalPre"></pre></div>
     </div>
@@ -836,6 +833,10 @@ const rawLink = document.getElementById('rawLink');
 const statsEl = document.getElementById('stats');
 const jumpList = document.getElementById('jumpList');
 const fileSel = document.getElementById('fileSel');
+const soloOff = document.getElementById('soloOff');
+const finalNote = document.getElementById('finalNote');
+// 좌측은 그 별표 원본을 띄운 채로 우측만 전체로 되돌린다(문맥을 볼 때 쓴다)
+soloOff.onclick = () => setSolo(null);
 const modeScreenBtn = document.getElementById('modeScreenBtn');
 const modeTextBtn = document.getElementById('modeTextBtn');
 const syncBtn = document.getElementById('syncBtn');
@@ -901,10 +902,15 @@ function paint(container, blocks, prefix, query) {
   }).join('');
 }
 
-// 「한 항목만 보기」 상태. soloLine 이 있으면 그 항목 블록 하나만 그린다.
-// 블록은 이미 항목 단위로 잘려 있고 원래 줄 번호를 그대로 들고 있어서,
-// 걸러내기만 하면 점프·동기화·검색이 그대로 동작한다.
-let soloOn = false, soloLine = null;
+// ── 좌우가 같은 대상을 보게 한다 ──────────────────────────────────────
+// 좌측 드롭다운이 '지금 무엇을 보는가'를 정한다.
+//   「규정 본문」  → 우측은 파싱 결과 전체
+//   별표 파일     → 우측은 **그 별표 구간만** (별표 검수는 1:1 대조라 이게 기본)
+// soloLine 은 그 구간 블록의 시작 줄. 블록이 이미 항목 단위로 잘려 있고 원래 줄
+// 번호를 들고 있어서, 걸러내기만 하면 점프·동기화·검색이 그대로 동작한다.
+let soloLine = null;
+let fileLine = new Map();      // 파일 인덱스 → 그 파일에 대응하는 별표 블록의 줄
+let fileLabel = new Map();     // 파일 인덱스 → 그 별표의 표시 이름
 
 function renderFinal(d, query) {
   let blocks = blocksOf('f|' + d.name, d.final, d.index);
@@ -912,13 +918,37 @@ function renderFinal(d, query) {
   paint(finalPre, blocks, 'art', query);
 }
 
-function setSolo(on) {
-  soloOn = on;
-  if (!on) soloLine = null;
-  soloBtn.classList.toggle('active', on);
-  soloBtn.textContent = on ? '📄 한 항목만 보기 (해제)' : '📄 한 항목만 보기';
+const NOTE_ALL = '우리 시스템이 뽑아낸 조문 — 왼쪽 원본과 같은지 확인';
+
+function setSolo(line, name) {
+  soloLine = line;
+  soloOff.hidden = (line === null);
+  finalNote.textContent = line === null ? NOTE_ALL
+    : `${name || '선택한 항목'} 구간만 표시 중 — 왼쪽 원본과 1:1 대조`;
   renderFinal(current, lastQuery || null);
+  finalBody.scrollTop = 0;
   reapplySearchIfAny();
+}
+
+// 좌측 파일 선택을 적용한다(드롭다운 조작·점프 클릭 양쪽에서 부른다).
+function applyFile() {
+  const files = (current.view && current.view.files) || [];
+  const i = Number(fileSel.value);
+  activeFile = i < 0 ? null : files[i];
+  setSolo(i < 0 ? null : (fileLine.has(i) ? fileLine.get(i) : null),
+          fileLabel.get(i));
+  if (leftMode === 'screen') renderScreen();
+}
+
+function selectFile(v) {
+  if (!fileSel.querySelector(`option[value="${v}"]`)) return false;
+  fileSel.value = v;
+  applyFile();
+  // 별표는 원본 파일을 봐야 대조가 되므로 웹 화면 모드로 돌린다.
+  // 조문으로 돌아가는 경우('-1')는 지금 모드를 그대로 둔다 — 텍스트 모드에서
+  // 조문을 눌렀는데 화면이 통째로 바뀌면 동기화 대조가 끊긴다.
+  if (Number(v) >= 0 && leftMode !== 'screen') setMode('screen');
+  return true;
 }
 
 function render(idx) {
@@ -926,7 +956,19 @@ function render(idx) {
   current = d;
   leftMode = 'screen';
   activeFile = null;
-  soloLine = null;          // 규정을 바꾸면 항목 한정은 풀린다(토글 자체는 유지)
+  soloLine = null;          // 규정을 바꾸면 전체 보기로 돌아간다
+  soloOff.hidden = true;
+  finalNote.textContent = NOTE_ALL;
+  // 별표 ↔ 첨부 파일 짝 (생성 시점에 파일명 규칙으로 이어 둔 것)
+  fileLine = new Map();
+  fileLabel = new Map();
+  d.index.forEach(it => {
+    if (it.fileIdx === undefined) return;
+    if (!fileLine.has(it.fileIdx)) {
+      fileLine.set(it.fileIdx, it.line);
+      fileLabel.set(it.fileIdx, it.label + (it.title ? ' ' + it.title : ''));
+    }
+  });
   renderFinal(d, null);
 
   const statParts = Object.entries(d.stats || {}).map(([k, v]) => `<b>${v}</b>${k}`);
@@ -967,11 +1009,7 @@ function render(idx) {
   fileSel.style.display = fileSel.options.length > 1 ? '' : 'none';
   activeFile = hasBody ? null : (files[0] || null);
   fileSel.value = hasBody ? '-1' : '0';
-  fileSel.onchange = () => {
-    const i = Number(fileSel.value);
-    activeFile = i < 0 ? null : files[i];
-    renderScreen();
-  };
+  fileSel.onchange = applyFile;
 
   setMode('screen');
   document.getElementById('searchBox').value = '';
@@ -1096,25 +1134,20 @@ function syncToArticle(label) {
   return true;
 }
 
+function markJump(btn) {
+  if (!btn) return;
+  jumpList.querySelectorAll('.item.on').forEach(x => x.classList.remove('on'));
+  btn.classList.add('on');
+}
+
 function jumpFinal(line, btn, item) {
-  // 「한 항목만 보기」: 우측은 그 항목만 그리고, 별표면 좌측도 그 원본 파일로 바꾼다.
-  // 별표 검수는 첨부 원본과 파싱 결과를 1:1로 맞대 보는 일이라 이 짝이 핵심이다.
-  if (soloOn) {
-    soloLine = line;
-    renderFinal(current, lastQuery || null);
-    finalBody.scrollTop = 0;
-    if (item && item.fileIdx !== undefined && fileSel.options.length) {
-      fileSel.value = String(item.fileIdx);
-      fileSel.onchange();
-      setMode('screen');
-    }
-    if (btn) {
-      jumpList.querySelectorAll('.item.on').forEach(x => x.classList.remove('on'));
-      btn.classList.add('on');
-    }
-    reapplySearchIfAny();
+  // 별표를 고르면 좌측을 그 원본 파일로 바꾼다 → 우측은 자동으로 그 구간만 남는다.
+  if (item && item.fileIdx !== undefined && selectFile(String(item.fileIdx))) {
+    markJump(btn);
     return;
   }
+  // 조문·부칙을 고르면 구간 한정을 풀고 전체에서 그 줄로 이동한다.
+  if (soloLine !== null && !selectFile('-1')) setSolo(null);
   const el = document.getElementById('art-' + line);
   if (!el) return;
   const synced = syncBtn.classList.contains('active') && !syncBtn.disabled;
