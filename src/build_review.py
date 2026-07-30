@@ -312,11 +312,39 @@ _ADDENDA_ID = re.compile(r"제\s*([\d\-]+)\s*호|(\d{4})\s*[.\s]\s*(\d{1,2})\s*[
 # 이걸 안 잡으면 본문 전체가 점프 목록에서 빠지고 부칙만 남는다.
 # 제목만 뽑는다. "Ⅰ. 목적　이 심사지침은 …" 처럼 본문이 바로 이어지므로
 # 전각공백·마침표·'이 ' 같은 문장 시작에서 끊는다.
-_ROMAN_HEAD = re.compile(r"^([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*\.\s*([^　.]{1,20}?)"
+# 로마숫자를 전용 문자(Ⅰ U+2160)로 치는 문서와 라틴 대문자(I U+0049)로 치는 문서가
+# 섞여 있다. 한 문서 안에서도 섞인다 — 여신협 세부지침은 첫 항목만 "I. 목 적"(라틴)이고
+# 나머지는 "Ⅱ. 정 의"(전용 문자)라, 라틴을 빼면 첫 항목만 목록에서 사라진다.
+_ROMAN_HEAD = re.compile(r"^([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+)\s*\.\s*([^　.]{1,20}?)"
                          r"(?=　|\s{2,}|이\s|다음|$|[.·])")
 # to_text() 가 만드는 별표 머리글: "[별표 0001] 제목" / "[별표 0001의2] 제목" / "[별표]"
 # (번호를 4자리로 채우는 게 우리 형식. 원문 인용 "[별표 1의2]" 와 구분된다)
 _TABLE_HEAD = re.compile(r"^\[(?:별표|별지|서식|별책)(?:\s+\d{4}(?:의\d+)?)?\]")
+# to_text() 는 별표 머리글 뒤에 원본 파일명을 남긴다: "[별지 0001]  (원본 파일: 0001_(별지 제1호).hwp)"
+_TABLE_SRC = re.compile(r"\(원본 파일:\s*(.+?)\)\s*$")
+
+
+def _table_meta(line):
+    """별표 머리글 → (제목, 원본파일명).
+
+    법제처는 머리글에 제목이 붙어 오지만(「광고에 포함해야 하는 사항(제17조제2항 관련)」),
+    **금투협은 제목이 비어 있다.** 그러면 점프 목록에 「[별지 0002]」만 남아 93개 중
+    어느 것인지 알 수 없다. 파일명에는 정보가 살아 있으므로(0001_(별지 제1호).hwp)
+    제목이 없을 때 거기서 가져온다.
+    """
+    m = _TABLE_HEAD.match(line)
+    if not m:
+        return "", ""
+    rest, fname = line[m.end():].strip(), ""
+    fm = _TABLE_SRC.search(rest)
+    if fm:
+        fname = fm.group(1).strip()
+        rest = rest[:fm.start()].strip()
+    if not rest and fname:
+        stem = os.path.splitext(fname)[0]
+        t = re.search(r"\(([^)]+)\)", stem)       # 0001_(별지 제1호) → 별지 제1호
+        rest = t.group(1) if t else stem
+    return rest, fname
 
 
 def _addenda_label(line):
@@ -405,6 +433,10 @@ def article_index(text):
         # 실려 있는 "[별표 1의2]", "[별지 제1호]" 는 내용이지 머리글이 아니다.
         if in_tables and not _TABLE_HEAD.match(stripped):
             continue
+        extra = {}
+        if in_tables:
+            title, srcfile = _table_meta(stripped)
+            extra = {"table": True, "title": title, "srcfile": srcfile}
         label = (m.group(0) or "").replace(" ", "")
         if label == "부칙":
             lab = _addenda_label(stripped)
@@ -417,12 +449,82 @@ def article_index(text):
             in_addenda = True
         elif in_addenda:
             continue               # 부칙 안의 조문은 목록에 넣지 않는다(너무 많다)
-        out.append({"label": label, "line": lineno})
+        out.append({"label": label, "line": lineno, **extra})
     seen = {}
     for it in out:
         seen[it["label"]] = seen.get(it["label"], 0) + 1
         it["n"] = seen[it["label"]]
     return out
+
+
+# 별표 첨부 파일명 규칙이 소스마다 다르다.
+#   행정규칙  별표0001.pdf · 별표0001의02.pdf · 별지0002.pdf   (가지번호는 2자리로 채움)
+#   법령      law0105132025091621061KC_000100E.pdf            (…_번호4자리+가지2자리+E)
+#   금투협    0001_(별지 제1호).hwp                            (본문 머리글에 파일명이 적혀 있음)
+# 앞의 둘은 (구분, 번호, 가지) 로 정규화해서 맞춘다.
+_F_ADMRUL = re.compile(r"^(별표|별지|서식|별책)\s*(\d{1,4})(?:의0*(\d+))?$")
+_F_LAW = re.compile(r"_(\d{4})(\d{2})[A-Z]?$")
+# 별표가 하나뿐인 규정은 번호 없이 「[별표]」로만 온다. 파일 쪽은 0000 을 쓴다.
+_L_TABLE = re.compile(r"^\[(별표|별지|서식|별책)(?:\s*(\d{1,4})(?:의(\d+))?)?\]$")
+
+
+def _file_key(stem):
+    """첨부 파일 이름(확장자 제외) → (구분, 번호, 가지). 규칙에 안 맞으면 None."""
+    m = _F_ADMRUL.match(stem)
+    if m:
+        return (m.group(1), int(m.group(2)), int(m.group(3) or 0))
+    m = _F_LAW.search(stem)
+    if m:
+        return (None, int(m.group(1)), int(m.group(2)))   # 법령 파일명엔 구분이 없다
+    return None
+
+
+def link_table_files(index, files):
+    """별표 점프 항목에 좌측에서 열 원본 파일을 연결한다(`fileIdx`).
+
+    별표 검수는 결국 「첨부 원본 ↔ 파싱된 별표 텍스트」 1:1 대조인데, 지금까지는
+    좌측 파일 선택과 우측 점프가 따로 놀아 사람이 손으로 짝을 맞춰야 했다.
+
+    구분(별표/별지)이 본문 머리글과 파일명에서 어긋나는 경우가 있다 — 금융투자업규정은
+    머리글이 「[별표 0001]」인데 파일은 `별지0001.pdf` 다. 그래서 구분까지 같은 것을
+    먼저 찾고, 없으면 번호만으로 찾되 **후보가 하나일 때만** 쓴다(은행업감독규정처럼
+    별표0001 과 별지0001 이 둘 다 있는 경우 잘못 짝지으면 안 된다).
+
+    HWP 는 브라우저가 못 그리므로 같은 이름 PDF 가 있으면 그쪽을 가리킨다.
+    """
+    if not files:
+        return index
+    by_name = {f["name"]: i for i, f in enumerate(files)}
+    by_key = {}                       # (구분,번호,가지) → 파일 인덱스
+    by_num = {}                       # (번호,가지) → [파일 인덱스]
+    for i, f in enumerate(files):
+        k = _file_key(os.path.splitext(f["name"])[0])
+        if not k:
+            continue
+        by_key.setdefault(k, i)
+        by_num.setdefault(k[1:], []).append(i)
+
+    def pdf_of(i):
+        j = by_name.get(os.path.splitext(files[i]["name"])[0] + ".pdf")
+        return j if j is not None else i
+
+    for it in index:
+        if not it.get("table"):
+            continue
+        i = by_name.get(it.get("srcfile") or "")            # 금투협: 머리글에 파일명이 있다
+        if i is None:
+            m = _L_TABLE.match(it["label"])
+            if m:
+                num = (int(m.group(2) or 0), int(m.group(3) or 0))
+                i = by_key.get((m.group(1), *num))
+                if i is None:
+                    # 구분이 어긋나거나(별표↔별지) 법령 파일명이라 구분이 없는 경우
+                    cand = {pdf_of(x) for x in by_num.get(num, [])}
+                    if len(cand) == 1:
+                        i = cand.pop()
+        if i is not None:
+            it["fileIdx"] = pdf_of(i)
+    return index
 
 
 def build():
@@ -447,7 +549,8 @@ def build():
             # 원본 텍스트에서 각 조문이 정의된 줄 번호 (정확한 동기화용)
             "rawIndex": raw_index,
             "final": final_text,
-            "index": article_index(final_text),
+            "index": link_table_files(article_index(final_text),
+                                      (view or {}).get("files") or []),
         })
 
     # 변경 내역 탭: DB에 쌓인 실제 개정을 조문 단위 색상 diff로 함께 싣는다
@@ -666,7 +769,12 @@ __DIFF_CSS__
 </header>
 <div id="view-changes"><div class="diff-wrap" id="diffRoot"></div></div>
 <main id="view-compare">
-  <div id="jump"><h3>조문 / 별표 / 부칙 점프</h3><div id="jumpList"></div></div>
+  <div id="jump">
+    <h3>조문 / 별표 / 부칙 점프</h3>
+    <button class="chip" id="soloBtn" style="width:100%;margin-bottom:6px"
+            title="켜면 고른 항목 하나만 표시하고, 별표는 좌측 원본 파일도 함께 엽니다. (검색 범위도 그 항목으로 좁아집니다)">📄 한 항목만 보기</button>
+    <div id="jumpList"></div>
+  </div>
   <div class="panes">
     <div class="pane left">
       <div class="pane-head">
@@ -793,8 +901,24 @@ function paint(container, blocks, prefix, query) {
   }).join('');
 }
 
+// 「한 항목만 보기」 상태. soloLine 이 있으면 그 항목 블록 하나만 그린다.
+// 블록은 이미 항목 단위로 잘려 있고 원래 줄 번호를 그대로 들고 있어서,
+// 걸러내기만 하면 점프·동기화·검색이 그대로 동작한다.
+let soloOn = false, soloLine = null;
+
 function renderFinal(d, query) {
-  paint(finalPre, blocksOf('f|' + d.name, d.final, d.index), 'art', query);
+  let blocks = blocksOf('f|' + d.name, d.final, d.index);
+  if (soloLine !== null) blocks = blocks.filter(b => b.line === soloLine);
+  paint(finalPre, blocks, 'art', query);
+}
+
+function setSolo(on) {
+  soloOn = on;
+  if (!on) soloLine = null;
+  soloBtn.classList.toggle('active', on);
+  soloBtn.textContent = on ? '📄 한 항목만 보기 (해제)' : '📄 한 항목만 보기';
+  renderFinal(current, lastQuery || null);
+  reapplySearchIfAny();
 }
 
 function render(idx) {
@@ -802,6 +926,7 @@ function render(idx) {
   current = d;
   leftMode = 'screen';
   activeFile = null;
+  soloLine = null;          // 규정을 바꾸면 항목 한정은 풀린다(토글 자체는 유지)
   renderFinal(d, null);
 
   const statParts = Object.entries(d.stats || {}).map(([k, v]) => `<b>${v}</b>${k}`);
@@ -811,8 +936,12 @@ function render(idx) {
   d.index.forEach(it => {
     const b = document.createElement('button');
     b.className = 'item';
-    b.textContent = it.label + (it.n > 1 ? ` (${it.n})` : '');
-    b.onclick = () => jumpFinal(it.line, b);
+    // 별표는 번호만으로 구분이 안 된다(금투협은 93개가 전부 「[별지 NNNN]」).
+    // 제목을 같이 띄운다 — 없으면 원본 파일명에서 뽑아 둔 것이 들어 있다.
+    b.textContent = it.label + (it.n > 1 ? ` (${it.n})` : '')
+                  + (it.title ? '  ' + it.title : '');
+    b.title = b.textContent;
+    b.onclick = () => jumpFinal(it.line, b, it);
     jumpList.appendChild(b);
   });
 
@@ -967,7 +1096,25 @@ function syncToArticle(label) {
   return true;
 }
 
-function jumpFinal(line, btn) {
+function jumpFinal(line, btn, item) {
+  // 「한 항목만 보기」: 우측은 그 항목만 그리고, 별표면 좌측도 그 원본 파일로 바꾼다.
+  // 별표 검수는 첨부 원본과 파싱 결과를 1:1로 맞대 보는 일이라 이 짝이 핵심이다.
+  if (soloOn) {
+    soloLine = line;
+    renderFinal(current, lastQuery || null);
+    finalBody.scrollTop = 0;
+    if (item && item.fileIdx !== undefined && fileSel.options.length) {
+      fileSel.value = String(item.fileIdx);
+      fileSel.onchange();
+      setMode('screen');
+    }
+    if (btn) {
+      jumpList.querySelectorAll('.item.on').forEach(x => x.classList.remove('on'));
+      btn.classList.add('on');
+    }
+    reapplySearchIfAny();
+    return;
+  }
   const el = document.getElementById('art-' + line);
   if (!el) return;
   const synced = syncBtn.classList.contains('active') && !syncBtn.disabled;
