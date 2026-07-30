@@ -152,7 +152,9 @@ def check_record(name, kind, rec, rep):
 
     # ── 4. 첨부파일 정합 ─────────────────────────────────────────────
     fdir = os.path.join(OUT_DIR, "files", L._safe(name))
-    on_disk = set(os.listdir(fdir)) if os.path.isdir(fdir) else set()
+    # 하위 폴더(_img/)를 섞으면 0바이트 파일로 오인한다. 파일만 센다.
+    on_disk = {f for f in os.listdir(fdir)
+               if os.path.isfile(os.path.join(fdir, f))} if os.path.isdir(fdir) else set()
     want = set()
     for t in rec.get("별표", []):
         for k in ("저장PDF", "저장HWP", "저장파일"):

@@ -254,12 +254,28 @@ def download_attachments(attachments, name, verbose=True):
     os.makedirs(d, exist_ok=True)
     n = 0
     for a in attachments:
+        fpath_prev = os.path.join(d, _safe(a["파일명"]))
         try:
             data = _get_binary(a["링크"])
         except Exception as e:
+            # 협회 서버는 간헐적으로 응답이 끊긴다. 그때마다 별표 내용이 비면 안 되므로
+            # **이전 실행에서 받아 둔 파일이 있으면 그것을 쓰고**, 그것도 없을 때만 비운다.
+            if os.path.exists(fpath_prev) and os.path.getsize(fpath_prev) > 1024:
+                a["저장파일"] = _safe(a["파일명"])
+                a["다운로드오류"] = f"이번 실행 실패 — 이전 파일 사용: {str(e)[:80]}"
+                if verbose:
+                    print(f"    ~ 첨부 재사용 {a['파일명']}: {str(e)[:60]}")
+                try:
+                    a["내용"] = file_text.extract(fpath_prev)
+                except Exception as ee:
+                    a["내용"] = ""
+                    a["추출오류"] = str(ee)[:150]
+                n += 1
+                continue
             if verbose:
                 print(f"    ! 첨부 실패 {a['파일명']}: {e}")
             a["저장파일"] = ""
+            a["다운로드오류"] = str(e)[:150]
             continue
         a["저장파일"] = _safe(a["파일명"])
         fpath = os.path.join(d, a["저장파일"])

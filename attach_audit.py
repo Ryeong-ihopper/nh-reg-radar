@@ -23,7 +23,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CACHE_PATH = os.path.join(ROOT, "output", "_audit.json")
 SUPPORTED = (".pdf", ".hwp", ".hwpx", ".docx")
 # 판정 방식이 바뀌면 올린다 → 옛 캐시를 자동으로 버린다
-RULE_VER = 1
+RULE_VER = 2
 
 _cache = None
 
@@ -60,7 +60,8 @@ def audit(path):
     try:
         ir = DocIR.from_file(path)
         rec["imgs"] = len(getattr(ir, "assets", None) or {})
-        rec["chars"] = len(file_text.extract_docproc(path))
+        # extract() 를 써야 PDF 변환 우회로까지 반영된다(extract_docproc 은 직접 경로만)
+        rec["chars"] = len(file_text.extract(path))
     except Exception as e:
         rec["err"] = f"{type(e).__name__}: {e}"[:150]
     cache[key] = rec

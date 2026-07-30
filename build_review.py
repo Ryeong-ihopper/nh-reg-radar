@@ -201,6 +201,62 @@ def _file_view(fpath):
             "deleted": _is_deleted(fpath), "orig": _rel(fpath)}
 
 
+# 좌측 '원본 화면' 데이터 캐시.
+#
+# build_view 는 대상마다 법제처 API·금투협 웹을 **라이브로 다시 조회**한다. 40개면
+# 8~12분이 걸리는데, 대부분은 지난번과 같은 내용을 또 받는 것이다.
+# 수집 결과의 버전키가 그대로면 원본도 그대로이므로, 버전키를 키로 캐시한다.
+# (버전키가 바뀌었다 = 개정됐다 = 원본을 다시 받아야 한다)
+_VIEW_CACHE_PATH = os.path.join(REVIEW_DIR, "_viewcache.json")
+_view_cache = None
+
+
+def _load_view_cache():
+    global _view_cache
+    if _view_cache is None:
+        try:
+            _view_cache = json.load(open(_VIEW_CACHE_PATH, encoding="utf-8"))
+        except Exception:
+            _view_cache = {}
+    return _view_cache
+
+
+def save_view_cache():
+    if _view_cache:
+        os.makedirs(REVIEW_DIR, exist_ok=True)
+        json.dump(_view_cache, open(_VIEW_CACHE_PATH, "w", encoding="utf-8"),
+                  ensure_ascii=False)
+
+
+def _version_of(name):
+    """수집 결과에 저장된 버전키. 없으면 None(캐시 안 씀)."""
+    p = os.path.join(OUT_DIR, _safe(name) + ".json")
+    if not os.path.exists(p):
+        return None
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception:
+        return None
+    return d.get("버전키") or d.get("본문해시")
+
+
+def build_view_cached(name, kind):
+    """build_view 결과를 버전키 기준으로 캐시해 재사용."""
+    ver = _version_of(name)
+    cache = _load_view_cache()
+    hit = cache.get(name)
+    if ver and hit and hit.get("ver") == ver:
+        v = hit["v"]
+        # 첨부 정보는 파일 상태(변환·삭제 판정)에 따라 달라질 수 있어 매번 다시 만든다
+        if v.get("files"):
+            v["files"] = [_file_view(p) for p in _files_in(name)]
+        return v, hit["raw"], hit["desc"], hit["idx"]
+    v, raw, desc, idx = build_view(name, kind)
+    if ver:
+        cache[name] = {"ver": ver, "v": v, "raw": raw, "desc": desc, "idx": idx}
+    return v, raw, desc, idx
+
+
 def build_view(name, kind):
     """좌측 '원본 화면'용 view 정보 + 텍스트모드용 rawText/rawDesc 반환."""
     if kind in ("law", "admrul"):
@@ -378,7 +434,7 @@ def build():
         name, kind = t["name"], t["kind"]
         print(f"[준비] {name} ({kind})")
         try:
-            view, raw_text, raw_desc, raw_index = build_view(name, kind)
+            view, raw_text, raw_desc, raw_index = build_view_cached(name, kind)
         except Exception as e:
             view = {"mode": "webpage", "url": None, "files": []}
             raw_text, raw_desc, raw_index = f"(원본 조회 실패: {e})", "", []
@@ -421,6 +477,7 @@ def build():
     with open(out_path, "wb") as f:
         f.write(html.encode("utf-8", errors="replace"))
     save_del_cache()
+    save_view_cache()
     print(f"\n생성됨: {os.path.relpath(out_path, ROOT)}")
     print("브라우저로 더블클릭해서 열면 됩니다 (인터넷 연결 불필요, 파일 자체가 완결형).")
 

@@ -10,6 +10,7 @@ PDF / HWP 파일 → 텍스트 추출 유틸.
 extract(path) 가 확장자를 보고 알아서 분기한다. 실패 시 빈 문자열 반환.
 """
 import os
+import applog
 import zlib
 import struct
 
@@ -211,7 +212,28 @@ def extract_docproc(path, image_dir=None):
     return "\n".join(out).strip()
 
 
+def _via_pdf(path):
+    """HWP 를 LibreOffice 로 PDF 변환한 뒤 추출. 실패하면 None.
+
+    파일은 정상인데 파서가 특정 도형 구조에서 죽는 경우가 있어 마련한 우회로다.
+    (실측: 금투협 「별지 제20호」 — 한글에서는 열리고 변환 후 17,480자 추출)
+    """
+    if os.path.splitext(path)[1].lower() not in (".hwp", ".hwpx"):
+        return None
+    try:
+        import hwp_pdf
+        pdf = hwp_pdf.to_pdf(path)
+        if not pdf:
+            return None
+        img = os.path.join(os.path.dirname(os.path.abspath(path)), "_img")
+        return extract_docproc(pdf, image_dir=img)
+    except Exception:
+        return None
+
+
 # ── 추출 진입점 ───────────────────────────────────────────────────────────
+log = applog.get_logger(__name__)
+
 SUPPORTED = (".pdf", ".hwp", ".hwpx", ".docx", ".doc")
 
 
@@ -262,6 +284,14 @@ def extract(path):
     try:
         text = extract_docproc(path, image_dir=image_dir)
     except Exception as e:
+        # HWP 안의 도형 구조를 파서가 못 읽는 경우가 있다(파일 자체는 정상이라
+        # 한글에서는 잘 열린다). 이때만 LibreOffice 로 PDF 변환해 다시 뽑는다.
+        # 표 구조는 변환 과정에서 유지되므로 폴백 금지 원칙에 어긋나지 않는다.
+        conv = _via_pdf(path)
+        if conv:
+            log.warning("%s: 직접 추출 실패로 PDF 변환 경유 (%s)",
+                        os.path.basename(path), str(e)[:60])
+            return conv
         raise ExtractionError(f"{os.path.basename(path)} 추출 실패: {e}") from e
     if not text.strip():
         raise ExtractionError(
