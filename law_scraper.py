@@ -19,6 +19,10 @@ import time
 import urllib.parse
 import urllib.request
 from content_hash import sha256_structure
+import name_match
+import applog
+
+log = applog.get_logger(__name__)
 
 sys.stdout.reconfigure(encoding="utf-8")  # 콘솔 한글 깨짐 방지 (제자리 변경)
 
@@ -120,15 +124,27 @@ def search(name, kind):
 
 
 def _match(name, kind):
-    """검색 결과에서 이름이 정확히 일치하는 항목(없으면 첫 항목) 반환."""
+    """검색 결과에서 이 대상에 해당하는 항목 반환.
+
+    예전에는 정확 일치가 없으면 **검색 첫 항목**을 그냥 썼다. 그러면 법령명이
+    바뀌었을 때 엉뚱한 법령을 조용히 수집하게 된다. 지금은 공통 규칙(name_match)으로
+    고르고, 정확 일치가 아니면 **경고를 남긴다**.
+    """
     cfg = KIND[kind]
     items = search(name, kind)
     if not items:
         return None
-    key = name.replace(" ", "").strip()
-    exact = next((i for i in items
-                  if i.get(cfg["name_f"], "").replace(" ", "").strip() == key), None)
-    return exact or items[0]
+    sibs = name_match.siblings_of(name, kind, os.path.join(ROOT, "targets.json"))
+    hit = name_match.pick(name, items, sibs, key=lambda i: i.get(cfg["name_f"], ""))
+    if hit is None:
+        log.error("'%s' 과 맞는 검색 결과가 없습니다. 후보: %s",
+                  name, [i.get(cfg["name_f"], "") for i in items[:3]])
+        return None
+    got = hit.get(cfg["name_f"], "")
+    if name_match.norm(got) != name_match.norm(name):
+        log.warning("이름이 정확히 일치하지 않습니다: 요청 '%s' → 선택 '%s'"
+                    " (법령명이 바뀌었을 수 있으니 targets.json 확인 필요)", name, got)
+    return hit
 
 
 def current_meta(name, kind, deep=False):

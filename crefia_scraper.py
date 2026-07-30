@@ -17,6 +17,7 @@ import html as htmllib
 import hashlib
 import urllib.parse
 import urllib.request
+import name_match
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -65,20 +66,10 @@ def _list_files():
 
 
 def _match_file(name):
-    """규정명 → 목록의 실제 파일명.
-
-    부분일치를 쓸 때 **첫 번째 후보를 그냥 집으면 안 된다.**
-    「…광고에 관한 규정」은 「…광고에 관한 규정 세부지침」의 부분문자열이라,
-    목록 순서가 바뀌면 규정 자리에 세부지침 파일이 들어온다.
-    후보 중 **이름이 가장 짧은 것**(군더더기가 가장 적은 것)을 고른다.
-    """
-    key = _norm(name)
-    files = _list_files()
-    for f in files:
-        if _norm(f) == key:
-            return f
-    cands = [f for f in files if key and key in _norm(f)]
-    return min(cands, key=lambda f: len(_norm(f))) if cands else None
+    """규정명 → 목록의 실제 파일명. 공통 규칙(name_match)으로 귀속을 가린다."""
+    root = os.path.dirname(os.path.abspath(__file__))
+    sibs = name_match.siblings_of(name, "crefia", os.path.join(root, "targets.json"))
+    return name_match.pick(name, _list_files(), sibs)
 
 
 def _download(filename):

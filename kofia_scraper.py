@@ -24,6 +24,7 @@ import file_text
 import urllib.error
 import urllib.request
 from content_hash import sha256_structure
+import name_match
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -94,24 +95,20 @@ def _text_with_breaks(frag):
 
 # ── 목록/버전 조회 ──────────────────────────────────────────────────────
 def _find_in_tree(name):
-    """규정 트리에서 이름이 일치하는 항목의 (규정명, seq, historySeq) 반환."""
+    """규정 트리에서 이 대상의 (규정명, seq, historySeq) 반환.
+
+    부분일치로 첫 항목을 집으면 「…영업 및 업무에 관한 규정」 자리에
+    「…규정 시행세칙」이 들어올 수 있어, 공통 규칙(name_match)으로 고른다.
+    """
     html = _get(TREE_URL)
-    key = name.replace(" ", "")
+    entries = []
     for m in re.finditer(r"gotoLawList\(([^)]*)\)", html):
         args = [a.strip().strip("'\"") for a in m.group(1).split(",")]
-        if len(args) < 3:
-            continue
-        title = args[2]
-        if title.replace(" ", "") == key:
-            seq = args[0]
+        if len(args) >= 3:
             hseq = args[-2] if args[-1] == "" else args[-1]  # 끝 빈값 앞이 historySeq
-            return title, seq, hseq
-    # 정확 일치 없으면 부분 일치
-    for m in re.finditer(r"gotoLawList\(([^)]*)\)", html):
-        args = [a.strip().strip("'\"") for a in m.group(1).split(",")]
-        if len(args) >= 3 and key in args[2].replace(" ", ""):
-            return args[2], args[0], (args[-2] if args[-1] == "" else args[-1])
-    return None
+            entries.append((args[2], args[0], hseq))
+    sibs = name_match.siblings_of(name, "kofia", os.path.join(ROOT, "targets.json"))
+    return name_match.pick(name, entries, sibs, key=lambda e: e[0])
 
 
 def current_meta(name, kind="kofia", deep=False):
