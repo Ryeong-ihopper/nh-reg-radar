@@ -42,6 +42,7 @@ import kofia_scraper as kofia     # 금융투자협회 어댑터
 import crefia_scraper as crefia   # 여신금융협회 어댑터
 import kfb_scraper as kfb         # 전국은행연합회 어댑터
 import fsc_scraper as fsc         # 금융위원회 정책마당 어댑터
+import fss_scraper as fss         # 금융감독원 보도자료 어댑터
 import diff_report                # 변경 시 조문 단위 diff
 import db                         # SQLite 저장소
 from applog import get_logger
@@ -66,6 +67,7 @@ ADAPTERS = {
     "crefia": crefia,
     "kfb":    kfb,
     "fsc":    fsc,
+    "fss":    fss,
 }
 
 
