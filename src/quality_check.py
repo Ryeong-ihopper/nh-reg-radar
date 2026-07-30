@@ -66,7 +66,7 @@ class Report:
 # 캐시**한다. 파일이 안 바뀌면 두 번째 실행부터는 즉시 끝난다.
 AUDIT_PATH = os.path.join(OUT_DIR, "_audit.json")
 AUDIT_EXT = (".pdf", ".hwp", ".hwpx", ".docx")
-AUDIT_VER = 3           # 판정 방식이 바뀌면 올린다 → 옛 캐시를 자동으로 버린다
+AUDIT_VER = 4           # 판정 방식이 바뀌면 올린다 → 옛 캐시를 자동으로 버린다
 
 _audit_cache = None
 
@@ -101,7 +101,7 @@ def audit_file(path):
     from document_processor import DocIR
     rec = {"chars": 0, "imgs": 0, "err": ""}
     # 이미지 개수와 글자수는 **따로** 센다. 한 try 로 묶으면 DocIR 이 먼저 죽을 때
-    # 아래 extract() 가 아예 실행되지 않아, PDF 변환 우회로로 읽히는 파일까지
+    # 아래 추출이 아예 실행되지 않아, PDF 변환 우회로로 읽히는 파일까지
     # '내용 없음'으로 보고된다(금투협 「별지 제20호」가 그 경우였다).
     try:
         ir = DocIR.from_file(path)
@@ -109,11 +109,20 @@ def audit_file(path):
     except Exception as e:
         rec["err"] = f"{type(e).__name__}: {e}"[:150]
     try:
-        # extract() 를 써야 PDF 변환 우회로까지 반영된다(extract_docproc 은 직접 경로만)
-        rec["chars"] = len(file_text.extract(path))
+        # 기본 경로. 여기서 읽히면 그걸로 끝난다.
+        rec["chars"] = len(file_text.extract_docproc(path))
     except Exception as e:
         if not rec["err"]:
             rec["err"] = f"{type(e).__name__}: {e}"[:150]
+        # 우회로(LibreOffice 변환 → PDF 재파싱)는 **같은 이름 PDF 가 없을 때만** 쓴다.
+        # PDF 짝이 있으면 내용은 이미 그쪽으로 확보돼 있어 심각도가 낮은데,
+        # 그 51개까지 전부 변환하면 수백 쪽짜리 PDF 를 JVM 으로 다시 파싱하게 되어
+        # 점검 한 번이 10분을 넘고 메모리도 감당이 안 된다(실측: 프로세스 사망).
+        if not os.path.exists(os.path.splitext(path)[0] + ".pdf"):
+            try:
+                rec["chars"] = len(file_text.extract(path))
+            except Exception:
+                pass
     # 우회로로라도 본문을 읽어냈으면 실패가 아니다
     if rec["chars"] > 0:
         rec["err"] = ""
