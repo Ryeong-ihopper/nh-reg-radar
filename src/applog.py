@@ -22,7 +22,7 @@ import sys
 import logging
 from logging.handlers import RotatingFileHandler
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_DIR = os.path.join(ROOT, "output", "_reports")
 LOG_FILE = os.environ.get("LOG_FILE", os.path.join(LOG_DIR, "app.log"))
 

@@ -14,7 +14,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.environ.get("REGULATION_DB", os.path.join(ROOT, "output", "regulations.db"))
 
 SCHEMA = """

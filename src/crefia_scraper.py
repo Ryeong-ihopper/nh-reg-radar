@@ -27,7 +27,7 @@ SITE = "https://m.crefia.or.kr"
 LIST_URL = SITE + "/mobile/infocenter/regulation/selfRegulation.xx"
 DL_URL = SITE + "/common/downloadFile.do"
 FILE_TYPE = "selfRegulation"
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 FILE_DIR = os.path.join(OUT_DIR, "files")
 
@@ -67,7 +67,7 @@ def _list_files():
 
 def _match_file(name):
     """규정명 → 목록의 실제 파일명. 공통 규칙(name_match)으로 귀속을 가린다."""
-    root = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sibs = name_match.siblings_of(name, "crefia", os.path.join(root, "targets.json"))
     return name_match.pick(name, _list_files(), sibs)
 

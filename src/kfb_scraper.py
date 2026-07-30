@@ -30,7 +30,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 import file_text
 
 BASE = "https://www.kfb.or.kr/"
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 FILE_DIR = os.path.join(OUT_DIR, "files")
 

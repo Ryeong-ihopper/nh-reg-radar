@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
 """수집 결과의 구조·파일 완전성과 선택적 공식 원문 일치 여부를 검증한다."""
+import os
+import sys
+
+# 파이프라인 모듈은 src/ 에 있다. 이 스크립트는 한 단계 아래 폴더에서 직접 실행되므로
+# import 경로에 src/ 를 먼저 넣어 준다.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
 import argparse
 import json
 import os
@@ -11,7 +19,7 @@ import kofia_scraper
 import crefia_scraper
 import kfb_scraper
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 REPORTS_DIR = os.path.join(OUT_DIR, "_reports")
 STATE_PATH = os.path.join(ROOT, "state.json")

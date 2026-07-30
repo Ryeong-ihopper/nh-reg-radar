@@ -20,13 +20,14 @@ import os
 import re
 import sys
 import json
+import hashlib
 import argparse
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 import law_scraper as L
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 REPORTS = os.path.join(OUT_DIR, "_reports")
 
@@ -52,6 +53,82 @@ class Report:
 
     def of(self, target):
         return [i for i in self.items if i["대상"] == target]
+
+
+# ── 첨부 추출 상태 점검 ──────────────────────────────────────────────────
+# "파일은 받았다"와 "내용을 읽어냈다"는 다르다. 여기서 잡으려는 문제 두 가지:
+#   1) 추출 실패 — 법제처가 HWPX(OOXML)를 .hwp 확장자로 주는 경우가 있어 구형 OLE
+#      파서가 열지 못한다. 같은 이름 PDF 가 있으면 실질 피해는 없지만, 없으면
+#      그 별표는 내용이 아예 없는 셈이 된다.
+#   2) 이미지 미추출 — 규정에 그림으로 들어간 광고 예시·도표가 텍스트에 없으면
+#      개정으로 그림이 바뀌어도 변경 감지가 못 잡는다.
+# 첨부가 800개가 넘어 매번 다 여는 데 20분 이상 걸리므로 **파일 내용 해시로
+# 캐시**한다. 파일이 안 바뀌면 두 번째 실행부터는 즉시 끝난다.
+AUDIT_PATH = os.path.join(OUT_DIR, "_audit.json")
+AUDIT_EXT = (".pdf", ".hwp", ".hwpx", ".docx")
+AUDIT_VER = 3           # 판정 방식이 바뀌면 올린다 → 옛 캐시를 자동으로 버린다
+
+_audit_cache = None
+
+
+def _audit_load():
+    global _audit_cache
+    if _audit_cache is None:
+        try:
+            c = json.load(open(AUDIT_PATH, encoding="utf-8"))
+            _audit_cache = c if c.get("_ver") == AUDIT_VER else {"_ver": AUDIT_VER}
+        except Exception:
+            _audit_cache = {"_ver": AUDIT_VER}
+    return _audit_cache
+
+
+def audit_save():
+    if _audit_cache:
+        os.makedirs(os.path.dirname(AUDIT_PATH), exist_ok=True)
+        json.dump(_audit_cache, open(AUDIT_PATH, "w", encoding="utf-8"),
+                  ensure_ascii=False)
+
+
+def audit_file(path):
+    """{chars, imgs, err} — 첨부 하나의 추출 상태."""
+    if os.path.splitext(path)[1].lower() not in AUDIT_EXT:
+        return {"chars": 0, "imgs": 0, "err": ""}    # zip/xlsx 등은 대상 아님
+    cache = _audit_load()
+    key = hashlib.sha256(open(path, "rb").read()).hexdigest()[:16]
+    if key in cache:
+        return cache[key]
+    import file_text
+    from document_processor import DocIR
+    rec = {"chars": 0, "imgs": 0, "err": ""}
+    # 이미지 개수와 글자수는 **따로** 센다. 한 try 로 묶으면 DocIR 이 먼저 죽을 때
+    # 아래 extract() 가 아예 실행되지 않아, PDF 변환 우회로로 읽히는 파일까지
+    # '내용 없음'으로 보고된다(금투협 「별지 제20호」가 그 경우였다).
+    try:
+        ir = DocIR.from_file(path)
+        rec["imgs"] = len(getattr(ir, "assets", None) or {})
+    except Exception as e:
+        rec["err"] = f"{type(e).__name__}: {e}"[:150]
+    try:
+        # extract() 를 써야 PDF 변환 우회로까지 반영된다(extract_docproc 은 직접 경로만)
+        rec["chars"] = len(file_text.extract(path))
+    except Exception as e:
+        if not rec["err"]:
+            rec["err"] = f"{type(e).__name__}: {e}"[:150]
+    # 우회로로라도 본문을 읽어냈으면 실패가 아니다
+    if rec["chars"] > 0:
+        rec["err"] = ""
+    cache[key] = rec
+    return rec
+
+
+def audit_dir(fdir):
+    """폴더 안 첨부 전체 → {파일명: {chars, imgs, err}}"""
+    if not os.path.isdir(fdir):
+        return {}
+    return {f: audit_file(os.path.join(fdir, f))
+            for f in sorted(os.listdir(fdir))
+            if os.path.isfile(os.path.join(fdir, f))
+            and os.path.splitext(f)[1].lower() in AUDIT_EXT}
 
 
 # 가지번호(제2-5조의2)까지 포함해야 한다. 안 그러면 제2-5조와 제2-5조의2 를
@@ -170,10 +247,9 @@ def check_record(name, kind, rec, rep):
         rep.add(name, "높음", "첨부가 비었거나 잘림(1KB 미만)", f"{len(tiny)}개: {tiny[:3]}")
 
     # ── 5. 첨부 추출 상태 ────────────────────────────────────────────
-    # "파일은 받았다"와 "내용을 읽어냈다"는 다르다. 여기가 없으면 추출이 실패해도
-    # 조용히 넘어가 '이상 없음'이 뜬다(실제로 51건이 그 상태였다).
-    import attach_audit
-    aud = attach_audit.audit_dir(fdir)
+    # 여기가 없으면 추출이 실패해도 조용히 넘어가 '이상 없음'이 뜬다
+    # (실제로 51건이 그 상태였다). 판정 로직은 위 audit_* 참고.
+    aud = audit_dir(fdir)
 
     # 5-1. 추출 실패 — 같은 이름 PDF 가 있으면 그쪽으로 내용이 확보되므로 심각도를 낮춘다
     failed = [f for f, r in aud.items() if r["err"]]
@@ -197,7 +273,7 @@ def check_record(name, kind, rec, rep):
             rep.add(name, "중간", "본문 이미지가 수집 결과에 없음",
                     f"{len(with_img)}개 파일·이미지 {sum(with_img.values())}개 — "
                     f"재수집하면 _img/ 에 저장되고 본문에 목록이 붙는다")
-    attach_audit.save()
+    audit_save()
 
 # 뺀 규칙 (구조적으로 발동하지 않아 유지 비용만 든다)
 #  · '통계와 실제 개수 불일치' — 수집기가 `"통계": {"조문수": len(articles)}, "조문": articles`

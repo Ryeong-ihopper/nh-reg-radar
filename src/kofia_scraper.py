@@ -31,7 +31,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 SITE = "https://law.kofia.or.kr"
 TREE_URL = SITE + "/service/law/lawCurrentPartTree.do"
 BODY_URL = SITE + "/service/law/lawFullScreenContent.do"
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 _body_cache = {}
 

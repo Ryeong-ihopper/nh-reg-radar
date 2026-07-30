@@ -12,6 +12,14 @@
   python seed_demo.py --clear   # 가상 이력 제거
 """
 import os
+import sys
+
+# 파이프라인 모듈은 src/ 에 있다. 이 스크립트는 한 단계 아래 폴더에서 직접 실행되므로
+# import 경로에 src/ 를 먼저 넣어 준다.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+import os
 import re
 import sys
 import json
@@ -25,7 +33,7 @@ import store
 import law_scraper as L
 from content_hash import sha256_structure
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 REASON = "시뮬레이션 — 실제 개정 아님(검수용 가상 과거본)"
 

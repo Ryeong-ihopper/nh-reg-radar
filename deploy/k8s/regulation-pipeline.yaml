@@ -68,7 +68,7 @@ spec:
             - name: change-detection
               image: regulation-pipeline:latest
               imagePullPolicy: IfNotPresent
-              command: ["python", "check_updates.py", "--cron"]
+              command: ["python", "src/check_updates.py", "--cron"]
               env:
                 - name: REGULATION_DB
                   value: /data/regulations.db

@@ -19,7 +19,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 import db
 from diff_report import inline_diff, changed_ratio, pair_changed_lines
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVIEW_DIR = os.path.join(ROOT, "output", "_review")
 
 CONTEXT = 1        # 변경 줄 앞뒤로 보여줄 문맥 줄 수

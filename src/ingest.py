@@ -14,7 +14,7 @@ import hashlib
 import db
 from diff_report import split_articles
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 
 _ARTNO = re.compile(r"제\s*\d+(?:-\d+)?조(?:의\s*\d+)?")

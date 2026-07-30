@@ -46,7 +46,7 @@ def require_oc():
     return OC
 SITE = "https://www.law.go.kr"
 BASE = SITE + "/DRF"
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 FILE_DIR = os.path.join(OUT_DIR, "files")
 _body_cache = {}

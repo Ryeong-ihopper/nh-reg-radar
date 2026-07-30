@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
 """법제처의 실제 두 MST를 격리 비교하여 조문 diff 파이프라인을 검증한다."""
+import os
+import sys
+
+# 파이프라인 모듈은 src/ 에 있다. 이 스크립트는 한 단계 아래 폴더에서 직접 실행되므로
+# import 경로에 src/ 를 먼저 넣어 준다.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
 import argparse
 import json
 import os
@@ -10,7 +18,7 @@ import check_updates
 import diff_report
 import law_scraper
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORTS_DIR = os.path.join(ROOT, "output", "_reports")
 
 

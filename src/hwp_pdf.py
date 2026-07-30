@@ -23,7 +23,7 @@ import subprocess
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "output", "_review", "_pdf")
 
 _CANDIDATES = [

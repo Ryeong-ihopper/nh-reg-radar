@@ -5,6 +5,14 @@
 핵심 안전조건: **내용은 한 글자도 바뀌면 안 되고, 줄바꿈만 늘어야 한다.**
 그 위에서 diff 정밀도가 실제로 좋아지는지, 오분할(날짜·문장끝 '다.')이 없는지 본다.
 """
+import os
+import sys
+
+# 파이프라인 모듈은 src/ 에 있다. 이 스크립트는 한 단계 아래 폴더에서 직접 실행되므로
+# import 경로에 src/ 를 먼저 넣어 준다.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
 import re
 import os
 import sys

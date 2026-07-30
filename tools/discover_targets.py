@@ -10,13 +10,21 @@
 """
 import os
 import sys
+
+# 파이프라인 모듈은 src/ 에 있다. 이 스크립트는 한 단계 아래 폴더에서 직접 실행되므로
+# import 경로에 src/ 를 먼저 넣어 준다.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+import os
+import sys
 import json
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 import law_scraper as L
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (사용자가 요청한 이름, 종류) — 법령=law, 행정규칙(고시·규정·세칙)=admrul
 CANDIDATES = [

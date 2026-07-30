@@ -35,7 +35,7 @@ import build_diff_view          # '변경 내역' 탭 데이터·렌더러 재�
 import hwp_pdf                  # PDF 짝이 없는 HWP 만 변환
 from diff_report import _ART
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "output")
 REVIEW_DIR = os.path.join(OUT_DIR, "_review")
 
