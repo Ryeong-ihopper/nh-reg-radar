@@ -119,10 +119,62 @@ def split_tables(secs):
     return keep, drop
 
 
+# 이름만으로도 성격이 뚜렷한 것들. 사람이 확인할 때 뒤로 미뤄도 되는 것 표시용.
+_OBVIOUS = re.compile(r"(별책서식|신청서|신고서|대차대조표|계산서|명세서|확인서|동의서|"
+                      r"증명서|인가증|등록증|확인증|통보서|증표|지정명부|등록원부)")
+
+
+def review_tier(s):
+    """확인 우선순위. 내용 지표로만 판정한 것이 가장 틀리기 쉽다."""
+    if not s["table_why"].startswith("이름:"):
+        return "주의"
+    return "확실" if _OBVIOUS.search(s["table_why"] + " " + (s["title"] or "")) else "보통"
+
+
+def write_report(drop, path):
+    """인덱스에서 뺀 것을 사람이 확인할 수 있게 마크다운으로 남긴다.
+    판정 근거가 약한 순으로 정렬한다 — 위에서부터 보면 된다."""
+    for s in drop:
+        s["tier"] = review_tier(s)
+    order = {"주의": 0, "보통": 1, "확실": 2}
+    drop = sorted(drop, key=lambda s: (order[s["tier"]], -len(s["text"])))
+
+    lines = [f"# 인덱스에서 뺀 별표 {len(drop)}개 — 수동 확인용", "",
+             f"총 {sum(len(s['text']) for s in drop):,}자. "
+             "**수집·변경 감지에는 그대로 있고 검색용 청크에만 안 들어갑니다.**", "",
+             "원본은 뷰어에서 규정을 열고 좌측 드롭다운(또는 우측 점프 목록)에서 "
+             "해당 별표를 고르면 됩니다.", "",
+             "| 등급 | 뜻 | 개수 |", "|---|---|---:|"]
+    desc = {"주의": "이름이 신호를 안 줘 **내용 지표로만** 판정 — 먼저 확인",
+            "보통": "이름에 서식·양식·보고서 등이 있음",
+            "확실": "이름에 신청서·통보서·인가증 등이 그대로 있음"}
+    for t in ("주의", "보통", "확실"):
+        lines.append(f"| {t} | {desc[t]} | {sum(1 for s in drop if s['tier'] == t)} |")
+
+    cur = None
+    for s in drop:
+        if s["tier"] != cur:
+            cur = s["tier"]
+            n = sum(1 for x in drop if x["tier"] == cur)
+            lines += ["", "", f"## [{cur}] {n}개", "",
+                      "| 글자수 | 규정 | 별표 | 제목 | 판정 근거 |",
+                      "|---:|---|---|---|---|"]
+        lines.append(f"| {len(s['text']):,} | {s['reg']} | {s['key']} | "
+                     f"{(s['title'] or '(제목 없음)').replace('|', '/')} | {s['table_why']} |")
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return drop
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", choices=["양식", "기준"], help="해당 판정 항목 나열")
     ap.add_argument("--reg", help="이름 부분일치 대상만")
+    ap.add_argument("--report", nargs="?", const=os.path.join(
+        sections.OUT_DIR, "_rag", "제외_별표_목록.md"),
+        help="제외 목록을 마크다운으로 저장")
     a = ap.parse_args()
 
     secs = sections.all_sections(a.reg)
@@ -140,6 +192,13 @@ def main():
     print(f"  └ 양식 {len(drop):3d}개 · {sm(drop):>9,}자  → 인덱스에서 뺌 "
           f"(전체의 {sm(drop)/tot*100:.1f}%)")
     print(f"\n인덱스 대상: {tot:,}자 → {tot - sm(drop):,}자")
+
+    if a.report:
+        write_report(drop, a.report)
+        tiers = {t: sum(1 for s in drop if review_tier(s) == t)
+                 for t in ("주의", "보통", "확실")}
+        print(f"\n확인용 목록: {os.path.relpath(a.report, sections.ROOT)}  "
+              + " · ".join(f"{k} {v}" for k, v in tiers.items()))
 
     if a.list:
         pool = drop if a.list == "양식" else kt
