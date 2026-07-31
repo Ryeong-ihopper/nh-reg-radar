@@ -107,12 +107,27 @@ def classify(sec):
     return "기준", f"서식 신호 없음 (규범 {f['rule']:.2f} · 괘선 {f['box']:.0f}%)"
 
 
+# 이미 삭제된 별표는 껍데기만 남는다 — 삭제 표시 말고는 내용이 없다(실측: [별지 0011]
+# "의결권행사에 관한 공시 <삭제 2014.12.24.>" 44자, 그중 33건이 지금 「기준」으로 새고
+# 있었다). 뷰어의 _is_deleted() 와 **같은 규칙을 그대로 쓴다**(build_review.py,
+# 757개 파일 전수 검증·오탐 0건) — 삭제 판정 기준을 두 곳에서 따로 두면 어긋난다.
+_DEL_MARK = re.compile(r"삭제\s*[<(]?\s*\d{4}|[<(]\s*삭제")
+_DEL_MAX_CHARS = 120
+
+
+def is_deleted(sec):
+    return len(sec["text"]) <= _DEL_MAX_CHARS and bool(_DEL_MARK.search(sec["text"]))
+
+
 def split_tables(secs):
-    """별표를 (기준, 양식) 으로 나눈다. 별표가 아닌 항목은 그대로 기준 쪽."""
+    """별표를 (기준, 양식/삭제) 으로 나눈다. 별표가 아닌 항목은 그대로 기준 쪽."""
     keep, drop = [], []
     for s in secs:
         if s["type"] != "별표":
             keep.append(s)
+            continue
+        if is_deleted(s):
+            drop.append({**s, "table_kind": "삭제", "table_why": "삭제된 별표(내용 없음)"})
             continue
         kind, why = classify(s)
         s = {**s, "table_kind": kind, "table_why": why}
@@ -127,6 +142,8 @@ _OBVIOUS = re.compile(r"(별책서식|신청서|신고서|대차대조표|계산
 
 def review_tier(s):
     """확인 우선순위. 내용 지표로만 판정한 것이 가장 틀리기 쉽다."""
+    if s.get("table_kind") == "삭제":
+        return "삭제됨"      # 확인할 게 없다 — 내용이 원래 없음
     if not s["table_why"].startswith("이름:"):
         return "주의"
     return "확실" if _OBVIOUS.search(s["table_why"] + " " + (s["title"] or "")) else "보통"
@@ -137,7 +154,7 @@ def write_report(drop, path):
     판정 근거가 약한 순으로 정렬한다 — 위에서부터 보면 된다."""
     for s in drop:
         s["tier"] = review_tier(s)
-    order = {"주의": 0, "보통": 1, "확실": 2}
+    order = {"주의": 0, "보통": 1, "확실": 2, "삭제됨": 3}
     drop = sorted(drop, key=lambda s: (order[s["tier"]], -len(s["text"])))
 
     # 생성 시각을 적어 둔다. 편집기 미리보기가 이전 렌더를 캐시해서 바뀐 파일을
@@ -153,8 +170,9 @@ def write_report(drop, path):
              "| 등급 | 뜻 | 개수 |", "|---|---|---:|"]
     desc = {"주의": "이름이 신호를 안 줘 **내용 지표로만** 판정 — 먼저 확인",
             "보통": "이름에 서식·양식·보고서 등이 있음",
-            "확실": "이름에 신청서·통보서·인가증 등이 그대로 있음"}
-    for t in ("주의", "보통", "확실"):
+            "확실": "이름에 신청서·통보서·인가증 등이 그대로 있음",
+            "삭제됨": "이미 삭제된 별표 — 확인 불필요, 참고용으로만 남김"}
+    for t in ("주의", "보통", "확실", "삭제됨"):
         lines.append(f"| {t} | {desc[t]} | {sum(1 for s in drop if s['tier'] == t)} |")
 
     cur = None
@@ -240,7 +258,7 @@ def main():
     if a.report:
         write_report(drop, a.report)
         tiers = {t: sum(1 for s in drop if review_tier(s) == t)
-                 for t in ("주의", "보통", "확실")}
+                 for t in ("주의", "보통", "확실", "삭제됨")}
         print(f"\n확인용 목록: {os.path.relpath(a.report, sections.ROOT)}  "
               + " · ".join(f"{k} {v}" for k, v in tiers.items()))
 
