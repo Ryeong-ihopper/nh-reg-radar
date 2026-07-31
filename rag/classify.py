@@ -40,9 +40,18 @@ _BOX = "┌┐└┘├┤┬┴┼─│━┃╔╗╚╝║═▶◀"
 # 이름에 성격이 드러나는 경우. 제목을 본문 첫머리에서 복원해 두었으므로
 # (sections._title_from_body) 금투협도 이름을 쓸 수 있다.
 _NAME_FORM = re.compile(r"(별책서식|서식|양식|신청서|신고서|보고서|계산서|대차대조표|"
-                        r"명세서|확인서|동의서|신청서류|청약정보|증명서|의뢰서)")
+                        r"명세서|확인서|동의서|신청서류|청약정보|증명서|의뢰서|"
+                        r"통보서|증표|인가증|등록증|허가증|등록원부|지정명부|확인증)")
 _NAME_RULE = re.compile(r"(기준|한도|범위|방법|절차|유형|요령|지침|산정|판단|분류|"
-                        r"포함해야|포함되어야|사항)")
+                        r"가중치|비율|위험값|평가점수|포함해야|포함되어야|사항)")
+# 「(제25조제1항 관련)」 — 그 조문이 이 표를 기준으로 끌어 쓴다는 표시다.
+# 법제처가 별표 제목에 붙여 주는 것이라, 붙어 있으면 인용되는 근거자료다.
+_REF = re.compile(r"\(\s*(?:시행령\s*)?제\d+(?:-\d+)?조[^)]*관련\s*\)")
+
+
+def _digits(text):
+    """숫자 비율(%). 기준 표는 칸이 숫자로 차 있고 빈 서식은 비어 있다."""
+    return len(re.findall(r"\d", text)) / max(len(text), 1) * 100
 
 
 def features(text):
@@ -69,7 +78,8 @@ def classify(sec):
     제목 자체를 본문에서 복원했고, 이름이 아무 신호도 주지 않는 경우가 다수다.
     """
     f = features(sec["text"])
-    name = f'{sec.get("title") or ""} {sec.get("key","")}'
+    title = sec.get("title") or ""
+    name = re.sub(r"\s+", "", f'{title} {sec.get("key","")}')   # 「등 록 증」 대비
     is_form, is_rule = _NAME_FORM.search(name), _NAME_RULE.search(name)
 
     # 「등록신청서 기재사항」처럼 둘 다 걸리면 서식 쪽이 앞선다(신청서가 본체다)
@@ -77,13 +87,16 @@ def classify(sec):
         return "양식", f"이름: {is_form.group(0)}"
     if is_rule:
         return "기준", f"이름: {is_rule.group(0)}"
+    if _REF.search(title):
+        return "기준", "조문이 끌어 쓰는 표 (제…조 관련)"
 
     if f["form"] >= 0.30:
         return "양식", f"서식 상용구 {f['form']:.2f}/천자"
-    # 괘선은 서식에서만 높은 게 아니라 표로 된 기준에서도 높다. 규범 문장이
-    # 거의 없을 때만 서식으로 본다(별책서식 28% / 대차대조표 42%가 이 경우다).
-    if f["box"] >= 30.0 and f["rule"] < 0.50:
-        return "양식", f"괘선 {f['box']:.0f}% · 규범 {f['rule']:.2f}"
+    # 괘선은 서식에서만 높은 게 아니라 **숫자가 채워진 기준 표**에서도 높다.
+    # 「유동화 가중치」 30% · 「영업별 위험값」 33% 가 그 경우였다. 빈 칸을 그린
+    # 서식과 가르려면 칸이 비어 있는지를 봐야 한다 → 숫자 비율을 같이 본다.
+    if f["box"] >= 30.0 and f["rule"] < 0.50 and _digits(sec["text"]) < 1.0:
+        return "양식", f"괘선 {f['box']:.0f}% · 규범 {f['rule']:.2f} · 숫자 {_digits(sec['text']):.1f}%"
     if f["blank"] >= 30.0 and f["rule"] < 0.50:
         return "양식", f"빈 줄 {f['blank']:.0f}%"
     if f["rule"] >= 1.20:
