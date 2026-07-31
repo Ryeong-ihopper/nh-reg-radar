@@ -235,12 +235,19 @@ def parse_attachments(html):
         seen.add(href)
         m = _ATTACH_NAME.match(label)
         fname = (m.group(1) if m else label).strip()
-        # "(별표 8-2)" / "(별지 제10-1호)" 에서 구분과 번호를 뽑아 안정적인 키로 쓴다
-        km = re.search(r"\((별[표지])\s*(?:제)?\s*([\d\-]+)\s*(?:호)?\)", fname)
+        # "(별표 8-2)" / "(별지 제10-1호)" 에서 구분과 번호를 뽑아 안정적인 키로 쓴다.
+        # 가지번호 표기가 두 순서로 섞여 있다 — "8-2"·"제10-1호"(가지가 호보다 앞)
+        # 와 "제3호의2"(호가 가지보다 앞). 한 순서만 잡으면 다른 쪽은 매치 실패해
+        # "첨부"+등장순번으로 잘못 떨어진다(실측: 시행세칙 "별지 제3호의2" →
+        # 구분 첨부·번호 5 로 저장, .txt 헤더에 "[첨부 0005]"로 그대로 굳음).
+        km = re.search(r"\((별[표지])\s*제?\s*(\d+)"
+                       r"(?:\s*(?:호\s*의\s*(\d+)|-\s*(\d+)))?\s*호?\)", fname)
+        no = f"{km.group(2)}-{km.group(3) or km.group(4)}" if km and (km.group(3) or km.group(4)) \
+            else (km.group(2) if km else str(i))
         out.append({
             "순번": i, "파일명": fname, "링크": SITE + href,
             "구분": km.group(1) if km else "첨부",
-            "번호": km.group(2) if km else str(i),
+            "번호": no,
             "삭제여부": "삭제" in fname,
         })
     return out
