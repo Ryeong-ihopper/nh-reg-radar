@@ -78,6 +78,9 @@ _HIST = re.compile(r"\s*\((?:개정|신설|전문개정|일부개정)[^)]*\)\s*$
 # 「<신설 2021.10.18., 개정 2025.12.1.>」처럼 꺾쇠로 적힌 이력. 줄 어디에나 온다.
 _ANG = re.compile(r"[<〈]\s*(?:개정|신설|전문개정|일부개정)[^>〉]*[>〉]")
 _MARK = re.compile(r"^[<\[［]\s*(?:별지|별표|서식|첨부|별책)[^>\]］]*[>\]］]\s*")
+# 본문 첫 줄의 실제 번호. 「<별지 제42호>」 「<별지 제29-3호>」 「<별표 5>」
+_NO_IN_BODY = re.compile(r"[<〈\[［]\s*(별지|별표|서식|첨부|별책)\s*제?\s*"
+                         r"(\d+)(?:\s*[-의]\s*(\d+))?\s*호?\s*[>〉\]］]")
 
 
 def _title_from_body(text, limit=6):
@@ -206,15 +209,29 @@ def sections_of(name, kind):
             no = _s(b.get("공포번호")).strip().splitlines()[0] if _s(b.get("공포번호")).strip() else ""
             add("부칙", f"부칙제{no}호" if no else "부칙", "", b.get("내용"))
         for i, t in enumerate(rec.get("별표") or [], 1):
+            body = _s(t.get("내용"))
             # 금투협은 제목 필드를 비워 보내지만 본문 첫머리에 제목이 있다.
             if not _s(t.get("제목")).strip():
-                t = {**t, "제목": _title_from_body(_s(t.get("내용")))}
-            # 금투협은 별표번호를 안 준다. 비워 두면 「[별지 ]」가 300개 생겨
-            # 서로 구분이 안 되므로 순번으로 채운다.
-            no = _s(t.get("별표번호")).strip() or f"{i:04d}"
-            br = _s(t.get("별표가지번호")).strip().lstrip("0")
-            key = f"[{_s(t.get('구분')) or '별표'} {no}" + (f"의{br}" if br else "") + "]"
-            add("별표", key, _s(t.get("제목")).strip(), t.get("내용"))
+                t = {**t, "제목": _title_from_body(body)}
+            kind_, no, br = _s(t.get("구분")) or "별표", _s(t.get("별표번호")).strip(), \
+                _s(t.get("별표가지번호")).strip().lstrip("0")
+            if not no:
+                # 금투협은 별표번호를 안 준다. 배열 순번으로 채우면 **가지번호와
+                # 첨부가 순번을 먹어 실제 번호와 어긋난다** — 배열 55번째가
+                # 실제로는 「별지 제42호」다(가지번호 제29-3호·제40-1호 등으로 13칸 밀림).
+                # 본문 첫 줄의 「<별지 제42호>」에서 진짜 번호를 읽는다.
+                m = _NO_IN_BODY.match(body.lstrip())
+                if m:
+                    kind_, no, br = m.group(1), m.group(2), (m.group(3) or "")
+                else:
+                    no = f"{i:04d}"
+            # 번호가 없는 별표(0)는 수집 TXT 도 「[별표]」로 쓴다 — 키를 맞춘다.
+            if no.isdigit():
+                key = f"[{kind_} {int(no):04d}" if int(no) else f"[{kind_}"
+            else:
+                key = f"[{kind_} {no}"
+            key += (f"의{br}" if br else "") + "]"
+            add("별표", key, _s(t.get("제목")).strip(), body)
     else:
         # 여신협·은행연: 첨부가 곧 원문이라 통짜 문자열 하나로 저장돼 있다
         for typ, key, title, text in _split_body(_s(rec.get("본문"))):
