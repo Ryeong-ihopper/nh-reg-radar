@@ -16,6 +16,7 @@ import re
 import sys
 import json
 import time
+import html as htmllib
 import urllib.parse
 import urllib.request
 from content_hash import sha256_structure
@@ -86,12 +87,18 @@ def _as_list(x):
 
 
 def _join(text):
-    """내용 필드가 문자열·리스트·중첩리스트로 오는 경우 모두 평탄화."""
+    """내용 필드가 문자열·리스트·중첩리스트로 오는 경우 모두 평탄화.
+
+    법제처 API 는 필드에 따라 &lt;/&gt; 처럼 HTML 엔티티로 이스케이프해 줄 때가 있다
+    (실측: 삭제된 별표 7건의 제목 — "삭제 &lt;2016. 7. 28.&gt;"). 그대로 저장하면
+    화면에 꺾쇠 대신 문자열이 찍힌다. 조문·항·호·목·부칙·별표 내용이 전부 이 함수를
+    거치므로 여기서 한 번에 언이스케이프한다.
+    """
     if text is None:
         return ""
     if isinstance(text, list):
         return "\n".join(p for p in (_join(t) for t in text) if p)
-    return str(text)
+    return htmllib.unescape(str(text))
 
 
 def _content(v):
@@ -400,7 +407,7 @@ def parse_tables(body):
             "별표번호": u.get("별표번호", ""),
             "별표가지번호": u.get("별표가지번호", ""),
             "구분": u.get("별표구분", ""),
-            "제목": u.get("별표제목", ""),
+            "제목": htmllib.unescape(u.get("별표제목", "") or ""),
             "내용": _join(u.get("별표내용", "")),
             "PDF파일명": u.get("별표PDF파일명", ""),
             "HWP파일명": u.get("별표HWP파일명", ""),

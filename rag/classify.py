@@ -174,6 +174,41 @@ def write_report(drop, path):
     return drop
 
 
+def write_included_report(keep, path):
+    """인덱스에 넣은(기준) 별표를 사람이 확인할 수 있게 마크다운으로 남긴다.
+
+    제외 목록(write_report)과 짝을 이룬다 — "뭘 뺐는지"만 보고서는 "뭘 넣었는지"를
+    확인할 수 없다. 판정 근거가 약한 것부터 볼 수 있게(등급순) 하는 제외 목록과 달리,
+    여기는 애초에 확실히 근거자료인 것들이라 **규정별로 묶어** 훑어보기 쉽게 한다.
+    """
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    by_reg = {}
+    for s in keep:
+        by_reg.setdefault(s["reg"], []).append(s)
+
+    lines = [f"# 인덱스에 넣은 별표 {len(keep)}개 — 확인용", "",
+             f"> 생성 {stamp} · 이 시각이 오래됐으면 미리보기 캐시입니다 "
+             "(탭을 닫았다 다시 여세요)", "",
+             f"총 {sum(len(s['text']) for s in keep):,}자. 검색용 청크에 들어갑니다. "
+             "제외된 별표는 제외_별표_목록.md 참고.", "",
+             "원본은 뷰어에서 규정을 열고 좌측 드롭다운(또는 우측 점프 목록)에서 "
+             "해당 별표를 고르면 됩니다.", ""]
+
+    for reg in sorted(by_reg, key=lambda r: -sum(len(s["text"]) for s in by_reg[r])):
+        items = sorted(by_reg[reg], key=lambda x: -len(x["text"]))
+        lines += [f"## {reg} ({len(items)}개 · {sum(len(x['text']) for x in items):,}자)", "",
+                  "| 글자수 | 별표 | 제목 | 판정 근거 |", "|---:|---|---|---|"]
+        for s in items:
+            lines.append(f"| {len(s['text']):,} | {s['key']} | "
+                         f"{(s['title'] or '(제목 없음)').replace('|', '/')} | {s['table_why']} |")
+        lines.append("")
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return keep
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", choices=["양식", "기준"], help="해당 판정 항목 나열")
@@ -181,6 +216,9 @@ def main():
     ap.add_argument("--report", nargs="?", const=os.path.join(
         sections.OUT_DIR, "_rag", "제외_별표_목록.md"),
         help="제외 목록을 마크다운으로 저장")
+    ap.add_argument("--report-include", nargs="?", const=os.path.join(
+        sections.OUT_DIR, "_rag", "포함_별표_목록.md"),
+        help="포함(기준) 목록을 마크다운으로 저장")
     a = ap.parse_args()
 
     secs = sections.all_sections(a.reg)
@@ -205,6 +243,11 @@ def main():
                  for t in ("주의", "보통", "확실")}
         print(f"\n확인용 목록: {os.path.relpath(a.report, sections.ROOT)}  "
               + " · ".join(f"{k} {v}" for k, v in tiers.items()))
+
+    if a.report_include:
+        write_included_report(kt, a.report_include)
+        print(f"확인용 목록(포함): {os.path.relpath(a.report_include, sections.ROOT)}  "
+              f"— {len(kt)}개 · {sm(kt):,}자")
 
     if a.list:
         pool = drop if a.list == "양식" else kt
