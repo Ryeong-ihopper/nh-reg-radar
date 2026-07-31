@@ -212,12 +212,15 @@ def write_included_report(keep, path):
              "원본은 뷰어에서 규정을 열고 좌측 드롭다운(또는 우측 점프 목록)에서 "
              "해당 별표를 고르면 됩니다.", ""]
 
+    # 규정명을 소제목에만 두면 표만 눈에 담고 있을 때(스크롤·복사·검색) 어느 규정인지
+    # 놓친다 — 제외_별표_목록.md 는 줄마다 규정 열이 있는데 여기는 없어서 어긋났다.
+    # 묶어서 보기 좋은 소제목은 유지하되, 표에도 규정명을 그대로 열로 넣는다.
     for reg in sorted(by_reg, key=lambda r: -sum(len(s["text"]) for s in by_reg[r])):
         items = sorted(by_reg[reg], key=lambda x: -len(x["text"]))
         lines += [f"## {reg} ({len(items)}개 · {sum(len(x['text']) for x in items):,}자)", "",
-                  "| 글자수 | 별표 | 제목 | 판정 근거 |", "|---:|---|---|---|"]
+                  "| 글자수 | 규정 | 별표 | 제목 | 판정 근거 |", "|---:|---|---|---|---|"]
         for s in items:
-            lines.append(f"| {len(s['text']):,} | {s['key']} | "
+            lines.append(f"| {len(s['text']):,} | {s['reg']} | {s['key']} | "
                          f"{(s['title'] or '(제목 없음)').replace('|', '/')} | {s['table_why']} |")
         lines.append("")
 
