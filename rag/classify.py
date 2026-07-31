@@ -24,6 +24,7 @@
 import os
 import re
 import sys
+import datetime
 import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -139,7 +140,12 @@ def write_report(drop, path):
     order = {"주의": 0, "보통": 1, "확실": 2}
     drop = sorted(drop, key=lambda s: (order[s["tier"]], -len(s["text"])))
 
+    # 생성 시각을 적어 둔다. 편집기 미리보기가 이전 렌더를 캐시해서 바뀐 파일을
+    # 옛날 내용으로 보여주는 일이 있어, 어느 버전을 보고 있는지 화면에서 바로 알아야 한다.
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = [f"# 인덱스에서 뺀 별표 {len(drop)}개 — 수동 확인용", "",
+             f"> 생성 {stamp} · 이 시각이 오래됐으면 미리보기 캐시입니다 "
+             "(탭을 닫았다 다시 여세요)", "",
              f"총 {sum(len(s['text']) for s in drop):,}자. "
              "**수집·변경 감지에는 그대로 있고 검색용 청크에만 안 들어갑니다.**", "",
              "원본은 뷰어에서 규정을 열고 좌측 드롭다운(또는 우측 점프 목록)에서 "
