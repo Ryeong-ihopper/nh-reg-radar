@@ -37,8 +37,16 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import sections
+import classify
 
 ROOT = sections.ROOT
+_dropped = []
+
+
+def log_drop(items):
+    """인덱스에서 뺀 것을 남긴다. 조용히 줄이면 '전부 넣었다'로 읽힌다."""
+    global _dropped
+    _dropped = items
 DEFAULT_OUT = os.path.join(ROOT, "output", "_rag", "chunks.jsonl")
 
 # 목표/최대 글자 수. 임베딩 모델이 정해지면 토크나이저 기준으로 다시 잡는다.
@@ -120,8 +128,15 @@ def chunks_of(sec, target=TARGET_CHARS, maximum=MAX_CHARS):
     return out
 
 
-def build(only=None, target=TARGET_CHARS, maximum=MAX_CHARS):
+def build(only=None, target=TARGET_CHARS, maximum=MAX_CHARS, keep_forms=False):
     secs = sections.all_sections(only)
+    # 빈 서식은 광고심의 근거가 될 수 없다. 인덱스에서 뺀다(수집·변경 감지에서는
+    # 그대로 둔다 — 서식이 바뀌어도 개정이다).
+    dropped = []
+    if not keep_forms:
+        secs, dropped = classify.split_tables(secs)
+        if dropped:
+            log_drop(dropped)
     out, seen = [], {}
     for s in secs:
         # 같은 파일에 두 문서가 이어 붙은 경우(은행연 「기준」+「세칙」은 둘 다 제1조로
@@ -148,10 +163,12 @@ def main():
     ap.add_argument("--max", type=int, default=MAX_CHARS, dest="maximum")
     ap.add_argument("--out", nargs="?", const=DEFAULT_OUT, default=None,
                     help="JSONL 로 저장 (경로 생략 시 output/_rag/chunks.jsonl)")
+    ap.add_argument("--keep-forms", action="store_true",
+                    help="빈 서식 별표도 인덱스에 넣는다(기본은 제외)")
     a = ap.parse_args()
 
     MAX_CHARS = a.maximum          # _pieces 가 참조한다
-    cs = build(a.only, a.target, a.maximum)
+    cs = build(a.only, a.target, a.maximum, a.keep_forms)
     if not cs:
         print("청크가 없습니다.")
         return
@@ -163,6 +180,10 @@ def main():
     split = sum(1 for c in cs if c["parts"] > 1)
     src = len({(c["reg"], c["key"], c["part"] == 1) for c in cs if c["part"] == 1})
 
+    if _dropped:
+        print(f"인덱스에서 뺀 서식 별표 {len(_dropped)}개 · "
+              f"{sum(len(s['text']) for s in _dropped):,}자 "
+              f"(수집·변경 감지에는 그대로 남아 있음)")
     print(f"청크 {len(cs):,}개  (원본 항목 {src:,}개 → 분할된 것에서 {split:,}조각)")
     print("  유형별: " + " · ".join(f"{k} {v:,}" for k, v in by.items()))
     print(f"  길이  중앙 {_pctl(lens,50):,} · p90 {_pctl(lens,90):,} · "

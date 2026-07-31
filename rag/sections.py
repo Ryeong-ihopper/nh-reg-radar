@@ -74,6 +74,37 @@ def _article_text(a):
     return "\n".join(p for p in parts if p)
 
 
+_HIST = re.compile(r"\s*\((?:개정|신설|전문개정|일부개정)[^)]*\)\s*$")
+# 「<신설 2021.10.18., 개정 2025.12.1.>」처럼 꺾쇠로 적힌 이력. 줄 어디에나 온다.
+_ANG = re.compile(r"[<〈]\s*(?:개정|신설|전문개정|일부개정)[^>〉]*[>〉]")
+_MARK = re.compile(r"^[<\[［]\s*(?:별지|별표|서식|첨부|별책)[^>\]］]*[>\]］]\s*")
+
+
+def _title_from_body(text, limit=6):
+    """별표 본문 첫머리에서 제목을 찾는다.
+
+      <별지 제1호> (개정 2009.5.19., …)
+      금융투자회사의 영업보고서        ← 이것
+    앞의 「<별지 제1호>」는 번호 표시라 걷어내고, 표 행(|)과 법제처의 「■ …」
+    머리 장식은 건너뛴다.
+    """
+    for raw in text.split("\n")[:limit + 2]:
+        s = raw.strip()
+        if not s or s.startswith("|") or s.startswith("■"):
+            continue
+        s = _HIST.sub("", _ANG.sub("", s)).strip()
+        if not s:
+            continue
+        m = _MARK.match(s)
+        if m:
+            s = _HIST.sub("", s[m.end():].strip())
+            if not s:
+                continue
+        if re.search(r"[가-힣]", s) and 2 <= len(s) <= 60:
+            return s
+    return ""
+
+
 def _article_key(a):
     """개정 감지가 쓰는 키와 같은 형식. 가지번호까지 포함해야 제80조와 제80조의2가 갈린다."""
     no = _s(a.get("조문번호")).strip()
@@ -175,6 +206,9 @@ def sections_of(name, kind):
             no = _s(b.get("공포번호")).strip().splitlines()[0] if _s(b.get("공포번호")).strip() else ""
             add("부칙", f"부칙제{no}호" if no else "부칙", "", b.get("내용"))
         for i, t in enumerate(rec.get("별표") or [], 1):
+            # 금투협은 제목 필드를 비워 보내지만 본문 첫머리에 제목이 있다.
+            if not _s(t.get("제목")).strip():
+                t = {**t, "제목": _title_from_body(_s(t.get("내용")))}
             # 금투협은 별표번호를 안 준다. 비워 두면 「[별지 ]」가 300개 생겨
             # 서로 구분이 안 되므로 순번으로 채운다.
             no = _s(t.get("별표번호")).strip() or f"{i:04d}"

@@ -324,6 +324,39 @@ _TABLE_HEAD = re.compile(r"^\[(?:별표|별지|서식|별책)(?:\s+\d{4}(?:의\d
 _TABLE_SRC = re.compile(r"\(원본 파일:\s*(.+?)\)\s*$")
 
 
+_HIST = re.compile(r"\s*\((?:개정|신설|전문개정|일부개정)[^)]*\)\s*$")
+# 「<신설 2021.10.18., 개정 2025.12.1.>」처럼 꺾쇠로 적힌 이력. 줄 어디에나 온다.
+_ANG = re.compile(r"[<〈]\s*(?:개정|신설|전문개정|일부개정)[^>〉]*[>〉]")
+_MARK = re.compile(r"^[<\[［]\s*(?:별지|별표|서식|첨부|별책)[^>\]］]*[>\]］]\s*")
+
+
+def _title_from_body(lines, start, limit=6):
+    """별표 머리글 다음 몇 줄에서 진짜 제목을 찾는다.
+
+    금투협은 별표 제목 필드를 비워 보내지만 **본문 첫머리에는 제목이 있다.**
+      [별지 0001]  (원본 파일: 0001_(별지 제1호).hwp)
+      <별지 제1호> (개정 2009.5.19., …)
+      금융투자회사의 영업보고서          ← 이것
+    앞의 「<별지 제1호>」는 번호 표시일 뿐이라 걷어내고, 표 행(|)과 법제처의
+    「■ …[별표 5]」 머리 장식은 건너뛴다.
+    """
+    for raw in lines[start + 1: start + 1 + limit]:
+        s = raw.strip()
+        if not s or s.startswith("|") or s.startswith("■"):
+            continue
+        s = _HIST.sub("", _ANG.sub("", s)).strip()
+        if not s:
+            continue
+        m = _MARK.match(s)
+        if m:
+            s = _HIST.sub("", s[m.end():].strip())
+            if not s:
+                continue                      # 번호 표시뿐인 줄
+        if re.search(r"[가-힣]", s) and 2 <= len(s) <= 60:
+            return s
+    return ""
+
+
 def _table_meta(line):
     """별표 머리글 → (제목, 원본파일명).
 
@@ -436,6 +469,10 @@ def article_index(text):
         extra = {}
         if in_tables:
             title, srcfile = _table_meta(stripped)
+            body = _title_from_body(lines, lineno)
+            # 파일명에서 얻은 것은 「별지 제1호」처럼 번호뿐이라, 본문 제목을 붙인다.
+            if body and body not in title:
+                title = f"{title} · {body}" if title else body
             extra = {"table": True, "title": title, "srcfile": srcfile}
         label = (m.group(0) or "").replace(" ", "")
         if label == "부칙":
