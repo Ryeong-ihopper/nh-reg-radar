@@ -112,9 +112,15 @@ print("[알림]")
 _con = api.db.connect()
 with _con:
     _con.execute("UPDATE notifications SET is_read=0")
+    # collect_safety 가 저장을 막은 건은 regulation_changes 행이 안 생긴다(아무것도
+    # 저장하지 않았으므로) — 그래도 알림은 남아야 사람이 확인하러 간다(store.notify_blocked).
+    # 그래서 "변경 == 알림" 이 아니라 "변경 + 차단 알림 == 전체 알림" 이 맞는 식이다.
+    blocked_n = _con.execute(
+        "SELECT COUNT(*) c FROM notifications WHERE title LIKE '%저장 차단%'").fetchone()["c"]
 _con.close()
 un = c.get("/api/notifications?is_read=false").json()
-check("변경 건수만큼 알림 생성", un["total"] == ch["total"], f"알림 {un['total']} / 변경 {ch['total']}")
+check("변경 + 차단 건수만큼 알림 생성", un["total"] == ch["total"] + blocked_n,
+      f"알림 {un['total']} / 변경 {ch['total']} + 차단 {blocked_n}")
 nid = un["items"][0]["notification_id"]
 check("읽음 처리", c.post(f"/api/notifications/{nid}/read").status_code == 200)
 after = c.get("/api/notifications?is_read=false").json()

@@ -46,6 +46,7 @@ import diff_report                # 변경 시 조문 단위 diff
 import db                         # SQLite 저장소
 from applog import get_logger
 import store                      # 실행 이력·변경·알림 적재
+import collect_safety              # 급감 감지 — CollapseBlocked 예외 처리용
 
 log = get_logger("check")
 
@@ -142,7 +143,17 @@ class _RunLock:
 
 
 def backup_existing(name, old_version):
-    """기존 output/<name>.* 과 파일 폴더를 버전 폴더로 이동(백업)."""
+    """기존 output/<name>.* 과 파일 폴더를 버전 폴더로 남긴다(복사).
+
+    예전에는 move 를 썼는데, 그러면 collect() 가 실행되기 **전에** 현재 위치의
+    파일이 사라진다. collect() 안의 collect_safety 급감 감지는 "지금 있는 파일"과
+    비교해서 판단하는데, 비교 대상이 먼저 치워지면 "최초 수집"으로 오판해
+    안전장치가 무력화된다(실측: 금투협 규정 개정판이 첨부 50→0으로 급감한 사례에서
+    이 순서 때문에 안전장치가 안 걸리고 그대로 저장될 뻔했다). move 를 copy 로
+    바꿔 collect() 가 항상 "치워지지 않은 현재 파일"과 비교하게 한다 — 급감으로
+    막히면 원래 자리의 파일이 곧 그대로 유지되는 것이고, 정상 갱신이면 collect()
+    가 그 자리를 새 내용으로 덮어써 결과적으로 예전과 동일하게 동작한다.
+    """
     tag = lawgo._safe(old_version) or "unknown"
     dest = os.path.join(VERSIONS_DIR, lawgo._safe(name), tag)
     os.makedirs(dest, exist_ok=True)
@@ -150,11 +161,14 @@ def backup_existing(name, old_version):
     for ext in (".json", ".txt"):
         src = os.path.join(OUT_DIR, lawgo._safe(name) + ext)
         if os.path.exists(src):
-            shutil.move(src, os.path.join(dest, os.path.basename(src)))
+            shutil.copy2(src, os.path.join(dest, os.path.basename(src)))
             moved.append(os.path.basename(src))
     fdir = os.path.join(OUT_DIR, "files", lawgo._safe(name))
     if os.path.isdir(fdir):
-        shutil.move(fdir, os.path.join(dest, "files"))
+        fdest = os.path.join(dest, "files")
+        if os.path.isdir(fdest):
+            shutil.rmtree(fdest)
+        shutil.copytree(fdir, fdest)
         moved.append("files/")
     return dest, moved
 
@@ -296,7 +310,22 @@ def run(dry=False, deep=False, use_db=True, trigger="manual", only=None):
                     old_vid = store.current_version_id(con, name, kind)
                 except Exception as e:
                     log.error(f"        ↳ DB 현재본 조회 실패: {e}")
-            collected = ad.collect(name, kind, want_files=True, verbose=True)
+            try:
+                collected = ad.collect(name, kind, want_files=True, verbose=True)
+            except collect_safety.CollapseBlocked as e:
+                # 그냥 None 을 받는 것과 다르게 취급해야 한다 — "검색 안 됨"이
+                # 아니라 "새 버전은 찾았는데 내용이 급감해서 일부러 안 받았다"이다.
+                # 여기서 걸러야 하는 두 가지:
+                #  1) state[name] 을 새 버전으로 진행시키면 안 된다 — 그러면 다음
+                #     실행에서 "이미 최신"으로 오판해 다시는 재시도하지 않는다
+                #     (실측: 최초 구현에서 이렇게 샐 뻔했다).
+                #  2) 조용히 넘어가면 안 된다 — 변경 내역·알림에 반드시 남아야
+                #     사람이 사이트를 확인하러 간다.
+                log.warning(f"        ⚠ 저장 차단: {e.reason} — 상태 유지, 다음 실행에서 재시도")
+                entry["상태"] = "보류"
+                entry["변경사유"] = f"저장 차단(급감 감지): {e.reason}"
+                changes.append(entry)
+                continue
             collected_hash = ((collected or {}).get("본문해시")
                               or (collected or {}).get("sha256")
                               or content_hash)
@@ -359,7 +388,8 @@ def run(dry=False, deep=False, use_db=True, trigger="manual", only=None):
                      "신규": sum(c["상태"] == "신규" for c in changes),
                      "동일": sum(c["상태"] == "동일" for c in changes),
                      "에러": sum(c["상태"] == "에러" for c in changes),
-                     "검색실패": sum(c["상태"] == "검색실패" for c in changes)},
+                     "검색실패": sum(c["상태"] == "검색실패" for c in changes),
+                     "보류": sum(c["상태"] == "보류" for c in changes)},
               "상세": changes}
     with open(os.path.join(REPORTS_DIR, f"report_{stamp}.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
@@ -368,6 +398,7 @@ def run(dry=False, deep=False, use_db=True, trigger="manual", only=None):
     if con is not None:
         try:
             failed = [c for c in changes if c.get("상태") in ("에러", "검색실패")]
+            blocked = [c for c in changes if c.get("상태") == "보류"]
             with con:
                 store.finish_run(con, run_id, report["요약"], report,
                                  "success" if report["요약"]["에러"] == 0 else "partial")
@@ -376,6 +407,11 @@ def run(dry=False, deep=False, use_db=True, trigger="manual", only=None):
                     store.notify_failures(con, run_id, failed)
                     log.warning(f"  ⚠ 조회 실패 {len(failed)}건 — 알림 생성됨: "
                           + ", ".join(c["법령명"] for c in failed))
+                # 저장 차단도 같은 이유로 반드시 알림에 남긴다(위 CollapseBlocked 처리부 참고)
+                if blocked:
+                    store.notify_blocked(con, run_id, blocked)
+                    log.warning(f"  ⚠ 저장 차단 {len(blocked)}건 — 알림 생성됨: "
+                          + ", ".join(c["법령명"] for c in blocked))
             log.info(f"DB: run #{run_id} 기록 완료 ({db.DB_PATH})")
         except Exception as e:
             log.warning(f"실행 이력 마감 실패: {e}")
@@ -406,7 +442,7 @@ def run(dry=False, deep=False, use_db=True, trigger="manual", only=None):
     log.info("=" * 60)
     log.info(f"요약: 변경 {report['요약']['변경']} · 신규 {report['요약']['신규']} · "
           f"동일 {report['요약']['동일']} · 오류 {report['요약']['에러']} · "
-          f"검색실패 {report['요약']['검색실패']} / 전체 {len(targets)}")
+          f"검색실패 {report['요약']['검색실패']} · 보류 {report['요약']['보류']} / 전체 {len(targets)}")
     if changed and not dry:
         log.info("변경·신규 항목:")
         for c in changed:

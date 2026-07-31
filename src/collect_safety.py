@@ -17,6 +17,21 @@ import json
 import datetime
 
 
+class CollapseBlocked(Exception):
+    """급감 감지로 저장이 막혔을 때 스크레이퍼가 던진다.
+
+    그냥 None 을 반환하면 호출부(check_updates.py)가 "검색 안 됨"·"이름 못 찾음"
+    같은 다른 실패 사유와 구분하지 못해, 상태 파일을 그대로 진행시키거나 그냥
+    조용히 넘어갈 수 있다(실측: 처음 구현에서 실제로 이렇게 새서, 다음 실행부터
+    "이미 최신"으로 오판하고 다시는 재시도하지 않을 뻔했다). 예외로 던져서
+    호출부가 반드시 인지하고 상태 갱신을 건너뛰도록 강제한다.
+    """
+    def __init__(self, name, reason):
+        self.name = name
+        self.reason = reason
+        super().__init__(f"{name}: {reason}")
+
+
 def _safe(name):
     for c in '\\/:*?"<>|':
         name = name.replace(c, "_")

@@ -147,7 +147,7 @@ def collect(name, kind="crefia", want_files=True, verbose=True):
     ok, reason = collect_safety.check_and_maybe_block(
         OUT_DIR, name, "본문", len(text), record, full_text, verbose)
     if not ok:
-        return None
+        raise collect_safety.CollapseBlocked(name, reason)
 
     with open(os.path.join(OUT_DIR, base + ".json"), "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)

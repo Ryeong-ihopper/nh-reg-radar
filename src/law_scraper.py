@@ -620,7 +620,7 @@ def collect(name, kind, want_files=True, verbose=True):
     ok, reason = collect_safety.check_and_maybe_block(
         OUT_DIR, meta["name"], "별표", len(tables), record, text, verbose)
     if not ok:
-        return None
+        raise collect_safety.CollapseBlocked(meta["name"], reason)
 
     with open(os.path.join(OUT_DIR, base + ".json"), "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)

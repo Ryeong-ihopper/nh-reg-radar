@@ -433,7 +433,10 @@ def collect(name, kind="kofia", want_files=True, verbose=True):
     ok, reason = collect_safety.check_and_maybe_block(
         OUT_DIR, meta["name"], "별표", len(record["별표"]), record, text, verbose)
     if not ok:
-        return None
+        # None 을 돌려주면 호출부가 "검색 안 됨" 등 다른 실패와 구분 못 해 상태
+        # 갱신을 그대로 진행시킬 수 있다(실측: 최초 구현에서 이렇게 샜다). 예외로
+        # 던져 호출부가 반드시 이 사유로 인지하고 상태 갱신을 건너뛰게 한다.
+        raise collect_safety.CollapseBlocked(meta["name"], reason)
 
     if want_files and record["별표"]:
         n = download_attachments(record["별표"], meta["name"], verbose)

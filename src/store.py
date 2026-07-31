@@ -75,6 +75,31 @@ def record_collection(con, run_id, record, kind, safe_name, status, reason, old_
     return change_id
 
 
+def notify_blocked(con, run_id, blocked):
+    """저장이 차단된(급감 감지) 건을 알림으로 남긴다.
+
+    조회 실패(notify_failures)와 성격이 다르다 — 사이트 접속은 잘 됐고 새 버전도
+    찾았는데, **내용이 기존보다 급감해서 일부러 저장을 안 한** 경우다. 같은
+    "조회 실패" 제목으로 묶으면 원인 파악이 헷갈리므로 별도 제목으로 남긴다.
+    사람이 사이트를 직접 확인해야 풀리는 사안이라(협회가 서식을 마저 올렸는지
+    등) 반드시 눈에 띄어야 한다.
+    """
+    if not blocked:
+        return 0
+    body = " · ".join(f"{f['법령명']}({f.get('변경사유') or ''})" for f in blocked)
+    title = f"[확인 필요] 규정 {len(blocked)}건 저장 차단(내용 급감)"
+    n = 0
+    for p in con.execute("SELECT profile_id FROM watch_profiles WHERE active=1"):
+        con.execute(
+            "INSERT INTO notifications (profile_id, change_id, title, body, created_at)"
+            " SELECT ?, NULL, ?, ?, ? WHERE NOT EXISTS ("
+            "  SELECT 1 FROM notifications WHERE profile_id=? AND change_id IS NULL"
+            "   AND title=? AND is_read=0)",
+            (p["profile_id"], title, body, db.now_iso(), p["profile_id"], title))
+        n += 1
+    return n
+
+
 def notify_failures(con, run_id, failures):
     """조회 실패를 알림으로 남긴다.
 
