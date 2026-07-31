@@ -23,6 +23,7 @@ import time
 import file_text
 import urllib.error
 import urllib.request
+import collect_safety
 from content_hash import sha256_structure
 import name_match
 
@@ -425,6 +426,15 @@ def collect(name, kind="kofia", want_files=True, verbose=True):
             print(f"  → '{name}' KOFIA 목록에서 못 찾음")
         return None
     record, text = build_record(meta["name"], meta["ID"], meta["MST"])
+
+    # 다운로드하기 전에 먼저 확인한다 — 받아버리면 이미 늦다. 사이트가 일시적으로
+    # 첨부를 못 올렸거나 링크 방식이 바뀌면 새 버전의 별표 목록이 0(또는 급감)으로
+    # 파싱되는데, 그대로 저장하면 기존에 잘 갖고 있던 첨부가 빈 것으로 덮어써진다.
+    ok, reason = collect_safety.check_and_maybe_block(
+        OUT_DIR, meta["name"], "별표", len(record["별표"]), record, text, verbose)
+    if not ok:
+        return None
+
     if want_files and record["별표"]:
         n = download_attachments(record["별표"], meta["name"], verbose)
         if verbose:

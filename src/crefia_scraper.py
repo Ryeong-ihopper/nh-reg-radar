@@ -18,6 +18,7 @@ import hashlib
 import urllib.parse
 import urllib.request
 import name_match
+import collect_safety
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -136,12 +137,22 @@ def collect(name, kind="crefia", want_files=True, verbose=True):
         "통계": {"본문길이": len(text)},
         "본문": text,
     }
-    with open(os.path.join(OUT_DIR, base + ".json"), "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
     header = (f"{name}\n[여신금융협회 자율규제규정] 시행 {eff or '?'} · "
               f"원본 {filename} · sha {sha[:12]}")
+    full_text = header + "\n" + "=" * 70 + "\n\n" + text
+
+    # 이 소스는 첨부 목록이 아니라 문서 하나(본문 길이)로 판단한다. 원본 다운로드가
+    # 깨졌거나 추출이 어그러지면 본문 길이가 급감하는데, 그대로 저장하면 멀쩡한
+    # 기존 내용을 빈 것으로 덮어쓴다.
+    ok, reason = collect_safety.check_and_maybe_block(
+        OUT_DIR, name, "본문", len(text), record, full_text, verbose)
+    if not ok:
+        return None
+
+    with open(os.path.join(OUT_DIR, base + ".json"), "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
     with open(os.path.join(OUT_DIR, base + ".txt"), "w", encoding="utf-8") as f:
-        f.write(header + "\n" + "=" * 70 + "\n\n" + text)
+        f.write(full_text)
     if verbose:
         print(f"  → 저장: output/{base}.json, output/{base}.txt (원본: files/{base}/)")
     return record

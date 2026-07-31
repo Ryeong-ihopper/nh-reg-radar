@@ -19,6 +19,7 @@ import time
 import html as htmllib
 import urllib.parse
 import urllib.request
+import collect_safety
 from content_hash import sha256_structure
 import name_match
 import applog
@@ -610,10 +611,21 @@ def collect(name, kind, want_files=True, verbose=True):
                 "다운로드파일수": downloaded},
         "조문": articles, "부칙": addenda, "별표": tables, "첨부파일": attachments,
     }
+    text = to_text(header, articles, addenda, tables, attachments)
+
+    # 별표 목록이 기존보다 급감했으면 저장하지 않는다(실측: 금투협 사례 —
+    # 개정되면서 사이트의 첨부 목록이 50개→0개가 됨). download_files() 는 이미
+    # 위에서 실행됐지만, 새 tables 가 비어 있으면 애초에 내려받을 것도 없어
+    # 기존 별표 파일을 건드리지 않는다 — 파괴적인 지점은 아래 JSON/TXT 덮어쓰기뿐이다.
+    ok, reason = collect_safety.check_and_maybe_block(
+        OUT_DIR, meta["name"], "별표", len(tables), record, text, verbose)
+    if not ok:
+        return None
+
     with open(os.path.join(OUT_DIR, base + ".json"), "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)
     with open(os.path.join(OUT_DIR, base + ".txt"), "w", encoding="utf-8") as f:
-        f.write(to_text(header, articles, addenda, tables, attachments))
+        f.write(text)
     if verbose:
         print(f"  → 저장: output/{base}.json, output/{base}.txt")
     return record
