@@ -596,10 +596,10 @@ HTML_TEMPLATE = r"""<!doctype html>
     --sub: #6b7480; --accent: #2563eb; --mark: #fff3a3; --markcur: #ffcf4d;
     /* 점프해서 멈춘 자리. 번쩍이는 순간은 --markcur 로 시작해 이 색으로 가라앉는다.
        계속 떠 있는 색이라 진하면 글자를 읽기 어렵다. */
-    --hitrest: #fff7db;
+    --hitrest: #fff2c8;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#14171c; --panel:#1b1f26; --border:#2c323b; --text:#e6e9ee; --sub:#8b93a1; --accent:#6ea8ff; --mark:#5a4a12; --markcur:#8a6a10; --hitrest:#2e2609; }
+    :root { --bg:#14171c; --panel:#1b1f26; --border:#2c323b; --text:#e6e9ee; --sub:#8b93a1; --accent:#6ea8ff; --mark:#5a4a12; --markcur:#8a6a10; --hitrest:#3a300c; }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -656,7 +656,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   .pane-body pre .ln.hit {
     background: var(--hitrest); border-radius: 4px;
     box-shadow: inset 3px 0 0 var(--markcur);   /* 색이 옅어진 만큼 왼쪽에 표시를 남긴다 */
-    animation: hitfade 2.2s ease-out;
+    animation: hitfade 0.85s ease-out;
   }
   /* transparent 로 끝내면 애니메이션이 끝나는 순간 기본값(진한 노랑)으로 되돌아가
      '번쩍 → 사라짐 → 다시 진해짐'이 된다. 가라앉을 색으로 끝내야 한다. */
