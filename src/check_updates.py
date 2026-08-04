@@ -430,14 +430,22 @@ def run(dry=False, deep=False, use_db=True, trigger="manual", only=None):
         except Exception as e:
             log.warning(f"품질 점검 실패: {e}")
 
-    if con is not None:
-        # 변경이 있었으면 색상 diff 뷰어를 새로 만들어 둔다(브라우저로 바로 확인용)
-        if changed:
-            try:
-                import build_diff_view
-                build_diff_view.build()
-            except Exception as e:
-                log.warning(f"diff 뷰어 생성 실패: {e}")
+    if con is not None and changed:
+        # 파생 화면을 **한꺼번에** 다시 만든다. 예전에는 여기서 diff.html 만 만들어서,
+        # 수집 후 변경 내역은 최신인데 검수 뷰어는 옛 숫자를 달고 있는 상태가 됐다
+        # (실측: 뷰어 뱃지 14 · DB 15). 어느 하나만 갱신되는 일이 없도록 refresh_views
+        # 한 곳으로 모았다 — 산출물이 늘어도 그 파일만 고치면 여기 따라온다.
+        log.info("-" * 60)
+        log.info("화면 갱신 중…")
+        try:
+            import refresh_views
+            _, bad = refresh_views.refresh()
+            if bad:
+                # 조용히 넘기면 낡은 화면을 최신으로 오해한다 — 요약에도 남긴다
+                report["요약"]["화면갱신실패"] = [f for _, f, _ in bad]
+        except Exception as e:
+            log.warning(f"화면 갱신 실패: {e} — python src/refresh_views.py 로 다시 시도하세요")
+            report["요약"]["화면갱신실패"] = ["전체"]
 
     log.info("=" * 60)
     log.info(f"요약: 변경 {report['요약']['변경']} · 신규 {report['요약']['신규']} · "
