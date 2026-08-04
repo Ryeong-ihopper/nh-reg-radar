@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import json
+import collections
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
@@ -60,7 +61,11 @@ def _record(name):
 # 표시를 덧붙이지 않는다.
 
 def _article_text(a):
-    parts = [_s(a.get("조문내용")).strip()]
+    # 금투협은 필드명이 다르다(조내용/조제목, 항·호 배열 없음). 법제처 이름만 보면
+    # 빈 문자열이 나오고, add() 의 `if text:` 에 걸려 **조용히 버려진다** —
+    # 에러도 경고도 없다(실측: 금투협 두 규정의 조문 399개가 통째로 사라져 있었고,
+    # 별표는 정상이라 규정 단위로만 보면 정상으로 보였다).
+    parts = [_s(a.get("조문내용") or a.get("조내용")).strip()]
     for h in a.get("항") or []:
         if _s(h.get("항내용")).strip():
             parts.append(_s(h["항내용"]).strip())
@@ -154,9 +159,13 @@ def _article_key(a):
     no = _s(a.get("조문번호")).strip()
     br = _s(a.get("조문가지번호")).strip().lstrip("0")
     if not no:
-        # 행정규칙은 조문번호 필드가 비어 있고 본문 첫머리에 있다
-        m = re.match(r"\s*(제\s*\d+(?:-\d+)?조(?:의\s*\d+)?)", _s(a.get("조문내용")))
-        return m.group(1).replace(" ", "") if m else ""
+        # 번호 필드가 없는 소스가 둘 있다. 행정규칙은 본문 첫머리에, 금투협은
+        # 조제목에 「제2-38조(투자광고)」 형태로 들어 있다. 둘 다 훑는다.
+        for src in (a.get("조문내용"), a.get("조제목"), a.get("조내용")):
+            m = re.match(r"\s*(제\s*\d+(?:-\d+)?조(?:의\s*\d+)?)", _s(src))
+            if m:
+                return m.group(1).replace(" ", "")
+        return ""
     return f"제{no}조" + (f"의{br}" if br and br != "0" else "")
 
 
@@ -245,7 +254,14 @@ def sections_of(name, kind):
             body = _article_text(a)
             if a.get("구분") and body == _s(a.get("구분")).strip():
                 continue
-            add("조문", _article_key(a), _s(a.get("조문제목")).strip(), body)
+            # 조제목은 금투협 필드명. 「제2-38조(투자광고)」처럼 번호가 함께 들어
+            # 있으므로 괄호 안만 제목으로 남긴다(키와 중복되지 않게).
+            title = _s(a.get("조문제목")).strip()
+            if not title:
+                m = re.match(r"\s*제\s*\d+(?:-\d+)?조(?:의\s*\d+)?\s*\(([^)]*)\)",
+                             _s(a.get("조제목")))
+                title = m.group(1).strip() if m else _s(a.get("조제목")).strip()
+            add("조문", _article_key(a), title, body)
         for b in rec.get("부칙") or []:
             no = _s(b.get("공포번호")).strip().splitlines()[0] if _s(b.get("공포번호")).strip() else ""
             add("부칙", f"부칙제{no}호" if no else "부칙", "", b.get("내용"))
@@ -277,7 +293,49 @@ def sections_of(name, kind):
         # 여신협·은행연: 첨부가 곧 원문이라 통짜 문자열 하나로 저장돼 있다
         for typ, key, title, text in _split_body(_s(rec.get("본문"))):
             add(typ, key, title, text)
+
+    _check_loss(name, kind, rec, out)
     return out
+
+
+# 원본 대비 몇 %까지 사라져도 넘어갈지. 삭제된 조문·빈 별표 때문에 조금은 준다.
+_LOSS_LIMIT = 0.10
+
+
+def _check_loss(name, kind, rec, out):
+    """원본 항목 수와 만들어진 항목 수를 대조한다.
+
+    **조용한 유실이 이 파일의 주된 사고 유형이다.** add() 는 본문이 비면 그냥 안
+    넣는데, 소스마다 필드명이 달라(법제처 `조문내용` vs 금투협 `조내용`) 이름 하나만
+    어긋나도 전부 빈 문자열이 되어 통째로 사라진다. 에러도 경고도 안 난다.
+
+    실측: 금투협 두 규정의 조문 386개가 이렇게 사라져 있었다. 별표·부칙은 정상이라
+    규정 단위로 보면 멀쩡해 보였고, quality_check 도 자동 검사도 못 잡았다. 사람이
+    조문지도와 대조하고 나서야 드러났다.
+
+    그래서 **내용이 아니라 개수를 본다.** 파싱이 어떻게 어긋나든 개수는 줄어든다.
+    """
+    if "조문" not in rec:
+        return                      # 통짜 본문 소스는 원본 개수 개념이 없다
+    got = collections.Counter(x["type"] for x in out)
+    for field, typ in (("조문", "조문"), ("부칙", "부칙"), ("별표", "별표")):
+        items = rec.get(field) or []
+        if field == "조문":
+            # 「제1장 총칙」 같은 장·절 구분줄이 조문 배열에 섞여 온다(실측: 은행업
+            # 감독규정 177개 중 29개). 일부러 빼는 것이므로 분모에서도 뺀다 —
+            # 안 그러면 정상인데도 16% 유실로 잡혀 경보가 늑대소년이 된다.
+            items = [a for a in items
+                     if not (a.get("구분")
+                             and _article_text(a) == _s(a.get("구분")).strip())]
+        want = len(items)
+        if not want:
+            continue
+        have = got[typ]
+        if have < want * (1 - _LOSS_LIMIT):
+            raise ValueError(
+                f"[{name}] {typ} 유실 의심 — 원본 {want}개 → {have}개 "
+                f"({(1-have/want)*100:.0f}% 사라짐). 소스({kind})의 필드명이 "
+                f"코드와 맞는지 확인하세요.")
 
 
 def all_sections(only=None):
