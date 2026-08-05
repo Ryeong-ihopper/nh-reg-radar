@@ -187,6 +187,20 @@ def _article_key(a):
 _H_ART = re.compile(r"^(제\s*\d+(?:-\d+)?조(?:의\s*\d+)?)\s*(?:\(([^)]{0,60})\))?")
 _H_ADD = re.compile(r"^부\s*칙\s*[(（<]?\s*([^)）>\n]{0,40})")
 _H_TBL = re.compile(r"^[\[<]\s*(?:[^\]>]{0,20}?)(별표|별지|서식)\s*(\d*)\s*[\]>]\s*(.{0,60})")
+# 별표 머리 뒤에 제목 대신 개정 표시만 오는 문서가 있다(은행연: `<별표1> <신설 2022.8.25.>`).
+# 진짜 제목은 문서 앞 목차에만 있다. 그대로 두면 뷰어·검색 결과에 제목이
+# 「<신설 2022.8.25.>」로 뜬다 — 틀린 값은 아니지만 사람이 보기에 못 쓴다.
+_AMEND = re.compile(r"<\s*(?:신설|개정|전문개정|본조신설|삭제)[^>]*>")
+# 목차 안의 「<별표1> 준법감시인 사전승인 결과 제출기준19」. 다음 꺾쇠나 줄 끝까지가
+# 제목이고 뒤에 붙은 숫자는 쪽번호다. 개정 표시가 오는 자리는 제목이 아니므로 뺀다.
+_TOC_TBL = re.compile(
+    r"[<\[]\s*(별표|별지|서식)\s*(\d+)\s*(?:호)?\s*(?:서식)?\s*[>\]]\s*"
+    r"(?!<)([^<\[\n|]{2,60})")
+
+
+def _tbl_title(raw):
+    """별표 머리에서 제목만. 개정 표시뿐이면 빈 문자열."""
+    return _AMEND.sub("", _s(raw)).strip(" ,·")
 
 
 def _split_body(text):
@@ -206,7 +220,7 @@ def _split_body(text):
         m = _H_TBL.match(line)
         if m:
             key = f"[{m.group(1)} {m.group(2)}]" if m.group(2) else f"[{m.group(1)}]"
-            marks.append((line_m.start(), "별표", key, m.group(3).strip()))
+            marks.append((line_m.start(), "별표", key, _tbl_title(m.group(3))))
             continue
         m = _H_ADD.match(line)
         if m:
@@ -219,6 +233,20 @@ def _split_body(text):
                           (m.group(2) or "").strip()))
     if not marks:
         return [("조문", "", "", text.strip())]
+
+    # 별표 제목이 **목차에만** 있는 문서가 있다(은행연). 본문 쪽 머리에는 개정
+    # 표시만 붙는다. 목차는 표 한 줄로 들어와 있어(`| - 목 차 - 제1조 목적14 …`)
+    # 줄 머리 규칙에는 안 걸리므로, 줄과 무관하게 훑어 제목을 모아 둔다.
+    named = {}
+    for m in _TOC_TBL.finditer(text):
+        key = f"[{m.group(1)} {m.group(2)}]"
+        title = re.sub(r"\d+$", "", m.group(3).strip()).strip(" .·")
+        if title and key not in named:
+            named[key] = title[:60]
+    for _, typ, key, title in marks:
+        if typ == "별표" and title and key not in named:
+            named[key] = title
+    marks = [(p, t, k, ti or named.get(k, "")) for p, t, k, ti in marks]
 
     out = []
     pre = text[:marks[0][0]].strip()
