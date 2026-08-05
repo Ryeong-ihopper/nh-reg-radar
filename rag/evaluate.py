@@ -86,9 +86,9 @@ def report(name, gold, ranked, ks, show_miss=8):
 
 
 def run_bm25(gold, k=50):
-    import pickle
     import bm25 as BM
-    idx = pickle.load(open(os.path.join(ROOT, "output", "_rag", "bm25.pkl"), "rb"))
+    # pickle 을 직접 열지 않는다 — BM.load 가 색인과 코퍼스가 같은지 대조한다.
+    idx = BM.load()
     return {g["id"]: [i for i, _ in BM.search(g["q"], k, idx)] for g in gold}
 
 

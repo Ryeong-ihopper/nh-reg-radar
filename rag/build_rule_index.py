@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
-"""규칙 1,744건 → 검색 인덱스 항목. `evidences` 스키마에 맞춘다.
+"""규칙 1,744건 + 조문 청크 → 검색 인덱스. `evidences` 스키마에 맞춘다.
 
-**검색 대상은 규칙이다.** 법령 조문이나 매뉴얼을 직접 찾는 것이 아니라, 광고에서
-쟁점을 뽑아 규칙을 찾고, 걸린 규칙에 붙은 근거를 함께 보여준다. 규칙리스트는
-연구원이 매뉴얼 15종에서 추출한 것이라 **매뉴얼 원문을 따로 담지 않는다** — 매뉴얼이
-근거인 375건은 「원문 인용」 열에 해당 대목이 이미 발췌돼 있다.
+**규칙과 조문을 한 인덱스에 함께 넣는다.** 들어오는 질의를 미리 가를 수 없기
+때문이다 — 「이 광고 문구가 문제 있나」는 규칙이 답하고 「금소법 제22조가 뭐라고
+하나」는 조문이 답하는데, 「최고금리만 강조해도 되나」는 둘 다 답이 된다. 질의를
+보고 어느 쪽을 볼지 판정하는 것이 오히려 어렵고 틀리면 못 찾는다.
+
+`evidence_type` 은 **거르는 용도가 아니라 결과를 묶어 보여주는 용도**다.
+심의 화면에서 「이 규칙에 걸리고, 근거는 이 조문이다」가 한 번에 보이면 된다.
+
+규칙리스트는 연구원이 매뉴얼 15종에서 추출한 것이라 **매뉴얼 원문은 따로 담지
+않는다** — 매뉴얼이 근거인 375건은 「원문 인용」 열에 대목이 이미 발췌돼 있다.
 
 필드 이름은 `docs/database-specification.md` §9.3 `evidences` 를 따른다. 새 이름을
 지어내면 적재할 때 다시 맞춰야 한다. 스키마에 없는 값(업권 등)은 만들지 않는다 —
@@ -201,13 +207,42 @@ def main():
             "chars": len(content),
         })
 
+    # ── 조문 청크를 같은 인덱스에 이어 붙인다 ─────────────────────────
+    # 규칙이 인용하지 않는 조문도 넣는다. 규칙리스트가 아직 사람 검토 전(임시 92%)
+    # 이라, 규칙이 놓친 조문은 규칙만 검색해서는 영영 못 찾는다.
+    n_rules = len(rows)
+    for i, c in enumerate(chunks):
+        rows.append({
+            "evidence_id": f"C-{i:06d}",
+            "evidence_type": "LAW" if c["kind"] in ("law", "admrul") else "REGULATION",
+            "title": (c.get("title") or c.get("key") or "")[:500],
+            "article_no": c.get("key"),
+            "content": c["text"],
+            "content_summary": "",
+            "product_group": [],          # 조문은 상품군을 알 수 없다
+            "advertisement_type": [],
+            "medium": ["ALL"],
+            "rule_type": "REFERENCE",     # 조문 자체는 판정이 아니라 참조다
+            "importance": None,
+            "is_active": True,
+            "violation_action": "",
+            "status": "",                 # 우리가 수집·검증한 것이라 해당 없음
+            "basis_origin": "SOURCE",     # 원천 그 자체
+            "metadata_json": {
+                "규정명": c["reg"], "출처": c["kind"], "항목유형": c["type"],
+                "분할": f"{c.get('part', 1)}/{c.get('parts', 1)}",
+            },
+            "근거": [],                    # 조문이 곧 근거다
+            "chars": c["chars"],
+        })
+
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         for x in rows:
             f.write(json.dumps(x, ensure_ascii=False) + "\n")
 
     c = sorted(x["chars"] for x in rows)
-    print(f"규칙 {len(rules)}건 → 인덱스 {len(rows)}건\n")
+    print(f"규칙 {n_rules}건 + 조문 {len(chunks)}청크 → 인덱스 {len(rows)}건\n")
     for k, v in stat.most_common():
         print(f"  {v:>5}  {k}")
     print(f"\n검색 텍스트: 중앙 {c[len(c)//2]}자 · p90 {c[int(len(c)*.9)]} · 최대 {c[-1]}")

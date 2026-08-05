@@ -104,6 +104,17 @@ def tokenize(text):
     return toks
 
 
+def _stamp(src):
+    """색인이 어느 코퍼스로 만들어졌는지 남기는 표식.
+
+    코퍼스를 67종→28종으로 줄였을 때 이 파일을 안 지웠더니 **청크 번호가 어긋난
+    옛 색인이 그대로 쓰였다.** 그때는 Recall 이 0% 로 떨어져 들켰지만, 코퍼스가
+    조금만 바뀌면 점수가 몇 % 낮아지는 데서 그쳐 아무도 못 알아챈다.
+    """
+    st = os.stat(src)
+    return {"size": st.st_size, "mtime": int(st.st_mtime)}
+
+
 def build(src=CHUNKS, dest=INDEX, verbose=True):
     rows = [json.loads(l) for l in open(src, encoding="utf-8")]
     df = collections.Counter()
@@ -127,7 +138,7 @@ def build(src=CHUNKS, dest=INDEX, verbose=True):
             inv[t].append((i, f))
 
     idx = {"inv": dict(inv), "idf": idf, "dl": [sum(d.values()) for d in docs],
-           "avgdl": avgdl, "N": N}
+           "avgdl": avgdl, "N": N, "stamp": _stamp(src)}
     with open(dest, "wb") as f:
         pickle.dump(idx, f, protocol=4)
     if verbose:
@@ -139,10 +150,17 @@ def build(src=CHUNKS, dest=INDEX, verbose=True):
 _cache = {}
 
 
-def load(path=INDEX):
+def load(path=INDEX, src=CHUNKS):
     if path not in _cache:
         with open(path, "rb") as f:
-            _cache[path] = pickle.load(f)
+            idx = pickle.load(f)
+        now = _stamp(src)
+        if idx.get("stamp") != now:
+            raise RuntimeError(
+                f"BM25 색인이 지금 코퍼스와 다르다 — 청크 번호가 어긋나 검색 결과가"
+                f" 조용히 틀린다.\n  색인 기준 {idx.get('stamp')}\n  현재 코퍼스 {now}"
+                f"\n  python rag/bm25.py --build 로 다시 만들 것")
+        _cache[path] = idx
     return _cache[path]
 
 

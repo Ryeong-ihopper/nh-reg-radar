@@ -154,6 +154,11 @@ def _title_from_body(text, limit=6):
     return ""
 
 
+# 「Ⅰ. 목적」·「Ⅴ.금융상품…」 — 로마숫자 목차. 뒤에 마침표나 글자가 이어져야
+# 한다(본문 중간의 낱개 로마숫자를 머리로 잡지 않도록).
+_OUTLINE_KEY = re.compile(r"\s*([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[.．]?(?=\s*\S)")
+
+
 def _article_key(a):
     """개정 감지가 쓰는 키와 같은 형식. 가지번호까지 포함해야 제80조와 제80조의2가 갈린다."""
     no = _s(a.get("조문번호")).strip()
@@ -163,6 +168,14 @@ def _article_key(a):
         # 조제목에 「제2-38조(투자광고)」 형태로 들어 있다. 둘 다 훑는다.
         for src in (a.get("조문내용"), a.get("조제목"), a.get("조내용")):
             m = re.match(r"\s*(제\s*\d+(?:-\d+)?조(?:의\s*\d+)?)", _s(src))
+            if m:
+                return m.group(1).replace(" ", "")
+        # **조문이 아예 없는 문서가 있다.** 심사지침·모범규준은 「Ⅰ. 목적」처럼
+        # 로마숫자 목차로 짜여 있어 여기서 빈 키가 나가고, 그러면 근거가
+        # 「심사지침 Ⅴ. 1. 가」인 규칙을 어느 청크에도 이어 붙일 수 없다
+        # (실측: gold 19건이 이 이유로 정답 없음 처리됐다). 목차 기호를 키로 쓴다.
+        for src in (a.get("조문내용"), a.get("조제목"), a.get("조내용")):
+            m = _OUTLINE_KEY.match(_s(src))
             if m:
                 return m.group(1).replace(" ", "")
         return ""

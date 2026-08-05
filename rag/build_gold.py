@@ -27,6 +27,9 @@ import collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 XLSX = r"C:\Users\babie\OneDrive\Desktop\씨지인사이드\심의사례 NH농협은행 준법감시부 1.xlsx"
+UNIFIED = (r"C:\Users\babie\OneDrive\Desktop\씨지인사이드"
+           r"\(참고용) 데이터셋 작업 과정\01_핵심데이터"
+           r"\중요_NH_광고심의_통합체크리스트.xlsx")
 CHUNKS = os.path.join(ROOT, "output", "_rag", "chunks.jsonl")
 OUT = os.path.join(ROOT, "output", "_rag", "gold.json")
 
@@ -44,13 +47,51 @@ ALIAS = {
     "광고에 관한 심사지침": "금융상품 등의 표시·광고에 관한 심사지침",
     "광고 심사지침": "금융상품 등의 표시·광고에 관한 심사지침",
     "표시·광고 심사지침": "금융상품 등의 표시·광고에 관한 심사지침",
+    # ── 통합체크리스트(M04+M12)가 쓰는 약칭. 위와 표기 습관이 다르다 ──────
+    # 「기준」 대신 「은행 광고심의 기준」, 「협회규정」처럼 업계 통용 줄임말을 쓴다.
+    "협회규정": "금융투자회사의 영업 및 업무에 관한 규정",
+    "은행 광고심의 기준": "은행 광고심의 기준 및 세칙",
+    "금소법 감독규정": "금융소비자 보호에 관한 감독규정",
+    "금융소비자보호감독규정": "금융소비자 보호에 관한 감독규정",
+    "증발공규정": "증권의 발행 및 공시 등에 관한 규정",
+    "금투업규정": "금융투자업규정",
+    # 코퍼스 쪽 이름에 가운뎃점이 ㆍ(U+318D)라 · 로 적으면 못 찾는다. 실측으로 확인.
+    "추천·보증 등에 관한 표시광고 심사지침": "추천ㆍ보증 등에 관한 표시ㆍ광고 심사지침",
+    "추천·보증 등에 관한 표시·광고 심사지침": "추천ㆍ보증 등에 관한 표시ㆍ광고 심사지침",
+    "금융상품 등의 표시·광고에 관한 심사지침": "금융상품 등의 표시·광고에 관한 심사지침",
+    "예금자보호법": "예금자보호법",
+    "인공지능기본법": "인공지능 발전과 신뢰 기반 조성 등에 관한 기본법",
+    "약관법": "약관의 규제에 관한 법률",
+    "퇴직연금감독규정": "퇴직연금감독규정",
 }
 _ALIAS_ORDER = sorted(ALIAS, key=len, reverse=True)
 
-# §16① 5 나 · §22③ 4 · §50④ · §22조④ 3 나  — 조 번호만 뽑는다
-_SEC = re.compile(r"§\s*(\d+)\s*(?:조)?\s*(?:의\s*(\d+))?")
+# §16① 5 나 · §22③ 4 · §50④ · §22조④ 3 나 · §2-40  — 조 번호만 뽑는다.
+# 금투협 규정은 「§2-40」처럼 편-조 두 자리다. 앞자리를 떼면 제40조가 되어 엉뚱한
+# 조문이 정답으로 박히므로 하이픈까지 잡는다.
+_SEC = re.compile(r"§\s*(\d+(?:\s*-\s*\d+)?)\s*(?:조)?\s*(?:의\s*(\d+))?")
+# 「제9조제3항」처럼 § 없이 적힌 것도 있다(통합체크리스트의 단서 문구 안).
+_ART = re.compile(r"제\s*(\d+(?:-\d+)?)\s*조(?:\s*의\s*(\d+))?")
 # 감독규정 별표 3 같은 별표 참조
 _TBL = re.compile(r"별표\s*0*(\d+)")
+
+
+# 조문 표기(§ · 제N조 · 별표) 앞에 붙은 이름 부분
+_NAME = re.compile(r"^(.*?)(?=§|별표|제\s*\d+\s*조|$)")
+# 「… 심사지침 Ⅴ. 5」의 목차 기호. 이름 뒤 공백에 붙은 것만 본다.
+_ROMAN = re.compile(r"\s([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[.．]")
+# 사람이 로마숫자를 대문자 V·I·X 로 적기도 한다(실측: 「심사지침 V. 5」).
+_LATIN2ROMAN = str.maketrans({"I": "Ⅰ", "V": "Ⅴ", "X": "Ⅹ"})
+
+
+def _unknown_name(part):
+    """ALIAS 에 없는 규정명이 앞에 붙어 있으면 그 이름을, 아니면 None.
+
+    「§16① 2」처럼 이름 없이 조문만 있는 조각은 앞의 것을 물려받아야 하므로
+    None 을 준다. 이름이 있는데 못 알아보는 것만 골라낸다.
+    """
+    nm = _NAME.match(part).group(1).strip(" ·,")
+    return nm if len(nm) >= 3 else None
 
 
 def parse_ref(text):
@@ -62,7 +103,12 @@ def parse_ref(text):
     시행령 §19①, 감독규정 §18」처럼 섞이는 경우가 있어 순서대로 흘려보낸다).
     """
     out, cur = [], None
-    for part in re.split(r"[,]", str(text or "")):
+    # 엑셀 셀에 줄바꿈 없는 공백(\xa0)이 섞여 있다. 눈에는 보통 공백과 똑같아서
+    # 「추천·보증 등에 관한 관한\xa0표시…」가 약칭과 안 맞는 걸 알아채기 어렵다.
+    text = str(text or "").replace("\xa0", " ")
+    # 통합체크리스트는 근거 여럿을 **줄바꿈**으로 쌓아 둔다(「§16① 2\n§16① 8」).
+    # 쉼표만 자르면 둘째 줄이 첫 줄에 붙어 통째로 버려진다.
+    for part in re.split(r"[,\n]", text):
         part = part.strip()
         if not part:
             continue
@@ -79,10 +125,26 @@ def parse_ref(text):
             # 시행령 제61조로 잘못 잡혀 3건이 코퍼스에서 안 나왔다 — 안 나와서
             # 들켰지, 우연히 존재하는 조문이었으면 못 잡을 뻔했다).
             cur = cur if cur.endswith("시행령") else cur + " 시행령"
+        elif _unknown_name(part):
+            # **모르는 규정명은 물려받게 두면 안 된다.** 「금융지주회사법 §48④,
+            # 금융지주회사감독규정 §24」에서 뒤 조각이 앞의 법을 물려받으면 있지도
+            # 않은 「금융지주회사법 제24조」가 정답으로 박히고 아무도 모른다.
+            # 못 읽는 이름으로 남겨 두면 아래 미해결 보고에 걸린다.
+            out.append((f"?{_unknown_name(part)}", ""))
+            cur = None
+            continue
         if not cur:
             continue
-        for m in _SEC.finditer(part):
-            n, sub = m.group(1), m.group(2)
+        # 심사지침류는 조문이 없고 「Ⅴ. 1. 가」 같은 목차로 근거를 적는다.
+        # 코퍼스 키도 목차 기호(Ⅴ)라 대문자 V 로 적힌 것을 로마숫자로 맞춰 준다.
+        rom = _ROMAN.search(part.translate(_LATIN2ROMAN))
+        if rom and not _SEC.search(part):
+            out.append((cur, rom.group(1)))
+            continue
+        hits = list(_SEC.finditer(part)) or list(_ART.finditer(part))
+        for m in hits:
+            n = re.sub(r"\s+", "", m.group(1))
+            sub = m.group(2)
             out.append((cur, f"제{n}조" + (f"의{sub}" if sub else "")))
         for m in _TBL.finditer(part):
             out.append((cur, f"[별표 {int(m.group(1)):04d}]"))
@@ -175,6 +237,36 @@ def main():
                          "근거원문": ref,
                          "정답": [{"reg": reg, "key": key} for reg, key in refs],
                          "정답청크": sorted(set(idxs))})
+
+    # ── 3) 통합체크리스트 339문항 — M04+M12 를 사람이 합친 표 ─────────────
+    # 위 두 시트보다 규모가 3배고 조·항·호까지 근거가 붙어 있다. 특히 **투자성
+    # 162문항**은 위 두 시트에 아예 없던 영역이라, 이걸 빼면 투자성 검색 성능을
+    # 한 번도 재지 않은 채 넘어가게 된다.
+    if os.path.exists(UNIFIED):
+        wb2 = openpyxl.load_workbook(UNIFIED, read_only=True, data_only=True)
+        for r in wb2["전체_체크리스트"].iter_rows(min_row=2, values_only=True):
+            if not r or not r[0]:
+                continue
+            no, src, page, ptype, big, mid, ref, orig, q = (
+                [str(x or "").strip() for x in r[:9]] + [""] * 9)[:9]
+            refs = parse_ref(ref)
+            if not refs:
+                continue                      # 근거 없는 117문항은 정답이 없다
+            idxs, miss = [], []
+            for reg, key in refs:
+                got = resolve(by, reg, key)
+                (idxs.extend(got) if got else miss.append(f"{reg} {key}"))
+            if miss:
+                unresolved.append((f"통합#{no}", ref.replace("\n", " / "), miss))
+            if not idxs:
+                continue
+            gold.append({"id": f"U-{int(no):03d}", "출처": "통합체크리스트",
+                         "상품유형": ptype, "구분": big, "q": q or orig,
+                         "출처매뉴얼": src, "페이지": page,
+                         "근거원문": ref.replace("\n", " / "),
+                         "정답": [{"reg": rg, "key": k} for rg, k in refs],
+                         "정답청크": sorted(set(idxs))})
+        wb2.close()
 
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(gold, f, ensure_ascii=False, indent=1)
