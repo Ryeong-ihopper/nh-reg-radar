@@ -158,8 +158,21 @@ def rrf(*rankings, k=RRF_K, top=50):
     return [d for d, _ in sorted(sc.items(), key=lambda x: -x[1])[:top]]
 
 
-def search(query, rows=None, how="hybrid", k=5, medium=None):
-    """(순위, 항목) 목록. medium 을 주면 그 매체용 규칙으로 좁힌다.
+def _passes(value, want):
+    """**비어 있으면 통과시킨다.**
+
+    「전체」 상품에 걸리는 규칙은 product_group 이 비어 있고, 조문에는 상품군도
+    매체도 없다. 빈 값을 탈락시키면 의무표시사항처럼 **모든 광고에 걸리는 규칙이
+    통째로 사라진다** — 걸러서 좁힌 게 아니라 정답을 버린 것이 된다.
+    """
+    if not value:
+        return True
+    got = set(value) if isinstance(value, (list, tuple, set)) else {value}
+    return bool(got & want)
+
+
+def search(query, rows=None, how="hybrid", k=5, medium=None, product=None):
+    """(순위, 항목) 목록. medium·product 로 좁힌다.
 
     매체 필터가 여기 있는 이유: 규칙리스트는 매체(지면·영상·온라인)로 나누는데
     스키마의 `advertisement_type` 은 광고물 종류(전단·SMS·앱푸시)로 나눈다. 축이
@@ -176,10 +189,10 @@ def search(query, rows=None, how="hybrid", k=5, medium=None):
 
     if medium:
         want = {medium, "ALL"}
-        order = [i for i in order
-                 if not rows[i].get("medium")            # 조문은 매체가 없다
-                 or (set(rows[i]["medium"]) & want if isinstance(rows[i]["medium"], list)
-                     else rows[i]["medium"] in want)]
+        order = [i for i in order if _passes(rows[i].get("medium"), want)]
+    if product:
+        want = {product}
+        order = [i for i in order if _passes(rows[i].get("product_group"), want)]
     return [(i, rows[i]) for i in order[:k]]
 
 
@@ -189,11 +202,12 @@ def main():
     ap.add_argument("--how", default="hybrid", choices=("bm25", "vector", "hybrid"))
     ap.add_argument("-k", type=int, default=5)
     ap.add_argument("--medium", default=None)
+    ap.add_argument("--product", default=None)
     a = ap.parse_args()
 
     rows, n_rules = load_index()
     print(f"색인 {len(rows):,}건 (규칙 {n_rules:,} + 조문 {len(rows)-n_rules:,})\n")
-    for rank, (i, r) in enumerate(search(a.query, rows, a.how, a.k, a.medium), 1):
+    for rank, (i, r) in enumerate(search(a.query, rows, a.how, a.k, a.medium, a.product), 1):
         kind = "규칙" if i < n_rules else "조문"
         print(f"{rank}. [{kind}] {r['evidence_id']}  {r.get('title','')[:56]}")
         if r.get("article_no"):
