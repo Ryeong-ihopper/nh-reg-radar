@@ -477,6 +477,42 @@ from google.colab import files
 files.download("index_ab_report.md")
 """)
 
+add(MD, """
+## 10. 벡터 내려받기 — 파이프라인이 쓸 물건
+
+**점수만 재고 끝내면 안 된다.** 임베딩을 안 받아 두면 로컬에서 벡터 검색을 못 돌려
+코랩을 또 켜야 한다. 6,565 × 1024 = 27MB 라 fp16 으로 받으면 13MB 다.
+
+받아 두면 **이후 검색은 로컬 CPU 로 충분하다** — 코사인 유사도는 행렬 곱 한 번이다.
+GPU 가 다시 필요한 것은 리랭커와 Gemma 뿐이다.
+
+한 모델만 저장한다. 9번 표를 보고 **이길 모델로 이 셀을 돌린다** — `MODEL` 을
+그 모델로 두고 5번 셀부터 다시 실행한 뒤 여기로 온다.
+
+**낡은 벡터를 쓰는 사고를 막으려고 `meta.json` 을 함께 낸다.** 청크 수와 모델명이
+로컬 코퍼스와 다르면 로컬에서 멈추게 한다 — 예전에 코퍼스를 43종에서 줄이고도
+옛 임베딩(7,862×4096)이 남아 있었다.
+""")
+add(PY, """
+import numpy as np, json
+
+cfg = CONFIGS["C. 합친 것"]        # 파이프라인이 쓰는 것은 합친 색인이다
+np.save("vectors.f16.npy", cfg["vec"].astype("float16"))
+np.save("qvectors.f16.npy", qvec.astype("float16"))
+
+meta = {"model": MODEL_NAME, "dim": int(cfg["vec"].shape[1]),
+        "n": int(cfg["vec"].shape[0]),
+        "n_rules": len(rules), "n_chunks": len(chunks),
+        "index": "rule_index.jsonl", "normalized": True}
+open("vectors.meta.json", "w", encoding="utf-8").write(
+    json.dumps(meta, ensure_ascii=False, indent=1))
+print(json.dumps(meta, ensure_ascii=False, indent=1))
+
+from google.colab import files
+files.download("vectors.f16.npy")
+files.download("vectors.meta.json")
+""")
+
 
 def main():
     nb = {
