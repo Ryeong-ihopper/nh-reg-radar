@@ -209,12 +209,66 @@ def _parse_body(html):
         body = _text_with_breaks(rest)
         addenda.append({"부칙명": header, "내용": body})
 
+    if not articles:
+        # 조문 구조(`<div class="JO">`)가 없는 규정이 있다. 모범규준·심사지침류는
+        # 「Ⅰ 광고시 준수사항 / 1. RP 투자형 CMA / 가. 필수 기재사항」처럼 번호 계층으로
+        # 쓰여 있다(실측: CMA 업무관련 모범규준 — 본문은 6,021자인데 조문 0개로 나왔다).
+        # 조문이 하나도 안 나오면 그 계층으로 나눠 본다. 안 그러면 내용이 통째로 버려진다.
+        articles = _parse_outline(boncheok)
+
     last_date = ""
     if addenda:
         dm = re.search(r"(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})", addenda[-1]["부칙명"])
         if dm:
             last_date = f"{dm.group(1)}{int(dm.group(2)):02d}{int(dm.group(3)):02d}"
     return articles, addenda, last_date
+
+
+# 「Ⅰ」·「1.」·「가.」 로 시작하는 항목 머리. 조문 구조가 없는 규정을 나누는 데 쓴다.
+# 로마자는 장에 해당하고 숫자·한글자모는 그 아래 단계다.
+_OL_ROMAN = re.compile(r"^([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|[IVX]{1,4})[.\s]\s*(.{0,60})$")
+_OL_NUM = re.compile(r"^(\d{1,2})\.\s*(.{0,60})$")
+_OL_KOR = re.compile(r"^([가-힣])\.\s*(.{0,60})$")
+
+
+def _parse_outline(html):
+    """번호 계층으로 쓰인 규정 → 조문 리스트.
+
+    로마자(Ⅰ)를 '장', 숫자(1.)를 항목 단위로 본다. 한글자모(가.) 이하는 본문에 둔다 —
+    더 잘게 쪼개면 표 한 칸이 항목 하나가 되어 검색에 쓸모가 없어진다.
+
+    표가 섞여 있으면 셀이 줄마다 흩어져 오는데(「TV / ○ / ○ / ○」), 그대로 두면
+    의미 없는 한 글자 줄이 잔뜩 생긴다. 짧은 줄은 앞 항목에 이어 붙인다.
+    """
+    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S)
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    text = re.sub(r"</(p|div|tr|li|h\d|td|th)>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = htmllib.unescape(text)
+    lines = [re.sub(r"[ \t]+", " ", l).strip() for l in text.split("\n")]
+    lines = [l for l in lines if l and "법규정보시스템" not in l]
+
+    out, chapter, title, body = [], "", "", []
+
+    def flush():
+        if title or body:
+            out.append({"장": chapter, "절": "", "조제목": title,
+                        "조내용": "\n".join(body).strip()})
+
+    for l in lines:
+        m = _OL_ROMAN.match(l)
+        if m:
+            flush()
+            chapter, title, body = f"{m.group(1)} {m.group(2)}".strip(), "", []
+            continue
+        m = _OL_NUM.match(l)
+        if m and len(l) <= 62:
+            flush()
+            title, body = l, []
+            continue
+        body.append(l)
+    flush()
+    return [a for a in out if a["조내용"] or a["조제목"]]
 
 
 # ── 별표·별지 첨부 ──────────────────────────────────────────────────────
