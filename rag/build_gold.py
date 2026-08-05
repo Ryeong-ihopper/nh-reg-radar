@@ -270,28 +270,20 @@ def main():
                          "정답청크": sorted(set(idxs))})
         wb2.close()
 
-    # ── 4) 정답 조문을 근거로 삼는 **규칙**도 정답에 넣는다 ─────────────────
-    # 「어느 조문인가는 별로 중요치 않고 이 문구가 적격/부적격인가가 중요하다」면,
-    # 「은행의 명칭을 표시하였는가?」에 규칙 「예금 광고 은행 명칭 표시」가 나오는
-    # 것은 **맞은 것**이다. 조문만 정답으로 치면 합친 색인이 R@5 14% 로 보이는데,
-    # 실제로 돌려보면 상위 5개가 전부 정확한 규칙이었다 — 재는 쪽이 틀렸다.
-    rule_of = collections.defaultdict(list)
-    if os.path.exists(RULE_INDEX):
-        for i, l in enumerate(open(RULE_INDEX, encoding="utf-8")):
-            r = json.loads(l)
-            if not r["evidence_id"].startswith("R-"):
-                break                    # 규칙이 앞에 몰려 있다
-            for h in (r.get("근거") or []):
-                if isinstance(h, dict) and h.get("규정") and h.get("article_no"):
-                    rule_of[(h["규정"], h["article_no"])].append(i)
-    for g in gold:
-        g["정답규칙"] = sorted({i for ans in g["정답"]
-                              for i in rule_of.get((ans["reg"], ans["key"]), [])})
-
-    n_with = sum(1 for g in gold if g["정답규칙"])
-    print(f"정답 조문을 근거로 삼는 규칙까지 정답에 포함 — "
-          f"{n_with}/{len(gold)}건에 규칙 정답이 붙었다 "
-          f"(중앙 {sorted(len(g['정답규칙']) for g in gold)[len(gold)//2]}개)")
+    # ── 규칙을 정답으로 치려다 되돌린 자리 ────────────────────────────────
+    # 「같은 조문을 근거로 든 규칙은 다 정답」으로 붙여 봤다가 뺐다. 조문 하나에
+    # 규칙이 너무 많이 달려서 채점이 무의미해진다.
+    #
+    #   금투협 규정 제2-38조 → 규칙 161개    금소법 제22조 → 103개
+    #   문항당 정답규칙 중앙 48개 · 최대 316개
+    #
+    # 8,309개 중 161개가 정답이면 상위 5개에 드는 것은 거의 자동이다. 실제로
+    # 「은행의 명칭을 표시하였는가?」에 「예금성 의무표시 - 이자율의 범위 및
+    # 산출기준」이 정답 처리됐다 — 둘 다 은행 광고심의 기준 제16조를 근거로
+    # 든다는 이유뿐이고, 제16조 안의 항·호는 서로 다르다.
+    #
+    # 항·호까지 맞추면 되지만 gold 의 60%, 규칙 근거의 57% 에만 항·호가 있다.
+    # 기준이 섞인 숫자는 읽을 수가 없다. **규칙 단위 정답표는 사람이 붙여야 한다.**
 
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(gold, f, ensure_ascii=False, indent=1)

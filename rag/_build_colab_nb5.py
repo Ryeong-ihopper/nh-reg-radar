@@ -348,46 +348,39 @@ add(MD, """
 **정답 번호를 색인마다 옮긴다** — 3번 셀에서 말한 오프셋. `shift` 가 `None` 인
 B(규칙만)는 gold 에 정답이 없으므로 Recall 대신 따로 본다.
 
-**합친 색인에서는 규칙도 정답으로 친다.** 로컬 실측에서 이 잣대 하나로 결론이
-뒤집혔다.
+**정답은 조문뿐이다.** 규칙도 정답으로 쳐 보려고 「같은 조문을 근거로 든 규칙은 다
+정답」을 붙였다가 뺐다 — 조문 하나에 규칙이 너무 많이 달린다.
 
-    질의   은행의 명칭을 표시하였는가?
-    정답   기준 §16① 1 (조문)
-    결과   1. [규칙] 예금 광고 은행 명칭 표시    ← 완벽한데 오답 처리됐다
-           2. [규칙] 대출 광고 은행 명칭 표시
-           3. [규칙] 업무광고 은행 명칭 표시
+    금투협 규정 제2-38조 → 규칙 161개 · 금소법 제22조 → 103개
+    문항당 정답규칙 중앙 48개
 
-    조문만 정답  R@5 14.4%    ← 「합치면 망한다」
-    규칙도 정답  R@5 94.6%    ← 실제
+8,309개 중 161개가 정답이면 상위 5개에 드는 것은 거의 자동이라 채점이 무의미해진다.
+실제로 「은행의 명칭을 표시하였는가?」에 「예금성 의무표시 - 이자율의 범위 및
+산출기준」이 정답으로 잡혔다 — 둘 다 제16조를 근거로 들 뿐 항·호는 서로 다르다.
 
-「어느 조문인가」보다 「무엇이 걸리는가」가 먼저다. 정답 조문을 근거로 삼는 규칙은
-gold 의 `정답규칙` 에 미리 붙여 두었다.
+**그래서 C(합친 것)의 숫자는 낮게 나온다.** 규칙이 상위를 차지하는데 규칙은 정답으로
+안 세기 때문이다. C 를 A 와 직접 비교하면 안 되고, **8번 셀의 「규칙이 차지하는
+자리」와 그 표본을 눈으로 봐야** 한다. 규칙 단위 정답표는 사람이 붙여야 한다.
 
 같은 조문이 여러 조각으로 잘렸으면 **어느 조각이든 맞으면 맞은 것**으로 센다.
-사람은 조문을 찾는 것이지 조각을 찾는 것이 아니다.
 """)
 add(PY, """
 KS = (1, 3, 5, 10)
 
-def answers(g, cfg, with_rules=True):
+def answers(g, cfg):
     shift, remap = cfg["shift"], cfg.get("remap")
     # D 는 청크를 걸러 번호가 다시 매겨졌다. 옮기지 않으면 0% 가 나오고
     # 「거르면 망한다」는 틀린 결론이 나온다.
-    ans = ({remap[c] for c in g["정답청크"] if c in remap} if remap
-           else {c + shift for c in g["정답청크"]})
-    # **합친 색인에서는 규칙도 정답이다.** 정답 조문을 근거로 삼는 규칙이
-    # 나오면 맞은 것이다 — 「어느 조문인가」보다 「무엇이 걸리는가」가 먼저다.
-    if with_rules and cfg is CONFIGS.get("C. 합친 것"):
-        ans |= set(g.get("정답규칙") or [])
-    return ans
+    return ({remap[c] for c in g["정답청크"] if c in remap} if remap
+            else {c + shift for c in g["정답청크"]})
 
-def score(ranking, cfg, with_rules=True):
+def score(ranking, cfg):
     hit = {k: 0 for k in KS}; mrr = 0.0; n = 0
     for g in gold:
         r = ranking.get(g["id"])
         if r is None: continue
         n += 1
-        ans = answers(g, cfg, with_rules)
+        ans = answers(g, cfg)
         if not ans:
             continue                       # 정답이 통째로 걸러진 문항 — 0점 처리
         pos = next((i for i, d in enumerate(r, 1) if d in ans), None)
@@ -407,13 +400,6 @@ for name, cfg in CONFIGS.items():
               " · ".join(f"R@{k} {m[f'R@{k}']*100:5.1f}%" for k in KS) +
               f" · MRR {m['MRR']:.3f}")
 
-# 잣대를 바꾸면 얼마나 달라지는지 — 이걸 안 보면 「합치면 망한다」는 결론이 난다.
-cfgC = CONFIGS["C. 합친 것"]
-print("\\n같은 색인, 잣대만 바꿔서 (하이브리드):")
-for label, wr in (("조문만 정답", False), ("규칙도 정답", True)):
-    m = score(cfgC["rank"]["하이브리드"], cfgC, with_rules=wr)
-    print(f"  C · {label:10s} " +
-          " · ".join(f"R@{k} {m[f'R@{k}']*100:5.1f}%" for k in KS))
 """)
 
 add(MD, """
