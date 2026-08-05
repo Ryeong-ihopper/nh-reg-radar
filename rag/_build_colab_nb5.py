@@ -123,6 +123,52 @@ for k, v in CONFIGS.items():
 """)
 
 add(MD, """
+### 3-1. D. 인용된 조문만 — 나머지는 잡음인가
+
+로컬 실측: **청크 6,565개 중 규칙이 실제로 짚은 것은 177개(3%)** 다. 자본시장법
+시행령은 1,114개 중 5개, 소득세법은 568개 중 1개만 인용된다.
+
+그런데 gold 334건 중 **304건(91%)은 정답이 그 177개 안에 다 들어 있다.** 규칙리스트
+(매뉴얼 출처)와 체크리스트(다른 출처)가 독립적으로 만들어졌는데도 겹치는 것이다.
+
+**즉 6,388개는 어느 쪽에서도 정답이 된 적이 없다.** 빼면 정밀도가 오를 수 있고,
+반대로 규칙리스트가 92% 「임시」라 아직 안 짚은 조문을 버리는 위험도 있다.
+**논쟁하지 말고 재자.**
+""")
+add(PY, """
+# 규칙이 짚은 (규정, 조문키). rule_index 의 `근거` 는 한글 키를 쓴다.
+cited, whole = set(), set()
+for r in rules:
+    for h in (r.get("근거") or []):
+        if not isinstance(h, dict) or not h.get("규정"):
+            continue
+        if h.get("article_no"):
+            cited.add((h["규정"], h["article_no"]))
+        else:
+            # 조문 구조가 없는 심사지침류는 「규정 전체」가 근거다. 조문키로만
+            # 거르면 통째로 사라지므로 그런 규정은 전부 남긴다.
+            whole.add(h["규정"])
+
+keep = sorted({i for i, c in enumerate(chunks)
+               if (c["reg"], c.get("key", "")) in cited or c["reg"] in whole})
+remap = {old: new for new, old in enumerate(keep)}      # 옛 번호 → 새 번호
+
+print(f"인용된 조문만: {len(chunks):,} → {len(keep):,}건")
+print(f"  조문 단위 인용 {len(cited)}곳 · 규정 전체 인용 {len(whole)}종")
+
+full = sum(1 for g in gold if all(c in remap for c in g["정답청크"]))
+part = sum(1 for g in gold if any(c in remap for c in g["정답청크"])) - full
+print(f"gold {len(gold)}건 — 정답이 전부 살아남음 {full} · 일부 {part} · "
+      f"전멸 {len(gold)-full-part}")
+print("  전멸한 문항은 D 에서 절대 못 맞힌다. 이 손해가 정밀도 이득보다 크면 안 쓴다.")
+
+CONFIGS["D. 인용된 조문만"] = {
+    "text": [txt_chunk(chunks[i]) for i in keep],
+    "shift": 0, "remap": remap,
+}
+""")
+
+add(MD, """
 ## 4. BM25 — 벡터 없이 먼저
 
 한국어는 공백 분리만으로는 「제16조」와 「제16조제1항」이 안 걸린다.
@@ -206,32 +252,57 @@ for name, cfg in CONFIGS.items():
 """)
 
 add(MD, """
-## 5. 임베딩 — BGE-M3
+## 5. 임베딩 — BGE-M3 / ME5 둘 다
 
-8,309 + 6,565 + 1,744 = 16,618 단락. T4 에서 10분쯤 걸린다.
+**DAP 가 주는 임베딩이 이 둘뿐이다.** 어느 쪽이 나은지가 실제로 골라야 하는 선택이라
+같이 잰다. 여기서 Qwen3-8B 로 좋은 숫자를 받아 봐야 옮길 수 없다.
 
-BGE-M3 는 최대 8,192 토큰까지 받지만 **1,024 로 자른다** — 우리 청크가 p90 1,167자라
-거의 안 잘리고, 길이를 줄이면 속도가 3배 빨라진다.
+아래 `MODEL` 을 바꿔 가며 5~9번 셀을 **두 번 돌린다.** 결과는 `ALL_ROWS` 에 쌓이고
+9번 셀이 둘을 함께 표로 낸다.
+
+    MODEL = "bge-m3"     ← 먼저 이걸로 5~8번 실행
+    MODEL = "me5"        ← 그다음 이걸로 바꿔 5~8번 다시 실행, 마지막에 9번
+
+한 모델당 T4 에서 12분쯤. 최대 길이는 **1,024 로 자른다** — 청크가 p90 1,167자라 거의
+안 잘리고 속도가 3배 빨라진다.
 """)
 add(PY, """
-from FlagEmbedding import BGEM3FlagModel
+MODEL = "bge-m3"      # ← 두 번째 실행 때 "me5" 로 바꾼다
+
 import numpy as np, torch, gc
+try:
+    ALL_ROWS
+except NameError:
+    ALL_ROWS, SHARES = [], {}   # 두 모델 결과를 쌓는다(다시 실행해도 안 지워지게)
 
-model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
-
-def embed(texts, bs=32, maxlen=1024):
-    out = model.encode(texts, batch_size=bs, max_length=maxlen)["dense_vecs"]
-    return np.asarray(out, dtype="float32")
+if MODEL == "bge-m3":
+    from FlagEmbedding import BGEM3FlagModel
+    _m = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
+    MODEL_NAME = "BGE-M3"
+    def embed(texts, bs=32, maxlen=1024, is_query=False):
+        v = _m.encode(texts, batch_size=bs, max_length=maxlen)["dense_vecs"]
+        return np.asarray(v, dtype="float32")
+else:
+    from sentence_transformers import SentenceTransformer
+    _m = SentenceTransformer("intfloat/multilingual-e5-large", device="cuda")
+    _m.max_seq_length = 512          # ME5 는 512 가 상한이다
+    MODEL_NAME = "ME5-large"
+    def embed(texts, bs=32, maxlen=None, is_query=False):
+        # **ME5 는 접두어가 필수다.** query:/passage: 를 안 붙이면 성능이 크게
+        # 떨어지는데, 에러가 나지 않아 조용히 나쁜 숫자가 나온다.
+        pre = "query: " if is_query else "passage: "
+        return _m.encode([pre + t for t in texts], batch_size=bs,
+                         convert_to_numpy=True, show_progress_bar=True)
 
 for name, cfg in CONFIGS.items():
-    print(f"\\n{name} — {len(cfg['text']):,}건 임베딩")
+    print(f"\\n{MODEL_NAME} · {name} — {len(cfg['text']):,}건")
     v = embed(cfg["text"])
     v /= (np.linalg.norm(v, axis=1, keepdims=True) + 1e-9)   # 코사인용 정규화
     cfg["vec"] = v
     print(f"  {v.shape} · {v.nbytes/1e6:.0f}MB")
     gc.collect(); torch.cuda.empty_cache()
 
-qvec = embed([g["q"] for g in gold])
+qvec = embed([g["q"] for g in gold], is_query=True)
 qvec /= (np.linalg.norm(qvec, axis=1, keepdims=True) + 1e-9)
 print(f"\\n질의 {qvec.shape}")
 """)
@@ -277,20 +348,49 @@ add(MD, """
 **정답 번호를 색인마다 옮긴다** — 3번 셀에서 말한 오프셋. `shift` 가 `None` 인
 B(규칙만)는 gold 에 정답이 없으므로 Recall 대신 따로 본다.
 
+**합친 색인에서는 규칙도 정답으로 친다.** 로컬 실측에서 이 잣대 하나로 결론이
+뒤집혔다.
+
+    질의   은행의 명칭을 표시하였는가?
+    정답   기준 §16① 1 (조문)
+    결과   1. [규칙] 예금 광고 은행 명칭 표시    ← 완벽한데 오답 처리됐다
+           2. [규칙] 대출 광고 은행 명칭 표시
+           3. [규칙] 업무광고 은행 명칭 표시
+
+    조문만 정답  R@5 14.4%    ← 「합치면 망한다」
+    규칙도 정답  R@5 94.6%    ← 실제
+
+「어느 조문인가」보다 「무엇이 걸리는가」가 먼저다. 정답 조문을 근거로 삼는 규칙은
+gold 의 `정답규칙` 에 미리 붙여 두었다.
+
 같은 조문이 여러 조각으로 잘렸으면 **어느 조각이든 맞으면 맞은 것**으로 센다.
 사람은 조문을 찾는 것이지 조각을 찾는 것이 아니다.
 """)
 add(PY, """
 KS = (1, 3, 5, 10)
 
-def score(ranking, shift):
+def answers(g, cfg, with_rules=True):
+    shift, remap = cfg["shift"], cfg.get("remap")
+    # D 는 청크를 걸러 번호가 다시 매겨졌다. 옮기지 않으면 0% 가 나오고
+    # 「거르면 망한다」는 틀린 결론이 나온다.
+    ans = ({remap[c] for c in g["정답청크"] if c in remap} if remap
+           else {c + shift for c in g["정답청크"]})
+    # **합친 색인에서는 규칙도 정답이다.** 정답 조문을 근거로 삼는 규칙이
+    # 나오면 맞은 것이다 — 「어느 조문인가」보다 「무엇이 걸리는가」가 먼저다.
+    if with_rules and cfg is CONFIGS.get("C. 합친 것"):
+        ans |= set(g.get("정답규칙") or [])
+    return ans
+
+def score(ranking, cfg, with_rules=True):
     hit = {k: 0 for k in KS}; mrr = 0.0; n = 0
     for g in gold:
         r = ranking.get(g["id"])
         if r is None: continue
-        ans = {c + shift for c in g["정답청크"]}
-        pos = next((i for i, d in enumerate(r, 1) if d in ans), None)
         n += 1
+        ans = answers(g, cfg, with_rules)
+        if not ans:
+            continue                       # 정답이 통째로 걸러진 문항 — 0점 처리
+        pos = next((i for i, d in enumerate(r, 1) if d in ans), None)
         for k in KS:
             if pos and pos <= k: hit[k] += 1
         mrr += 1.0/pos if pos else 0.0
@@ -301,11 +401,19 @@ for name, cfg in CONFIGS.items():
     if cfg["shift"] is None:
         continue
     for how, ranking in cfg["rank"].items():
-        m = score(ranking, cfg["shift"])
-        rows.append((name, how, m))
-        print(f"{name:10s} {how:6s}  " +
+        m = score(ranking, cfg)
+        rows.append((MODEL_NAME, name, how, m))
+        print(f"{MODEL_NAME:8s} {name:14s} {how:6s}  " +
               " · ".join(f"R@{k} {m[f'R@{k}']*100:5.1f}%" for k in KS) +
               f" · MRR {m['MRR']:.3f}")
+
+# 잣대를 바꾸면 얼마나 달라지는지 — 이걸 안 보면 「합치면 망한다」는 결론이 난다.
+cfgC = CONFIGS["C. 합친 것"]
+print("\\n같은 색인, 잣대만 바꿔서 (하이브리드):")
+for label, wr in (("조문만 정답", False), ("규칙도 정답", True)):
+    m = score(cfgC["rank"]["하이브리드"], cfgC, with_rules=wr)
+    print(f"  C · {label:10s} " +
+          " · ".join(f"R@{k} {m[f'R@{k}']*100:5.1f}%" for k in KS))
 """)
 
 add(MD, """
@@ -344,24 +452,37 @@ for g in gold:
 add(MD, """
 ## 9. 보고서
 
-`index_ab_report.md` 로 저장하고 내려받는다. 이 숫자를 보고 색인을 합칠지 나눌지
-정한다.
+**두 모델을 다 돌린 뒤에 실행한다.** `MODEL` 을 바꿔 5~8번을 두 번 돌렸으면
+`ALL_ROWS` 에 양쪽이 다 들어 있다.
+
+이 숫자로 정할 것 셋:
+
+1. **색인을 합칠까 나눌까** — C 가 A 보다 나쁘면 나눈다
+2. **인용 안 된 조문을 버릴까** — D 가 A 보다 나으면 버린다
+3. **BGE-M3 냐 ME5 냐** — DAP 에서 골라야 하는 것
 """)
 add(PY, """
-lines = ["# 규칙·조문 색인 A/B — BGE-M3", ""]
-lines += [f"조문 {len(chunks):,} · 규칙 {len(rules):,} · 합계 {len(index):,} · gold {len(gold)}건", ""]
-lines += ["| 색인 | 방식 | R@1 | R@3 | R@5 | R@10 | MRR |", "|---|---|---:|---:|---:|---:|---:|"]
-for name, how, m in rows:
-    lines.append(f"| {name} | {how} | " +
+ALL_ROWS += rows          # 이번 모델 결과를 누적
+SHARES[MODEL_NAME] = share
+
+lines = ["# 규칙·조문 색인 A/B", ""]
+lines += [f"조문 {len(chunks):,} · 규칙 {len(rules):,} · 합계 {len(index):,} · "
+          f"인용된 조문만 {len(CONFIGS['D. 인용된 조문만']['text']):,} · gold {len(gold)}건", ""]
+lines += ["| 모델 | 색인 | 방식 | R@1 | R@3 | R@5 | R@10 | MRR |",
+          "|---|---|---|---:|---:|---:|---:|---:|"]
+for mdl, name, how, m in ALL_ROWS:
+    lines.append(f"| {mdl} | {name} | {how} | " +
                  " | ".join(f"{m[f'R@{k}']*100:.1f}%" for k in KS) +
                  f" | {m['MRR']:.3f} |")
 lines += ["", "## 합친 색인에서 규칙이 차지하는 자리 (상위 10)", "",
-          "| 방식 | 규칙 비율 | 기대치 |", "|---|---:|---:|"]
-for how, v in share.items():
-    lines.append(f"| {how} | {v*100:.1f}% | 21.0% |")
+          "| 모델 | 방식 | 규칙 비율 | 기대치 |", "|---|---|---:|---:|"]
+for mdl, sh in SHARES.items():
+    for how, v in sh.items():
+        lines.append(f"| {mdl} | {how} | {v*100:.1f}% | 21.0% |")
 lines += ["", "## 로컬 기준선", "",
-          "BM25 · 조문만 · R@1 34.4% · R@5 75.1% · R@10 79.0% · MRR 0.511",
-          "", "A-BM25 가 이와 크게 다르면 토크나이저나 자료가 어긋난 것이다."]
+          "BM25 · 조문만 · R@1 34.4% · R@3 64.7% · R@5 75.1% · R@10 79.0%",
+          "", "A-BM25 가 이와 다르면 토크나이저나 자료가 어긋난 것이다 —",
+          "먼저 그것부터 맞추고 나머지 숫자를 읽어야 한다."]
 
 open("index_ab_report.md", "w", encoding="utf-8").write("\\n".join(lines))
 print("\\n".join(lines))

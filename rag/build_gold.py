@@ -31,6 +31,7 @@ UNIFIED = (r"C:\Users\babie\OneDrive\Desktop\씨지인사이드"
            r"\(참고용) 데이터셋 작업 과정\01_핵심데이터"
            r"\중요_NH_광고심의_통합체크리스트.xlsx")
 CHUNKS = os.path.join(ROOT, "output", "_rag", "chunks.jsonl")
+RULE_INDEX = os.path.join(ROOT, "output", "_rag", "rule_index.jsonl")
 OUT = os.path.join(ROOT, "output", "_rag", "gold.json")
 
 # 약칭 → 코퍼스의 실제 규정명. 표에 쓰인 표기를 그대로 키로 둔다.
@@ -268,6 +269,29 @@ def main():
                          "정답": [{"reg": rg, "key": k} for rg, k in refs],
                          "정답청크": sorted(set(idxs))})
         wb2.close()
+
+    # ── 4) 정답 조문을 근거로 삼는 **규칙**도 정답에 넣는다 ─────────────────
+    # 「어느 조문인가는 별로 중요치 않고 이 문구가 적격/부적격인가가 중요하다」면,
+    # 「은행의 명칭을 표시하였는가?」에 규칙 「예금 광고 은행 명칭 표시」가 나오는
+    # 것은 **맞은 것**이다. 조문만 정답으로 치면 합친 색인이 R@5 14% 로 보이는데,
+    # 실제로 돌려보면 상위 5개가 전부 정확한 규칙이었다 — 재는 쪽이 틀렸다.
+    rule_of = collections.defaultdict(list)
+    if os.path.exists(RULE_INDEX):
+        for i, l in enumerate(open(RULE_INDEX, encoding="utf-8")):
+            r = json.loads(l)
+            if not r["evidence_id"].startswith("R-"):
+                break                    # 규칙이 앞에 몰려 있다
+            for h in (r.get("근거") or []):
+                if isinstance(h, dict) and h.get("규정") and h.get("article_no"):
+                    rule_of[(h["규정"], h["article_no"])].append(i)
+    for g in gold:
+        g["정답규칙"] = sorted({i for ans in g["정답"]
+                              for i in rule_of.get((ans["reg"], ans["key"]), [])})
+
+    n_with = sum(1 for g in gold if g["정답규칙"])
+    print(f"정답 조문을 근거로 삼는 규칙까지 정답에 포함 — "
+          f"{n_with}/{len(gold)}건에 규칙 정답이 붙었다 "
+          f"(중앙 {sorted(len(g['정답규칙']) for g in gold)[len(gold)//2]}개)")
 
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(gold, f, ensure_ascii=False, indent=1)
