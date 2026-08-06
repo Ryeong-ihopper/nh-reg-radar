@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Elasticsearch(nori) 색인·검색·측정 — DAP 로 가기 전 리허설.
+"""OpenSearch/Elasticsearch(nori) 색인·검색·측정 — DAP 로 가기 전 리허설.
+
+**공용 레포(nh-ad-compliance)의 개발 환경을 그대로 쓴다.** compose.dev.yml 이
+OpenSearch 2.15 를 9200 에 띄우고 analysis-nori 도 이미 깔려 있다. 따로 컨테이너를
+만들 이유가 없고, **실제로 팀이 쓰는 환경에서 재는 것이 더 정확하다.**
+OpenSearch 는 Elasticsearch 에서 갈라져 나온 것이라 BM25·nori 동작이 같다.
 
 **로컬 BM25 와 무엇이 다른가를 하나로 좁힌다.** 색인에 넣는 문자열은 로컬과 완전히
 같게 두고(`title + article_no + content` 연결) **토크나이저만 다르다** — 로컬은 한글
@@ -8,7 +13,7 @@
 
 ES 는 5.0부터 기본 유사도가 BM25 라 공식은 로컬과 같다.
 
-  docker compose -f rag/es/compose.yml up -d --build
+  docker compose -f ../nh-ad-compliance/compose.dev.yml up -d opensearch
   python rag/es_search.py --setup            # 색인 생성 + 적재
   python rag/es_search.py --measure          # gold 334 로 측정
   python rag/es_search.py --query "연 최고 7.0% 우대금리"
@@ -128,7 +133,10 @@ def do_setup():
             "medium": r.get("medium") or [],
             "row": i,
         }
-        lines.append(json.dumps({"index": {"_id": r["evidence_id"]}}, ensure_ascii=False))
+        # _bulk 를 인덱스 없는 경로(/_bulk)로 보내므로 줄마다 _index 를 적어야 한다.
+        # 안 적으면 400 "index is missing" 이 난다.
+        lines.append(json.dumps({"index": {"_index": INDEX, "_id": r["evidence_id"]}},
+                                ensure_ascii=False))
         lines.append(json.dumps(doc, ensure_ascii=False))
         n += 1
         if len(lines) >= 2000:
