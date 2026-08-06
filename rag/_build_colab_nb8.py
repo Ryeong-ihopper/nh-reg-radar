@@ -140,21 +140,42 @@ for p in ("예금성", "대출성", "투자성"):
 add(MD, """
 ## 4. Gemma 올리기
 
-9B 를 fp16 으로 올리면 18GB 라 T4(15GB)에 안 들어간다. **4비트로 양자화**해서
-약 6GB 로 줄인다. 품질이 조금 떨어지지만 「형식을 지키는가·판정이 맞는가」를 보는
-데는 지장이 없다.
+**GPU 를 보고 알아서 고른다.** 양자화는 메모리가 모자랄 때 어쩔 수 없이 하는 것이지
+좋아서 하는 게 아니다 — 품질이 깎이고 오히려 느려질 수도 있다(역양자화 비용).
+
+| GPU | 고르는 것 | 왜 |
+|---|---|---|
+| A100 40GB | **27B 4비트** (~16GB) | 실서비스에 쓸 만한 크기. 판정 품질이 9B 와 확연히 다르다 |
+| L4 24GB | 9B fp16 (~18GB) | 양자화 없이 온전한 품질 |
+| T4 15GB | 9B 4비트 (~6GB) | 들어가는 것이 이것뿐 |
+
+`MODEL` 을 직접 적으면 그대로 쓴다.
 """)
 add(PY, """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-MODEL = "google/gemma-2-9b-it"
-bnb = BitsAndBytesConfig(load_in_4bit=True,
-                         bnb_4bit_compute_dtype=torch.float16,
-                         bnb_4bit_quant_type="nf4")
+MODEL = None        # 직접 고르려면 "google/gemma-2-27b-it" 처럼 적는다
+FOURBIT = None      # 직접 고르려면 True/False
+
+free = torch.cuda.get_device_properties(0).total_memory / 1e9 if torch.cuda.is_available() else 0
+name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+if MODEL is None:
+    if free >= 38:      MODEL, FOURBIT = "google/gemma-2-27b-it", True
+    elif free >= 22:    MODEL, FOURBIT = "google/gemma-2-9b-it", False
+    else:               MODEL, FOURBIT = "google/gemma-2-9b-it", True
+print(f"{name} {free:.0f}GB → {MODEL} ({'4bit' if FOURBIT else 'fp16'})")
+
+kw = dict(device_map="auto")
+if FOURBIT:
+    kw["quantization_config"] = BitsAndBytesConfig(
+        load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True)
+else:
+    kw["torch_dtype"] = torch.bfloat16
+
 tok = AutoTokenizer.from_pretrained(MODEL)
-model = AutoModelForCausalLM.from_pretrained(MODEL, quantization_config=bnb,
-                                             device_map="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL, **kw)
 model.eval()
 print(f"{MODEL} 올림 · {model.get_memory_footprint()/1e9:.1f}GB")
 
