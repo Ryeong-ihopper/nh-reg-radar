@@ -227,6 +227,26 @@ def main():
     # 규칙이 인용하지 않는 조문도 넣는다. 규칙리스트가 아직 사람 검토 전(임시 92%)
     # 이라, 규칙이 놓친 조문은 규칙만 검색해서는 영영 못 찾는다.
     n_rules = len(rows)
+
+    # 규정별 시행일·소관부처. 수집 JSON 에 처음부터 있었는데 인덱스에 안 싣고
+    # 있었다 — evidences.effective_date 와 §9.6 필수 메타데이터(기관·시행일)가
+    # 이것 때문에 비어 있었다. 파일이 크지만 빌드는 일회성이라 그냥 다 읽는다.
+    reg_meta = {}
+    out_dir = os.path.join(ROOT, "output")
+    for reg in {c["reg"] for c in chunks}:
+        p = os.path.join(out_dir, f"{reg}.json")
+        try:
+            r = json.load(open(p, encoding="utf-8"))
+        except OSError:
+            continue
+        eff = str(r.get("시행일자") or "").strip()
+        reg_meta[reg] = {
+            "effective_date": (f"{eff[:4]}-{eff[4:6]}-{eff[6:8]}"
+                               if len(eff) == 8 and eff.isdigit() else None),
+            "기관": str(r.get("소관부처") or "").strip() or None,
+            "버전": str(r.get("버전번호") or "").strip() or None,
+        }
+
     for i, c in enumerate(chunks):
         rows.append({
             "evidence_id": f"C-{i:06d}",
@@ -252,9 +272,13 @@ def main():
             "violation_action": "",
             "status": "",                 # 우리가 수집·검증한 것이라 해당 없음
             "basis_origin": "SOURCE",     # 원천 그 자체
+            "effective_date": reg_meta.get(c["reg"], {}).get("effective_date"),
             "metadata_json": {
                 "규정명": c["reg"], "출처": c["kind"], "항목유형": c["type"],
                 "분할": f"{c.get('part', 1)}/{c.get('parts', 1)}",
+                # §9.6 필수 메타데이터(LAW/REGULATION: 기관·시행일) 대응
+                "기관": reg_meta.get(c["reg"], {}).get("기관"),
+                "버전": reg_meta.get(c["reg"], {}).get("버전"),
             },
             "근거": [],                    # 조문이 곧 근거다
             "chars": c["chars"],
