@@ -44,21 +44,30 @@ add(MD, """
 
 각각 **BM25 · 벡터 · 하이브리드(RRF)** 세 방식으로 잰다.
 
-**모델은 BGE-M3 로 고정한다.** DAP 가 주는 임베딩이 BGE-M3 와 ME5 둘뿐이라,
-더 좋은 모델로 좋은 숫자를 받아도 옮길 수 없다.
+**모델은 BGE-M3 와 ME5 둘만 잰다.** DAP 가 주는 것이 이 둘뿐이라 더 좋은 모델로
+좋은 숫자를 받아도 옮길 수 없다. **옮길 수 없는 성능은 성능이 아니다.**
 
-**런타임:** `런타임 → 런타임 유형 변경 → T4 GPU` 면 충분하다(BGE-M3 는 2.2GB).
+**런타임:** `런타임 → 런타임 유형 변경 → T4 GPU` 면 충분하다(둘 다 2.2GB 안팎).
 
 **입력 3개** — 2번 셀에서 업로드
 `chunks.jsonl` · `rule_index.jsonl` · `gold.json`
 
-**출력** — `index_ab_report.md`
+**출력** — `index_ab_report.md` · `vectors.f16.npy`
 """)
 
-add(MD, "## 1. 환경\n\nGPU 이름이 찍히면 된다. CPU 로도 돌지만 20분쯤 걸린다.")
+add(MD, """
+## 1. 환경
+
+GPU 이름이 찍히면 된다. CPU 로도 돌지만 20분쯤 걸린다.
+
+**FlagEmbedding 을 쓰지 않는다.** 1.3.4 가 Colab 의 `transformers` 와 안 맞아
+`is_torch_fx_available` 임포트에서 죽는다(실측). BGE-M3 와 ME5 둘 다
+`sentence-transformers` 로 같은 벡터를 얻을 수 있고, 그러면 두 모델을 한 코드로
+다룰 수 있어 오히려 낫다.
+""")
 add(PY, """
 !nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || echo "GPU 없음 — CPU 로 진행"
-!pip -q install FlagEmbedding==1.3.4 2>&1 | tail -2
+!pip -q install -U sentence-transformers 2>&1 | tail -2
 """)
 
 add(MD, """
@@ -270,29 +279,38 @@ add(PY, """
 MODEL = "bge-m3"      # ← 두 번째 실행 때 "me5" 로 바꾼다
 
 import numpy as np, torch, gc
+from sentence_transformers import SentenceTransformer
+
 try:
     ALL_ROWS
 except NameError:
     ALL_ROWS, SHARES = [], {}   # 두 모델 결과를 쌓는다(다시 실행해도 안 지워지게)
 
-if MODEL == "bge-m3":
-    from FlagEmbedding import BGEM3FlagModel
-    _m = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
-    MODEL_NAME = "BGE-M3"
-    def embed(texts, bs=32, maxlen=1024, is_query=False):
-        v = _m.encode(texts, batch_size=bs, max_length=maxlen)["dense_vecs"]
-        return np.asarray(v, dtype="float32")
-else:
-    from sentence_transformers import SentenceTransformer
-    _m = SentenceTransformer("intfloat/multilingual-e5-large", device="cuda")
-    _m.max_seq_length = 512          # ME5 는 512 가 상한이다
-    MODEL_NAME = "ME5-large"
-    def embed(texts, bs=32, maxlen=None, is_query=False):
-        # **ME5 는 접두어가 필수다.** query:/passage: 를 안 붙이면 성능이 크게
-        # 떨어지는데, 에러가 나지 않아 조용히 나쁜 숫자가 나온다.
-        pre = "query: " if is_query else "passage: "
-        return _m.encode([pre + t for t in texts], batch_size=bs,
-                         convert_to_numpy=True, show_progress_bar=True)
+SPEC = {
+    # (모델 이름, 허브 경로, 최대 길이, 질의/문서 접두어)
+    # **ME5 는 접두어가 필수다.** query:/passage: 를 안 붙이면 성능이 크게 떨어지는데
+    # 에러가 나지 않아 조용히 나쁜 숫자가 나온다. BGE-M3 는 접두어를 쓰지 않는다.
+    "bge-m3": ("BGE-M3", "BAAI/bge-m3", 1024, ("", "")),
+    "me5":    ("ME5-large", "intfloat/multilingual-e5-large", 512,
+               ("query: ", "passage: ")),
+}
+assert MODEL in SPEC, f"MODEL 은 {list(SPEC)} 중 하나여야 한다"
+MODEL_NAME, PATH, MAXLEN, (QPRE, DPRE) = SPEC[MODEL]
+
+dev = "cuda" if torch.cuda.is_available() else "cpu"
+_m = SentenceTransformer(PATH, device=dev)
+_m.max_seq_length = MAXLEN
+
+def embed(texts, bs=32, is_query=False):
+    pre = QPRE if is_query else DPRE
+    return _m.encode([pre + t for t in texts], batch_size=bs,
+                     convert_to_numpy=True, show_progress_bar=True).astype("float32")
+
+# 차원은 **실제로 한 번 돌려서** 확인한다. sentence-transformers 5.x 에서
+# get_sentence_embedding_dimension 이 get_embedding_dimension 으로 바뀌어,
+# 이름으로 물으면 Colab 버전에 따라 죽는다.
+DIM = int(embed(["차원 확인"]).shape[1])
+print(f"{MODEL_NAME} · {dev} · 최대 {MAXLEN} 토큰 · 차원 {DIM}")
 
 for name, cfg in CONFIGS.items():
     print(f"\\n{MODEL_NAME} · {name} — {len(cfg['text']):,}건")
