@@ -389,14 +389,18 @@ def parse(text, chunk):
              "근거문구": (by.get(x["id"]) or {}).get("근거문구", "")} for x in chunk]
 
 def audit(ad):
+    # 진행 표시를 반드시 찍는다 - 배치 하나가 몇 분씩 걸려서, 없으면 멈춘 것처럼
+    # 보인다(실측: 31B 4bit 에서 한 건 20~30분인데 무출력이라 죽은 줄 알았다).
+    import time
     sel = for_ad(ad.get("상품군"))
-    v = []
+    v, t0 = [], time.time()
     for s in range(0, len(sel), BATCH):
         chunk = sel[s:s+BATCH]
         body = "\n".join(
             f'{x["id"]} [{"있어야 함" if x["방향"]=="REQUIRE" else "없어야 함"}] {x["질문"]}'
             for x in chunk)
         v += parse(ask(PROMPT.format(items=body, ad=ad["text"][:6000])), chunk)
+        print(f"    {min(s+BATCH, len(sel))}/{len(sel)}문항  {time.time()-t0:5.0f}초")
     return sel, v
 
 def evidences(ad, k=5):
