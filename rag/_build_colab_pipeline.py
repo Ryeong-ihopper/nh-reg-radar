@@ -388,6 +388,20 @@ def parse(text, chunk):
              "사유": (by.get(x["id"]) or {}).get("사유", "LLM 이 빠뜨림"),
              "근거문구": (by.get(x["id"]) or {}).get("근거문구", "")} for x in chunk]
 
+def _ask_batch(chunk, ad_text):
+    body = "\n".join(
+        f'{x["id"]} [{"있어야 함" if x["방향"]=="REQUIRE" else "없어야 함"}] {x["질문"]}'
+        for x in chunk)
+    got = parse(ask(PROMPT.format(items=body, ad=ad_text)), chunk)
+    # 전부 None 이면 배치의 JSON 이 통째로 깨진 것이다(실측: 87문항 중 24개가
+    # 정확히 배치 하나 크기로 비었다). 반으로 쪼개 한 번씩 재시도한다 —
+    # 출력이 절반이면 깨질 확률도 내려간다. 6개 이하로는 안 쪼갠다.
+    if all(g["판정"] is None for g in got) and len(chunk) > 6:
+        mid = len(chunk) // 2
+        return _ask_batch(chunk[:mid], ad_text) + _ask_batch(chunk[mid:], ad_text)
+    return got
+
+
 def audit(ad):
     # 진행 표시를 반드시 찍는다 - 배치 하나가 몇 분씩 걸려서, 없으면 멈춘 것처럼
     # 보인다(실측: 31B 4bit 에서 한 건 20~30분인데 무출력이라 죽은 줄 알았다).
@@ -395,23 +409,35 @@ def audit(ad):
     sel = for_ad(ad.get("상품군"))
     v, t0 = [], time.time()
     for s in range(0, len(sel), BATCH):
-        chunk = sel[s:s+BATCH]
-        body = "\n".join(
-            f'{x["id"]} [{"있어야 함" if x["방향"]=="REQUIRE" else "없어야 함"}] {x["질문"]}'
-            for x in chunk)
-        v += parse(ask(PROMPT.format(items=body, ad=ad["text"][:6000])), chunk)
+        v += _ask_batch(sel[s:s+BATCH], ad["text"][:6000])
         print(f"    {min(s+BATCH, len(sel))}/{len(sel)}문항  {time.time()-t0:5.0f}초")
     return sel, v
 
-def evidences(ad, k=5):
-    # 광고 전문을 질의로. 청크로 쪼개 각각 검색한 뒤 합치는 것이 낫지만, 여기서는
-    # 파이프라인이 이어지는지를 보는 것이 목적이라 단순하게 둔다.
-    cand = bm25(ad["text"][:2000], 50)
-    order = rerank(ad["text"][:2000], cand) if USE_RERANK else cand
+PG = {"예금성": "DEPOSIT", "대출성": "LOAN", "투자성": "INVESTMENT"}
+
+
+def evidences(ad, k=5, rule_slots=3):
+    # 처음엔 「이어지는지만 본다」고 단순하게 뒀는데, 실행해 보니 적금 광고에
+    # 랩/신탁 규칙이 섞이고(상품 필터 없음) 근거 5개가 전부 규칙이었다(할당
+    # 없음). 로컬 search.py 에 있던 두 가지를 그대로 옮긴다.
+    q = ad["text"][:2000]
+    cand = bm25(q, 50)
+    order = rerank(q, cand) if USE_RERANK else cand
+    pg = PG.get(ad.get("상품군"))
+
+    def fits(i):
+        p = index[i].get("product_group") or []
+        return not p or not pg or pg in p   # 빈 값은 통과 — 공통 규칙을 버리면 안 됨
+
+    order = [i for i in order if fits(i)]
+    rules = [i for i in order if i < N_RULES][:rule_slots]
+    arts = [i for i in order if i >= N_RULES][:k - len(rules)]
+    out = rules + arts
+    out += [i for i in order if i not in out][:k - len(out)]
     return [{"evidence_id": index[i]["evidence_id"],
              "kind": "규칙" if i < N_RULES else "조문",
              "title": index[i].get("title", ""),
-             "article_no": index[i].get("article_no", "")} for i in order[:k]]
+             "article_no": index[i].get("article_no", "")} for i in out[:k]]
 """)
 
 add(MD, """
