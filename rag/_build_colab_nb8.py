@@ -34,35 +34,25 @@ add(MD, """
 | | 무엇 |
 |---|---|
 | **입력** | `checklist.json` (339문항) · `ads.jsonl` (광고 18건) |
-| **모델** | `google/gemma-2-9b-it` — T4 에 4비트로 올린다 |
+| **모델** | `google/gemma-4-31B-it` — GPU 를 보고 자동으로 고른다 |
 | **출력** | `gemma_audit.json` · `gemma_audit_report.md` |
 
 **농협 Gemma 와 같은 모델은 아니다.** 여기서 확인하는 것은 성능 수치가 아니라
 **프롬프트가 먹히는가 · JSON 형식을 지키는가 · 판정이 사람 눈에 맞는가** 셋이다.
 엔드포인트가 열리면 `rag/llm.py` 의 주소만 바꾸고 프롬프트는 그대로 쓴다.
 
-**런타임:** `런타임 → 런타임 유형 변경 → T4 GPU`
-**허깅페이스 토큰이 필요하다** — Gemma 는 라이선스 동의가 걸린 모델이다.
+**런타임:** A100 권장. T4 면 작은 모델로 내려가고 시간이 더 걸린다.
 """)
 
 add(MD, """
-## 1. 환경과 토큰
+## 1. 환경
 
-Gemma 는 [huggingface.co/google/gemma-2-9b-it](https://huggingface.co/google/gemma-2-9b-it)
-에서 **라이선스에 동의해야** 내려받을 수 있다. 동의한 계정의 토큰을 Colab 비밀
-(`🔑` 아이콘 → `HF_TOKEN`)에 넣어 두면 아래 셀이 알아서 읽는다.
+**허깅페이스 토큰이 필요 없다.** Gemma 4 는 Apache 2.0 이라 라이선스 동의 없이
+받는다 — Gemma 2 는 동의와 토큰이 필요했다.
 """)
 add(PY, """
 !nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
-!pip -q install -U "transformers>=4.44" accelerate bitsandbytes 2>&1 | tail -1
-
-import os
-try:
-    from google.colab import userdata
-    os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
-    print("HF_TOKEN 읽음")
-except Exception as e:
-    print("HF_TOKEN 을 Colab 비밀에 넣어 주세요 —", e)
+!pip -q install -U transformers accelerate bitsandbytes 2>&1 | tail -1
 """)
 
 add(MD, "## 2. 파일 업로드 — `checklist.json` · `ads.jsonl` (`output/_rag/`)")
@@ -140,31 +130,36 @@ for p in ("예금성", "대출성", "투자성"):
 add(MD, """
 ## 4. Gemma 올리기
 
-**GPU 를 보고 알아서 고른다.** 양자화는 메모리가 모자랄 때 어쩔 수 없이 하는 것이지
-좋아서 하는 게 아니다 — 품질이 깎이고 오히려 느려질 수도 있다(역양자화 비용).
+**Gemma 4 를 쓴다**(2026-04 공개). Gemma 2 보다 우리 쓰임새에 세 가지가 낫다.
 
-| GPU | 고르는 것 | 왜 |
+| | Gemma 2 | Gemma 4 |
 |---|---|---|
-| A100 40GB | **27B 4비트** (~16GB) | 실서비스에 쓸 만한 크기. 판정 품질이 9B 와 확연히 다르다 |
-| L4 24GB | 9B fp16 (~18GB) | 양자화 없이 온전한 품질 |
-| T4 15GB | 9B 4비트 (~6GB) | 들어가는 것이 이것뿐 |
+| 라이선스 | 동의 필요 · HF 토큰 필요 | **Apache 2.0** — 토큰 없이 받는다 |
+| 컨텍스트 | 8K | **256K** — 87문항을 한 번에 넣어도 들어간다 |
+| 언어 | 제한적 | **140개 이상** |
 
-`MODEL` 을 직접 적으면 그대로 쓴다.
+**GPU 를 보고 고른다.** 양자화는 메모리가 모자랄 때 어쩔 수 없이 하는 것이지 좋아서
+하는 게 아니지만, 31B 4비트가 12B bf16 보다는 낫다 — 모델 크기 차이가 양자화 손실보다
+크다.
+
+| GPU | 고르는 것 |
+|---|---|
+| A100 40GB | `gemma-4-31B-it` 4비트 (~18GB) |
+| L4 24GB | `gemma-4-12B-Unified-it` 4비트 (~7GB) |
+| T4 15GB | `gemma-4-E4B-it` bf16 (~9GB) |
 """)
 add(PY, """
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-MODEL = None        # 직접 고르려면 "google/gemma-2-27b-it" 처럼 적는다
-FOURBIT = None      # 직접 고르려면 True/False
-
-free = torch.cuda.get_device_properties(0).total_memory / 1e9 if torch.cuda.is_available() else 0
-name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+MODEL = None; FOURBIT = None      # 직접 고르려면 여기에 적는다
+free = torch.cuda.get_device_properties(0).total_memory/1e9 if torch.cuda.is_available() else 0
+gname = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
 if MODEL is None:
-    if free >= 38:      MODEL, FOURBIT = "google/gemma-2-27b-it", True
-    elif free >= 22:    MODEL, FOURBIT = "google/gemma-2-9b-it", False
-    else:               MODEL, FOURBIT = "google/gemma-2-9b-it", True
-print(f"{name} {free:.0f}GB → {MODEL} ({'4bit' if FOURBIT else 'fp16'})")
+    if free >= 36:   MODEL, FOURBIT = "google/gemma-4-31B-it", True
+    elif free >= 22: MODEL, FOURBIT = "google/gemma-4-12B-Unified-it", True
+    else:            MODEL, FOURBIT = "google/gemma-4-E4B-it", False
+print(f"{gname} {free:.0f}GB → {MODEL} ({'4bit' if FOURBIT else 'bf16'})")
 
 kw = dict(device_map="auto")
 if FOURBIT:
@@ -177,18 +172,18 @@ else:
 tok = AutoTokenizer.from_pretrained(MODEL)
 model = AutoModelForCausalLM.from_pretrained(MODEL, **kw)
 model.eval()
-print(f"{MODEL} 올림 · {model.get_memory_footprint()/1e9:.1f}GB")
+print(f"{MODEL} · {model.get_memory_footprint()/1e9:.1f}GB")
 
-def ask(prompt, max_new=1536):
-    msgs = [{"role": "user", "content": prompt}]
-    ids = tok.apply_chat_template(msgs, add_generation_prompt=True,
+def ask(prompt, max_new=4096):
+    ids = tok.apply_chat_template([{"role": "user", "content": prompt}],
+                                  add_generation_prompt=True,
                                   return_tensors="pt").to(model.device)
     with torch.no_grad():
         out = model.generate(ids, max_new_tokens=max_new, do_sample=False,
                              pad_token_id=tok.eos_token_id)
     return tok.decode(out[0][ids.shape[-1]:], skip_special_tokens=True)
 
-print(ask("한 문장으로 자기소개해 주세요.")[:200])
+print(ask("한 문장으로 자기소개해 주세요.")[:160])
 """)
 
 add(MD, """
@@ -197,12 +192,14 @@ add(MD, """
 프롬프트는 `rag/audit.py` 의 `_PROMPT` 를 그대로 옮긴 것이다. 여기서 손보면 로컬과
 갈라져서, 엔드포인트가 열렸을 때 어느 쪽이 검증된 것인지 알 수 없게 된다.
 
-한 번에 **12문항씩** 묶어 던진다. 문항마다 부르면 광고 하나에 87번을 불러야 한다.
+한 번에 **24문항씩** 묶어 던진다. Gemma 4 는 256K 라 87문항을 다 넣어도 들어가지만,
+**JSON 하나가 깨지면 그 묶음이 통째로 날아간다.** 24개면 호출은 4번으로 줄고
+실패 범위는 감당할 만하다.
 """)
 add(PY, r"""
 import json, re, time
 
-BATCH = 12
+BATCH = 24
 PROMPT = '''당신은 금융광고 심의 담당자입니다. 아래 광고문을 읽고, 점검 문항마다
 판정하세요.
 

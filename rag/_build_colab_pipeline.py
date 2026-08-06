@@ -48,31 +48,22 @@ add(MD, """
 | | |
 |---|---|
 | **입력 4개** | `rule_index.jsonl` · `gold.json` · `checklist.json` · `ads.jsonl` |
-| **모델 2개** | `BAAI/bge-reranker-v2-m3` · `google/gemma-2-27b-it` (GPU 보고 자동) |
+| **모델 2개** | `BAAI/bge-reranker-v2-m3` · `google/gemma-4-31B-it` (GPU 보고 자동) |
 | **출력** | `pipeline_report.md` · `pipeline_result.json` |
 
-**런타임:** A100 권장. T4 면 Gemma 가 9B 로 내려가고 시간이 3배쯤 걸린다.
+**런타임:** A100 권장. T4 면 Gemma 가 작은 모델로 내려가고 시간이 더 걸린다.
 **HF 토큰 필요** — Gemma 는 라이선스 동의가 걸려 있다.
 """)
 
 add(MD, """
-## 1. 환경 · 토큰
+## 1. 환경
 
-Gemma 는 [huggingface.co/google/gemma-2-27b-it](https://huggingface.co/google/gemma-2-27b-it)
-에서 **라이선스에 동의해야** 내려받을 수 있다(9B 도 따로 동의). 동의한 계정의 토큰을
-Colab 비밀(`🔑` → `HF_TOKEN`)에 넣어 두면 아래가 알아서 읽는다.
+**허깅페이스 토큰이 필요 없다.** Gemma 4 는 Apache 2.0 이라 라이선스 동의 없이
+받는다 — Gemma 2 는 동의와 토큰이 필요했다.
 """)
 add(PY, """
 !nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
-!pip -q install -U sentence-transformers accelerate bitsandbytes 2>&1 | tail -1
-
-import os
-try:
-    from google.colab import userdata
-    os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
-    print("HF_TOKEN 읽음")
-except Exception as e:
-    print("HF_TOKEN 을 Colab 비밀에 넣어 주세요 —", e)
+!pip -q install -U sentence-transformers transformers accelerate bitsandbytes 2>&1 | tail -1
 """)
 
 add(MD, """
@@ -289,11 +280,23 @@ for p in ("예금성", "대출성", "투자성"):
 add(MD, """
 ## 6. Gemma 올리기
 
-**GPU 를 보고 고른다.** 양자화는 메모리가 모자랄 때 어쩔 수 없이 하는 것이지 좋아서
-하는 게 아니다 — 품질이 깎인다. 다만 27B 4비트가 9B fp16 보다는 낫다(모델 크기 차이가
-양자화 손실보다 크다).
+**Gemma 4 를 쓴다**(2026-04 공개). Gemma 2 보다 우리 쓰임새에 세 가지가 낫다.
 
-리랭커가 이미 2GB 를 쓰고 있으므로 그만큼 빼고 고른다.
+| | Gemma 2 | Gemma 4 |
+|---|---|---|
+| 라이선스 | 동의 필요 · HF 토큰 필요 | **Apache 2.0** — 토큰 없이 받는다 |
+| 컨텍스트 | 8K | **256K** — 87문항을 한 번에 넣어도 들어간다 |
+| 언어 | 제한적 | **140개 이상** |
+
+**GPU 를 보고 고른다.** 양자화는 메모리가 모자랄 때 어쩔 수 없이 하는 것이지 좋아서
+하는 게 아니지만, 31B 4비트가 12B bf16 보다는 낫다 — 모델 크기 차이가 양자화 손실보다
+크다.
+
+| GPU | 고르는 것 |
+|---|---|
+| A100 40GB | `gemma-4-31B-it` 4비트 (~18GB) |
+| L4 24GB | `gemma-4-12B-Unified-it` 4비트 (~7GB) |
+| T4 15GB | `gemma-4-E4B-it` bf16 (~9GB) |
 """)
 add(PY, """
 import torch
@@ -303,9 +306,9 @@ MODEL = None; FOURBIT = None      # 직접 고르려면 여기에 적는다
 free = torch.cuda.get_device_properties(0).total_memory/1e9 if torch.cuda.is_available() else 0
 gname = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
 if MODEL is None:
-    if free >= 38:   MODEL, FOURBIT = "google/gemma-2-27b-it", True
-    elif free >= 24: MODEL, FOURBIT = "google/gemma-2-9b-it", False
-    else:            MODEL, FOURBIT = "google/gemma-2-9b-it", True
+    if free >= 36:   MODEL, FOURBIT = "google/gemma-4-31B-it", True
+    elif free >= 22: MODEL, FOURBIT = "google/gemma-4-12B-Unified-it", True
+    else:            MODEL, FOURBIT = "google/gemma-4-E4B-it", False
 print(f"{gname} {free:.0f}GB → {MODEL} ({'4bit' if FOURBIT else 'bf16'})")
 
 kw = dict(device_map="auto")
@@ -321,7 +324,7 @@ gemma = AutoModelForCausalLM.from_pretrained(MODEL, **kw)
 gemma.eval()
 print(f"{MODEL} · {gemma.get_memory_footprint()/1e9:.1f}GB")
 
-def ask(prompt, max_new=1536):
+def ask(prompt, max_new=4096):
     ids = tok.apply_chat_template([{"role": "user", "content": prompt}],
                                   add_generation_prompt=True,
                                   return_tensors="pt").to(gemma.device)
@@ -345,7 +348,7 @@ add(MD, """
 add(PY, r"""
 import json, re
 
-BATCH = 12
+BATCH = 24
 PROMPT = '''당신은 금융광고 심의 담당자입니다. 아래 광고문을 읽고, 점검 문항마다
 판정하세요.
 
