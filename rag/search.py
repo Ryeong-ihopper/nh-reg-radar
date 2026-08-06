@@ -122,28 +122,34 @@ def vectors(rows):
     return v, m
 
 
-def embed_query(texts, model_name=None):
-    """질의 임베딩. 색인과 **같은 모델**이어야 한다.
+# 색인을 만든 Colab 노트북(rag/index_ab_colab.ipynb)의 SPEC 과 **같은 표**여야 한다.
+# 다른 모델·다른 접두어로 질의를 임베딩하면 코사인 값이 무의미해지는데 에러는 안 난다.
+MODELS = {
+    "BGE-M3":    ("BAAI/bge-m3", 1024, ("", "")),
+    "ME5-large": ("intfloat/multilingual-e5-large", 512, ("query: ", "passage: ")),
+}
 
-    로컬에 모델이 없으면 여기서 멈춘다 — 다른 모델로 만든 질의 벡터를 쓰면
-    코사인 값이 무의미해지는데 에러는 안 난다.
-    """
-    from FlagEmbedding import BGEM3FlagModel
+
+def embed_query(texts, model_name):
+    """질의 임베딩. 색인과 **같은 모델·같은 접두어**로."""
     import numpy as np
+    from sentence_transformers import SentenceTransformer
+    if model_name not in MODELS:
+        raise RuntimeError(f"모르는 모델이다: {model_name}. MODELS 에 추가할 것")
+    path, maxlen, (qpre, _) = MODELS[model_name]
     if "model" not in _vec:
-        _vec["model"] = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
-    v = np.asarray(_vec["model"].encode(list(texts), max_length=1024)["dense_vecs"],
-                   dtype="float32")
+        m = SentenceTransformer(path)
+        m.max_seq_length = maxlen
+        _vec["model"] = m
+    v = _vec["model"].encode([qpre + t for t in texts],
+                             convert_to_numpy=True).astype("float32")
     return v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-9)
 
 
 def vector(query, rows, k=50):
     import numpy as np
     v, m = vectors(rows)
-    if m.get("model") and "BGE" not in m["model"].upper():
-        raise RuntimeError(f"색인이 {m['model']} 로 만들어졌다 — 질의도 같은 모델로 "
-                           f"임베딩해야 한다. embed_query 를 고칠 것")
-    q = embed_query([query])[0]
+    q = embed_query([query], m.get("model"))[0]
     return np.argsort(-(v @ q))[:k].tolist()
 
 
