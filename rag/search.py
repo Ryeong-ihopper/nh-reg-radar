@@ -177,14 +177,36 @@ def _passes(value, want):
     return bool(got & want)
 
 
-def search(query, rows=None, how="hybrid", k=5, medium=None, product=None):
-    """(순위, 항목) 목록. medium·product 로 좁힌다.
+def _quota(order, n_rules, k, n_rule_slots):
+    """규칙과 조문에 자리를 나눠 준다.
+
+    **합친 색인에서는 규칙이 상위를 독차지한다** — 2026-08-06 실측으로 상위 10개 중
+    규칙이 79~86% 였다(전체에서 규칙 비중은 21%). 규칙이 짧고 질의 어휘와 그대로
+    겹치기 때문이다. 그대로 두면 「왜 걸리나」를 답할 조문이 밀려나 근거를 못 댄다.
+    """
+    rules = [i for i in order if i < n_rules][:n_rule_slots]
+    arts = [i for i in order if i >= n_rules][:k - len(rules)]
+    out = rules + arts
+    # 한쪽이 모자라면 다른 쪽으로 채운다. 자리를 비워 두는 것이 더 나쁘다.
+    if len(out) < k:
+        out += [i for i in order if i not in set(out)][:k - len(out)]
+    return sorted(out, key=order.index)
+
+
+def search(query, rows=None, how="bm25", k=5, medium=None, product=None,
+           rule_slots=None):
+    """(순위, 항목) 목록.
+
+    기본이 `bm25` 인 이유: **하이브리드가 BM25 단독보다 나쁘다**(2026-08-06 실측,
+    R@5 59.6% vs 75.1%). RRF 는 두 검색기 실력이 비슷할 때 이기는데 지금은 벡터가
+    45% 라 강한 쪽을 끌어내린다. 벡터 쪽이 나아지면 기본값을 되돌린다.
 
     매체 필터가 여기 있는 이유: 규칙리스트는 매체(지면·영상·온라인)로 나누는데
     스키마의 `advertisement_type` 은 광고물 종류(전단·SMS·앱푸시)로 나눈다. 축이
     달라 규칙에 광고물 종류를 달 수 없으므로 **찾을 때 뒤집어 거른다.**
     """
-    rows = rows if rows is not None else load_index()[0]
+    rows, n_rules = (rows, sum(1 for r in rows if r["evidence_id"].startswith("R-"))) \
+        if rows is not None else load_index()
     over = max(k * 10, 50)                 # 거를 것을 감안해 넉넉히 뽑는다
     if how == "bm25":
         order = bm25(query, rows, over)
@@ -199,6 +221,10 @@ def search(query, rows=None, how="hybrid", k=5, medium=None, product=None):
     if product:
         want = {product}
         order = [i for i in order if _passes(rows[i].get("product_group"), want)]
+
+    if rule_slots is None:
+        rule_slots = max(1, k * 3 // 5)    # 5개면 규칙 3 + 조문 2
+    order = _quota(order, n_rules, k, rule_slots)
     return [(i, rows[i]) for i in order[:k]]
 
 
