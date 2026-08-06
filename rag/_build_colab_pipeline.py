@@ -52,7 +52,7 @@ add(MD, """
 | **출력** | `pipeline_report.md` · `pipeline_result.json` |
 
 **런타임:** A100 권장. T4 면 Gemma 가 작은 모델로 내려가고 시간이 더 걸린다.
-**HF 토큰 필요** — Gemma 는 라이선스 동의가 걸려 있다.
+**HF 토큰 불필요** — Gemma 4 는 Apache 2.0 이다.
 """)
 
 add(MD, """
@@ -295,7 +295,7 @@ add(MD, """
 | GPU | 고르는 것 |
 |---|---|
 | A100 40GB | `gemma-4-31B-it` 4비트 (~18GB) |
-| L4 24GB | `gemma-4-12B-Unified-it` 4비트 (~7GB) |
+| L4 24GB | `gemma-4-12B-it` 4비트 (~7GB) |
 | T4 15GB | `gemma-4-E4B-it` bf16 (~9GB) |
 """)
 add(PY, """
@@ -307,7 +307,7 @@ free = torch.cuda.get_device_properties(0).total_memory/1e9 if torch.cuda.is_ava
 gname = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
 if MODEL is None:
     if free >= 36:   MODEL, FOURBIT = "google/gemma-4-31B-it", True
-    elif free >= 22: MODEL, FOURBIT = "google/gemma-4-12B-Unified-it", True
+    elif free >= 22: MODEL, FOURBIT = "google/gemma-4-12B-it", True
     else:            MODEL, FOURBIT = "google/gemma-4-E4B-it", False
 print(f"{gname} {free:.0f}GB → {MODEL} ({'4bit' if FOURBIT else 'bf16'})")
 
