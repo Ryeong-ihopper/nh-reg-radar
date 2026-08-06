@@ -82,6 +82,10 @@ V3 의 분할 규칙: 항 기호(`①`~`⑮`)가 **2개 이상**일 때만 쪼�
 「② 제2항 내용」만으로는 무슨 조문의 항인지 알 수 없다.
 """)
 add(PY, r"""
+# 셀마다 필요한 것을 직접 가져온다. 업로드 셀(2번)은 파일이 이미 있으면 건너뛰게
+# 되는 자리라, 거기 있는 import 에 기대면 NameError 로 죽는다.
+import json, re
+
 chunks = [json.loads(l) for l in open("chunks.jsonl", encoding="utf-8")]
 gold = json.load(open("gold.json", encoding="utf-8"))
 print(f"청크 {len(chunks):,} · gold {len(gold)}건")
@@ -143,15 +147,25 @@ dev = "cuda" if torch.cuda.is_available() else "cpu"
 m = SentenceTransformer("BAAI/bge-m3", device=dev)
 m.max_seq_length = 1024
 
-def embed(texts, bs=32):
-    v = m.encode(texts, batch_size=bs, convert_to_numpy=True,
-                 show_progress_bar=True).astype("float32")
+import time
+
+def embed(texts, bs=64, tag=""):
+    # **진행바를 끈다.** 조각이 3만 7천 개라 tqdm 이 출력을 쏟아내면 브라우저가
+    # 렉에 걸린다 — 계산이 느린 게 아니라 화면이 못 따라가는 것이다.
+    # 대신 2,000개마다 한 줄만 찍는다.
+    out, t0, step = [], time.time(), 2000
+    for s in range(0, len(texts), step):
+        out.append(m.encode(texts[s:s+step], batch_size=bs,
+                            convert_to_numpy=True, show_progress_bar=False))
+        done = min(s + step, len(texts))
+        print(f"  {tag} {done:>6,}/{len(texts):,}  {time.time()-t0:5.0f}초")
+    v = np.vstack(out).astype("float32")
     return v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-9)
 
-qvec = embed([g["q"] for g in gold])
+qvec = embed([g["q"] for g in gold], tag="질의")
 for name, v in VARIANTS.items():
     print(f"\\n{name} — {len(v['text']):,}조각")
-    v["vec"] = embed(v["text"])
+    v["vec"] = embed(v["text"], tag=name)
     gc.collect(); torch.cuda.empty_cache()
 """)
 
@@ -163,6 +177,8 @@ add(MD, """
 조각이 1·2·3위를 차지했다면 그 조문은 1위 하나로 센다.
 """)
 add(PY, """
+import numpy as np
+
 KS = (1, 3, 5, 10)
 
 def score(v):
@@ -201,6 +217,8 @@ add(MD, """
 넘거나 근접하면 하이브리드를 되살릴 값어치가 있다.
 """)
 add(PY, """
+import json
+
 lines = ["# 벡터 검색 텍스트 변형 A/B — BGE-M3", "",
          f"청크 {len(chunks):,} · gold {len(gold)}건", "",
          "| 변형 | 조각 수 | R@1 | R@3 | R@5 | R@10 | MRR |",
