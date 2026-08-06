@@ -325,13 +325,18 @@ gemma.eval()
 print(f"{MODEL} · {gemma.get_memory_footprint()/1e9:.1f}GB")
 
 def ask(prompt, max_new=4096):
-    ids = tok.apply_chat_template([{"role": "user", "content": prompt}],
+    # return_dict=True 를 명시한다. transformers 최신 버전은 apply_chat_template 가
+    # 텐서가 아니라 BatchEncoding 을 주는데, 텐서인 줄 알고 .shape 를 부르면
+    # AttributeError 로 죽는다(실측). **enc 로 넘기면 attention_mask 까지 같이
+    # 들어가 구버전·신버전 양쪽에서 돈다.
+    enc = tok.apply_chat_template([{"role": "user", "content": prompt}],
                                   add_generation_prompt=True,
+                                  return_dict=True,
                                   return_tensors="pt").to(gemma.device)
     with torch.no_grad():
-        out = gemma.generate(ids, max_new_tokens=max_new, do_sample=False,
+        out = gemma.generate(**enc, max_new_tokens=max_new, do_sample=False,
                              pad_token_id=tok.eos_token_id)
-    return tok.decode(out[0][ids.shape[-1]:], skip_special_tokens=True)
+    return tok.decode(out[0][enc["input_ids"].shape[-1]:], skip_special_tokens=True)
 
 print(ask("한 문장으로 자기소개해 주세요.")[:160])
 """)
