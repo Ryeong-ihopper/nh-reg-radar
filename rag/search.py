@@ -215,6 +215,11 @@ def search(query, rows=None, how="bm25", k=5, medium=None, product=None,
     else:
         order = rrf(bm25(query, rows, over), vector(query, rows, over), top=over)
 
+    # **꺼진 항목을 먼저 뺀다.** 부칙이 여기서 걸린다 — 시행일·경과조치라 광고심의
+    # 근거가 될 수 없는데 청크의 20% 를 차지한다. 색인에서 지우지 않고 끄기만 한 것은
+    # gold 의 청크 번호와 어긋나지 않게 하려는 것이므로, 쓰는 쪽에서 걸러야 한다.
+    order = [i for i in order if rows[i].get("is_active", True)]
+
     if medium:
         want = {medium, "ALL"}
         order = [i for i in order if _passes(rows[i].get("medium"), want)]
