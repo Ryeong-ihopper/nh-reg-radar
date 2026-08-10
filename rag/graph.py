@@ -5,12 +5,19 @@
 이유는 하나다 — 로직이 그래프 안에 들어가면 **랭그래프 없이는 한 줄도 못 돌려 본다.**
 DAP 의 랭그래프 버전이 우리 것과 다를 수 있고, 그때 고칠 곳이 이 파일 하나여야 한다.
 
+**2-hop 구조를 따라간다** (`pipeline.py` 와 같다).
+
+    광고 파서청크 → ① 규칙 검색(ES) → ② 리랭킹(BGE) → ③ 근거 조문(링크) → ④ 판정
+
+전에는 「질의 생성 → 조문 직접 검색」이었는데 그 구조는 측정에서 0.0% 였다.
+질의 생성 노드가 사라진 것은 그래서다 — 광고 청크를 그대로 던진다.
+
 랭그래프가 여기서 실제로 해 주는 일:
   · 단계마다 상태를 남긴다 — 어디서 무엇이 비었는지 사후에 볼 수 있다
   · 근거가 없으면 판정을 건너뛰는 분기
   · 체크포인터를 붙이면 광고 수백 건을 돌리다 끊겨도 이어서 돌릴 수 있다
 
-  python rag/graph.py --ad 2026_005_예금성 --product DEPOSIT
+  python rag/graph.py --ad 2026_004_예금성
 """
 import os
 import sys
@@ -21,55 +28,68 @@ from typing import TypedDict, Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pipeline as P
-import search as S
+import twohop2 as T
 
 
 class State(TypedDict, total=False):
     ad_id: str
-    ad_text: str
+    ad: dict
     how: str
-    medium: Optional[str]
+    backend: str
     product: Optional[str]
+    no_rerank: bool
+    no_llm: bool
     queries: list
-    query_source: str
-    candidates: list
-    evidences: list
+    candidates: list      # 규칙 행 번호
+    ranked: list          # 리랭킹 뒤 규칙 행 번호
     reranker: str
+    evidences: list       # (조문행, 걸린규칙, 위치)
     verdict: dict
 
 
-# 색인은 노드마다 다시 읽으면 안 된다(8,309건 × 광고 수). 모듈 수준에 한 번만 둔다.
-_ROWS, _N_RULES = None, None
+# 색인은 노드마다 다시 읽으면 안 된다(35,961건 × 광고 수). 모듈 수준에 한 번만.
+_TH = None
 
 
-def _index():
-    global _ROWS, _N_RULES
-    if _ROWS is None:
-        _ROWS, _N_RULES = S.load_index()
-    return _ROWS, _N_RULES
+def _th():
+    global _TH
+    if _TH is None:
+        _TH = T.TwoHop2()
+    return _TH
 
 
-def n_make_queries(state: State) -> State:
-    qs, src = P.make_queries(state["ad_text"])
-    return {"queries": qs, "query_source": src}
+def n_queries(state: State) -> State:
+    """질의 = 광고 파서청크. **LLM 을 쓰지 않는다.**"""
+    return {"queries": P.ad_queries(state["ad"]),
+            "product": state.get("product") or T.product_of(state.get("ad_id", ""))}
 
 
 def n_retrieve(state: State) -> State:
-    rows, _ = _index()
-    cands = P.retrieve(state["queries"], rows, state.get("how", "hybrid"),
-                       P.CAND_K, state.get("medium"), state.get("product"))
+    cands = P.retrieve_rules(_th(), state["queries"], P.CAND_K,
+                             state.get("how", "hybrid"), state.get("product"),
+                             state.get("backend", "elasticsearch"))
     return {"candidates": cands}
 
 
 def n_rerank(state: State) -> State:
-    rows, _ = _index()
-    top, src = P.rerank(state["ad_text"], state["candidates"], rows, P.TOP_K)
-    return {"evidences": top, "reranker": src}
+    if state.get("no_rerank"):
+        return {"ranked": state["candidates"][:P.TOP_K], "reranker": "off"}
+    top, src = P.rerank(state["queries"], state["candidates"], _th().rows, P.TOP_K)
+    return {"ranked": [i for i, _ in top], "reranker": src}
+
+
+def n_link(state: State) -> State:
+    """hop2 — **검색이 아니라 근거 주소를 따라간다.**"""
+    return {"evidences": _th().hop2(state["ranked"])[:P.TOP_K]}
 
 
 def n_judge(state: State) -> State:
-    rows, _ = _index()
-    return {"verdict": P.judge(state["ad_text"], state["evidences"], rows)}
+    if state.get("no_llm"):
+        return {"verdict": {"판정": None, "사유": "판정을 건너뜀(--no-llm)",
+                            "_source": "off"}}
+    rows = _th().rows
+    ev = [(j, None) for j, _, _ in state["evidences"]]
+    return {"verdict": P.judge(state["ad"].get("text", ""), ev, rows)}
 
 
 def n_no_evidence(state: State) -> State:
@@ -79,8 +99,7 @@ def n_no_evidence(state: State) -> State:
     같은 모양으로 나온다. 검색이 실패한 것을 판정 실패로 덮으면 안 된다.
     """
     return {"verdict": {"판정": "확인필요", "사유": "검색된 근거가 없습니다.",
-                        "근거": [], "수정제안": "", "_source": "no-evidence"},
-            "reranker": "none"}
+                        "근거": [], "수정제안": "", "_source": "no-evidence"}}
 
 
 def has_evidence(state: State) -> str:
@@ -91,16 +110,18 @@ def build():
     from langgraph.graph import StateGraph, START, END
 
     g = StateGraph(State)
-    g.add_node("make_queries", n_make_queries)
+    g.add_node("queries", n_queries)
     g.add_node("retrieve", n_retrieve)
     g.add_node("rerank", n_rerank)
+    g.add_node("link", n_link)
     g.add_node("judge", n_judge)
     g.add_node("no_evidence", n_no_evidence)
 
-    g.add_edge(START, "make_queries")
-    g.add_edge("make_queries", "retrieve")
+    g.add_edge(START, "queries")
+    g.add_edge("queries", "retrieve")
     g.add_edge("retrieve", "rerank")
-    g.add_conditional_edges("rerank", has_evidence,
+    g.add_edge("rerank", "link")
+    g.add_conditional_edges("link", has_evidence,
                             {"judge": "judge", "no_evidence": "no_evidence"})
     g.add_edge("judge", END)
     g.add_edge("no_evidence", END)
@@ -109,22 +130,21 @@ def build():
 
 def to_review_item(state: State):
     """스키마의 review_items / review_item_evidences 모양으로."""
-    rows, n_rules = _index()
+    rows = _th().rows
     return {
         "광고id": state.get("ad_id"),
-        "질의": state.get("queries", []),
-        "_질의출처": state.get("query_source"),
+        "질의수": len(state.get("queries") or []),
+        "_질의출처": "광고 파서청크(원문)",
+        "_검색": f"{state.get('backend','elasticsearch')}/{state.get('how','hybrid')}",
         "_리랭커": state.get("reranker"),
-        "근거": [{
-            "rank_no": n,
-            "evidence_id": rows[i]["evidence_id"],
-            "kind": "규칙" if i < n_rules else "조문",
-            "title": rows[i].get("title", ""),
-            "article_no": rows[i].get("article_no", ""),
-            "match_source": "HYBRID" if state.get("how") == "hybrid"
-                            else str(state.get("how", "")).upper(),
-            "matched_queries": q,
-        } for n, (i, q) in enumerate(state.get("evidences") or [], 1)],
+        "규칙": [{"rank_no": n, "evidence_id": rows[i]["evidence_id"],
+                  "title": rows[i].get("title", "")}
+                 for n, i in enumerate(state.get("ranked") or [], 1)],
+        "근거": [{"evidence_id": rows[j]["evidence_id"],
+                  "article_no": rows[j].get("article_no", ""),
+                  "title": rows[j].get("title", ""),
+                  "위치": p, "걸린규칙": rid}
+                for j, rid, p in (state.get("evidences") or [])],
         "판정": state.get("verdict", {}),
     }
 
@@ -133,31 +153,37 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ad")
     ap.add_argument("--all", action="store_true")
-    ap.add_argument("--how", default="bm25", choices=("bm25", "vector", "hybrid"))
-    ap.add_argument("--product", default=None)
-    ap.add_argument("--medium", default=None)
+    ap.add_argument("--how", default="hybrid", choices=("bm25", "vector", "hybrid"))
+    ap.add_argument("--backend", default="elasticsearch",
+                    choices=("elasticsearch", "opensearch", "local"))
+    ap.add_argument("--no-rerank", action="store_true")
+    ap.add_argument("--no-llm", action="store_true", help="판정 건너뛰기")
     ap.add_argument("--out")
     a = ap.parse_args()
 
     app = build()
     ads = P.load_ads()
     if a.ad:
-        ads = [x for x in ads if x["광고id"] == a.ad]
-    elif not a.all:
-        ads = ads[:1]
+        if a.ad not in ads:
+            ap.error(f"광고를 못 찾음: {a.ad}")
+        targets = [ads[a.ad]]
+    elif a.all:
+        targets = list(ads.values())
+    else:
+        targets = list(ads.values())[:1]
 
     out = []
-    for ad in ads:
-        st = app.invoke({"ad_id": ad["광고id"], "ad_text": ad["text"],
-                         "how": a.how, "medium": a.medium, "product": a.product})
+    for ad in targets:
+        st = app.invoke({"ad_id": ad["광고id"], "ad": ad,
+                         "how": a.how, "backend": a.backend,
+                         "no_rerank": a.no_rerank, "no_llm": a.no_llm})
         item = to_review_item(st)
         out.append(item)
         print("=" * 78)
-        print(f"{item['광고id']}  질의 {len(item['질의'])}개 [{item['_질의출처']}]"
-              f" · 리랭커 {item['_리랭커']}")
+        print(f"{item['광고id']}  질의 {item['질의수']}개 · 리랭커 {item['_리랭커']}")
         for e in item["근거"]:
-            print(f"   {e['rank_no']}. [{e['kind']}] {e['evidence_id']} "
-                  f"{e['title'][:52]}")
+            print(f"   [{e['위치']:8s}] {e['article_no'] or '':10s} "
+                  f"{e['title'][:40]}  ← {e['걸린규칙']}")
         print(f"   판정: {item['판정'].get('판정') or '—'}")
 
     if a.out:
