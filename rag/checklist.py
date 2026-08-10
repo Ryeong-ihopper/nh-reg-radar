@@ -22,13 +22,15 @@ ELD 008→009 가 「미래수익 보장 아님」 단서였다).
 import os
 import re
 import json
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import paths as P
 import argparse
 import collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-XLSX = (r"C:\Users\babie\OneDrive\Desktop\씨지인사이드"
-        r"\(참고용) 데이터셋 작업 과정\01_핵심데이터"
-        r"\중요_NH_광고심의_통합체크리스트.xlsx")
+XLSX = P.data(r"(참고용) 데이터셋 작업 과정\01_핵심데이터\중요_NH_광고심의_통합체크리스트.xlsx")
 OUT = os.path.join(ROOT, "output", "_rag", "checklist.json")
 
 # 광고 상품군 → 체크리스트의 「상품_구분」. 「전체」는 언제나 함께 던진다.

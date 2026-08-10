@@ -11,6 +11,10 @@ import os
 import re
 import sys
 import json
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import paths as P
 import argparse
 
 sys.path.insert(0, os.path.join(
@@ -19,7 +23,7 @@ sys.path.insert(0, os.path.join(
 import file_text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_SRC = r"C:\Users\babie\OneDrive\Desktop\씨지인사이드\샘플데이터"
+DEFAULT_SRC = P.SAMPLE_DIR
 DEFAULT_OUT = os.path.join(ROOT, "output", "_rag", "ads.jsonl")
 
 # 파일명이 곧 메타데이터다 — NH농협은행-2026_004-예금성.hwp

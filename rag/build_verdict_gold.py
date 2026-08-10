@@ -25,12 +25,16 @@
 import os
 import re
 import json
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import paths as P
 import argparse
 import collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAG = os.path.join(ROOT, "output", "_rag")
-XLSX = r"C:\Users\babie\OneDrive\Desktop\씨지인사이드\심의사례 NH농협은행 준법감시부 1.xlsx"
+XLSX = P.data(r"심의사례 NH농협은행 준법감시부 1.xlsx")
 ADS = os.path.join(RAG, "ads.jsonl")
 OUT = os.path.join(RAG, "verdict_gold.json")
 

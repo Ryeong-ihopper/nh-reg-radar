@@ -22,14 +22,16 @@ import os
 import re
 import sys
 import json
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import paths as P
 import argparse
 import collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-XLSX = r"C:\Users\babie\OneDrive\Desktop\씨지인사이드\심의사례 NH농협은행 준법감시부 1.xlsx"
-UNIFIED = (r"C:\Users\babie\OneDrive\Desktop\씨지인사이드"
-           r"\(참고용) 데이터셋 작업 과정\01_핵심데이터"
-           r"\중요_NH_광고심의_통합체크리스트.xlsx")
+XLSX = P.data(r"심의사례 NH농협은행 준법감시부 1.xlsx")
+UNIFIED = P.data(r"(참고용) 데이터셋 작업 과정\01_핵심데이터\중요_NH_광고심의_통합체크리스트.xlsx")
 CHUNKS = os.path.join(ROOT, "output", "_rag", "chunks.jsonl")
 RULE_INDEX = os.path.join(ROOT, "output", "_rag", "rule_index.jsonl")
 OUT = os.path.join(ROOT, "output", "_rag", "gold.json")

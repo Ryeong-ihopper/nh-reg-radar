@@ -17,6 +17,10 @@ import os
 import re
 import sys
 import json
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import paths as P
 import argparse
 import collections
 
@@ -26,8 +30,7 @@ sys.path.insert(0, os.path.join(
 import file_text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = (r"C:\Users\babie\OneDrive\Desktop\씨지인사이드"
-       r"\(참고용) 데이터셋 작업 과정\02_원본소스\매뉴얼_원본")
+SRC = P.data(r"(참고용) 데이터셋 작업 과정\02_원본소스\매뉴얼_원본")
 OUT = os.path.join(ROOT, "output", "_rag", "manual_chunks.jsonl")
 
 # 규칙리스트의 「출처 매뉴얼」 코드(M01…M15)가 파일 앞 번호와 같다.

@@ -24,12 +24,15 @@ import os
 import re
 import sys
 import json
+
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import paths as P
 import argparse
 import collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-XLSX = (r"C:\Users\babie\OneDrive\Desktop\씨지인사이드"
-        r"\(참고용) 데이터셋 작업 과정\01_핵심데이터\중요_NH_광고심의_규칙리스트_v3.xlsx")
+XLSX = P.data(r"(참고용) 데이터셋 작업 과정\01_핵심데이터\중요_NH_광고심의_규칙리스트_v3.xlsx")
 OUT = os.path.join(ROOT, "output", "_rag", "rules_v3_verified.json")
 
 COL = {"규칙ID": 1, "카테고리": 2, "상품": 3, "매체": 4, "요약": 5, "판단기준": 6,
