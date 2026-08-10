@@ -7,6 +7,8 @@
 #      확인: java -version      /  설치: https://adoptium.net
 #   2) 법제처 Open API 아이디   — https://open.law.go.kr 에서 무료 발급 후
 #      환경변수 설정:  setx LAWGO_OC "발급받은아이디"
+#
+# ⚠ 폐쇄망(DAP) 반입은 이 파일 그대로는 안 된다 — 아래 「반입 주의」 참고.
 
 # 문서 파싱 (표 구조 보존) — PyPI 에 없어 GitHub 에서 직접 설치한다
 document-processor @ git+https://github.com/CGINSIDE-ROOKIES/document-processor.git
@@ -21,3 +23,38 @@ olefile==0.47
 fastapi==0.140.0
 uvicorn==0.51.0
 pydantic==2.12.5
+
+# ── RAG 파이프라인 ────────────────────────────────────────────────────────
+# 검색·리랭킹·판정에 필요하다. 전에는 이 묶음이 통째로 빠져 있어서
+# requirements 만 보고는 반입 목록을 만들 수 없었다.
+numpy>=1.26
+openpyxl>=3.1                 # 규칙리스트·체크리스트 xlsx 읽기
+
+# 임베딩(BGE-M3) · 리랭커(BGE-reranker-v2-m3). 둘 다 sentence-transformers 로 쓴다.
+# **FlagEmbedding 은 쓰지 않는다** — 코랩에서 임포트가 죽고(커밋 4c53107),
+# 저장소의 다른 모든 곳이 sentence-transformers 를 쓴다.
+sentence-transformers>=3.0
+torch>=2.2
+transformers>=4.44            # Gemma 판정(GPU 로컬 로딩)
+accelerate>=0.30              # device_map="auto"
+bitsandbytes>=0.43            # 4bit 로딩(VRAM 이 모자랄 때만)
+
+# 랭그래프 껍데기 (DAP 주피터에 이미 있음. 랭체인은 쓰지 않는다)
+langgraph>=0.2
+
+# ── 반입 주의 (폐쇄망) ────────────────────────────────────────────────────
+# 이 파일을 그대로 `pip install` 하면 폐쇄망에서 실패한다. 두 가지가 외부를 탄다.
+#
+#   1) document-processor  — 설치 시점에 GitHub 접근이 필요하다.
+#      → 외부망에서 `pip download` 로 wheel 을 받아 반입하고 로컬 설치한다.
+#   2) 법제처 Open API      — 실행 시점에 외부 HTTP 를 탄다.
+#      → 수집은 외부망에서 돌리고 `output/` 산출물만 망연계로 반입한다.
+#         폐쇄망에서는 적재·검색·판정만 한다(수집 코드는 안 돈다).
+#
+# 모델 3종도 사전 반입이 필요하다(허깅페이스 접근 불가).
+#   BAAI/bge-m3                  약 2.3GB
+#   BAAI/bge-reranker-v2-m3      약 2.3GB
+#   google/gemma-4-12B-it        약 24GB (bf16) / 4bit 면 약 8GB
+#
+# 검색엔진은 Elasticsearch + analysis-nori 플러그인이다(수요사 환경).
+#   로컬 재현:  docker compose -f rag/es/compose.yml up -d --build
