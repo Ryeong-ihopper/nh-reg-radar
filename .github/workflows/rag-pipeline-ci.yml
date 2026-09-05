@@ -1,0 +1,58 @@
+name: Canonical RAG CI
+
+on:
+  pull_request:
+    paths:
+      - "rag-pipeline/**"
+      - ".github/workflows/rag-pipeline-ci.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches:
+      - main
+      - dev
+      - "feat/**"
+    paths:
+      - "rag-pipeline/**"
+      - ".github/workflows/rag-pipeline-ci.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rag-pipeline-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canonical-rag-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: rag-pipeline/requirements-rag.txt
+
+      - name: Install canonical RAG dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r rag-pipeline/requirements-rag.txt "ruff>=0.12,<0.13"
+
+      - name: Lint canonical RAG code
+        run: python -m ruff check rag-pipeline
+
+      - name: Run deterministic RAG gates
+        run: python rag-pipeline/tools/run_rag_ci.py
+
+      - name: Check operational entry points
+        run: |
+          python rag-pipeline/tools/prepare_operational_inputs.py --help
+          python rag-pipeline/tools/run_operational_e2e.py --help
