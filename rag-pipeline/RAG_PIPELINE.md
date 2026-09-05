@@ -68,14 +68,40 @@ python tools/run_operational_e2e.py `
 실행 전 `.env.example`을 참고해 환경변수를 설정한다. 내부 IP, 계정, SSH 키 경로는
 코드나 커밋에 넣지 않는다.
 
-### 4. 결과 계약을 검사한다
+### 4. 계약 미충족 모델 출력만 소배치 복구한다
+
+모델 호출이 끝났지만 일부 광고-규칙 쌍이 출력 계약을 통과하지 못했다면 전체 광고를
+다시 판정하지 않는다. 유효 응답을 보존한 채 누락 쌍만 작은 배치로 만든다.
+
+```powershell
+python tools/recover_operational_judgments.py build `
+  --requests C:\work\run-001\02_judgment_requests.jsonl `
+  --responses C:\work\run-001\03_judgment_responses.json `
+  --output C:\work\run-001\05_recovery_requests.jsonl `
+  --batch-size 4
+```
+
+복구 요청을 `run_gemma_exhaustive_dgx.py`로 실행한 뒤 원 응답과 복구 응답을 함께
+최종 결과로 조립한다. 복구 도구는 판정값을 고치지 않으며 계약 유효 응답만 합친다.
+
+```powershell
+python tools/recover_operational_judgments.py finalize `
+  --requests C:\work\run-001\02_judgment_requests.jsonl `
+  --discovery C:\work\run-001\01_discovery.json `
+  --freeze C:\work\run-001\FREEZE_BEFORE_PREDICTION.json `
+  --responses C:\work\run-001\03_judgment_responses.json `
+  --responses C:\work\run-001\06_recovery_responses.json `
+  --output C:\work\run-001\04_operational_results.json
+```
+
+### 5. 결과 계약을 검사한다
 
 ```powershell
 python tools/validate_operational_contracts.py result `
   --path C:\work\run-001\04_operational_results.json
 ```
 
-### 5. 오프라인 회귀 검사를 실행한다
+### 6. 오프라인 회귀 검사를 실행한다
 
 ```powershell
 python tools/run_rag_ci.py
@@ -96,10 +122,11 @@ git add --pathspec-from-file=CANONICAL_FILES.txt
 git diff --cached --check
 ```
 
-정본 CLI는 다음 세 개다.
+정본 CLI는 다음 네 개다.
 
 - `tools/prepare_operational_inputs.py`
 - `tools/run_operational_e2e.py`
+- `tools/recover_operational_judgments.py`
 - `tools/validate_operational_contracts.py`
 
 ## 평가 경계

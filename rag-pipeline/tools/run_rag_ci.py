@@ -17,6 +17,7 @@ UNIT_PATTERNS = (
     "test_operational_rag_contracts.py",
     "test_operational_schema_contracts.py",
     "test_gold_v2_binding.py",
+    "test_operational_recovery.py",
 )
 FUNCTION_MODULES = (
     "test_operational_acceleration.py",

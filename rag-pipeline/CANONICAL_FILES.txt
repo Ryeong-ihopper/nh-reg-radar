@@ -16,6 +16,7 @@ tools/prepare_operational_inputs.py
 tools/validate_operational_contracts.py
 tools/start_runtime_tunnels.ps1
 tools/run_operational_e2e.py
+tools/recover_operational_judgments.py
 tools/hybrid_rule_retrieval.py
 tools/build_ad_evidence_vectors.py
 tools/build_silver_requests.py
@@ -31,6 +32,7 @@ tests/test_operational_schema_contracts.py
 tests/test_gold_v2_binding.py
 tests/test_operational_no_leakage.py
 tests/test_operational_acceleration.py
+tests/test_operational_recovery.py
 tools/validate_gold_v2_binding.py
 rag/es/compose.yml
 rag/es/Dockerfile

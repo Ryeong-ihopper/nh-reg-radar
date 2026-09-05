@@ -56,3 +56,4 @@ jobs:
         run: |
           python rag-pipeline/tools/prepare_operational_inputs.py --help
           python rag-pipeline/tools/run_operational_e2e.py --help
+          python rag-pipeline/tools/recover_operational_judgments.py --help
