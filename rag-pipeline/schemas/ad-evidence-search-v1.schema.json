@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Advertisement search projection v1",
+  "type": "object",
+  "required": [
+    "schema_version", "ad_id", "source_file", "routing", "routing_metadata",
+    "page_no", "region_id", "labels", "assignment_status", "doc_id",
+    "view_type", "text_canonical", "text_search", "line_refs"
+  ],
+  "properties": {
+    "schema_version": {"const": "ad-evidence-search-v1"},
+    "ad_id": {"type": "string", "minLength": 1},
+    "source_file": {"type": "string", "minLength": 1},
+    "routing": {"type": "object"},
+    "routing_metadata": {"type": "object"},
+    "page_no": {"type": "integer", "minimum": 1},
+    "region_id": {"type": "string", "minLength": 1},
+    "bbox": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+    "labels": {"type": "array", "items": {"type": "object"}},
+    "assignment_status": {"enum": ["assigned", "mixed", "unassigned"]},
+    "doc_id": {"type": "string", "minLength": 1},
+    "parent_doc_id": {"type": ["string", "null"]},
+    "parent_chunk_id": {"type": ["string", "null"]},
+    "view_type": {"enum": ["canonical_region", "fine_text"]},
+    "text_canonical": {"type": "string", "minLength": 1},
+    "text_search": {"type": "string", "minLength": 1},
+    "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "span_status": {"type": "string"},
+    "line_spans": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

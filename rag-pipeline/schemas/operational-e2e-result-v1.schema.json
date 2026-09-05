@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Operational compliance result v1",
+  "type": "object",
+  "required": ["schema_version", "status", "freeze", "counts", "output_failure_pairs", "ads"],
+  "properties": {
+    "schema_version": {"const": "operational-e2e-result-v1"},
+    "status": {"const": "silver_researcher_review_required"},
+    "freeze": {"type": "string", "minLength": 1},
+    "counts": {
+      "type": "object",
+      "required": ["ads", "requested_pairs", "predicted_pairs", "output_failures"],
+      "properties": {
+        "ads": {"type": "integer", "minimum": 0},
+        "requested_pairs": {"type": "integer", "minimum": 0},
+        "predicted_pairs": {"type": "integer", "minimum": 0},
+        "output_failures": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "output_failure_pairs": {"type": "array", "items": {"type": "object"}},
+    "ads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ad_id", "routing", "parser_coverage", "candidates"],
+        "properties": {
+          "ad_id": {"type": "string", "minLength": 1},
+          "routing": {"type": "object"},
+          "parser_coverage": {"enum": ["READY", "PARTIAL"]},
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item_id", "status", "judgment", "source"],
+              "properties": {
+                "item_id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["predicted", "OUTPUT_FAILURE"]},
+                "judgment": {"oneOf": [{"$ref": "gemma-judgment-v1.schema.json"}, {"type": "null"}]},
+                "source": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

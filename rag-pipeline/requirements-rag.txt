@@ -1,0 +1,6 @@
+# Runtime dependencies for the canonical RAG path.
+numpy>=1.26
+openpyxl>=3.1
+
+# Tests use only the standard library, but pytest is convenient for local runs.
+pytest>=8.0

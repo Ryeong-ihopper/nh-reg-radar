@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NH advertisement integrated review input v1",
+  "type": "object",
+  "required": ["contract", "document", "pages", "quality"],
+  "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["version", "sources", "review_unit", "final_text_policy"],
+      "properties": {
+        "version": {"const": "nh-ad-review-integrated-input-v1"},
+        "sources": {
+          "type": "object",
+          "required": ["p1_contract", "p3_contract", "p1_sha256", "p3_sha256"],
+          "properties": {
+            "p1_contract": {"const": "nh-ad-review-evidence-v6"},
+            "p3_contract": {"const": "nh-ad-review-region-input-v1"},
+            "p1_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "p3_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          },
+          "additionalProperties": false
+        },
+        "review_unit": {"type": "string", "minLength": 1},
+        "final_text_policy": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "required": ["ad_id", "source_file", "routing_metadata"],
+      "properties": {
+        "ad_id": {"type": "string", "minLength": 1},
+        "source_file": {"type": "string", "minLength": 1},
+        "file_type": {"type": ["string", "null"]},
+        "dataset_group": {"type": ["string", "null"]},
+        "input_relative_path": {"type": ["string", "null"]},
+        "routing_metadata": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/page"}
+    },
+    "unverified_recovery_candidates": {"type": "array"},
+    "diagnostics": {"type": "object"},
+    "quality": {
+      "type": "object",
+      "required": ["line_count", "line_partition_exact", "region_count", "empty_region_count"],
+      "properties": {
+        "line_count": {"type": "integer", "minimum": 0},
+        "line_partition_exact": {"const": true},
+        "region_count": {"type": "integer", "minimum": 0},
+        "empty_region_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "line": {
+      "type": "object",
+      "required": ["line_ref", "text", "bbox", "text_source", "confidence", "style", "labels"],
+      "properties": {
+        "line_ref": {"type": "string", "minLength": 1},
+        "text": {"type": "string"},
+        "bbox": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+        "text_source": {"type": ["string", "null"]},
+        "confidence": {"type": ["number", "null"]},
+        "style": {"type": ["object", "null"]},
+        "labels": {"type": "array", "items": {"type": "object"}}
+      },
+      "additionalProperties": false
+    },
+    "region": {
+      "type": "object",
+      "required": ["evidence_id", "region_id", "final_text", "text_source", "line_refs", "lines", "labels", "assignment_status"],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "region_id": {"type": "string", "minLength": 1},
+        "card_no": {"type": ["integer", "string", "null"]},
+        "bbox": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+        "layout": {"type": ["object", "string", "null"]},
+        "final_text": {"type": "string"},
+        "text_source": {"type": ["string", "null"]},
+        "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+        "lines": {"type": "array", "items": {"$ref": "#/$defs/line"}, "minItems": 1},
+        "labels": {"type": "array", "items": {"type": "object"}},
+        "assignment_status": {"enum": ["assigned", "mixed", "unassigned"]},
+        "visibility": {"type": ["object", "null"]},
+        "table": {"type": ["object", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "page": {
+      "type": "object",
+      "required": ["page_no", "regions", "unassigned_lines"],
+      "properties": {
+        "page_no": {"type": "integer", "minimum": 1},
+        "canvas_w": {"type": ["number", "null"]},
+        "canvas_h": {"type": ["number", "null"]},
+        "dpi": {"type": ["number", "null"]},
+        "parse_route": {"type": ["string", "null"]},
+        "parse_status": {"type": ["string", "null"]},
+        "regions": {"type": "array", "items": {"$ref": "#/$defs/region"}},
+        "unassigned_lines": {"type": "array", "items": {"$ref": "#/$defs/line"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}
