@@ -20,6 +20,7 @@ from rag.operational.contracts import (
     validate_integrated_input,
     validate_search_collections,
 )
+from rag.operational.policy import routing_field
 
 
 MAX_FINE_CHARS = 700
@@ -296,27 +297,27 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
 def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     coarse, fine = [], []
     meta = ad["document"]
+    source = meta["routing_metadata"].get("classification_source")
     routing_metadata = {
-        "product_group": {
-            "value": meta["routing_metadata"].get("product_group"),
-            "source": meta["routing_metadata"].get("classification_source"),
-            "status": "inferred",
-        },
-        "ad_type": {
-            "value": meta["routing_metadata"].get("ad_type"),
-            "source": meta["routing_metadata"].get("classification_source"),
-            "status": "inferred" if meta["routing_metadata"].get("ad_type") else "unknown",
-        },
-        "product_name_shown": {
-            "value": meta["routing_metadata"].get("product_name_shown"),
-            "source": meta["routing_metadata"].get("classification_source"),
-            "status": "inferred" if meta["routing_metadata"].get("product_name_shown") else "unknown",
-        },
-        "template_id": {
-            "value": meta["routing_metadata"].get("template_id"),
-            "source": "parser_template",
-            "status": "inferred" if meta["routing_metadata"].get("template_id") else "unknown",
-        },
+        "product_group": routing_field(
+            meta["routing_metadata"].get("product_group"), default_source=source
+        ),
+        "ad_type": routing_field(
+            meta["routing_metadata"].get("ad_type"), default_source=source
+        ),
+        "product_name_shown": routing_field(
+            meta["routing_metadata"].get("product_name_shown"), default_source=source
+        ),
+        "template_id": routing_field(
+            meta["routing_metadata"].get("template_id"),
+            default_source="parser_template",
+        ),
+        "product_subtype": routing_field(
+            meta["routing_metadata"].get("product_subtype"), default_source=source
+        ),
+        "media_type": routing_field(
+            meta["routing_metadata"].get("media_type"), default_source=source
+        ),
     }
     for page in ad["pages"]:
         for region in page["regions"]:

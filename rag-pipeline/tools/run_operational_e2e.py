@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
@@ -33,6 +35,12 @@ from rag.operational.contracts import (  # noqa: E402
     validate_integrated_input,
     validate_operational_result,
     validate_search_collections,
+)
+from rag.operational.policy import (  # noqa: E402
+    confirmed_template,
+    deterministic_facts,
+    enforce_review_policy,
+    require_confirmed_product_group,
 )
 from regulation_v2_catalog import load_template_candidate_rules  # noqa: E402
 
@@ -156,9 +164,68 @@ def evidence_documents(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
+def template_rule_doc(rule: dict[str, Any]) -> dict[str, Any]:
+    parts = [
+        rule.get("title"),
+        rule.get("question"),
+        rule.get("criterion"),
+        rule.get("example_text"),
+        rule.get("guide"),
+    ]
+    return {
+        "doc_id": rule["item_id"],
+        "item_id": rule["item_id"],
+        "category": rule["category"],
+        "category_label": rule["category_label"],
+        "product_groups": rule["product_groups"],
+        "product_subtype": rule.get("product_subtype"),
+        "title": rule["title"],
+        "question": rule["question"],
+        "criterion": rule["criterion"],
+        "search_text": " ".join(str(value).strip() for value in parts if str(value or "").strip()),
+        "search_text_variant": "v2-template",
+    }
+
+
+def top_rule_evidence(
+    item_id: str,
+    *,
+    rule_vector_by_id: dict[str, np.ndarray],
+    ad_fine_rows: list[dict[str, Any]],
+    fine_vector_by_id: dict[str, np.ndarray],
+    trigger_ids: list[str],
+    k: int,
+) -> list[str]:
+    """Select a small auditable evidence window for one rule."""
+    vector = rule_vector_by_id[item_id]
+    scored = sorted(
+        (
+            (
+                float(np.dot(vector, fine_vector_by_id[row["doc_id"]])),
+                str(row["doc_id"]),
+            )
+            for row in ad_fine_rows
+        ),
+        reverse=True,
+    )
+    ranked = [doc_id for _, doc_id in scored[:k]]
+    return list(dict.fromkeys([*trigger_ids, *ranked]))
+
+
 def t_rule_applies(rule: dict[str, Any], product_groups: list[str]) -> bool:
     allowed = set(rule.get("product_groups") or [])
     return "전체" in allowed or bool(allowed.intersection(product_groups))
+
+
+def automated_input_ready(rule: dict[str, Any]) -> bool:
+    """Whether the current integrated advertisement is sufficient for automation."""
+    required_medium = str(rule.get("required_medium") or "").strip()
+    input_requirement = str(rule.get("input_requirement") or "").strip()
+    return (
+        required_medium != "레이아웃"
+        and "랜딩캡처" not in input_requirement
+        and "원본형식" not in input_requirement
+    )
 
 
 def freeze_manifest(
@@ -225,7 +292,14 @@ def main() -> None:
     parser.add_argument("--rule-search-text-variant", choices=("core", "expanded"), default="core")
     parser.add_argument("--per-chunk-k", type=int, default=5)
     parser.add_argument("--rrf-k", type=int, default=60)
-    parser.add_argument("--batch-size", type=int, default=12)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--evidence-per-rule", type=int, default=3)
+    parser.add_argument("--prohibition-max-candidates", type=int, default=30)
+    parser.add_argument(
+        "--allow-provisional-routing",
+        action="store_true",
+        help="Debug only: fail open to both product groups when product_group is not confirmed.",
+    )
     parser.add_argument("--execute-judgment", action="store_true")
     parser.add_argument("--host", default=os.environ.get("DGX_HOST"))
     parser.add_argument(
@@ -273,7 +347,13 @@ def main() -> None:
     cd_rules = judgment_input.load_cd_rules()
     t_rules = load_template_candidate_rules()
     rule_by_id = {row["item_id"]: row for row in [*cd_rules, *t_rules]}
-    rule_docs = discovery.rule_docs(items, search_text_variant=args.rule_search_text_variant)
+    cd_rule_docs = discovery.rule_docs(
+        items, search_text_variant=args.rule_search_text_variant
+    )
+    rule_docs = [
+        *cd_rule_docs,
+        *(template_rule_doc(rule) for rule in t_rules),
+    ]
     model = discovery.load_model()
     rule_vectors, _, _ = discovery.load_or_encode(
         rule_docs,
@@ -298,11 +378,12 @@ def main() -> None:
     discovery.ensure_rule_index(
         args.es_url,
         args.es_index,
-        rule_docs,
-        rule_vectors,
+        cd_rule_docs,
+        rule_vectors[: len(cd_rule_docs)],
         source_sha=sha256(args.regulation),
     )
     fine_vector_by_id = {row["doc_id"]: vector for row, vector in zip(fine, fine_vectors)}
+    rule_vector_by_id = {row["item_id"]: vector for row, vector in zip(rule_docs, rule_vectors)}
 
     discovery_ads = []
     requests = []
@@ -310,27 +391,60 @@ def main() -> None:
     for ad_id in sorted(ads):
         route = discovery.routing_scope(coarse_by_ad[ad_id])
         route_context = routing_context(ads[ad_id], route)
-        candidate_groups = route["candidate_product_groups"]
+        if args.allow_provisional_routing:
+            candidate_groups = route["candidate_product_groups"]
+        else:
+            candidate_groups = [require_confirmed_product_group(route_context)]
+            route = {
+                **route,
+                "candidate_product_groups": candidate_groups,
+                "routing_provisional": False,
+                "hard_route": True,
+                "status": "routing_confirmed",
+            }
+            route_context["product_group"] = route
+        product_items = [
+            item for item in items if discovery.applicable_to_any(item, candidate_groups)
+        ]
+        deferred_input_rules = [
+            {
+                "item_id": item["id"],
+                "required_medium": item["필요매체"],
+                "input_requirement": item["입력요건"],
+                "reason": "current integrated advertisement lacks required external/layout input",
+            }
+            for item in product_items
+            if not automated_input_ready(rule_by_id[item["id"]])
+        ]
         enumerated = [
             {
                 "item_id": item["id"],
                 "category": item["category"],
                 "title": item["title"],
-                "discovery_method": "product_applicability_fail_open_enumeration",
+                "discovery_method": "confirmed_product_enumeration",
             }
-            for item in items
+            for item in product_items
             if item["category"] != "PROHIBIT"
-            and discovery.applicable_to_any(item, candidate_groups)
+            and automated_input_ready(rule_by_id[item["id"]])
         ]
+        template_value = confirmed_template(route_context)
         template_candidates = [
             {
                 "item_id": rule["item_id"],
                 "category": rule["category"],
                 "title": rule["title"],
-                "discovery_method": "template_rule_fail_open_enumeration",
+                "discovery_method": "confirmed_template_enumeration",
             }
             for rule in t_rules
+            if template_value
+            and t_rule_applies(rule, candidate_groups)
+            and rule.get("product_subtype") == template_value
+        ]
+        deferred_template_rules = [
+            rule["item_id"]
+            for rule in t_rules
             if t_rule_applies(rule, candidate_groups)
+            and rule.get("product_subtype") != template_value
         ]
         prohibitions = discovery.discover_prohibitions(
             fine_by_ad[ad_id],
@@ -342,28 +456,40 @@ def main() -> None:
             rrf_k=args.rrf_k,
             deterministic_item_ids=set(),
         )
-        retrieved_prohibition_ids = {row["item_id"] for row in prohibitions}
-        for item in items:
-            if (
-                item["category"] == "PROHIBIT"
-                and discovery.applicable_to_any(item, candidate_groups)
-                and item["id"] not in retrieved_prohibition_ids
-            ):
-                prohibitions.append({
-                    "item_id": item["id"],
-                    "title": item["title"],
-                    "product_groups": item["적용상품"],
-                    "discovery_method": "prohibition_fail_open_enumeration",
-                    "rank": None,
-                    "score": None,
-                    "trigger_evidence": [],
-                })
+        prohibitions = [
+            row
+            for row in prohibitions
+            if automated_input_ready(rule_by_id[row["item_id"]])
+        ][: args.prohibition_max_candidates]
         candidate_rows = [*enumerated, *template_candidates, *prohibitions]
         candidate_ids = list(dict.fromkeys(row["item_id"] for row in candidate_rows))
         missing_rule_defs = set(candidate_ids) - set(rule_by_id)
         if missing_rule_defs:
             raise RuntimeError(f"판정 정의가 없는 후보: {sorted(missing_rule_defs)}")
-        docs = evidence_documents(coarse_by_ad[ad_id])
+        fine_doc_by_id = {
+            row["doc_id"]: evidence_documents([row])[0]
+            for row in fine_by_ad[ad_id]
+        }
+        trigger_by_item = {
+            row["item_id"]: [
+                str((event.get("trigger") or {}).get("doc_id"))
+                for event in row.get("trigger_evidence") or []
+                if (event.get("trigger") or {}).get("doc_id") in fine_doc_by_id
+            ]
+            for row in prohibitions
+        }
+        evidence_by_item = {
+            item_id: top_rule_evidence(
+                item_id,
+                rule_vector_by_id=rule_vector_by_id,
+                ad_fine_rows=fine_by_ad[ad_id],
+                fine_vector_by_id=fine_vector_by_id,
+                trigger_ids=trigger_by_item.get(item_id, []),
+                k=args.evidence_per_rule,
+            )
+            for item_id in candidate_ids
+        }
+        facts = deterministic_facts(fine_by_ad[ad_id])
         category_to_rules: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
         for item_id in candidate_ids:
             category_to_rules[rule_by_id[item_id]["category"]].append(rule_by_id[item_id])
@@ -372,12 +498,26 @@ def main() -> None:
             for offset in range(0, len(category_rules), args.batch_size):
                 batch = category_rules[offset:offset + args.batch_size]
                 request_id = f"operational:{ad_id}:{category}:{offset // args.batch_size + 1}"
+                batch_evidence_ids = list(dict.fromkeys(
+                    evidence_id
+                    for rule in batch
+                    for evidence_id in evidence_by_item[rule["item_id"]]
+                ))
+                docs = [fine_doc_by_id[evidence_id] for evidence_id in batch_evidence_ids]
                 payload = {
                     "request_id": request_id,
                     "ad_id": ad_id,
                     "routing": route_context,
                     "parser_coverage": parser_coverage(ads[ad_id]),
                     "documents": docs,
+                    "evidence_scope": {
+                        rule["item_id"]: {
+                            "evidence_ids": evidence_by_item[rule["item_id"]],
+                            "complete_ad_scan": len(evidence_by_item[rule["item_id"]]) == len(fine_by_ad[ad_id]),
+                        }
+                        for rule in batch
+                    },
+                    "deterministic_facts": facts,
                     "rules": batch,
                 }
                 requests.append({
@@ -400,11 +540,15 @@ def main() -> None:
                 "fine": len(fine_by_ad[ad_id]),
                 "presence_and_style": len(enumerated),
                 "template_candidates": len(template_candidates),
+                "deferred_template_rules": len(deferred_template_rules),
+                "deferred_input_rules": len(deferred_input_rules),
                 "prohibition_candidates": len(prohibitions),
                 "judgment_candidates": len(candidate_ids),
             },
             "presence_and_style": enumerated,
             "template_candidates": template_candidates,
+            "deferred_template_rule_ids": deferred_template_rules,
+            "deferred_input_rules": deferred_input_rules,
             "prohibition_candidates": prohibitions,
         })
 
@@ -416,13 +560,18 @@ def main() -> None:
         "schema_version": DISCOVERY_VERSION,
         "gold_visible": False,
         "policy": {
-            "unverified_routing": "fail open to deposit+loan union; mark routing_provisional",
-            "template": "never a hard gate unless independently confirmed",
-            "presence_style": "enumerate all rules in candidate product union",
+            "unverified_routing": (
+                "reject before model execution unless --allow-provisional-routing is explicitly set"
+            ),
+            "template": "judge only the exact independently confirmed template; otherwise defer",
+            "presence_style": "enumerate automatable rules in the confirmed product group",
             "prohibition": "every fine ad chunk -> rule BM25+BGE-M3 -> RRF",
-            "prohibition_recall_guard": (
-                "hybrid retrieval ranks and traces rules; any product-applicable rule "
-                "not retrieved is still judged as a fail-open fallback"
+            "prohibition_recall_guard": "ranked candidates are capped and the cap is recorded",
+            "evidence": "rule-to-ad BGE-M3 top-k plus prohibition trigger evidence",
+            "absence": "a narrowed evidence window cannot prove absence; model must abstain",
+            "required_inputs": (
+                "rules requiring landing capture, layout, or original format are deferred "
+                "instead of being sent to the text judgment model"
             ),
             "labels": "trace/ranking only, never exclusion",
         },
@@ -474,6 +623,8 @@ def main() -> None:
         candidates = []
         for pair in sorted((pair for pair in requested_pairs if pair[0] == ad_id), key=lambda pair: pair[1]):
             result = model_results.get(pair)
+            if result:
+                result = enforce_review_policy(result)
             candidates.append({
                 "item_id": pair[1],
                 "status": "predicted" if result else "OUTPUT_FAILURE",
@@ -484,6 +635,16 @@ def main() -> None:
             "ad_id": ad_id,
             "routing": discovery_by_ad[ad_id]["routing"],
             "parser_coverage": discovery_by_ad[ad_id]["parser_coverage"],
+            "deferred_rules": [
+                *discovery_by_ad[ad_id]["deferred_input_rules"],
+                *(
+                    {
+                        "item_id": item_id,
+                        "reason": "template confirmation did not select this v2 section",
+                    }
+                    for item_id in discovery_by_ad[ad_id]["deferred_template_rule_ids"]
+                ),
+            ],
             "candidates": candidates,
         })
     final_result = {

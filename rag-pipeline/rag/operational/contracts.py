@@ -16,6 +16,7 @@ DISCOVERY_VERSION = "operational-discovery-v1"
 FREEZE_VERSION = "operational-e2e-freeze-v1"
 GEMMA_RESPONSE_VERSION = "gemma-exhaustive-response-v1"
 OPERATIONAL_RESULT_VERSION = "operational-e2e-result-v1"
+JOB_STATUS_VERSION = "operational-review-job-v1"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -176,6 +177,30 @@ def validate_judgment(value: Any) -> dict[str, Any]:
     return row
 
 
+def validate_job_status(value: Any) -> dict[str, Any]:
+    row = _mapping(value, "job status")
+    if row.get("schema_version") != JOB_STATUS_VERSION:
+        raise ContractError(f"schema_version must be {JOB_STATUS_VERSION!r}")
+    _text(row.get("job_id"), "job_id")
+    if row.get("status") not in {
+        "QUEUED",
+        "RUNNING",
+        "PLANNED",
+        "COMPLETED",
+        "COMPLETED_WITH_WARNINGS",
+        "INPUT_REQUIRED",
+        "FAILED",
+        "INTERRUPTED",
+    }:
+        raise ContractError("job status enum mismatch")
+    if not isinstance(row.get("attempt"), int) or row["attempt"] < 0:
+        raise ContractError("job attempt must be a non-negative integer")
+    _mapping(row.get("progress"), "job progress")
+    _text(row.get("created_at"), "created_at")
+    _text(row.get("updated_at"), "updated_at")
+    return row
+
+
 def validate_operational_result(value: Any) -> dict[str, Any]:
     root = _mapping(value, "operational result")
     if root.get("schema_version") != OPERATIONAL_RESULT_VERSION:
@@ -192,6 +217,18 @@ def validate_operational_result(value: Any) -> dict[str, Any]:
     for ad_raw in ads:
         ad = _mapping(ad_raw, "ads[]")
         ad_id = _text(ad.get("ad_id"), "ads[].ad_id")
+        if "deferred_rules" in ad:
+            deferred = _list(ad.get("deferred_rules"), "ads[].deferred_rules")
+            _unique(
+                (
+                    _text(
+                        _mapping(item, "ads[].deferred_rules[]").get("item_id"),
+                        "ads[].deferred_rules[].item_id",
+                    )
+                    for item in deferred
+                ),
+                "ads[].deferred_rules.item_id",
+            )
         for candidate_raw in _list(ad.get("candidates"), "ads[].candidates"):
             candidate = _mapping(candidate_raw, "candidate")
             item_id = _text(candidate.get("item_id"), "candidate.item_id")

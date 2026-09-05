@@ -68,6 +68,56 @@ python tools/run_operational_e2e.py `
 실행 전 `.env.example`을 참고해 환경변수를 설정한다. 내부 IP, 계정, SSH 키 경로는
 코드나 커밋에 넣지 않는다.
 
+## 운영 API
+
+운영에서는 긴 CLI가 끝날 때까지 HTTP 연결을 유지하지 않는다. 요청은 영속 작업으로
+저장하고 즉시 `202 + job_id`를 반환한다.
+
+```powershell
+python tools/serve_operational_api.py --host 0.0.0.0 --port 8088
+```
+
+```http
+POST /v1/reviews
+X-API-Key: <NH_RAG_API_TOKEN>
+Content-Type: application/json
+
+{
+  "schema_version": "operational-review-request-v1",
+  "client_request_id": "external-request-001",
+  "document": { "contract": { "version": "nh-ad-review-integrated-input-v1" } },
+  "routing_overrides": { "product_group": "예금성" },
+  "execute_model": true
+}
+```
+
+- `GET /v1/reviews/{job_id}`: 진행 상태
+- `GET /v1/reviews/{job_id}/result`: 완료 결과
+- `POST /v1/reviews/{job_id}/retry`: 중단·실패 작업 재시도
+- `GET /health`: 프로세스와 v2 파일 준비 상태
+
+서버 재시작 중이던 작업은 `INTERRUPTED`로 복구되며 명시적 재시도가 가능하다. 모델
+출력 일부가 계약을 위반하면 정상 쌍을 보존하고 누락 쌍만 1회 소배치 재호출한다.
+같은 `client_request_id`와 동일 입력을 다시 보내면 기존 job을 반환하고, 다른 입력으로
+키를 재사용하면 거부한다. 작업 timeout은 기본 30분이며 전체 시도는 최대 3회다.
+
+### 운영 후보·판정 게이트
+
+- `product_group`은 `confirmed|verified|provided` 상태만 하드 필터로 사용한다. 없으면
+  모델을 호출하지 않고 입력 보완으로 종료한다.
+- T 규칙은 확인된 `template_id` 또는 `product_subtype`과 정확히 일치하는 섹션만
+  판정하고 나머지는 `deferred_template_rule_ids`에 남긴다.
+- 표시의무·양식은 확인 상품군의 v2 규칙을 전개하되 규칙별 BGE-M3 상위 근거만
+  모델에 보낸다. 축소 창은 광고 전체 부재의 증명이 아니므로 `MISSING` 확정을 금지한다.
+- 랜딩 캡처·레이아웃·원본형식이 필요한 규칙은 현재 텍스트 모델로 판정하지 않고
+  `deferred_input_rules`로 분리한다.
+- 금지 규칙은 광고 fine 청크에서 v2 규칙을 BM25+BGE-M3로 검색하고 RRF로 결합한다.
+  후보 상한과 검색 흔적을 결과에 남긴다.
+- 심의필 자리표시, 불릿 종류, 날짜 표현은 광고 전체 텍스트에서 기계 관측값으로
+  제공해 형식 차이만으로 위반을 만드는 것을 차단한다.
+- 모델 confidence는 보정된 확률이 아니다. 모든 `VIOLATION`과 `UNDETERMINED`는
+  자동 확정하지 않고 연구원 검토 대상으로 보낸다.
+
 ### 4. 계약 미충족 모델 출력만 소배치 복구한다
 
 모델 호출이 끝났지만 일부 광고-규칙 쌍이 출력 계약을 통과하지 못했다면 전체 광고를

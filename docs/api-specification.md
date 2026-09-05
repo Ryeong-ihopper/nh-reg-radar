@@ -6,12 +6,13 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.24 |
-| 기준일 | 2026-09-05 |
+| 현행 버전 | v1.25 |
+| 기준일 | 2026-09-06 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.25 | 2026-09-06 | 독립 RAG 정본에 토큰 인증, 비동기 접수·상태·결과·재시도 운영 API 계약을 추가 |
 | v1.24 | 2026-09-05 | 독립 `rag-pipeline/` 정본은 CLI·파일 계약만 제공하며 현행 제품 API와 OpenAPI를 변경하지 않는 경계를 명시 |
 | v1.23 | 2026-07-23 | Q&A를 검토별 대화 세션으로 범위 지정하고 질문·세션·생성시각을 반환하며, 이력 조회는 `reviewId`로 현재 검토만 복원하도록 정정 |
 | v1.22 | 2026-07-23 | refresh token rotation 응답도 로그인 사용자 컨텍스트를 반환하도록 정정해 새로고침 세션 복원 시 보호 화면 렌더링 계약을 일치 |
@@ -2793,6 +2794,30 @@ OpenAPI v0.8.0은 기존 M0~M7 operation을 보존하고 `POST /api/v1/advertise
 | 감사 로그 | 주요 변경 행위가 로그로 저장되는지 검증 |
 
 ---
+
+## 20.1 독립 RAG 내부 운영 API
+
+이 API는 현행 제품 OpenAPI에 암묵적으로 결합하지 않는 내부 서비스 계약이다. 외부 제품
+backend는 필요할 때 이 API를 adapter로 호출하며, 파서 이후 통합 입력 전문과 확인된
+상품군을 전달한다.
+
+| 메서드·경로 | 응답 | 설명 |
+| --- | --- | --- |
+| `GET /health` | 200 | 프로세스와 규제목록 v2 파일 준비 상태 |
+| `POST /v1/reviews` | 202 | `operational-review-request-v1` 접수 후 `job_id` 즉시 반환 |
+| `GET /v1/reviews/{job_id}` | 200 | `QUEUED/RUNNING/PLANNED/COMPLETED/COMPLETED_WITH_WARNINGS/INPUT_REQUIRED/FAILED/INTERRUPTED` 조회 |
+| `GET /v1/reviews/{job_id}/result` | 200/422 | 완료 결과 또는 아직 준비되지 않은 상태 반환 |
+| `POST /v1/reviews/{job_id}/retry` | 202 | 종결·중단 작업을 같은 동결 입력으로 새 attempt 실행 |
+
+`POST /v1/reviews`는 `X-API-Key`를 요구하고 최대 본문은 25 MiB다. 운영에서는
+`NH_RAG_API_TOKEN`이 없으면 서버가 시작되지 않는다. `--allow-unauthenticated`는 로컬
+개발에서만 명시적으로 사용할 수 있다. 입력에는 `nh-ad-review-integrated-input-v1`
+전문과 `routing_overrides.product_group`의 예금성·대출성 확인값이 필요하다. 모델 출력
+계약 실패는 최대 한 차례 누락 쌍만 소배치 복구하며 남은 실패를 성공으로 가장하지 않고
+`COMPLETED_WITH_WARNINGS`로 노출한다.
+같은 `client_request_id`와 동일 입력의 중복 요청은 기존 job을 반환한다. 다른 입력으로
+같은 키를 재사용하면 422로 거부한다. 단일 시도 timeout은 기본 30분이고 전체 attempt는
+최대 3회다.
 
 # 21. 후속 상세화 필요사항
 

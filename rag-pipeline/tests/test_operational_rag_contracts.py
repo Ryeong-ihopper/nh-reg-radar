@@ -4,6 +4,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
@@ -192,6 +194,33 @@ class ModelContractTests(unittest.TestCase):
         self.assertTrue(gemma.logical_request_complete(request, valid_rows))
         self.assertFalse(gemma.logical_request_complete(request, list(reversed(valid_rows))))
 
+    def test_narrow_window_cannot_prove_missing(self):
+        row = request_row(["C-1"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload["evidence_scope"] = {
+            "C-1": {"evidence_ids": ["E-1"], "complete_ad_scan": False}
+        }
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        invalid = result("C-1")
+        invalid["verdict"] = "VIOLATION"
+        invalid["requirement_checks"][0]["status"] = "MISSING"
+        errors = gemma.validate(row, {"ad_id": "AD-X", "results": [invalid]})
+        self.assertTrue(any("축소 근거 창" in error for error in errors))
+
+    def test_deterministic_review_number_blocks_missing_claim(self):
+        row = request_row(["C-1"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload["rules"] = [
+            {"item_id": "C-1", "title": "심의필번호 표시", "criterion": "번호 확인"}
+        ]
+        payload["deterministic_facts"] = {"review_number_present": True}
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        invalid = result("C-1")
+        invalid["verdict"] = "VIOLATION"
+        invalid["requirement_checks"][0]["status"] = "MISSING"
+        errors = gemma.validate(row, {"ad_id": "AD-X", "results": [invalid]})
+        self.assertTrue(any("관측값" in error for error in errors))
+
 
 class OperationalSelectionTests(unittest.TestCase):
     def test_ad_id_filter_is_applied_before_input_set_validation(self):
@@ -217,6 +246,43 @@ class OperationalSelectionTests(unittest.TestCase):
         context = operational.routing_context(ad, product_route)
         self.assertEqual(context["template_id"]["value"], "적립식")
         self.assertEqual(context["template_id"]["status"], "inferred")
+
+    def test_rule_evidence_is_narrowed_and_deterministic(self):
+        rows = [
+            {"doc_id": "E-1"},
+            {"doc_id": "E-2"},
+            {"doc_id": "E-3"},
+        ]
+        selected = operational.top_rule_evidence(
+            "C-1",
+            rule_vector_by_id={"C-1": np.array([1.0, 0.0])},
+            ad_fine_rows=rows,
+            fine_vector_by_id={
+                "E-1": np.array([0.1, 0.9]),
+                "E-2": np.array([0.8, 0.2]),
+                "E-3": np.array([0.4, 0.6]),
+            },
+            trigger_ids=["E-1"],
+            k=1,
+        )
+        self.assertEqual(selected, ["E-1", "E-2"])
+
+    def test_rules_requiring_unavailable_inputs_are_deferred(self):
+        self.assertFalse(
+            operational.automated_input_ready(
+                {"required_medium": "레이아웃", "input_requirement": "광고물"}
+            )
+        )
+        self.assertFalse(
+            operational.automated_input_ready(
+                {"required_medium": "텍스트", "input_requirement": "광고물+랜딩캡처"}
+            )
+        )
+        self.assertTrue(
+            operational.automated_input_ready(
+                {"required_medium": "텍스트", "input_requirement": "광고물"}
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Operational advertisement review job v1",
+  "type": "object",
+  "required": [
+    "schema_version", "job_id", "status", "created_at", "updated_at",
+    "attempt", "progress"
+  ],
+  "properties": {
+    "schema_version": {"const": "operational-review-job-v1"},
+    "job_id": {"type": "string", "format": "uuid"},
+    "status": {
+      "enum": [
+        "QUEUED", "RUNNING", "PLANNED", "COMPLETED",
+        "COMPLETED_WITH_WARNINGS", "INPUT_REQUIRED", "FAILED", "INTERRUPTED"
+      ]
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "attempt": {"type": "integer", "minimum": 0, "maximum": 3},
+    "progress": {"type": "object"},
+    "result_file": {"type": "string"},
+    "error": {"type": ["object", "null"]},
+    "idempotent_replay": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

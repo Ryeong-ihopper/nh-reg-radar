@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Operational advertisement review request v1",
+  "type": "object",
+  "required": ["schema_version", "document", "routing_overrides"],
+  "properties": {
+    "schema_version": {"const": "operational-review-request-v1"},
+    "client_request_id": {"type": ["string", "null"]},
+    "document": {"$ref": "nh-ad-review-integrated-input-v1.schema.json"},
+    "routing_overrides": {
+      "type": "object",
+      "required": ["product_group"],
+      "properties": {
+        "product_group": {"enum": ["예금성", "대출성"]},
+        "product_subtype": {"type": ["string", "null"]},
+        "template_id": {"type": ["string", "null"]},
+        "ad_type": {"type": ["string", "null"]},
+        "product_name_shown": {"type": ["string", "null"]},
+        "media_type": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "execute_model": {"type": "boolean", "default": true}
+  },
+  "additionalProperties": false
+}

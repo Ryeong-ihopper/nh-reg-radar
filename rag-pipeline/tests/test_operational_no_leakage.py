@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_FILES = (
     ROOT / "rag/operational/contracts.py",
     ROOT / "rag/operational/prepare_inputs.py",
+    ROOT / "rag/operational/policy.py",
+    ROOT / "rag/operational/service.py",
     ROOT / "rag/build_items.py",
     ROOT / "tools/build_ad_evidence_vectors.py",
     ROOT / "tools/build_silver_requests.py",
@@ -19,11 +21,13 @@ RUNTIME_FILES = (
     ROOT / "tools/regulation_v2_catalog.py",
     ROOT / "tools/run_gemma_exhaustive_dgx.py",
     ROOT / "tools/run_operational_e2e.py",
+    ROOT / "tools/serve_operational_api.py",
 )
 ENTRYPOINT_FILES = (
     ROOT / "tools/run_operational_e2e.py",
     ROOT / "tools/hybrid_rule_retrieval.py",
     ROOT / "tools/run_gemma_exhaustive_dgx.py",
+    ROOT / "tools/serve_operational_api.py",
 )
 
 FORBIDDEN_RUNTIME_REFERENCES = (

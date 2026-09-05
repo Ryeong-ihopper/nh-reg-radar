@@ -75,6 +75,11 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any]) -> list[str]:
     allowed_ids = {doc["evidence_id"] for doc in payload["documents"]}
     allowed_refs = {ref for doc in payload["documents"] for ref in doc["line_refs"]}
     rules_by_id = {rule["item_id"]: rule for rule in payload.get("rules", [])}
+    evidence_scope = payload.get("evidence_scope") or {}
+    deterministic_facts = payload.get("deterministic_facts") or {}
+    document_by_id = {
+        str(document["evidence_id"]): document for document in payload["documents"]
+    }
     for result_index, row in enumerate(results):
         if not isinstance(row, dict):
             errors.append(f"results[{result_index}]가 객체가 아님: {type(row).__name__}")
@@ -120,6 +125,11 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any]) -> list[str]:
         if applicability_basis == "ADVERTISEMENT_EVIDENCE" and not (app_ids or app_refs):
             errors.append(f"{item_id}: 광고 근거 없는 ADVERTISEMENT_EVIDENCE")
         rule = rules_by_id.get(item_id) or {}
+        item_scope = (
+            evidence_scope.get(item_id)
+            if isinstance(evidence_scope, dict)
+            else None
+        )
         routing = payload.get("routing") or {}
         confirmed_statuses = {"confirmed", "verified", "provided"}
         if applicability_basis == "CONFIRMED_METADATA":
@@ -160,6 +170,17 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any]) -> list[str]:
             errors.append(f"{item_id}: 제공 밖 evidence_id")
         if not isinstance(evidence_refs, list) or set(evidence_refs) - allowed_refs:
             errors.append(f"{item_id}: 제공 밖 line_ref")
+        if isinstance(item_scope, dict):
+            scoped_ids = set(map(str, item_scope.get("evidence_ids") or []))
+            scoped_refs = {
+                str(ref)
+                for evidence_id in scoped_ids
+                for ref in document_by_id.get(evidence_id, {}).get("line_refs") or []
+            }
+            if evidence_id_values - scoped_ids:
+                errors.append(f"{item_id}: 규칙별 evidence_scope 밖 evidence_id")
+            if isinstance(evidence_refs, list) and set(map(str, evidence_refs)) - scoped_refs:
+                errors.append(f"{item_id}: 규칙별 evidence_scope 밖 line_ref")
         if not str(row.get("reason") or "").strip():
             errors.append(f"{item_id}: reason 없음")
         checks = row.get("requirement_checks")
@@ -197,6 +218,28 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any]) -> list[str]:
             status in {"MISSING", "VIOLATED"} for status in check_statuses
         ):
             errors.append(f"{item_id}: 위반 구성요소 없이 VIOLATION")
+        if (
+            isinstance(item_scope, dict)
+            and item_scope.get("complete_ad_scan") is not True
+            and "MISSING" in check_statuses
+        ):
+            errors.append(f"{item_id}: 축소 근거 창으로 광고 전체 부재 확정")
+        rule_text = " ".join(
+            str(rule.get(name) or "")
+            for name in ("title", "question", "criterion")
+        )
+        if (
+            deterministic_facts.get("review_number_present") is True
+            and ("심의필" in rule_text or "심사필" in rule_text)
+            and "MISSING" in check_statuses
+        ):
+            errors.append(f"{item_id}: 심의필 번호 관측값과 MISSING 충돌")
+        if (
+            int(deterministic_facts.get("bullet_marker_count") or 0) > 0
+            and ("구분기호" in rule_text or "말머리기호" in rule_text)
+            and "MISSING" in check_statuses
+        ):
+            errors.append(f"{item_id}: 불릿 관측값과 MISSING 충돌")
     return errors
 
 

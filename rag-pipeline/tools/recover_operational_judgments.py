@@ -24,6 +24,7 @@ from rag.operational.contracts import (  # noqa: E402
     OPERATIONAL_RESULT_VERSION,
     validate_operational_result,
 )
+from rag.operational.policy import enforce_review_policy  # noqa: E402
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -124,6 +125,8 @@ def finalize(args: argparse.Namespace) -> None:
         candidates = []
         for pair in pairs:
             result = model_results.get(pair)
+            if result:
+                result = enforce_review_policy(result)
             candidates.append(
                 {
                     "item_id": pair[1],
@@ -138,6 +141,16 @@ def finalize(args: argparse.Namespace) -> None:
                 "ad_id": ad_id,
                 "routing": discovered["routing"],
                 "parser_coverage": discovered["parser_coverage"],
+                "deferred_rules": [
+                    *discovered.get("deferred_input_rules", []),
+                    *(
+                        {
+                            "item_id": item_id,
+                            "reason": "template confirmation did not select this v2 section",
+                        }
+                        for item_id in discovered.get("deferred_template_rule_ids", [])
+                    ),
+                ],
                 "candidates": candidates,
             }
         )

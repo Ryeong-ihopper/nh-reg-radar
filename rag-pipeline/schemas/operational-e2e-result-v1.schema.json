@@ -28,6 +28,20 @@
           "ad_id": {"type": "string", "minLength": 1},
           "routing": {"type": "object"},
           "parser_coverage": {"enum": ["READY", "PARTIAL"]},
+          "deferred_rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item_id", "reason"],
+              "properties": {
+                "item_id": {"type": "string", "minLength": 1},
+                "reason": {"type": "string", "minLength": 1},
+                "required_medium": {"type": ["string", "null"]},
+                "input_requirement": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            }
+          },
           "candidates": {
             "type": "array",
             "items": {

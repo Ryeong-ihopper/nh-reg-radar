@@ -7,6 +7,7 @@ MODEL_PATHS = (
     ROOT / "tools/build_ad_evidence_vectors.py",
     ROOT / "tools/hybrid_rule_retrieval.py",
     ROOT / "tools/run_operational_e2e.py",
+    ROOT / "rag/operational/service.py",
 )
 CONNECTION_PATHS = (
     ROOT / "tools/dgx_bge_client.py",
@@ -14,6 +15,8 @@ CONNECTION_PATHS = (
     ROOT / "tools/run_gemma_exhaustive_dgx.py",
     ROOT / "tools/run_operational_e2e.py",
     ROOT / "tools/start_runtime_tunnels.ps1",
+    ROOT / "rag/operational/service.py",
+    ROOT / "tools/serve_operational_api.py",
 )
 
 
