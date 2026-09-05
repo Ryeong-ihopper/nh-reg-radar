@@ -25,6 +25,17 @@ _cleanup/
 
 *.log
 
+# Local runtime configuration and model/index caches
+.env
+.env.*
+!.env.example
+*.f16.npy
+*.f32.npy
+*.checkpoint.json
+
+# Local scratch files are not part of the canonical pipeline.
+scratch_*.txt
+
 # 고객 상품명·심의 지적이 매핑 키로 박힌 1회성 정답셋 생성기 — 공개 저장소에 두지 않는다
 # (산출물 ad_gold*.json 은 output/ 아래라 이미 제외됨)
 rag/build_ad_gold.py
