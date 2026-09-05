@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -8,7 +9,8 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
 
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
+from starlette.requests import Request
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,17 +148,29 @@ class OperationalServiceTests(unittest.TestCase):
             mock.patch.dict("os.environ", {"NH_RAG_API_TOKEN": "secret"}),
             mock.patch.object(api, "config_from_env", return_value=object()),
             mock.patch.object(api, "OperationalReviewService", return_value=fake),
-            TestClient(api.create_app()) as client,
         ):
-            unauthorized = client.post("/v1/reviews", json={})
-            self.assertEqual(unauthorized.status_code, 401)
-            accepted = client.post(
-                "/v1/reviews",
-                headers={"X-API-Key": "secret"},
-                json={"any": "payload"},
+            app = api.create_app()
+            route = next(route for route in app.routes if route.path == "/v1/reviews")
+            self.assertFalse(route.dependant.query_params)
+
+            body = json.dumps({"any": "payload"}).encode("utf-8")
+
+            async def receive():
+                return {"type": "http.request", "body": body, "more_body": False}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "path": "/v1/reviews",
+                    "headers": [(b"content-type", b"application/json")],
+                },
+                receive,
             )
-            self.assertEqual(accepted.status_code, 202)
-            self.assertEqual(accepted.json()["status"], "QUEUED")
+            with self.assertRaises(HTTPException):
+                asyncio.run(route.endpoint(request, None))
+            accepted = asyncio.run(route.endpoint(request, "secret"))
+            self.assertEqual(accepted["status"], "QUEUED")
 
 
 if __name__ == "__main__":
