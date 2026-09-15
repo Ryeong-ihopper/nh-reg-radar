@@ -1,6 +1,6 @@
 {
   "parser_base_commit": "f27b2638135b6337cac6297c2e0cd8e0c44b2e8b",
-  "sha256": "d578cf5502b061b91c8cfa304a555683d2c46e029af40e6a12a7d0e9b0d1f033",
+  "sha256": "669bf021ccb3342561ba5044ab9d76ba3e32be6464101256ae632324b4b6edf9",
   "files": [
     "src/nh_parser/pipeline.py",
     "src/nh_parser/review/export.py",

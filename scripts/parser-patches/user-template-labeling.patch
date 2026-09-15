@@ -123,7 +123,7 @@ index e13c940..02c5a3a 100644
                  needs_review_regions += 1
              region["text_evidence"] = {
 diff --git a/src/nh_parser/review/labeling.py b/src/nh_parser/review/labeling.py
-index fa08468..0a16b2a 100644
+index fa08468..1957aa9 100644
 --- a/src/nh_parser/review/labeling.py
 +++ b/src/nh_parser/review/labeling.py
 @@ -3,11 +3,14 @@
@@ -212,7 +212,24 @@ index fa08468..0a16b2a 100644
                      ],
                      "additionalProperties": False,
                  },
-@@ -235,20 +260,50 @@ def label_regions(
+@@ -142,6 +167,16 @@ def _fixed_phrases(template: dict[str, Any]) -> list[tuple[str, str]]:
+     return values
+
+
++def _explicit_labels(text: str, gubuns: set[str]) -> set[str]:
++    # OCR은 여러 표 셀을 한 줄로 반환할 수 있다. 첫 표제만 우선하면 같은 줄의
++    # 다른 필드 라벨까지 지워지므로, 명시적으로 구분된 필드를 모두 확인한다.
++    # 항목명 단순 언급은 기존 _explicit_label 기준을 통과하지 못한다.
++    return {
++        label for field in re.split(r"[|｜;；]", text)
++        if (label := _explicit_label(field, gubuns)) is not None
++    }
++
++
+ def _state() -> dict[str, Any]:
+     return {"sources": set(), "confidences": [], "reasons": []}
+
+@@ -235,20 +270,50 @@ def label_regions(
          for region in page.get("regions") or []
          if region.get("lines") and not region.get("is_illustrative")
      }
@@ -264,7 +281,7 @@ index fa08468..0a16b2a 100644
 
  구분값과 원본 템플릿 예시:
  {_definitions(template)}
-@@ -265,25 +320,35 @@ def label_regions(
+@@ -265,25 +330,35 @@ def label_regions(
              )
          except Exception as exc:
              notes.append(f"구분값 VLM 판정 실패({','.join(region_ids)}): {exc}")
@@ -309,16 +326,27 @@ index fa08468..0a16b2a 100644
                  _add(line_states[index], label, "semantic_vlm", confidence, reason)
 
      # VLM 뒤에 결정론적 근거를 적용한다. 명시적인 표제 줄에서는 다른 VLM 라벨을
-@@ -291,6 +356,8 @@ def label_regions(
+@@ -291,13 +366,16 @@ def label_regions(
      for region_id, region in region_index.items():
          line_states = states_by_region[region_id]
          for index, line in enumerate(region.get("lines") or []):
 +            if _uncertain_line(line):
 +                continue
              text = str(line.get("text") or "")
-             explicit = _explicit_label(text, gubun_set)
+-            explicit = _explicit_label(text, gubun_set)
++            explicit = _explicit_labels(text, gubun_set)
              if explicit:
-@@ -312,4 +379,5 @@ def label_regions(
+                 for other in list(line_states[index]):
+-                    if other != explicit and line_states[index][other]["sources"] == {"semantic_vlm"}:
++                    if other not in explicit and line_states[index][other]["sources"] == {"semantic_vlm"}:
+                         del line_states[index][other]
+-                _add(line_states[index], explicit, "explicit_heading", 1.0, "줄의 명시 표제")
++                for label in sorted(explicit):
++                    _add(line_states[index], label, "explicit_heading", 1.0, "줄의 명시 표제")
+             normalized = _norm(text)
+             for label, phrase in fixed_phrases:
+                 if phrase in normalized:
+@@ -312,4 +390,5 @@ def label_regions(
          "template_id": template_id,
          "by_region": by_region,
          "notes": notes,
@@ -347,10 +375,20 @@ index b07c1bb..72dfa74 100644
      values: list[str] = []
      for page in doc.get("pages") or []:
 diff --git a/tests/test_review_labeling.py b/tests/test_review_labeling.py
-index d43cea5..1815c15 100644
+index d43cea5..92710d8 100644
 --- a/tests/test_review_labeling.py
 +++ b/tests/test_review_labeling.py
-@@ -29,8 +29,7 @@ def test_vlm_span과_명시표제를_병합하고_잘못된_표제라벨은_제
+@@ -1,4 +1,9 @@
++import copy
++
++import pytest
++
+ from nh_parser.review import labeling
++from nh_parser.review.export import build_evidence, build_review_input
+
+
+ def _document() -> dict:
+@@ -29,8 +34,7 @@ def test_vlm_span과_명시표제를_병합하고_잘못된_표제라벨은_제
          assert "대출한도" not in allowed
          return {"verdicts": [{
              "region_id": "p1_r000",
@@ -360,6 +398,59 @@ index d43cea5..1815c15 100644
              "gubun": "가입금액",
              "confidence": 0.8,
              "reason": "기간과 납입액 영역",
+@@ -52,3 +56,52 @@ def test_템플릿_미확정이면_원문을_건드리지_않고_라벨링을_
+
+     assert result["status"] == "skipped"
+     assert result["by_region"] == {}
++
++
++@pytest.mark.parametrize("separator", [" | ", "｜", "; ", "；"])
++@pytest.mark.parametrize("model_labels", [[], ["회사명", "상품명", "대출금리"]])
++def test_compound_heading_preserves_each_field_on_the_same_source_line(monkeypatch, separator, model_labels):
++    raw = _document()
++    raw["pages"][0]["regions"][0]["lines"] = [
++        {"text": "회사명: 한빛은행" + separator + "상품명: 첫걸음 대출"},
++    ]
++    before = copy.deepcopy(raw)
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", lambda *a, **k: {"verdicts": [
++        {"region_id": "p1_r000", "line_ids": [0], "gubun": label, "confidence": .9, "reason": "field"}
++        for label in model_labels
++    ]})
++    resolution = {"template_id": "대출성상품-상품명 노출", "source": "user_provided"}
++    result = labeling.label_regions(raw, resolution)
++    p1 = build_evidence(raw, resolution, result)
++    p3 = build_review_input(p1)
++    for region, key in ((p1["pages"][0]["regions"][0], "template_labels"),
++                        (p3["pages"][0]["regions"][0], "labels")):
++        labels = {entry["label"]: entry for entry in region[key]}
++        assert set(labels) == {"회사명", "상품명"}
++        for entry in labels.values():
++            assert len(entry["spans"]) == 1
++            assert entry["spans"][0]["line_refs"] == ["p1/p1_r000/L000"]
++            assert "explicit_heading" in entry["spans"][0]["sources"]
++    assert raw == before
++
++
++@pytest.mark.parametrize("text,expected", [
++    ("대출금리: 연 5.2% | 부대비용: 없음", {"대출금리", "부대비용"}),
++    ("대출금리: 연 5.2% | 상품명으로 검색", {"대출금리"}),
++    ("상품명을 검색하세요 | 회사명 입력", set()),
++    ("적용 회사명과 상품명은 약관에서 확인", set()),
++    ("가입기간: 18개월 | 상품명: 첫걸음 대출", {"상품명"}),
++])
++def test_explicit_fields_do_not_promote_mentions_or_labels_outside_template(text, expected):
++    assert labeling._explicit_labels(text, {"회사명", "상품명", "대출금리", "부대비용"}) == expected
++
++
++def test_compound_heading_on_uncertain_source_stays_in_human_review(monkeypatch):
++    raw = _document()
++    raw["pages"][0]["regions"][0]["lines"] = [
++        {"text": "대출금리: 연 5.2% | 부대비용: 없음", "source": "ocr", "confidence": .1},
++    ]
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", lambda *a, **k: {"verdicts": []})
++    result = labeling.label_regions(raw, {"template_id": "대출성상품-상품명 노출"})
++    assert result["by_region"]["p1_r000"] == []
++    assert result["needs_review_regions"] == ["p1_r000"]
 diff --git a/tools/parse.py b/tools/parse.py
 index 4b56ed1..b9364b6 100644
 --- a/tools/parse.py
