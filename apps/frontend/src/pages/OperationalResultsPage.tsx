@@ -106,7 +106,7 @@ export function OperationalResultsPage() {
     return () => cancelAnimationFrame(frame);
   }, [active, pageNo, previewUrl, currentBoxes, followEvidence, zoom]);
 
-  const reviewState = counts.violation > 0 ? "위반 항목 확인 필요" : counts.unknown > 0 ? "판단불가 항목 확인 필요" : "자동 검토 완료";
+  const reviewState = counts.violation > 0 ? "위반 항목 확인 필요" : counts.unknown > 0 ? "판단불가 항목 확인 필요" : reviewCandidateRows.length || deferred.some(row => row.deferred_kind !== "OTHER_TEMPLATE") ? "사람 검토 항목 확인 필요" : "자동 검토 완료";
 
   return <section className="single-review" aria-label="AI 검토 결과">
     <WorkflowSteps current={4} advertisementId={adId} reviewId={reviewId} />
@@ -163,7 +163,7 @@ export function OperationalResultsPage() {
         {deferred.length ? <details className="panel-note"><summary>판정 미실행 항목 {deferred.length}건 · 사유 구분</summary>
           <p>다른 템플릿 범위 {deferred.filter(row => row.deferred_kind === "OTHER_TEMPLATE").length}건 · 입력·구조 확인 필요 {deferred.filter(row => row.deferred_kind === "INPUT_OR_STRUCTURE").length}건 · 추가 검색 실행 한도 {deferred.filter(row => row.deferred_kind === "EXECUTION_BUDGET").length}건</p>
           <p>실행 한도로 보류된 항목은 미해당이나 충족으로 판정된 것이 아닙니다.</p>
-          <ul>{deferred.map((row, index) => <li key={`${row.scope_id}:${row.item_id}:${index}`}>{row.item_id} · {row.deferred_kind === "OTHER_TEMPLATE" ? "선택한 상세 상품군의 템플릿 범위 밖" : row.deferred_kind === "EXECUTION_BUDGET" ? "추가 검색 실행 한도로 미판정" : "입력 또는 원문 구조 확인 필요"}</li>)}</ul>
+          <ul>{deferred.map((row, index) => <li key={`${row.scope_id}:${row.item_id}:${index}`}>{row.item_id} · {row.reason.startsWith("시인성은 사람 검토") ? row.reason : row.deferred_kind === "OTHER_TEMPLATE" ? "선택한 상세 상품군의 템플릿 범위 밖" : row.deferred_kind === "EXECUTION_BUDGET" ? "추가 검색 실행 한도로 미판정" : "입력 또는 원문 구조 확인 필요 · 사람 검토"}</li>)}</ul>
         </details> : null}
         </div>
       </div>

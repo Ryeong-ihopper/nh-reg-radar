@@ -14,6 +14,12 @@ VERSION = "reading-quality-gate-v1"
 
 
 def needs_reading_review(value: dict[str, Any]) -> bool:
+    texts = [value.get(key) for key in ('final_text', 'text_canonical', 'text', 'selected_text')]
+    texts.extend((value.get('line_texts') or {}).values())
+    # Only objective decoding damage is detected here. Plausible but wrong
+    # OCR words still require parser uncertainty flags or a human inspection.
+    if any(isinstance(text, str) and ('\ufffd' in text or '\x00' in text) for text in texts):
+        return True
     selection = value.get("text_selection", {})
     if not isinstance(selection, dict):
         return True

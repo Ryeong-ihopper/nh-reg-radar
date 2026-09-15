@@ -500,9 +500,15 @@ def _selected_text_line_refs(region: dict[str, Any]) -> list[str] | None:
 
 def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
     is_table = _is_table_region(region)
+    selected_refs = _selected_text_line_refs(region)
+    exact_original = compact("".join(str(line.get("text") or "") for line in region["lines"])) == compact(region["final_text"])
+    # When P3 selects a unique subset of whole P1 lines, keep their real
+    # coordinates, character spans and table rows instead of losing them in
+    # the region-text fallback. Omitted lines must not label every fine view.
+    selected_lines = [line for line in region["lines"] if line["line_ref"] in selected_refs] if selected_refs else region["lines"]
     line_parts = [
         part
-        for line in region["lines"]
+        for line in selected_lines
         for part in _split_parts(line, split_bullets=not is_table)
     ]
     line_text = "".join(part["text"] for part in line_parts)
@@ -525,7 +531,6 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
                     "char_end": end,
                 })
         parts = raw_parts
-        selected_refs = _selected_text_line_refs(region)
         evidence_refs = selected_refs or region["line_refs"]
         span_status = (
             "selected_text_line_aligned" if selected_refs
@@ -534,7 +539,7 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
     else:
         parts = line_parts
         evidence_refs = None
-        span_status = "parser_line_exact"
+        span_status = "parser_line_exact" if exact_original else "selected_text_line_aligned"
     if parts is not line_parts:
         # 선택 텍스트를 직접 쪼갠 경로에는 라인 bbox가 없어 행 복원이 불가능하다.
         is_table = False
@@ -593,11 +598,29 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
             "line_spans": [
                 {"line_ref": part["line_ref"], "char_start": part["char_start"], "char_end": part["char_end"]}
                 for part in group
-            ] if span_status == "parser_line_exact" else [],
+            ] if parts is line_parts else [],
         })
     if compact("".join(row["text_canonical"] for row in rows)) != compact(region["final_text"]):
         raise ValueError(f"fine views lost characters: {region['evidence_id']}")
     return rows
+
+
+def _labels_for_refs(region: dict[str, Any], refs: list[str]) -> list[dict[str, Any]]:
+    labels = []
+    for line in region["lines"]:
+        if line["line_ref"] in refs:
+            for label in line.get("labels") or []:
+                if label not in labels:
+                    labels.append(copy.deepcopy(label))
+    return labels
+
+
+def _selection_for_alignment(region: dict[str, Any], aligned: bool) -> dict[str, Any]:
+    selection = copy.deepcopy(region.get("text_selection") or {})
+    if not aligned:
+        selection["needs_review"] = True
+        selection["reason"] = (str(selection.get("reason") or "") + "; P3 선택 문장과 P1 원문 줄의 정확한 대응 확인 필요").lstrip("; ")
+    return selection
 
 
 def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -660,7 +683,10 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                 "schema_version": SEARCH_DOCUMENT_VERSION,
                 "ad_id": meta["ad_id"],
                 "product_id": meta.get("product_id"),
-                "source_file": meta["source_file"],
+                "source_file": page.get("source_file") or meta["source_file"],
+                "asset_id": page.get("asset_id"),
+                "source_page_no": page.get("source_page_no", page["page_no"]),
+                "table": copy.deepcopy(region.get("table")),
                 "routing": meta["routing_metadata"],
                 "routing_metadata": routing_metadata,
                 "page_no": page["page_no"],
@@ -675,7 +701,8 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                 for line in region["lines"]
                 if line.get("bbox") is not None
             }
-            coarse_refs = _selected_text_line_refs(region) or region["line_refs"]
+            selected_refs = _selected_text_line_refs(region)
+            coarse_refs = selected_refs or region["line_refs"]
             line_text_by_ref = {line["line_ref"]: line["text"] for line in region["lines"]}
             coarse.append({
                 **base,
@@ -685,6 +712,9 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                 "view_type": "canonical_region",
                 "text_canonical": region["final_text"],
                 "text_search": search_text(region["final_text"]),
+                "span_status": "selected_text_line_aligned" if selected_refs else "region_level_selected_text",
+                "labels": _labels_for_refs(region, selected_refs) if selected_refs else [],
+                "text_selection": _selection_for_alignment(region, bool(selected_refs)),
                 "line_refs": coarse_refs,
                 "line_texts": {ref: line_text_by_ref[ref] for ref in coarse_refs if ref in line_text_by_ref},
                 "line_bboxes": {
@@ -692,18 +722,15 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                     for ref in coarse_refs if ref in line_bbox_by_ref
                 },
             })
-            line_labels = {line["line_ref"]: line["labels"] for line in region["lines"]}
             for view in _fine_views(region):
-                labels = []
-                for ref in view["line_refs"]:
-                    for label in line_labels.get(ref, []):
-                        if label not in labels:
-                            labels.append(label)
+                aligned = view["span_status"] != "region_level_selected_text"
+                labels = _labels_for_refs(region, view["line_refs"]) if aligned else []
                 fine.append({
                     **base,
                     **view,
                     "parent_chunk_id": view["parent_doc_id"],
                     "labels": labels,
+                    "text_selection": _selection_for_alignment(region, aligned),
                     "line_texts": {
                         ref: line_text_by_ref[ref]
                         for ref in view["line_refs"] if ref in line_text_by_ref
@@ -713,7 +740,10 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                         for ref in view["line_refs"] if ref in line_bbox_by_ref
                     },
                 })
-    relations = [*(ad.get("relations") or []),
+    from rag.parsing.source_structure import table_relations
+    relations = [*(relation for page in ad["pages"] for region in page.get("regions") or []
+                   for relation in table_relations(region.get("table"))),
+                 *(ad.get("relations") or []),
                  *(relation for page in ad["pages"] for relation in page.get("relations") or [])]
     for relation in relations:
         if not isinstance(relation, dict) or any(

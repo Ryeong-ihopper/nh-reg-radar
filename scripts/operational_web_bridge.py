@@ -36,6 +36,7 @@ from operational_locations import page_asset, saved_workspace, valid_box
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
 from rag.parsing.prepare_inputs import combine  # noqa: E402
+from rag.parsing.source_structure import namespace_structure  # noqa: E402
 from rag.templates.catalog import TemplateCatalog  # noqa: E402
 from rag.contracts.validation import validate_ad_intake, validate_integrated_input  # noqa: E402
 from rag.api.service import (  # noqa: E402
@@ -194,6 +195,8 @@ class ExecutionBridge:
             dgx_host=cfg.get("dgx_host"), dgx_key=Path(cfg["dgx_key"]) if cfg.get("dgx_key") else None,
             model_env=model_env,
             workers=model_workers, queue_workers=review_workers,
+            vector_cache_dir=Path(cfg["vector_cache_dir"]).resolve() if cfg.get("vector_cache_dir") else None,
+            prohibition_max_candidates=int(cfg.get("prohibition_max_candidates", 30)),
             judgment_batch_size=4, job_timeout_seconds=3600,
         ))
         template_source = cfg.get("template_source_path")
@@ -238,7 +241,7 @@ class ExecutionBridge:
 
         services.reviews.request = request
 
-    def parser_command(self, source_dir, output, *, visual: bool = False):
+    def parser_command(self, source_dir, output, *, visual: bool = False, template_id=None):
         """Build the selected parser command; values come only from private config."""
         runner = self.parser_layout_config["runner"]
         root = Path(self.config["parser_root"]).resolve()
@@ -248,8 +251,14 @@ class ExecutionBridge:
             command = [self.config["parser_python"], "-u", str(root / "tools" / "parse.py"),
                        "--input", str(source_dir), "--out", str(output)]
             if visual:
-                command.extend(["--region-reading", "off"])
+                command.extend(["--region-reading", "off", "--parse-only"])
+            else:
+                if not template_id:
+                    raise ValueError("PARSER_TEMPLATE_REQUIRED: 사용자 선택 템플릿이 필요합니다")
+                command.extend(["--template-id", template_id])
             return command
+        if not visual:
+            raise ValueError("PARSER_TEMPLATE_UNSUPPORTED: 사용자 템플릿을 받는 nh_ad_parser_cli가 필요합니다")
         scope = "visual" if visual else "upload"
         return [self.config["parser_python"], str(root / "tools" / "run_parsing_batch.py"),
                 "--input-root", f"{scope}={source_dir}", "--out", str(output), "--max-attempts", "1"]
@@ -289,7 +298,7 @@ class ExecutionBridge:
             completed[file.file_id] = (p1_path, p3_matches[0])
         return completed, missing
 
-    def execute_parser(self, source_dir, output, log_path):
+    def execute_parser(self, source_dir, output, log_path, *, template_id=None):
         """Run one parser input directory and retain its raw log for audit."""
         env = dict(os.environ)
         env.update(self.config.get("parser_env", {}))
@@ -297,7 +306,7 @@ class ExecutionBridge:
         with Path(log_path).open("w", encoding="utf-8") as log:
             try:
                 return subprocess.run(
-                    self.parser_command(source_dir, output),
+                    self.parser_command(source_dir, output, template_id=template_id),
                     cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
                     stdout=log, stderr=subprocess.STDOUT, timeout=3600,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -309,7 +318,7 @@ class ExecutionBridge:
                 log.write(f"\nPARSER_START_FAILED: {exc}\n")
                 return 126
 
-    def retry_missing_parser_assets(self, files, source_by_file, missing, directory):
+    def retry_missing_parser_assets(self, files, source_by_file, missing, directory, *, template_id=None):
         """Retry only assets absent from a failed/incomplete batch, once each."""
         retry_root = Path(directory) / "parser-retry"
         recovered, attempts = {}, []
@@ -324,7 +333,7 @@ class ExecutionBridge:
             retry_copy = retry_source / source.name
             shutil.copy2(source, retry_copy)
             with self.parser_slots:
-                returncode = self.execute_parser(retry_source, retry_output, retry_dir / "parser.log")
+                returncode = self.execute_parser(retry_source, retry_output, retry_dir / "parser.log", template_id=template_id)
             found, still_missing = self.parsed_assets([file], {file_id: retry_copy}, retry_output)
             if file_id in found:
                 recovered[file_id] = found[file_id]
@@ -345,7 +354,7 @@ class ExecutionBridge:
         })
         return recovered, attempts
 
-    def parse_assets_in_parallel(self, files, source_by_file, directory):
+    def parse_assets_in_parallel(self, files, source_by_file, directory, *, template_id=None):
         """Parse a multi-file advertisement independently with one shared limit.
 
         The external parser's folder mode is serial.  Independent inputs retain
@@ -364,7 +373,7 @@ class ExecutionBridge:
             copied = asset_source / source.name
             shutil.copy2(source, copied)
             with self.parser_slots:
-                returncode = self.execute_parser(asset_source, asset_output, asset_root / "parser.log")
+                returncode = self.execute_parser(asset_source, asset_output, asset_root / "parser.log", template_id=template_id)
             found, missing = self.parsed_assets([file], {file.file_id: copied}, asset_output)
             return file, returncode, found.get(file.file_id), missing.get(file.file_id)
 
@@ -578,8 +587,11 @@ class ExecutionBridge:
         if not asset_documents:
             raise ValueError("no parsed advertisement assets")
         pages, candidates, asset_provenance, asset_pages = [], [], [], {}
+        relations = []
         page_no = 0
         for file, integrated in asset_documents:
+            validate_integrated_input(integrated)
+            relations.extend(namespace_structure(integrated.get("relations") or [], file.file_id))
             first_page = page_no + 1
             parser_ad_id = integrated["document"]["ad_id"]
             asset_provenance.append({
@@ -591,17 +603,15 @@ class ExecutionBridge:
             })
             for page in integrated["pages"]:
                 page_no += 1
-                value = copy.deepcopy(page)
+                value = namespace_structure(page, file.file_id)
                 value["page_no"] = page_no
+                value["source_page_no"] = page["page_no"]
+                value["asset_id"] = file.file_id
+                value["source_file"] = file.original_file_name
                 for region in value.get("regions", []):
                     old_region = str(region["region_id"])
                     region["region_id"] = f"{file.file_id}:{old_region}"
                     region["evidence_id"] = f"{ad.advertisement_id}#asset:{file.file_id}:p{page_no}:{old_region}"
-                    region["line_refs"] = [f"{file.file_id}::{ref}" for ref in region.get("line_refs", [])]
-                    for line in region.get("lines", []):
-                        line["line_ref"] = f"{file.file_id}::{line['line_ref']}"
-                for line in value.get("unassigned_lines", []):
-                    line["line_ref"] = f"{file.file_id}::{line['line_ref']}"
                 pages.append(value)
             asset_pages[file.file_id] = {"start": first_page, "end": page_no}
             for candidate in integrated.get("unverified_recovery_candidates") or []:
@@ -635,6 +645,7 @@ class ExecutionBridge:
                 "routing_metadata": {},
             },
             "pages": pages,
+            "relations": relations,
             "unverified_recovery_candidates": candidates,
             "diagnostics": {"assets": asset_provenance, "asset_pages": asset_pages},
             "quality": {
@@ -651,7 +662,20 @@ class ExecutionBridge:
         validate_integrated_input(result)
         return result
 
-    def reuse_parent_parser_output(self, ad, directory, source_by_file, parent_review_id):
+    @staticmethod
+    def parser_intake(template_id):
+        return {"version": "user-template-labeling-v1", "template_id": template_id}
+
+    @staticmethod
+    def validate_parser_template(p1_path, p3_path, template_id):
+        for template in (
+            read_json(p1_path).get("template") or {},
+            (read_json(p3_path).get("document") or {}).get("template") or {},
+        ):
+            if template.get("template_id") != template_id or template.get("source") != "user_provided":
+                raise ValueError("PARSER_TEMPLATE_MISMATCH: 파서 템플릿이 사용자 선택값과 다릅니다")
+
+    def reuse_parent_parser_output(self, ad, directory, source_by_file, parent_review_id, *, template_id=None):
         """Reuse a terminal parent's complete parser boundary after strict validation.
 
         This recovery path is only for an immutable rerun of the same
@@ -679,6 +703,10 @@ class ExecutionBridge:
                 return None
             lineage.append(source_review_id)
             parent_directory = self.root / "runs" / source_review_id
+            if template_id is not None:
+                intake_path = parent_directory / "parser-intake.json"
+                if not intake_path.is_file() or read_json(intake_path) != self.parser_intake(template_id):
+                    return None
             parent_output = parent_directory / "parser"
             if self.parser_layout_config["runner"] == "nh_parsing_test_batch":
                 parent_output = parent_output / "upload"
@@ -711,6 +739,11 @@ class ExecutionBridge:
                 return None
             p1_path = matches[0]
             p3_path = p3_by_name[p1_path.name]
+            if template_id is not None:
+                try:
+                    self.validate_parser_template(p1_path, p3_path, template_id)
+                except ValueError:
+                    return None
             assets.append((file, combine(p1_path, p3_path)))
             output_hashes.append({
                 "file_id": file.file_id,
@@ -735,7 +768,12 @@ class ExecutionBridge:
         )
         return integrated
 
-    def parse(self, ad, directory, *, parent_review_id=None):
+    def parse(self, ad, directory, *, parent_review_id=None, template_id=None):
+        if not template_id:
+            raise ValueError("PARSER_TEMPLATE_REQUIRED: 사용자 선택 템플릿이 필요합니다")
+        # Validate runner support before copying assets or attempting reuse.
+        self.parser_command(directory / "source", directory / "parser", template_id=template_id)
+        write_json_atomic(directory / "parser-intake.json", self.parser_intake(template_id))
         files = [file for file in ad.files if file.file_type == "ADVERTISEMENT"]
         source_dir = directory / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
@@ -753,20 +791,21 @@ class ExecutionBridge:
             source_by_file[file.file_id] = source
         reused = self.reuse_parent_parser_output(
             ad, directory, source_by_file, parent_review_id,
+            template_id=template_id,
         )
         if reused is not None:
             self.prepare_parser_layout(source_by_file[files[0].file_id], directory, reused)
             return reused
         output = directory / "parser"
         if len(files) > 1:
-            completed, missing, batch_returncode = self.parse_assets_in_parallel(files, source_by_file, directory)
+            completed, missing, batch_returncode = self.parse_assets_in_parallel(files, source_by_file, directory, template_id=template_id)
         else:
             with self.parser_slots:
-                batch_returncode = self.execute_parser(source_dir, output, directory / "parser.log")
+                batch_returncode = self.execute_parser(source_dir, output, directory / "parser.log", template_id=template_id)
             completed, missing = self.parsed_assets(files, source_by_file, output)
         retry_attempts = []
         if missing:
-            recovered, retry_attempts = self.retry_missing_parser_assets(files, source_by_file, missing, directory)
+            recovered, retry_attempts = self.retry_missing_parser_assets(files, source_by_file, missing, directory, template_id=template_id)
             completed.update(recovered)
             missing = {file_id: reason for file_id, reason in missing.items() if file_id not in recovered}
         if missing:
@@ -784,6 +823,7 @@ class ExecutionBridge:
         assets = []
         for file in files:
             p1_path, p3_path = completed[file.file_id]
+            self.validate_parser_template(p1_path, p3_path, template_id)
             assets.append((file, combine(p1_path, p3_path)))
         integrated = self.merge_asset_documents(ad, assets)
         # Parser-layout is a presentation artifact. A temporary rendering or
@@ -947,6 +987,7 @@ class ExecutionBridge:
                 ad,
                 directory,
                 parent_review_id=bundle.review.parent_review_id,
+                template_id=routing.get("internal_template_id"),
             )
             if bundle.job.status == "CANCELED":
                 raise ReviewCanceled("CANCELED_BY_USER")

@@ -1,0 +1,403 @@
+diff --git a/src/nh_parser/pipeline.py b/src/nh_parser/pipeline.py
+index a26f45b..ea24cfc 100644
+--- a/src/nh_parser/pipeline.py
++++ b/src/nh_parser/pipeline.py
+@@ -28,27 +28,30 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
+ HWP_EXTS = {".hwp", ".hwpx"}
+
+
+-def process_file(path: Path, preview_dir: Path | None = None) -> AdDocument:
++def process_file(
++    path: Path, preview_dir: Path | None = None, *, classify_document: bool = True,
++) -> AdDocument:
+     ext = path.suffix.lower()
+     if ext in HWP_EXTS:
+         return _process_hwp(path, preview_dir)
+     if ext in IMAGE_EXTS:
+-        return _process_image(path, preview_dir)
++        return _process_image(path, preview_dir, classify_document=classify_document)
+     if ext == ".pdf":
+-        return _process_pdf(path, preview_dir)
++        return _process_pdf(path, preview_dir, classify_document=classify_document)
+     doc = AdDocument(doc_id=path.stem, source_file=path.name, file_type=ext.lstrip("."))
+     doc.notes.append(f"미지원 확장자 {ext} — 판독 불가 처리 (F-001 예외)")
+     doc.pages.append(AdPage(page_no=1, parse_route="ocr", parse_status="unreadable"))
+     return doc
+
+
+-def _process_image(path: Path, preview_dir: Path | None) -> AdDocument:
++def _process_image(path: Path, preview_dir: Path | None, *, classify_document: bool = True) -> AdDocument:
+     doc = AdDocument(doc_id=path.stem, source_file=path.name, file_type="image")
+     canvas = load_image_canvas(path)
+     page = _ocr_canvas_to_page(canvas, page_no=1)
+     _apply_vlm_judgments(page, canvas.image)
+     doc.pages.append(page)
+-    _classify_into(doc, canvas.image)
++    if classify_document:
++        _classify_into(doc, canvas.image)
+     if preview_dir:
+         _save_preview(canvas, page, preview_dir, doc.doc_id)
+     return doc
+@@ -68,7 +71,7 @@ def _process_hwp(path: Path, preview_dir: Path | None) -> AdDocument:
+     return ingest_hwp(path, image_page_processor=_image_page)
+
+
+-def _process_pdf(path: Path, preview_dir: Path | None) -> AdDocument:
++def _process_pdf(path: Path, preview_dir: Path | None, *, classify_document: bool = True) -> AdDocument:
+     from .ingest.triage import extract_digital_lines, triage_page
+
+     doc = AdDocument(doc_id=path.stem, source_file=path.name, file_type="pdf")
+@@ -133,7 +136,7 @@ def _process_pdf(path: Path, preview_dir: Path | None) -> AdDocument:
+         if preview_dir:
+             _save_preview(canvas, page, preview_dir, doc.doc_id)
+
+-    if first_canvas is not None:
++    if first_canvas is not None and classify_document:
+         _classify_into(doc, first_canvas)
+     return doc
+
+diff --git a/src/nh_parser/review/export.py b/src/nh_parser/review/export.py
+index e13c940..c29c0a1 100644
+--- a/src/nh_parser/review/export.py
++++ b/src/nh_parser/review/export.py
+@@ -183,6 +183,9 @@ def build_evidence(
+             if labels:
+                 labelled_regions += 1
+             selection = select_region_text(region)
++            if region_id in (labeling.get("needs_review_regions") or []):
++                selection["needs_review"] = True
++                selection["reason"] += "; 하위 라벨 범위/신뢰도 확인 필요"
+             if selection["needs_review"]:
+                 needs_review_regions += 1
+             region["text_evidence"] = {
+diff --git a/src/nh_parser/review/labeling.py b/src/nh_parser/review/labeling.py
+index fa08468..3a585af 100644
+--- a/src/nh_parser/review/labeling.py
++++ b/src/nh_parser/review/labeling.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+
+ import re
++import math
+ from collections import defaultdict
+ from typing import Any
+
+@@ -46,7 +47,7 @@ def _definitions(template: dict[str, Any]) -> str:
+
+ def _region_text(region: dict[str, Any]) -> str:
+     lines = [
+-        f"[{index:02d}] {str(line.get('text') or '').strip()}"
++        f"[{index:02d}] bbox={line.get('bbox')} {str(line.get('text') or '').strip()}"
+         for index, line in enumerate(region.get("lines") or [])
+     ]
+     bbox = region.get("bbox")
+@@ -92,7 +93,7 @@ def _schema(region_ids: list[str], gubuns: list[str]) -> dict[str, Any]:
+                         "line_from": {"type": "integer"},
+                         "line_to": {"type": "integer"},
+                         "gubun": {"type": "string", "enum": [*gubuns, ABSTAIN]},
+-                        "confidence": {"type": "number"},
++                        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                         "reason": {"type": "string"},
+                     },
+                     "required": [
+@@ -235,11 +236,16 @@ def label_regions(
+         for region in page.get("regions") or []
+         if region.get("lines") and not region.get("is_illustrative")
+     }
++    eligible = [region for page in doc.get("pages") or [] for region in page.get("regions") or []
++                if region.get("lines") and not region.get("is_illustrative")]
++    if len(region_index) != len(eligible):
++        raise ValueError("라벨링 region_id 중복: 서로 다른 페이지의 줄을 합칠 수 없습니다")
+     states_by_region: dict[str, list[dict[str, dict[str, Any]]]] = {
+         region_id: [defaultdict(_state) for _ in region.get("lines") or []]
+         for region_id, region in region_index.items()
+     }
+     notes: list[str] = []
++    review_regions: set[str] = set()
+
+     for batch in _batches(list(region_index.values())):
+         region_ids = [str(region["region_id"]) for region in batch]
+@@ -249,6 +255,16 @@ def label_regions(
+ 광고 헤드라인·버튼·일반 홍보처럼 어느 구분에도 속하지 않으면 해당없음을 반환하거나
+ 생략하세요. 예시문구와 표현이 달라도 의미가 같으면 같은 구분입니다. 제공된 enum 밖의
+ 구분값은 만들지 마세요.
++템플릿 자체를 재분류하지 마세요. 제목·목차는 실제 회사명/상품명/조건 값이 아닙니다.
++가입 방식, 가입 금액, 금리, 비용, 보호 고지는 서로 다른 개념입니다. 비슷한 구분에
++억지로 끼워 넣지 말고 근거가 부족하면 해당없음으로 남기세요. 표의 표제와 값의
++대응을 읽고, 선택한 구분의 실제 내용이 있는 최소 줄 범위만 반환하세요.
++OCR 글자가 깨졌거나 범위를 확정할 수 없으면 추측하여 라벨을 붙이지 마세요.
++각 줄 bbox는 [왼쪽, 위, 오른쪽, 아래] 원문 좌표입니다. OCR 줄 순서만으로 표의
++표제와 값을 연결하지 말고 실제 같은 행/열인지 확인하세요. bbox가 없거나 표의
++대응이 모호하면 연결을 추정하지 마세요. 떨어진 줄에 같은 라벨이 해당하면 각각
++별도 verdict를 반환하고, 사이에 있는 다른 항목의 줄까지 범위에 포함하지 마세요.
++낮은 신뢰도의 깨진 OCR 문장을 금융 지식으로 복원하여 라벨링하지 마세요.
+
+ 구분값과 원본 템플릿 예시:
+ {_definitions(template)}
+@@ -265,23 +281,29 @@ def label_regions(
+             )
+         except Exception as exc:
+             notes.append(f"구분값 VLM 판정 실패({','.join(region_ids)}): {exc}")
++            review_regions.update(region_ids)
+             continue
+         for verdict in response.get("verdicts") or []:
+             region_id = str(verdict.get("region_id") or "")
+             label = str(verdict.get("gubun") or "")
+-            if region_id not in states_by_region or label not in gubun_set:
++            if label == ABSTAIN:
++                continue
++            if region_id not in region_ids or label not in gubun_set:
++                notes.append("구분값 응답의 영역/라벨이 요청 범위 밖입니다")
++                review_regions.update(region_ids)
+                 continue
+             line_states = states_by_region[region_id]
+             if not line_states:
+                 continue
+-            start = int(verdict.get("line_from", 0))
+-            end = int(verdict.get("line_to", start))
+-            if end < start:
+-                start, end = end, start
+-            start, end = max(0, start), min(len(line_states) - 1, end)
+-            if start > end:
++            start, end = verdict.get("line_from"), verdict.get("line_to")
++            confidence = verdict.get("confidence")
++            if (type(start) is not int or type(end) is not int
++                    or not 0 <= start <= end < len(line_states)
++                    or type(confidence) not in (int, float)
++                    or not math.isfinite(confidence) or not 0.7 <= confidence <= 1):
++                notes.append(f"구분값 범위/신뢰도 미확정({region_id}); 임의 보정하지 않음")
++                review_regions.add(region_id)
+                 continue
+-            confidence = float(verdict.get("confidence") or 0.0)
+             reason = str(verdict.get("reason") or "")
+             for index in range(start, end + 1):
+                 _add(line_states[index], label, "semantic_vlm", confidence, reason)
+@@ -312,4 +334,5 @@ def label_regions(
+         "template_id": template_id,
+         "by_region": by_region,
+         "notes": notes,
++        "needs_review_regions": sorted(review_regions),
+     }
+diff --git a/src/nh_parser/review/resolution.py b/src/nh_parser/review/resolution.py
+index b07c1bb..72dfa74 100644
+--- a/src/nh_parser/review/resolution.py
++++ b/src/nh_parser/review/resolution.py
+@@ -22,6 +22,17 @@ class TemplateResolution:
+         return asdict(self)
+
+
++def provided_template(template_id: str, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
++    """Validate authoritative intake without inspecting the advertisement or calling a model."""
++    active = catalog or load_catalog()
++    if not template_id or template_id not in active["templates"]:
++        raise ValueError("사용자가 선택한 유효한 template_id가 필요합니다")
++    return TemplateResolution(
++        template_id=template_id, status="confirmed", source="user_provided",
++        reason="사용자 선택 템플릿; 파서는 하위 구분값만 라벨링",
++    ).as_dict()
++
++
+ def _document_text(doc: dict[str, Any], limit: int = 6000) -> str:
+     values: list[str] = []
+     for page in doc.get("pages") or []:
+diff --git a/tools/parse.py b/tools/parse.py
+index 4b56ed1..b9364b6 100644
+--- a/tools/parse.py
++++ b/tools/parse.py
+@@ -21,7 +21,8 @@ import sys
+ import time
+ from pathlib import Path
+
+-sys.stdout.reconfigure(encoding="utf-8")
++if hasattr(sys.stdout, "reconfigure"):
++    sys.stdout.reconfigure(encoding="utf-8")
+
+ EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".hwp", ".hwpx"}
+
+@@ -38,17 +39,30 @@ def _write_json(path: Path, value: dict) -> None:
+
+ def parse_one(
+     path: Path, out_dir: Path, preview: bool, *, build_review: bool = True,
++    template_id: str | None = None,
+ ) -> tuple[dict, bool]:
+     # main()이 REGION_READING_MODE를 정한 뒤 import해야 Settings에 반영된다.
+     from nh_parser.pipeline import process_file
+
++    from nh_parser.review.resolution import provided_template
++
++    # Fail before OCR/model work; review labels must use the user's template.
++    resolution = provided_template(template_id) if build_review else None
+     started = time.time()
+     preview_dir = (out_dir / "pages") if preview else None
+     if preview_dir:
+         preview_dir.mkdir(parents=True, exist_ok=True)
+
+-    doc = process_file(path, preview_dir=preview_dir)
++    doc = process_file(path, preview_dir=preview_dir, classify_document=False)
+     payload = json.loads(doc.model_dump_json())
++    # HWP filename priors are observations, never authoritative routing.
++    for field in ("product_group", "ad_type", "product_name_shown", "classification_confidence"):
++        payload[field] = None
++    payload["category_source"] = "user_provided" if build_review else None
++    if build_review:
++        from nh_parser.review.catalog import load_catalog
++
++        payload["product_group"] = load_catalog()["templates"][template_id].get("product_group")
+
+     dest = out_dir / "parse" / f"{path.stem}.json"
+     _write_json(dest, payload)
+@@ -57,10 +71,9 @@ def parse_one(
+     review_payload = None
+     if build_review:
+         from nh_parser.review import (
+-            build_evidence, build_review_input, label_regions, resolve_template,
++            build_evidence, build_review_input, label_regions,
+         )
+
+-        resolution = resolve_template(payload)
+         labeling = label_regions(payload, resolution)
+         evidence = build_evidence(payload, resolution, labeling)
+         review_payload = build_review_input(evidence)
+@@ -108,6 +121,7 @@ def main() -> None:
+     ap.add_argument("--out", type=Path, default=Path("out"))
+     ap.add_argument("--only", default=None, help="폴더일 때 파일명 부분 일치 필터")
+     ap.add_argument("--preview", action="store_true", help="쪽 이미지 축소본도 저장")
++    ap.add_argument("--template-id", help="사용자가 선택한 템플릿 ID (P1/P3 생성 시 필수)")
+     ap.add_argument(
+         "--parse-only", action="store_true",
+         help="기존 parse JSON만 만들고 템플릿 판정/P1/P3 생성을 생략",
+@@ -117,6 +131,8 @@ def main() -> None:
+         help="영역 Reader/Judge 실행(기본: 전체 출력은 shadow, --parse-only는 off)",
+     )
+     args = ap.parse_args()
++    if not args.parse_only and not args.template_id:
++        ap.error("P1/P3 생성에는 --template-id 사용자 선택값이 필요합니다")
+
+     reading_mode = args.region_reading or ("off" if args.parse_only else "shadow")
+     os.environ["REGION_READING_MODE"] = reading_mode
+@@ -136,6 +152,7 @@ def main() -> None:
+         try:
+             _, readable = parse_one(
+                 path, args.out, args.preview, build_review=not args.parse_only,
++                template_id=args.template_id,
+             )
+             if not readable:
+                 failed += 1
+--- /dev/null
++++ b/tests/test_user_template.py
+@@ -0,0 +1,115 @@
++"""User intake, label spans and parser stage boundaries (no providers)."""
++import copy
++import importlib.util
++import sys
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import Mock
++
++import pytest
++
++from nh_parser.review import labeling, resolution
++from nh_parser.review.export import build_evidence, build_review_input
++
++
++def document():
++    return {"doc_id": "fixture", "source_file": "fixture.png", "pages": [{
++        "page_no": 1, "regions": [{"region_id": "r", "lines": [
++            {"text": "한빛은행"}, {"text": "연 4.2%"},
++        ]}],
++    }]}
++
++
++@pytest.mark.parametrize("classify_document", [False, True])
++def test_image_pipeline_respects_classification_switch(monkeypatch, classify_document):
++    from nh_parser import pipeline
++    from nh_parser.ir import AdPage
++
++    page = AdPage(page_no=1, parse_route="ocr", parse_status="ok")
++    monkeypatch.setattr(pipeline, "load_image_canvas", lambda path: SimpleNamespace(image=object()))
++    monkeypatch.setattr(pipeline, "_ocr_canvas_to_page", lambda *a, **k: page)
++    reader = Mock()
++    classifier = Mock()
++    monkeypatch.setattr(pipeline, "_apply_vlm_judgments", reader)
++    monkeypatch.setattr(pipeline, "_classify_into", classifier)
++    doc = pipeline.process_file(Path("fixture.png"), classify_document=classify_document)
++    assert len(doc.pages) == 1
++    reader.assert_called_once()
++    assert classifier.call_count == int(classify_document)
++
++
++def test_provided_template_never_resolves_from_file_or_model(monkeypatch):
++    model = Mock(side_effect=AssertionError("classification must not run"))
++    monkeypatch.setattr(resolution.vlm_client, "chat_json", model)
++    selected = resolution.provided_template("대출성상품-상품명 노출")
++    assert selected["template_id"] == "대출성상품-상품명 노출"
++    assert selected["source"] == "user_provided"
++    assert selected["confidence"] is None
++    for invalid in (None, "", "unknown"):
++        with pytest.raises(ValueError):
++            resolution.provided_template(invalid)
++    model.assert_not_called()
++
++
++@pytest.mark.parametrize("start,end,confidence", [(-1, 1, .9), (1, 0, .9), (0, 5, .9),
++                                                         (True, 1, .9), (0, 1, .4), (0, 1, float('nan'))])
++def test_invalid_label_range_or_confidence_never_clamps_to_source(monkeypatch, start, end, confidence):
++    raw = document()
++    original = copy.deepcopy(raw)
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", lambda *a, **k: {"verdicts": [{
++        "region_id": "r", "gubun": "대출금리", "line_from": start, "line_to": end,
++        "confidence": confidence, "reason": "test",
++    }]})
++    selected = resolution.provided_template("대출성상품-상품명 노출")
++    result = labeling.label_regions(raw, selected)
++    assert result["by_region"]["r"] == []
++    assert result["needs_review_regions"] == ["r"]
++    p1 = build_evidence(raw, selected, result)
++    p3 = build_review_input(p1)
++    assert p3["pages"][0]["regions"][0]["needs_review"] is True
++    assert raw == original
++
++
++def test_lower_labels_keep_separate_canonical_line_spans(monkeypatch):
++    def response(parts, **kwargs):
++        assert "대출성상품-상품명 노출" in parts[0]["text"]
++        return {"verdicts": [{"region_id": "r", "gubun": label, "line_from": i,
++                              "line_to": i, "confidence": .9, "reason": "본문 근거"}
++                             for i, label in enumerate(("회사명", "대출금리"))]}
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", response)
++    raw = document()
++    selected = resolution.provided_template("대출성상품-상품명 노출")
++    p1 = build_evidence(raw, selected, labeling.label_regions(raw, selected))
++    labels = {label["label"]: label for label in p1["pages"][0]["regions"][0]["template_labels"]}
++    assert labels["회사명"]["spans"][0]["line_refs"] == ["p1/r/L000"]
++    assert labels["대출금리"]["spans"][0]["line_refs"] == ["p1/r/L001"]
++
++
++def test_label_prompt_preserves_line_coordinates_without_font_inference():
++    raw = {"region_id": "r", "bbox": [0, 0, 500, 100], "lines": [
++        {"text": "회사명", "bbox": [0, 10, 100, 30]},
++        {"text": "한빛은행", "bbox": [200, 10, 400, 30]},
++    ]}
++    prompt = labeling._region_text(raw)
++    assert "[00] bbox=[0, 10, 100, 30] 회사명" in prompt
++    assert "[01] bbox=[200, 10, 400, 30] 한빛은행" in prompt
++    assert "font" not in prompt
++
++
++def test_cli_skips_document_and_template_classification(monkeypatch, tmp_path):
++    # Stub the expensive parser boundary, preserving the actual review exporter.
++    import json
++    process = Mock(return_value=SimpleNamespace(model_dump_json=lambda: json.dumps(document())))
++    monkeypatch.setitem(sys.modules, "nh_parser.pipeline", SimpleNamespace(process_file=process))
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", lambda *a, **k: {"verdicts": []})
++    spec = importlib.util.spec_from_file_location("parse_cli_test", Path(__file__).parents[1] / "tools/parse.py")
++    cli = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(cli)
++    with pytest.raises(ValueError):
++        cli.parse_one(Path("unrelated.png"), tmp_path, False)
++    process.assert_not_called()
++    cli.parse_one(Path("unrelated.png"), tmp_path, False, template_id="대출성상품-상품명 노출")
++    assert process.call_args.kwargs["classify_document"] is False
++    saved = json.loads((tmp_path / "evidence/unrelated.json").read_text(encoding="utf-8"))
++    assert saved["template"]["source"] == "user_provided"
++    assert saved["template"]["template_id"] == "대출성상품-상품명 노출"

@@ -19,6 +19,6 @@ export function OperationalExecutionNotice({token, reviewId}: {token: string; re
   return <div className="state-message state-warning">
     <strong>자동심의 완료 · {(data.total_seconds / 60).toFixed(1)}분</strong>
     <p>판정 {data.predicted_count}개 · 추가 확인 {data.deferred_count}개</p>
-    {data.deferred_rules?.length ? <details><summary>추가 확인 항목 보기</summary><ul>{data.deferred_rules.map(r => <li key={r.item_id}>{r.item_id}: {r.input_requirement ?? (r.reason.includes("template") ? "선택 템플릿에 속하지 않거나 템플릿 미확정" : "외부자료·좌표 등 추가 입력 필요")}</li>)}</ul></details> : null}
+    {data.deferred_rules?.length ? <details><summary>사람 검토·추가 확인 항목 보기</summary><ul>{data.deferred_rules.map(r => <li key={r.item_id}>{r.item_id}: {r.reason.startsWith("시인성은 사람 검토") ? r.reason : r.input_requirement ?? (r.reason.includes("template") ? "선택 템플릿에 속하지 않거나 템플릿 미확정" : "외부자료·원문 확인 필요")}</li>)}</ul></details> : null}
   </div>;
 }

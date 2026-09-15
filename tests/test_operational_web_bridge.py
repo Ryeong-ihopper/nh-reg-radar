@@ -13,18 +13,44 @@ from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from operational_web_bridge import (
+from operational_web_bridge import (  # noqa: E402
     ExecutionBridge, FULL_REVIEW, PARSER_REUSE_PARENT_STATUSES,
     parser_layout, parser_runner_layout,
 )
-from nh_ad_backend.domain import Advertisement, AdvertisementFile, User
-from nh_ad_backend.main import build_services, create_app
-from nh_ad_backend.security import current_user, hash_password
-from nh_ad_backend.services import ServiceError
-from nh_ad_backend.settings import Settings
+from nh_ad_backend.domain import Advertisement, AdvertisementFile, User  # noqa: E402
+from nh_ad_backend.main import build_services, create_app  # noqa: E402
+from nh_ad_backend.security import current_user, hash_password  # noqa: E402
+from nh_ad_backend.services import ServiceError  # noqa: E402
+from nh_ad_backend.settings import Settings  # noqa: E402
 
 
 class BridgeTests(unittest.TestCase):
+    def test_missing_or_changed_user_template_prevents_parent_parser_reuse(self):
+        parent = self.request()
+        parent.job.status = "COMPLETED"
+        parent_dir = self.bridge.root / "runs" / parent.review.review_id
+        parent_dir.mkdir(parents=True)
+        current = self.root / "new-run"
+        for manifest in (None, self.bridge.parser_intake("대출성상품-상품명 노출"),
+                         {"version": "old-policy", "template_id": "예금성상품-적립식"}):
+            if manifest is not None:
+                (parent_dir / "parser-intake.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.subTest(manifest=manifest):
+                self.assertIsNone(self.bridge.reuse_parent_parser_output(
+                    self.ad, current, {}, parent.review.review_id, template_id="예금성상품-적립식"))
+        self.assertFalse((current / "parser-reuse.json").exists())
+
+    def test_parser_must_echo_the_user_template_in_both_outputs(self):
+        template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
+        p1, p3 = self.root / "p1.json", self.root / "p3.json"
+        p1.write_text(json.dumps({"template": template}), encoding="utf-8")
+        p3.write_text(json.dumps({"document": {"template": template}}), encoding="utf-8")
+        self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
+        for bad in ({**template, "source": "rules"}, {**template, "template_id": "대출성상품-상품명 노출"}):
+            p3.write_text(json.dumps({"document": {"template": bad}}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_MISMATCH"):
+                self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
+
     def test_parser_reuse_accepts_successful_terminal_parents(self):
         self.assertIn("COMPLETED", PARSER_REUSE_PARENT_STATUSES)
         self.assertIn("COMPLETED_WITH_WARNINGS", PARSER_REUSE_PARENT_STATUSES)
@@ -92,7 +118,7 @@ class BridgeTests(unittest.TestCase):
         })
         self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
 
-        command = self.bridge.parser_command(Path("relative-source"), Path("relative-output"))
+        command = self.bridge.parser_command(Path("relative-source"), Path("relative-output"), template_id="대출성상품-상품명 노출")
 
         self.assertEqual(command[1], "-u")
         self.assertTrue(Path(command[2]).is_absolute())
@@ -100,6 +126,12 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(Path(command[6]).is_absolute())
         self.assertEqual(command[3], "--input")
         self.assertEqual(command[5], "--out")
+        self.assertEqual(command[-2:], ["--template-id", "대출성상품-상품명 노출"])
+        with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_REQUIRED"):
+            self.bridge.parser_command(self.root, self.root)
+        visual = self.bridge.parser_command(self.root, self.root, visual=True)
+        self.assertIn("--parse-only", visual)
+        self.assertNotIn("--template-id", visual)
 
     def test_missing_asset_retries_individually_and_keeps_batch_output(self):
         parser_root = self.root / "parser"
@@ -130,7 +162,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(set(completed), {"FILE-test"})
         self.assertEqual(set(missing), {"FILE-second"})
 
-        def write_retry_output(retry_source, retry_output, log_path):
+        def write_retry_output(retry_source, retry_output, log_path, *, template_id=None):
+            self.assertEqual(template_id, "대출성상품-상품명 노출")
             source = next(Path(retry_source).iterdir())
             for name in ("evidence", "review-input"):
                 (Path(retry_output) / name).mkdir(parents=True, exist_ok=True)
@@ -141,6 +174,7 @@ class BridgeTests(unittest.TestCase):
         self.bridge.execute_parser = Mock(side_effect=write_retry_output)
         recovered, attempts = self.bridge.retry_missing_parser_assets(
             self.ad.files, sources, missing, self.root / "run",
+            template_id="대출성상품-상품명 노출",
         )
         self.assertEqual(set(recovered), {"FILE-second"})
         self.assertEqual(attempts[0]["status"], "RECOVERED")
@@ -169,7 +203,8 @@ class BridgeTests(unittest.TestCase):
         for path in sources.values():
             path.write_bytes(b"source")
 
-        def write_output(asset_source, asset_output, log_path):
+        def write_output(asset_source, asset_output, log_path, *, template_id=None):
+            self.assertEqual(template_id, "예금성상품-적립식")
             source = next(Path(asset_source).iterdir())
             for name in ("evidence", "review-input"):
                 (Path(asset_output) / name).mkdir(parents=True, exist_ok=True)
@@ -180,6 +215,7 @@ class BridgeTests(unittest.TestCase):
         self.bridge.execute_parser = Mock(side_effect=write_output)
         completed, missing, returncode = self.bridge.parse_assets_in_parallel(
             self.ad.files, sources, self.root / "run",
+            template_id="예금성상품-적립식",
         )
         self.assertEqual(set(completed), {"FILE-test", "FILE-second"})
         self.assertEqual(missing, {})
@@ -321,7 +357,8 @@ class BridgeTests(unittest.TestCase):
     def test_parser_failure_never_becomes_success_or_verdict(self):
         bundle = self.request()
         self.bridge.parse = Mock(side_effect=RuntimeError("PARSER_FAILED"))
-        self.bridge.run(bundle, {})
+        self.bridge.run(bundle, {"internal_template_id": "대출성상품-상품명 노출"})
+        self.assertEqual(self.bridge.parse.call_args.kwargs["template_id"], "대출성상품-상품명 노출")
         self.assertEqual(bundle.job.status, "FAILED")
         self.assertEqual(self.services.results.repository.list_items(bundle.review.review_id), [])
         self.assertEqual(self.bridge.projector.call_count, 0)

@@ -1247,14 +1247,14 @@ class OperationalSelectionTests(unittest.TestCase):
             )
         )
         structured["layout_observations"] = {"verified_line_grouping": True}
-        self.assertTrue(
+        self.assertFalse(
             operational.automated_input_ready(
                 {"source_sheet": "HWPX_TEMPLATE", "required_medium": "레이아웃",
                  "input_requirement": "광고물+원본형식+레이아웃"},
                 structured,
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             operational.automated_input_ready(
                 {"required_medium": "레이아웃", "input_requirement": "광고물"},
                 structured,
@@ -1266,14 +1266,14 @@ class OperationalSelectionTests(unittest.TestCase):
                 structured,
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             operational.automated_input_ready(
                 {"required_medium": "레이아웃", "input_requirement": "광고물", "question": "문구의 글자 크기가 기준 이상인가?"},
                 structured,
             )
         )
         structured["pages"][0]["regions"][0]["visibility"] = {"contrast_ratio": 4.7}
-        self.assertTrue(
+        self.assertFalse(
             operational.automated_input_ready(
                 {"required_medium": "레이아웃", "input_requirement": "광고물", "question": "문구의 색상 대비가 충분한가?"},
                 structured,

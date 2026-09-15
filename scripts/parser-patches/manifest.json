@@ -1,0 +1,12 @@
+{
+  "parser_base_commit": "f27b2638135b6337cac6297c2e0cd8e0c44b2e8b",
+  "sha256": "75944e7370abe6da90229d423e19a9dbe07b45be8c3c101b49ca37b0e94f3dbf",
+  "files": [
+    "src/nh_parser/pipeline.py",
+    "src/nh_parser/review/export.py",
+    "src/nh_parser/review/labeling.py",
+    "src/nh_parser/review/resolution.py",
+    "tools/parse.py",
+    "tests/test_user_template.py"
+  ]
+}
