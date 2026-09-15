@@ -338,6 +338,29 @@ class LabelBoundaryTests(unittest.TestCase):
         self.assertIn("36개월", views[0]["text_canonical"])
         self.assertIn("최대연3.0%p", views[1]["text_canonical"])
 
+    def test_asset_namespaced_labels_preserve_same_chunk_boundaries(self):
+        from rag.parsing.source_structure import namespace_structure
+        labels = [label("가입기간", [13, 14]), label("우대금리", [21, 22])]
+        original = _fine_views(region(self.lines, labels=labels))
+        merged = _fine_views(region(self.lines, labels=namespace_structure(labels, ASSET)))
+        self.assertEqual([v["text_canonical"] for v in merged],
+                         [v["text_canonical"] for v in original])
+        self.assertEqual([v["line_refs"] for v in merged], [v["line_refs"] for v in original])
+        self.assertEqual(len(merged), 2)
+
+    def test_labels_from_another_asset_never_match_by_suffix(self):
+        from rag.parsing.source_structure import namespace_structure
+        rows = [[part] for part in self.lines]
+        labels = namespace_structure([label("가입기간", [13, 14]), label("우대금리", [21, 22])], "OTHER")
+        self.assertIsNone(_label_groups(rows, region=region(self.lines, labels=labels)))
+
+    def test_ambiguous_legacy_suffix_is_not_assigned(self):
+        import copy
+        lines = copy.deepcopy(self.lines)
+        lines.extend([{**part, "line_ref": part["line_ref"].replace(ASSET, "OTHER")} for part in self.lines])
+        labels = [label("가입기간", [13, 14]), label("우대금리", [21, 22])]
+        self.assertIsNone(_label_groups([[part] for part in lines], region=region(lines, labels=labels)))
+
     def test_unlabeled_rows_attach_to_the_preceding_item(self):
         """주석은 앞 항목에 딸린 내용이므로 떨어져 나가지 않는다."""
         reg = region(self.lines, labels=[

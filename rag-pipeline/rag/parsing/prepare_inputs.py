@@ -99,6 +99,34 @@ def parser_template_field(template: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validated_labels(region_p3: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
+    """Keep only spans owned by this region; never repair a label's evidence."""
+    refs = region_p3.get("line_refs") or []
+    positions = {ref: i for i, ref in enumerate(refs)}
+    labels = []
+    rejected = False
+    for label in region_p3.get("labels") or []:
+        spans = []
+        for span in label.get("spans") or []:
+            selected = span.get("line_refs")
+            if (not isinstance(selected, list) or not selected
+                    or any(not isinstance(ref, str) or ref not in positions for ref in selected)
+                    or any(positions[a] >= positions[b] for a, b in zip(selected, selected[1:]))):
+                rejected = True
+                continue
+            if "line_from" in span or "line_to" in span:
+                start, end = span.get("line_from"), span.get("line_to")
+                if (type(start) is not int or type(end) is not int
+                        or not 0 <= start <= end < len(refs)
+                        or selected != refs[start:end + 1]):
+                    rejected = True
+                    continue
+            spans.append(copy.deepcopy(span))
+        if spans:
+            labels.append({**copy.deepcopy(label), "spans": spans})
+    return labels, rejected
+
+
 def _label_by_line(region_p3: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     result: dict[str, list[dict[str, Any]]] = {}
     for label in region_p3.get("labels") or []:
@@ -156,7 +184,14 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
             region_p3 = p3_regions.get(region_id)
             if region_p3 is None:
                 raise ValueError(f"P3 missing non-empty region {page_no}/{region_id}")
-            by_line = _label_by_line(region_p3)
+            labels, rejected_spans = _validated_labels(region_p3)
+            by_line = _label_by_line({"labels": labels})
+            selection = copy.deepcopy(region_p3.get("text_selection") or {})
+            if rejected_spans:
+                selection["needs_review"] = True
+                selection["reason"] = (
+                    str(selection.get("reason") or "") + "; label_source_span_invalid"
+                ).lstrip("; ")
             expected_refs = [str(ref) for ref in region_p3.get("line_refs") or []]
             lines = []
             for line in lines_raw:
@@ -169,7 +204,6 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
             p3_partition_refs.extend(expected_refs)
             if refs != expected_refs:
                 raise ValueError(f"P1/P3 region line_ref mismatch: {page_no}/{region_id}")
-            labels = region_p3.get("labels") or []
             labelled_count = sum(bool(line["labels"]) for line in lines)
             regions.append({
                 "evidence_id": f"{p1['doc_id']}#p{page_no}:{region_id}",
@@ -179,7 +213,7 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
                 "layout": region.get("layout"),
                 "final_text": str(region_p3.get("review_text") or ""),
                 "text_source": region_p3.get("text_source"),
-                "text_selection": copy.deepcopy(region_p3.get("text_selection") or {}),
+                "text_selection": selection,
                 "line_refs": refs,
                 "lines": lines,
                 "labels": labels,
@@ -323,17 +357,27 @@ def _same_visual_row(previous: Any, current: Any) -> bool:
 def _template_label_names_by_line(region: dict[str, Any]) -> dict[str, set[str]]:
     """파서가 라인에 붙인 템플릿 항목 라벨을 줄 참조별로 모은다.
 
-    라벨의 줄 참조는 ``p1/p1_r004/L015`` 형태이고 파서 라인은 자산 접두어가
-    붙은 ``FILE-xxxx::p1/p1_r004/L015`` 형태라 접미부로 맞춘다.
+    파일 병합 후에는 라벨과 원문 모두 자산 접두어를 가진다. 전체 참조를 우선하고,
+    접두어 없는 구형 라벨만 현재 영역의 유일한 원문 참조로 대응한다.
     """
     mapping: dict[str, set[str]] = {}
+    owned_refs = {str(line.get("line_ref") or "") for line in region.get("lines") or []}
+    legacy_refs: dict[str, list[str]] = {}
+    for ref in owned_refs:
+        legacy_refs.setdefault(ref.split("::", 1)[-1], []).append(ref)
     for label in region.get("labels") or []:
         name = str(label.get("label") or "").strip()
         if not name:
             continue
         for span in label.get("spans") or []:
             for line_ref in span.get("line_refs") or []:
-                mapping.setdefault(str(line_ref), set()).add(name)
+                ref = str(line_ref)
+                if ref not in owned_refs:
+                    matches = legacy_refs.get(ref, []) if "::" not in ref else []
+                    if len(matches) != 1:
+                        continue
+                    ref = matches[0]
+                mapping.setdefault(ref, set()).add(name)
     return mapping
 
 
@@ -343,8 +387,7 @@ def _unit_label(
     """한 묶음이 단일 항목에 속할 때만 그 항목 이름을 돌려준다."""
     names: set[str] = set()
     for part in unit:
-        suffix = str(part.get("line_ref") or "").split("::", 1)[-1]
-        names |= label_by_line.get(suffix, set())
+        names |= label_by_line.get(str(part.get("line_ref") or ""), set())
     return next(iter(names)) if len(names) == 1 else None
 
 

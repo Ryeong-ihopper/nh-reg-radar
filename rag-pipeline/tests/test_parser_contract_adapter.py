@@ -54,6 +54,55 @@ def external_pair():
 
 
 class ParserContractAdapterTests(unittest.TestCase):
+    def test_invalid_label_refs_are_removed_without_losing_text_or_valid_labels(self):
+        valid = {"line_refs": ["p1/R-1/L000"], "sources": ["parser"]}
+        for invalid in (
+            {"line_refs": ["p2/other/L000"]}, {"line_refs": []},
+            {"line_refs": ["p1/R-1/L000", "p1/R-1/L000"]},
+            {**valid, "line_from": -1, "line_to": 0},
+            {**valid, "line_from": 0, "line_to": 1},
+            {**valid, "line_from": False, "line_to": 0},
+            {**valid, "line_from": 0},
+        ):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as directory:
+                p1, p3 = external_pair()
+                p3["pages"][0]["regions"][0]["labels"].append({
+                    "label_id": "invalid", "label": "wrong field", "spans": [invalid],
+                })
+                first, third = Path(directory) / "p1.json", Path(directory) / "p3.json"
+                first.write_text(json.dumps(p1), encoding="utf-8")
+                third.write_text(json.dumps(p3), encoding="utf-8")
+                before = first.read_bytes(), third.read_bytes()
+                combined = combine(first, third)
+                region = combined["pages"][0]["regions"][0]
+                self.assertTrue(region["text_selection"]["needs_review"])
+                self.assertEqual(len(region["labels"]), 1)
+                self.assertEqual(region["final_text"], "표시 문구")
+                for doc in sum(search_docs(combined), []):
+                    self.assertEqual([label["label_id"] for label in doc["labels"]], ["T-1"])
+                    self.assertTrue(doc["text_selection"]["needs_review"])
+                self.assertEqual(before, (first.read_bytes(), third.read_bytes()))
+
+    def test_noncontiguous_label_refs_preserve_exact_selected_subset(self):
+        p1, p3 = external_pair()
+        original = p1["pages"][0]["regions"][0]["lines"][0]
+        lines = [{**original, "text": text, "line_ref": f"p1/R-1/L{i:03d}"}
+                 for i, text in enumerate(("적용 이율", "고객 부담 비용 없음", "연 4.2%"))]
+        p1["pages"][0]["regions"][0]["lines"] = lines
+        region = p3["pages"][0]["regions"][0]
+        region["line_refs"] = [line["line_ref"] for line in lines]
+        region["selected_text"] = "적용 이율\n연 4.2%"
+        region["labels"][0]["spans"] = [{"line_refs": region["line_refs"][::2], "sources": ["parser"]}]
+        with tempfile.TemporaryDirectory() as directory:
+            first, third = Path(directory) / "p1.json", Path(directory) / "p3.json"
+            first.write_text(json.dumps(p1), encoding="utf-8")
+            third.write_text(json.dumps(p3), encoding="utf-8")
+            combined = combine(first, third)
+        self.assertEqual(combined["pages"][0]["regions"][0]["lines"][1]["labels"], [])
+        coarse, fine = search_docs(combined)
+        self.assertEqual(coarse[0]["line_refs"], region["line_refs"][::2])
+        self.assertTrue(all(doc["labels"] for doc in fine))
+
     def test_rejects_duplicate_pages_regions_and_phantom_p3_lines(self):
         for mutation in ("p1_page", "p3_page", "p1_region", "p3_region", "ghost_region", "ghost_line"):
             with self.subTest(mutation=mutation):
