@@ -57,24 +57,76 @@ index a26f45b..ea24cfc 100644
      return doc
 
 diff --git a/src/nh_parser/review/export.py b/src/nh_parser/review/export.py
-index e13c940..c29c0a1 100644
+index e13c940..02c5a3a 100644
 --- a/src/nh_parser/review/export.py
 +++ b/src/nh_parser/review/export.py
-@@ -183,6 +183,9 @@ def build_evidence(
+@@ -111,15 +111,29 @@ def _classification(doc: dict[str, Any]) -> dict[str, Any]:
+     }
+
+
+-def _attach_span_refs(labels: list[dict[str, Any]], refs: list[str]) -> list[dict[str, Any]]:
+-    output = copy.deepcopy(labels)
+-    for label in output:
++def _attach_span_refs(
++    labels: list[dict[str, Any]], refs: list[str],
++) -> tuple[list[dict[str, Any]], bool]:
++    output = []
++    rejected = False
++    for label in copy.deepcopy(labels):
++        spans = []
+         for span in label.get("spans") or []:
+-            start = max(0, int(span.get("line_from", 0)))
+-            end = min(len(refs) - 1, int(span.get("line_to", start)))
+-            span["line_from"], span["line_to"] = start, end
+-            span["line_refs"] = refs[start:end + 1] if start <= end else []
+-    return output
++            start, end = span.get("line_from"), span.get("line_to")
++            if (type(start) is not int or type(end) is not int
++                    or not 0 <= start <= end < len(refs)):
++                rejected = True
++                continue
++            expected = refs[start:end + 1]
++            if "line_refs" in span and span["line_refs"] != expected:
++                rejected = True
++                continue
++            span["line_refs"] = expected
++            spans.append(span)
++        if spans:
++            label["spans"] = spans
++            output.append(label)
++    return output, rejected
+
+
+ def build_evidence(
+@@ -169,7 +183,7 @@ def build_evidence(
+                 line["parser_text"] = line.get("text") or ""
+                 region_refs.append(ref)
+                 refs.append(ref)
+-            labels = _attach_span_refs(
++            labels, rejected_spans = _attach_span_refs(
+                 (labeling.get("by_region") or {}).get(region_id) or [], region_refs,
+             )
+             unknown_labels = {
+@@ -183,6 +197,14 @@ def build_evidence(
              if labels:
                  labelled_regions += 1
              selection = select_region_text(region)
-+            if region_id in (labeling.get("needs_review_regions") or []):
++            if rejected_spans or region_id in (labeling.get("needs_review_regions") or []):
 +                selection["needs_review"] = True
 +                selection["reason"] += "; 하위 라벨 범위/신뢰도 확인 필요"
++            if rejected_spans:
++                evidence["template"]["labeling_status"] = "partial"
++                evidence["template"]["labeling_notes"].append(
++                    f"하위 라벨 원문 참조 불일치({region_id}); 임의 보정하지 않음"
++                )
              if selection["needs_review"]:
                  needs_review_regions += 1
              region["text_evidence"] = {
 diff --git a/src/nh_parser/review/labeling.py b/src/nh_parser/review/labeling.py
-index fa08468..3a585af 100644
+index fa08468..0a16b2a 100644
 --- a/src/nh_parser/review/labeling.py
 +++ b/src/nh_parser/review/labeling.py
-@@ -3,6 +3,7 @@
+@@ -3,11 +3,14 @@
  from __future__ import annotations
 
  import re
@@ -82,25 +134,85 @@ index fa08468..3a585af 100644
  from collections import defaultdict
  from typing import Any
 
-@@ -46,7 +47,7 @@ def _definitions(template: dict[str, Any]) -> str:
+ from ..vlm import client as vlm_client
++from ..config import SETTINGS
+ from .catalog import load_catalog, template_item_map
++from .export import select_region_text
 
+
+ ABSTAIN = "해당없음"
+@@ -35,25 +38,47 @@ def _definitions(template: dict[str, Any]) -> str:
+             instructions = " ".join(str(entry.get("instructions") or "").split())
+             descriptor = f"필수여부={required}" + (f", {instructions}" if instructions else "")
+             if descriptor not in requirements:
+-                requirements.append(descriptor[:240])
++                requirements.append(descriptor)
+         sample_text = " / ".join(samples[:2])
+-        requirement_text = " / ".join(requirements[:2])
++        requirement_text = " / ".join(requirements)
+         rows.append(
+             f"- {item['gubun']}: 예시={sample_text or '(없음)'}; {requirement_text}"
+         )
+     return "\n".join(rows)
+
+
++def _uncertain_line(line: dict[str, Any]) -> bool:
++    text = str(line.get("text") or "")
++    if "\ufffd" in text or "\x00" in text:
++        return True
++    confidence = line.get("confidence")
++    if line.get("source") != "ocr" or confidence is None:
++        return False
++    return (type(confidence) not in (int, float) or not math.isfinite(confidence)
++            or confidence < SETTINGS.lowconf_reread_threshold)
++
++
  def _region_text(region: dict[str, Any]) -> str:
      lines = [
 -        f"[{index:02d}] {str(line.get('text') or '').strip()}"
 +        f"[{index:02d}] bbox={line.get('bbox')} {str(line.get('text') or '').strip()}"
++        f" [source={line.get('source')}, confidence={line.get('confidence')},"
++        f" needs_review={_uncertain_line(line)}]"
          for index, line in enumerate(region.get("lines") or [])
      ]
      bbox = region.get("bbox")
-@@ -92,7 +93,7 @@ def _schema(region_ids: list[str], gubuns: list[str]) -> dict[str, Any]:
-                         "line_from": {"type": "integer"},
-                         "line_to": {"type": "integer"},
++    reading = region.get("reading_adjudication") or {}
++    context = ""
++    if (reading.get("proposed_source") == "element_vlm" and reading.get("proposed_text")
++            and reading.get("judge_decision") in {"candidate_a", "candidate_b"}):
++        context = (
++            "\nP3_CONTEXT_ONLY (문맥 보조, P1 줄 번호 없음, 사람 확인 필요):\n"
++            + select_region_text(region)["selected_text"]
++            + "\nP3 문장으로 P1의 누락이나 오독을 복원하여 라벨링하지 마세요."
++        )
+     return (
+         f"REGION {region.get('region_id')} "
+         f"layout={region.get('label')} score={region.get('layout_score')} "
+-        f"role_hint={region.get('role')} bbox={bbox}\n" + "\n".join(lines)
++        f"role_hint={region.get('role')} bbox={bbox}\n" + "\n".join(lines) + context
+     )
+
+
+@@ -89,14 +114,14 @@ def _schema(region_ids: list[str], gubuns: list[str]) -> dict[str, Any]:
+                     "type": "object",
+                     "properties": {
+                         "region_id": {"type": "string", "enum": region_ids},
+-                        "line_from": {"type": "integer"},
+-                        "line_to": {"type": "integer"},
++                        "line_ids": {"type": "array", "minItems": 1,
++                                     "items": {"type": "integer", "minimum": 0}},
                          "gubun": {"type": "string", "enum": [*gubuns, ABSTAIN]},
 -                        "confidence": {"type": "number"},
 +                        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                          "reason": {"type": "string"},
                      },
                      "required": [
-@@ -235,11 +236,16 @@ def label_regions(
+-                        "region_id", "line_from", "line_to", "gubun", "confidence", "reason",
++                        "region_id", "line_ids", "gubun", "confidence", "reason",
+                     ],
+                     "additionalProperties": False,
+                 },
+@@ -235,20 +260,50 @@ def label_regions(
          for region in page.get("regions") or []
          if region.get("lines") and not region.get("is_illustrative")
      }
@@ -113,28 +225,46 @@ index fa08468..3a585af 100644
          for region_id, region in region_index.items()
      }
      notes: list[str] = []
-+    review_regions: set[str] = set()
++    review_regions = {
++        region_id for region_id, region in region_index.items()
++        if any(_uncertain_line(line) for line in region.get("lines") or [])
++    }
++    if review_regions:
++        notes.append("저신뢰/손상 원문 줄의 라벨은 제외하고 사람 확인으로 보냄")
 
      for batch in _batches(list(region_index.values())):
          region_ids = [str(region["region_id"]) for region in batch]
-@@ -249,6 +255,16 @@ def label_regions(
+         prompt = f"""당신은 농협 금융광고의 템플릿 구분값 분류기입니다.
+ 템플릿은 {template_id}로 이미 결정되었습니다. 각 REGION의 줄을 읽고 해당되는 구분값과
+-정확한 줄 범위를 반환하세요. 한 영역에 여러 구분값이 있으면 verdict를 여러 개 만드세요.
++해당하는 줄 번호만 line_ids 배열로 반환하세요. 예: [0, 3]은 0번과 3번 줄만 뜻하며
++1, 2번 줄은 포함하지 않습니다. 줄 번호는 오름차순으로 중복 없이 반환하세요.
++한 영역에 여러 구분값이 있으면 verdict를 여러 개 만드세요.
  광고 헤드라인·버튼·일반 홍보처럼 어느 구분에도 속하지 않으면 해당없음을 반환하거나
  생략하세요. 예시문구와 표현이 달라도 의미가 같으면 같은 구분입니다. 제공된 enum 밖의
  구분값은 만들지 마세요.
 +템플릿 자체를 재분류하지 마세요. 제목·목차는 실제 회사명/상품명/조건 값이 아닙니다.
 +가입 방식, 가입 금액, 금리, 비용, 보호 고지는 서로 다른 개념입니다. 비슷한 구분에
 +억지로 끼워 넣지 말고 근거가 부족하면 해당없음으로 남기세요. 표의 표제와 값의
-+대응을 읽고, 선택한 구분의 실제 내용이 있는 최소 줄 범위만 반환하세요.
++대응을 읽고, 선택한 구분의 실제 내용이 있는 줄만 반환하세요.
 +OCR 글자가 깨졌거나 범위를 확정할 수 없으면 추측하여 라벨을 붙이지 마세요.
 +각 줄 bbox는 [왼쪽, 위, 오른쪽, 아래] 원문 좌표입니다. OCR 줄 순서만으로 표의
 +표제와 값을 연결하지 말고 실제 같은 행/열인지 확인하세요. bbox가 없거나 표의
-+대응이 모호하면 연결을 추정하지 마세요. 떨어진 줄에 같은 라벨이 해당하면 각각
-+별도 verdict를 반환하고, 사이에 있는 다른 항목의 줄까지 범위에 포함하지 마세요.
++대응이 모호하면 연결을 추정하지 마세요. 떨어진 줄에 같은 라벨이 해당하면
++해당 번호만 선택하고, 사이에 있는 다른 항목의 줄까지 포함하지 마세요.
 +낮은 신뢰도의 깨진 OCR 문장을 금융 지식으로 복원하여 라벨링하지 마세요.
++needs_review=True인 줄은 라벨링하지 마세요. OCR confidence는 글자 판독 신뢰도이고
++라벨 의미 신뢰도와 다릅니다. 높은 OCR confidence도 의미가 맞다는 보장은 아닙니다.
++P3_CONTEXT_ONLY는 문맥 보조입니다. P1과 다른 문구/수치 또는 P3에만 있는 정보를
++P1 줄에 붙이지 마세요. 라벨은 반드시 번호가 있는 P1 줄 자체에 의해 뒷받침되어야 합니다.
++회사명과 상품명은 각각 기관의 고유 이름과 상품의 고유 이름입니다. 웹사이트/메뉴 제목을
++상품명으로 붙이거나, 상품이 언급됐다는 이유만으로 절차/조건 문단 전체를 이름으로
++분류하지 마세요. 금액·이율·기간은 서로 구분하고, 납입 방식만으로 금액을 추정하거나
++계산기의 입력 예시 수치를 실제 상품 조건으로 분류하지 마세요.
 
  구분값과 원본 템플릿 예시:
  {_definitions(template)}
-@@ -265,23 +281,29 @@ def label_regions(
+@@ -265,25 +320,35 @@ def label_regions(
              )
          except Exception as exc:
              notes.append(f"구분값 VLM 판정 실패({','.join(region_ids)}): {exc}")
@@ -159,10 +289,12 @@ index fa08468..3a585af 100644
 -                start, end = end, start
 -            start, end = max(0, start), min(len(line_states) - 1, end)
 -            if start > end:
-+            start, end = verdict.get("line_from"), verdict.get("line_to")
++            line_ids = verdict.get("line_ids")
 +            confidence = verdict.get("confidence")
-+            if (type(start) is not int or type(end) is not int
-+                    or not 0 <= start <= end < len(line_states)
++            if (not isinstance(line_ids, list) or not line_ids
++                    or any(type(index) is not int or not 0 <= index < len(line_states)
++                           for index in line_ids)
++                    or any(a >= b for a, b in zip(line_ids, line_ids[1:]))
 +                    or type(confidence) not in (int, float)
 +                    or not math.isfinite(confidence) or not 0.7 <= confidence <= 1):
 +                notes.append(f"구분값 범위/신뢰도 미확정({region_id}); 임의 보정하지 않음")
@@ -170,9 +302,23 @@ index fa08468..3a585af 100644
                  continue
 -            confidence = float(verdict.get("confidence") or 0.0)
              reason = str(verdict.get("reason") or "")
-             for index in range(start, end + 1):
+-            for index in range(start, end + 1):
++            for index in line_ids:
++                if _uncertain_line(region_index[region_id]["lines"][index]):
++                    continue
                  _add(line_states[index], label, "semantic_vlm", confidence, reason)
-@@ -312,4 +334,5 @@ def label_regions(
+
+     # VLM 뒤에 결정론적 근거를 적용한다. 명시적인 표제 줄에서는 다른 VLM 라벨을
+@@ -291,6 +356,8 @@ def label_regions(
+     for region_id, region in region_index.items():
+         line_states = states_by_region[region_id]
+         for index, line in enumerate(region.get("lines") or []):
++            if _uncertain_line(line):
++                continue
+             text = str(line.get("text") or "")
+             explicit = _explicit_label(text, gubun_set)
+             if explicit:
+@@ -312,4 +379,5 @@ def label_regions(
          "template_id": template_id,
          "by_region": by_region,
          "notes": notes,
@@ -200,6 +346,20 @@ index b07c1bb..72dfa74 100644
  def _document_text(doc: dict[str, Any], limit: int = 6000) -> str:
      values: list[str] = []
      for page in doc.get("pages") or []:
+diff --git a/tests/test_review_labeling.py b/tests/test_review_labeling.py
+index d43cea5..1815c15 100644
+--- a/tests/test_review_labeling.py
++++ b/tests/test_review_labeling.py
+@@ -29,8 +29,7 @@ def test_vlm_span과_명시표제를_병합하고_잘못된_표제라벨은_제
+         assert "대출한도" not in allowed
+         return {"verdicts": [{
+             "region_id": "p1_r000",
+-            "line_from": 0,
+-            "line_to": 1,
++            "line_ids": [0, 1],
+             "gubun": "가입금액",
+             "confidence": 0.8,
+             "reason": "기간과 납입액 영역",
 diff --git a/tools/parse.py b/tools/parse.py
 index 4b56ed1..b9364b6 100644
 --- a/tools/parse.py
@@ -285,7 +445,7 @@ index 4b56ed1..b9364b6 100644
                  failed += 1
 --- /dev/null
 +++ b/tests/test_user_template.py
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,209 @@
 +"""User intake, label spans and parser stage boundaries (no providers)."""
 +import copy
 +import importlib.util
@@ -339,13 +499,14 @@ index 4b56ed1..b9364b6 100644
 +    model.assert_not_called()
 +
 +
-+@pytest.mark.parametrize("start,end,confidence", [(-1, 1, .9), (1, 0, .9), (0, 5, .9),
-+                                                         (True, 1, .9), (0, 1, .4), (0, 1, float('nan'))])
-+def test_invalid_label_range_or_confidence_never_clamps_to_source(monkeypatch, start, end, confidence):
++@pytest.mark.parametrize("line_ids,confidence", [([-1, 1], .9), ([1, 0], .9), ([0, 5], .9),
++    ([True, 1], .9), ([0, 1], .4), ([0, 1], float('nan')), ([0, 0], .9), ([], .9),
++    ([0.0], .9), (["0"], .9), (None, .9), ([0], True)])
++def test_invalid_label_range_or_confidence_never_clamps_to_source(monkeypatch, line_ids, confidence):
 +    raw = document()
 +    original = copy.deepcopy(raw)
 +    monkeypatch.setattr(labeling.vlm_client, "chat_json", lambda *a, **k: {"verdicts": [{
-+        "region_id": "r", "gubun": "대출금리", "line_from": start, "line_to": end,
++        "region_id": "r", "gubun": "대출금리", "line_ids": line_ids,
 +        "confidence": confidence, "reason": "test",
 +    }]})
 +    selected = resolution.provided_template("대출성상품-상품명 노출")
@@ -361,8 +522,8 @@ index 4b56ed1..b9364b6 100644
 +def test_lower_labels_keep_separate_canonical_line_spans(monkeypatch):
 +    def response(parts, **kwargs):
 +        assert "대출성상품-상품명 노출" in parts[0]["text"]
-+        return {"verdicts": [{"region_id": "r", "gubun": label, "line_from": i,
-+                              "line_to": i, "confidence": .9, "reason": "본문 근거"}
++        return {"verdicts": [{"region_id": "r", "gubun": label, "line_ids": [i],
++                              "confidence": .9, "reason": "본문 근거"}
 +                             for i, label in enumerate(("회사명", "대출금리"))]}
 +    monkeypatch.setattr(labeling.vlm_client, "chat_json", response)
 +    raw = document()
@@ -371,6 +532,51 @@ index 4b56ed1..b9364b6 100644
 +    labels = {label["label"]: label for label in p1["pages"][0]["regions"][0]["template_labels"]}
 +    assert labels["회사명"]["spans"][0]["line_refs"] == ["p1/r/L000"]
 +    assert labels["대출금리"]["spans"][0]["line_refs"] == ["p1/r/L001"]
++
++
++def test_nonadjacent_label_lines_do_not_cover_intervening_field(monkeypatch):
++    raw = document()
++    raw["pages"][0]["regions"][0]["lines"] = [
++        {"text": "적용 이율"}, {"text": "고객 부담 비용 없음"}, {"text": "연 4.2%"},
++    ]
++
++    def response(parts, **kwargs):
++        properties = kwargs["schema"]["properties"]["verdicts"]["items"]["properties"]
++        assert "line_ids" in properties and "line_from" not in properties
++        return {"verdicts": [{"region_id": "r", "gubun": "대출금리", "line_ids": [0, 2],
++                              "confidence": .9, "reason": "같은 표 열의 표제와 값"}]}
++
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", response)
++    selected = resolution.provided_template("대출성상품-상품명 노출")
++    p1 = build_evidence(raw, selected, labeling.label_regions(raw, selected))
++    p3 = build_review_input(p1)
++    spans = p3["pages"][0]["regions"][0]["labels"][0]["spans"]
++    assert [span["line_refs"] for span in spans] == [["p1/r/L000"], ["p1/r/L002"]]
++    assert len(p3["pages"][0]["regions"][0]["line_refs"]) == 3
++
++
++@pytest.mark.parametrize("bad_span", [
++    {"line_from": -1, "line_to": 1}, {"line_from": 0, "line_to": 2},
++    {"line_from": 1, "line_to": 0}, {"line_from": True, "line_to": 1},
++    {"line_from": "0", "line_to": 1}, {"line_from": 0}, {},
++    {"line_from": 0, "line_to": 0, "line_refs": ["p1/r/L001"]},
++])
++def test_export_rejects_invalid_spans_but_preserves_valid_evidence(bad_span):
++    raw = document()
++    original = copy.deepcopy(raw)
++    selected = resolution.provided_template("대출성상품-상품명 노출")
++    result = {"status": "complete", "template_id": selected["template_id"], "by_region": {"r": [{
++        "label_id": "rate", "label": "대출금리", "spans": [
++            bad_span, {"line_from": 1, "line_to": 1, "sources": ["semantic_vlm"]},
++        ],
++    }]}}
++    p1 = build_evidence(raw, selected, result)
++    p3 = build_review_input(p1)
++    region = p3["pages"][0]["regions"][0]
++    assert region["needs_review"] is True
++    assert p1["template"]["labeling_status"] == "partial"
++    assert [span["line_refs"] for span in region["labels"][0]["spans"]] == [["p1/r/L001"]]
++    assert raw == original
 +
 +
 +def test_label_prompt_preserves_line_coordinates_without_font_inference():
@@ -382,6 +588,54 @@ index 4b56ed1..b9364b6 100644
 +    assert "[00] bbox=[0, 10, 100, 30] 회사명" in prompt
 +    assert "[01] bbox=[200, 10, 400, 30] 한빛은행" in prompt
 +    assert "font" not in prompt
++
++
++def test_label_prompt_keeps_all_template_instructions():
++    instructions = ["검사 조건 " + str(i) + " 가" * 150 for i in range(4)]
++    text = labeling._definitions({"items": [{"gubun": "항목", "entries": [
++        {"required": "O", "instructions": instruction} for instruction in instructions
++    ]}]})
++    assert all(instruction in text for instruction in instructions)
++
++
++def test_selected_reading_is_context_only_and_low_quality_lines_have_no_labels(monkeypatch):
++    raw = document()
++    region = raw["pages"][0]["regions"][0]
++    region["lines"] = [{"text": "금리", "source": "ocr", "confidence": .2},
++                       {"text": "연 4.2%", "source": "digital", "confidence": 1.0}]
++    region["reading_adjudication"] = {"proposed_source": "element_vlm",
++        "proposed_text": "금리 연 7.8%", "judge_decision": "candidate_b"}
++    before = copy.deepcopy(raw)
++
++    def response(parts, **kwargs):
++        assert "P3_CONTEXT_ONLY" in parts[0]["text"]
++        assert "confidence=0.2, needs_review=True" in parts[0]["text"]
++        return {"verdicts": [{"region_id": "r", "gubun": "금리", "line_ids": [0, 1],
++                              "confidence": 1.0, "reason": "model confidence is not OCR quality"}]}
++
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", response)
++    selected = resolution.provided_template("예금성상품-적립식")
++    labels = labeling.label_regions(raw, selected)
++    p1 = build_evidence(raw, selected, labels)
++    p3 = build_review_input(p1)
++    assert raw == before
++    assert labels["needs_review_regions"] == ["r"]
++    assert labels["by_region"]["r"][0]["spans"][0]["line_from"] == 1
++    assert len(labels["by_region"]["r"][0]["spans"]) == 1
++    assert p3["pages"][0]["regions"][0]["selected_text"] == "금리 연 7.8%"
++    assert p3["pages"][0]["regions"][0]["needs_review"]
++
++
++@pytest.mark.parametrize("line,expected", [
++    ({"text": "정상", "source": "ocr", "confidence": .95}, False),
++    ({"text": "정상", "source": "digital", "confidence": .2}, False),
++    ({"text": "정상", "source": "ocr", "confidence": None}, False),
++    ({"text": "손상\ufffd", "source": "digital"}, True),
++    ({"text": "손상\x00", "source": "ocr", "confidence": .99}, True),
++    ({"text": "미확정", "source": "ocr", "confidence": float("nan")}, True),
++])
++def test_label_quality_gate_uses_observations_not_specific_ad_words(line, expected):
++    assert labeling._uncertain_line(line) is expected
 +
 +
 +def test_cli_skips_document_and_template_classification(monkeypatch, tmp_path):

@@ -32,6 +32,8 @@ class BridgeTests(unittest.TestCase):
         parent_dir.mkdir(parents=True)
         current = self.root / "new-run"
         for manifest in (None, self.bridge.parser_intake("대출성상품-상품명 노출"),
+                         {"version": "user-template-labeling-v1", "template_id": "예금성상품-적립식"},
+                         {"version": "user-template-labeling-v2", "template_id": "예금성상품-적립식"},
                          {"version": "old-policy", "template_id": "예금성상품-적립식"}):
             if manifest is not None:
                 (parent_dir / "parser-intake.json").write_text(json.dumps(manifest), encoding="utf-8")
