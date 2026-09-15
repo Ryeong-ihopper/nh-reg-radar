@@ -6,6 +6,7 @@ NH농협은행 금융상품 광고물의 사전 심의를 보조하는 **AI 기�
 - **핵심 스택:** FastAPI backend · React(Vite) frontend · 비동기 worker(OCR·RAG·LLM) · PostgreSQL · Qdrant(벡터) · OpenSearch(키워드) · Redis(큐/캐시) · MinIO(객체 저장). 전 구성요소 Docker Compose 기반.
 - **명세 원천(Source of Truth):** Git으로 관리하는 `docs/`. Notion은 칸반·일정·회의록·공유용 읽기본.
 - **작업 시작 전 필독:** [`AGENTS.md`](AGENTS.md) · [`docs/project-rules.md`](docs/project-rules.md) · [`docs/adr/README.md`](docs/adr/README.md)
+- **광고 1건 처음 실행:** [로컬 PC·Spark 실행 가이드](docs/first-review-local-spark-guide.md) — 준비물, 데이터 경로 설정, 별도 파서, 서비스 연결, 화면 실행, Claude에 전달할 요청문.
 - **현재 범위:** M0~M8 provider-free thin slice 구현·검증 완료, dev 자동 배포 동작 확인. 실제 OCR/RAG/LLM 품질과 고객 시연·검증은 별도 증거로만 인정([상세](#현재-구현-상태)).
 
 ---
@@ -66,11 +67,11 @@ flowchart LR
 
 ## 온보딩
 
-**사전 요구사항:** Git · Python 3.12 (거버넌스 스크립트) · Bash 및 POSIX 기본 도구(`local-dev.sh` 등 셸 스크립트) · Docker Engine + Compose v2 (스택 실행) · (선택) `uv`, Node.js 22 (품질 검사).
+**사전 요구사항:** Git · Python 3.11 · Bash 및 POSIX 기본 도구(`local-dev.sh` 등 셸 스크립트) · Docker Engine + Compose v2 (스택 실행) · (선택) `uv`, Node.js 22 (품질 검사).
 
 ### 1단계 (필수). 저장소 준비 & 문서 거버넌스 설치
 
-가장 먼저 실행합니다. Docker 없이 **Git · Python 3.12 · Bash/POSIX 도구**만 있으면 됩니다. private 저장소이므로 clone 전에 저장소 접근 권한과 GitHub 인증(HTTPS PAT 또는 SSH)이 필요합니다.
+가장 먼저 실행합니다. Docker 없이 **Git · Python 3.11 · Bash/POSIX 도구**만 있으면 됩니다. private 저장소이므로 clone 전에 저장소 접근 권한과 GitHub 인증(HTTPS PAT 또는 SSH)이 필요합니다.
 
 ```bash
 git clone --branch dev https://github.com/CGINSIDE-ROOKIES/nh-ad-compliance.git

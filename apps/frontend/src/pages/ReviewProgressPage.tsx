@@ -9,6 +9,7 @@ import { PageHeader } from "../components/PageHeader";
 import { ReviewOriginalPanel } from "../components/ReviewOriginalPanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { WorkflowSteps } from "../components/WorkflowSteps";
+import { cancelOperationalReview, operationalMode } from "../api/operational";
 
 const TERMINAL_JOB_STATUSES = new Set<ReviewProgress["jobStatus"]>(["COMPLETED", "FAILED", "FAILED_FINAL", "CANCELED"]);
 
@@ -36,6 +37,9 @@ function StatusNotice({ progress }: { progress: ReviewProgress }) {
   }
   if (progress.jobStatus === "FAILED") {
     return <div role="alert" className="state-message state-error"><strong>검토 작업이 실패했습니다.</strong><p>{progress.failedReason ?? "상태를 새로고침해 주세요."}</p></div>;
+  }
+  if (progress.jobStatus === "CANCELED") {
+    return <div role="status" className="state-message state-warning"><strong>검토 중단이 요청되었습니다.</strong><p>현재 호출 중인 파서 또는 모델 작업이 끝난 뒤 결과 저장 없이 종료됩니다.</p></div>;
   }
   if (progress.jobStatus === "COMPLETED") {
     return <div role="status" className="state-message state-success"><strong>검토가 완료되었습니다.</strong><p>진행률 100% · 결과를 확인할 수 있습니다.</p></div>;
@@ -116,6 +120,10 @@ export function ReviewProgressPage() {
     mutationFn: () => api.rerunReview(session?.accessToken ?? "", reviewId, { reason: "사용자 재분석 요청" }),
     onSuccess: ({ newReviewId }) => navigate(`/reviews/${encodeURIComponent(newReviewId)}/status`, { replace: true }),
   });
+  const cancel = useMutation({
+    mutationFn: () => cancelOperationalReview(session?.accessToken ?? "", reviewId),
+    onSuccess: () => void progress.refetch(),
+  });
 
   const forbidden = progress.isError && progress.error instanceof ApiError && progress.error.status === 403;
   const canRerun = Boolean(displayedProgress?.isRetryable && ["FAILED", "FAILED_FINAL", "STALE"].includes(displayedProgress.jobStatus));
@@ -135,6 +143,7 @@ export function ReviewProgressPage() {
         <div className="review-workspace">
           <div>
           <StatusNotice progress={displayedProgress} />
+          {operationalMode ? <p className="fieldset-description">진행률은 완료한 단계 수 기준이며 남은 시간 비율이 아닙니다. 파싱·Gemma 판정 중에는 같은 단계에서 수 분 머무를 수 있습니다.</p> : null}
           <div className="progress-overview">
             <div><strong>현재 단계</strong><span>{currentStepLabel(displayedProgress)}</span></div>
             <div><strong>작업 상태</strong><span><StatusBadge status={displayedProgress.jobStatus} /></span></div>
@@ -148,10 +157,14 @@ export function ReviewProgressPage() {
             </li>
           ))}</ol>
           {rerun.isError ? <ErrorState error={rerun.error} /> : null}
+          {cancel.isError ? <ErrorState error={cancel.error} /> : null}
           <div className="form-actions">
             <Link className="button-link button-secondary" to="/advertisements">목록으로</Link>
-            <button type="button" className="button-secondary" disabled={progress.isFetching} onClick={() => void progress.refetch()}>{progress.isFetching ? "새로고침 중..." : "새로고침"}</button>
+            {!operationalMode ? <button type="button" className="button-secondary" disabled={progress.isFetching} onClick={() => void progress.refetch()}>{progress.isFetching ? "새로고침 중..." : "새로고침"}</button> : null}
             {displayedProgress.jobStatus === "COMPLETED" ? <Link className="button-link" to={`/reviews/${encodeURIComponent(reviewId)}/results`}>결과 보기</Link> : null}
+            {operationalMode && !TERMINAL_JOB_STATUSES.has(displayedProgress.jobStatus) ? <button className="button-danger" type="button" disabled={cancel.isPending} onClick={() => {
+              if (window.confirm("현재 검토를 중단할까요? 현재 호출 중인 파서·모델 작업은 종료 시점까지 남을 수 있지만 결과는 저장하지 않습니다.")) cancel.mutate();
+            }}>{cancel.isPending ? "중단 요청 중…" : "검토 중단"}</button> : null}
             {canRerun ? <button type="button" disabled={rerun.isPending} onClick={() => rerun.mutate()}>{rerun.isPending ? "재분석 요청 중..." : "재분석"}</button> : null}
           </div>
           </div>

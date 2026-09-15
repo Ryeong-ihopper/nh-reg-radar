@@ -108,6 +108,8 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0081](ADR-0081-parser-service-and-external-ai-activation-separation.md) | Accepted | Private Parser/OCR와 외부 AI 활성화 분리 정책 | Parser·외부 AI 설정 경계 결정 |
 | [ADR-0082](ADR-0082-development-default-branch-dev.md) | Accepted | 개발 기간 GitHub 기본 브랜치 dev 운영 정책 | ADR 후보 047 (Q76) |
 | [ADR-0083](ADR-0083-development-notion-sync-source-dev.md) | Accepted | 개발 기간 Notion 동기화 원천 dev 확장 정책 | ADR 후보 047 (Q76 후속·ADR-0077 개정) |
+| [ADR-0084](ADR-0084-python-311-dual-gpu-runtime-profiles.md) | Accepted | Python 3.11 및 DGX·H200 이중 GPU 실행 프로필 | 고객사 DAP 반입 환경 확정 |
+| [ADR-0084](ADR-0084-python-311-dual-gpu-runtime-profiles.md) | Accepted | Python 3.11 및 DGX·H200 이중 GPU 실행 프로필 | 고객사 DAP 반입 환경 확정 |
 
 ## 결정 대기 질문지
 

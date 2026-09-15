@@ -150,7 +150,14 @@ function DatasetRegistration({
             <select name="advertisementType">
               <option value="BRANCH_FLYER">영업점 전단</option>
               <option value="WEB_BANNER">웹 배너</option>
+              <option value="WEB_PRODUCT_PAGE">웹 상품상세 페이지</option>
               <option value="MOBILE_BANNER">모바일 배너</option>
+              <option value="SOCIAL_MEDIA">SNS 게시물</option>
+              <option value="VIDEO">영상 광고</option>
+              <option value="EMAIL">이메일</option>
+              <option value="OUTDOOR">옥외 광고</option>
+              <option value="PRINT_AD">인쇄 광고</option>
+              <option value="OTHER">기타</option>
             </select>
           </label>
           <label>

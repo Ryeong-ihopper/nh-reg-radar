@@ -854,7 +854,7 @@ export interface components {
             reviewStatus: components["schemas"]["ReviewStatus"];
         };
         /** @enum {string} */
-        AdvertisementType: "BRANCH_FLYER" | "NOTICE" | "MOBILE_BANNER" | "WEB_BANNER" | "EVENT_PAGE" | "PUSH" | "SMS" | "ALIMTALK";
+        AdvertisementType: "BRANCH_FLYER" | "NOTICE" | "MOBILE_BANNER" | "WEB_BANNER" | "WEB_PRODUCT_PAGE" | "EVENT_PAGE" | "SOCIAL_MEDIA" | "VIDEO" | "EMAIL" | "OUTDOOR" | "PRINT_AD" | "PUSH" | "SMS" | "ALIMTALK" | "OTHER";
         /** AuditLogPage */
         AuditLogPage: {
             /** Contents */
@@ -1065,10 +1065,9 @@ export interface components {
             memo?: string;
             /**
              * Advertisementfile
-             * Format: binary
-             * @description jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
+             * @description One to twenty source assets of one advertisement; jpg/jpeg/png/pdf/hwp/hwpx; each maximum 50 MiB.
              */
-            advertisementFile: string;
+            advertisementFile: string[];
             /**
              * Productdescriptionfile
              * Format: binary

@@ -7,10 +7,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_FILES = (
-    ROOT / "rag/operational/contracts.py",
-    ROOT / "rag/operational/prepare_inputs.py",
-    ROOT / "rag/operational/policy.py",
-    ROOT / "rag/operational/service.py",
+    ROOT / "rag/templates/catalog.py",
+    ROOT / "rag/contracts/validation.py",
+    ROOT / "rag/parsing/prepare_inputs.py",
+    ROOT / "rag/judgment/policy.py",
+    ROOT / "rag/judgment/applicability.py",
+    ROOT / "rag/judgment/decision_guides.py",
+    ROOT / "rag/api/service.py",
     ROOT / "rag/build_items.py",
     ROOT / "tools/build_ad_evidence_vectors.py",
     ROOT / "tools/build_silver_requests.py",
@@ -41,7 +44,9 @@ FORBIDDEN_RUNTIME_REFERENCES = (
     "prepare_exhaustive_gold6_0904",
 )
 LOCAL_ENVIRONMENT = re.compile(
-    r"(?:C:\\Users\\babie|babie0511@|10\.90\.0\.103|spark_auto)",
+    r"(?:C:[\\/]Users[\\/](?!REPLACE_USER|example|user)[^\\/\s]+"
+    r"|\b10\.\d+\.\d+\.\d+\b|\b192\.168\.\d+\.\d+\b"
+    r"|\b172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+\b)",
     re.IGNORECASE,
 )
 ADVERTISEMENT_LITERAL = re.compile(

@@ -32,6 +32,8 @@ _cleanup/
 *.f16.npy
 *.f32.npy
 *.checkpoint.json
+runtime-cache/
+runtime-cache/
 
 # Local scratch files are not part of the canonical pipeline.
 scratch_*.txt

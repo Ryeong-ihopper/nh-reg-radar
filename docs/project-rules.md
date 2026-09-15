@@ -4,13 +4,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.42 |
-| 기준일 | 2026-09-06 |
+| 현행 버전 | v1.44 |
+| 기준일 | 2026-09-10 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.44 | 2026-09-10 | Python 3.11 고정과 DGX 중간·H200 최종 이중 GPU 실행 프로필 반영 |
+| v1.43 | 2026-09-09 | 템플릿 원문 독립 적재와 v2 보완 역할을 사용자 결정에 따라 반영 |
 | v1.42 | 2026-09-06 | RAG 운영 API·확인 라우팅 게이트·규칙별 근거 축소·모델 출력 안전 검토 경계를 추가 |
 | v1.41 | 2026-09-06 | 계약 유효 응답을 보존하고 누락 광고-규칙 쌍만 소배치 재처리하는 운영 복구 경계를 추가 |
 | v1.40 | 2026-09-05 | `rag-pipeline/` 변경을 GitHub-hosted 독립 CI로 검증하는 경로·실행 경계를 추가 |
@@ -557,7 +559,7 @@ M4 Redis delivery queue/dead-letter 이름은 `REDIS_QUEUE_PREFIX` 아래에서 
 
 Compose backend와 worker는 반드시 동일한 `REDIS_URL` 및 review queue 이름을 설정한다. backend가 host 기본값으로 fallback하면 요청은 영속화되어도 worker로 전달되지 않으므로, Compose bootstrap 회귀는 backend Redis URL/queue 주입을 정적으로 검증하고 실제 provider E2E는 완료 상태까지 확인한다.
 
-ADR-0079의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`/`document-processor`는 private Compose service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. `document-processor`는 worker의 Python 3.12 의존성과 분리한 Python 3.13/OpenJDK 25 이미지로 운영하고 승인된 Git commit을 고정한다. PDF/복합 PDF와 이미지·스캔 PDF는 해당 service로 라우팅하며, HWP/HWPX 광고와 기준자료는 rhwp 텍스트와 document-processor 구조를 병합한 공용 `hwp-hybrid` 산출물을 사용한다. 구성요소 artifact는 미선택 상태로, 병합본 하나만 선택 상태로 보존한다. 이 engine service는 운영 Compose 네트워크 내부에만 두고, local dev의 loopback port는 디버깅 목적 외 사용하지 않는다. 엔진 container build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
+ADR-0079의 `opendataloader-pdf`/`PaddleOCR`/`rhwp`/`document-processor`는 private service로 관리하고 worker는 service-specific adapter를 통해 `NormalizedDocument` v1만 수용한다. ADR-0084에 따라 애플리케이션과 Python 기반 파서 서비스는 Python 3.11로 고정한다. PDF/복합 PDF와 이미지·스캔 PDF는 해당 service로 라우팅하며, HWP/HWPX 광고와 기준자료는 rhwp 텍스트와 document-processor 구조를 병합한 공용 `hwp-hybrid` 산출물을 사용한다. 구성요소 artifact는 미선택 상태로, 병합본 하나만 선택 상태로 보존한다. 엔진은 운영 내부 네트워크에 두며, DGX 중간·H200 최종 프로필은 동일 계약과 범용 `NH_GPU_*` endpoint 설정을 사용한다. 엔진 build, healthcheck, 파일 유형별 실제 E2E가 통과하기 전에는 구현 성공으로 표시하지 않는다.
 
 Compose 파일 변경 시 다음 조합의 설정 검증을 수행한다.
 
@@ -956,7 +958,7 @@ Accepted
 ## 14.1 독립 RAG 정본 운영 경계
 
 - `rag-pipeline/`은 해당 디렉터리를 작업 루트로 사용하는 독립 코드 정본이며 기존 `apps/` 런타임을 암묵적으로 import하지 않는다.
-- 규정 입력은 실행 시 명시적으로 전달한 규제목록 v2만 허용하고 원본 광고, 답지, 연구원 피드백과 실행 결과는 Git에 포함하지 않는다.
+- 심의 기준은 명시적으로 지정한 일반 템플릿 HWPX를 주 입력으로 사용하고 규제목록 v2로 보완한다(2026-09-09 사용자 결정). 템플릿 항목은 v2 ID 매핑 없이 독립 적재하며 원본 광고, 기준 원문, 답지, 연구원 피드백과 실행 결과는 Git에 포함하지 않는다.
 - Elasticsearch·DGX·Gemma 주소와 인증 정보는 환경변수 또는 CLI 인자로만 주입하며 개인 경로·내부 IP·키를 기본값으로 두지 않는다.
 - `rag-pipeline/rag/es/`의 Compose와 Dockerfile은 독립 검색 시험용이며 루트 제품 Compose를 변경하거나 자동 배포하지 않는다.
 - 운영 검색·판정 코드에는 광고 ID별 규칙, 사례별 사후 교정, gold 기반 후보 승격을 추가하지 않는다.

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""로컬 파이프라인에서 DGX Spark의 BGE GPU 서비스를 호출한다."""
+"""Call BGE GPU services directly; retain the interim DGX SSH fallback."""
 from __future__ import annotations
 
 import io
@@ -14,11 +14,33 @@ from typing import Any, Sequence
 
 import numpy as np
 
+EMBEDDING_DIMENSION = 1024
+MAX_SEQ_LENGTH = 1024
+
+
+def validate_embeddings(matrix: np.ndarray, rows: int) -> np.ndarray:
+    """Reject unusable cosine vectors before either indexing or caching them."""
+    matrix = np.asarray(matrix, dtype="float32")
+    if matrix.shape != (rows, EMBEDDING_DIMENSION):
+        raise ValueError(f"BGE embedding shape mismatch: {matrix.shape}, rows={rows}")
+    if not np.isfinite(matrix).all():
+        raise ValueError("BGE embeddings contain non-finite values")
+    norms = np.linalg.norm(matrix, axis=1)
+    if not np.allclose(norms, 1.0, rtol=0, atol=0.01):
+        raise ValueError("BGE embeddings must be nonzero unit vectors")
+    return matrix
+
 
 DEFAULT_HOST = os.environ.get("DGX_HOST")
 DEFAULT_KEY = Path(os.environ["DGX_SSH_KEY"]) if os.environ.get("DGX_SSH_KEY") else None
-ENDPOINT = os.environ.get("DGX_BGE_ENDPOINT", "http://127.0.0.1:8103")
-LOCAL_ENDPOINT = os.environ.get("DGX_BGE_LOCAL_ENDPOINT", "http://127.0.0.1:8103")
+LOCAL_ENDPOINT = os.environ.get(
+    "NH_GPU_BGE_ENDPOINT",
+    os.environ.get("DGX_BGE_LOCAL_ENDPOINT", "http://127.0.0.1:8103"),
+)
+ENDPOINT = os.environ.get(
+    "NH_GPU_BGE_REMOTE_ENDPOINT",
+    os.environ.get("DGX_BGE_ENDPOINT", LOCAL_ENDPOINT),
+)
 
 
 def _remote_post(path: str, *, binary: bool) -> str:
@@ -43,12 +65,13 @@ def _call(path: str, payload: dict, *, host: str | None, key: Path | None) -> by
         with urllib.request.urlopen(request, timeout=1800) as response:
             return response.read()
     except (urllib.error.URLError, TimeoutError, ConnectionError):
-        # 터널이 없을 때도 CPU로 후퇴하지 않는다. SSH를 통해 같은 DGX GPU
-        # 서비스에 접속한다. 운영에서는 8103 터널을 유지해 호출당 SSH 비용을 없앤다.
+        # CPU로 후퇴하지 않는다. 중간 DGX 프로필만 SSH fallback을 사용하며,
+        # 최종 H200 프로필은 접근 가능한 내부 endpoint를 직접 주입한다.
         pass
     if not host or key is None:
         raise RuntimeError(
-            "local BGE endpoint is unavailable; set DGX_HOST and DGX_SSH_KEY for SSH fallback"
+            "GPU BGE endpoint is unavailable; set NH_GPU_BGE_ENDPOINT or configure "
+            "DGX_HOST and DGX_SSH_KEY for the interim SSH fallback"
         )
     command = [
         "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
@@ -75,7 +98,8 @@ def health(*, host: str | None = DEFAULT_HOST, key: Path | None = DEFAULT_KEY) -
         pass
     if not host or key is None:
         raise RuntimeError(
-            "local BGE endpoint is unavailable; set DGX_HOST and DGX_SSH_KEY for SSH fallback"
+            "GPU BGE endpoint is unavailable; set NH_GPU_BGE_ENDPOINT or configure "
+            "DGX_HOST and DGX_SSH_KEY for the interim SSH fallback"
         )
     remote = (
         "import sys,urllib.request;"
@@ -106,15 +130,13 @@ def encode(
         "normalize_embeddings": True,
     }, host=host, key=key)
     matrix = np.load(io.BytesIO(raw), allow_pickle=False).astype("float32")
-    if matrix.ndim != 2 or matrix.shape[0] != len(texts):
-        raise RuntimeError(f"DGX 임베딩 shape 불일치: {matrix.shape}, texts={len(texts)}")
-    return matrix
+    return validate_embeddings(matrix, len(texts))
 
 
-class DGXSentenceEncoder:
-    """SentenceTransformer의 ``encode`` 최소 인터페이스를 원격 GPU로 대체한다."""
+class GPUSentenceEncoder:
+    """SentenceTransformer의 최소 ``encode`` 인터페이스를 GPU API로 대체한다."""
 
-    max_seq_length = 1024
+    max_seq_length = MAX_SEQ_LENGTH
 
     def __init__(
         self,
@@ -128,7 +150,12 @@ class DGXSentenceEncoder:
         self.default_batch_size = default_batch_size
         service = health(host=host, key=key)
         if service.get("device") != "cuda" or service.get("embedding_model") != "BAAI/bge-m3":
-            raise RuntimeError(f"DGX BGE 서비스 계약 불일치: {service}")
+            raise RuntimeError(f"GPU BGE 서비스 계약 불일치: {service}")
+        # This client does not control server-side truncation. Verify the actual
+        # service instead of recording a client property as if it were enforced.
+        if (service.get("embedding_dimension") != EMBEDDING_DIMENSION
+                or service.get("max_seq_length") != MAX_SEQ_LENGTH):
+            raise RuntimeError("GPU BGE service must report dimension/max_seq_length=1024")
 
     def encode(
         self,
@@ -141,7 +168,7 @@ class DGXSentenceEncoder:
         **_: Any,
     ) -> np.ndarray:
         if not convert_to_numpy:
-            raise ValueError("DGXSentenceEncoder는 numpy 출력만 지원함")
+            raise ValueError("GPUSentenceEncoder는 numpy 출력만 지원함")
         if not normalize_embeddings:
             raise ValueError("현행 BGE 계약은 정규화 임베딩만 지원함")
         return encode(
@@ -170,5 +197,11 @@ def rerank(
     result = json.loads(raw.decode("utf-8"))
     scores = np.asarray(result["scores"], dtype="float32")
     if scores.shape != (len(pairs),):
-        raise RuntimeError(f"DGX 리랭커 shape 불일치: {scores.shape}, pairs={len(pairs)}")
+        raise RuntimeError(f"GPU 리랭커 shape 불일치: {scores.shape}, pairs={len(pairs)}")
+    if not np.isfinite(scores).all():
+        raise ValueError("GPU reranker returned non-finite scores")
     return scores
+
+
+# Transitional import compatibility for existing DGX report scripts.
+DGXSentenceEncoder = GPUSentenceEncoder

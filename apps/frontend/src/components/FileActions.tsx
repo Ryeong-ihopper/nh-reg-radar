@@ -15,6 +15,16 @@ function supportsPreview(file: AdvertisementFile): boolean {
 
 let embeddedKoreanFont: Promise<string> | null = null;
 
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === "function") return blob.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsText(blob);
+  });
+}
+
 function koreanFontDataUri(): Promise<string> {
   if (!embeddedKoreanFont) {
     embeddedKoreanFont = fetch(notoSansKoreanUrl)
@@ -68,7 +78,7 @@ export function FileActions({ accessToken, file, autoPreview = false, focusTarge
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       const isHwpSvg = isHwp && asset.blob.type === "image/svg+xml";
       const previewBlob = isHwpSvg
-        ? new Blob([await withHwpPreviewFont(await asset.blob.text())], { type: "image/svg+xml" })
+        ? new Blob([await withHwpPreviewFont(await readBlobText(asset.blob))], { type: "image/svg+xml" })
         : asset.blob;
       const objectUrl = URL.createObjectURL(previewBlob);
       previewUrlRef.current = objectUrl;

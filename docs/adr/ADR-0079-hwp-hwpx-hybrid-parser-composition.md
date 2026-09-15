@@ -1,5 +1,9 @@
 # ADR-0079: HWP/HWPX 이중 원천 Hybrid Parser 구성 정책
 
+> 런타임 개정(2026-09-10): hybrid parser 구성과 원문 보존 결정은 유지한다. 이 문서의
+> Python 3.12/3.13 분리 기준은 [ADR-0084](ADR-0084-python-311-dual-gpu-runtime-profiles.md)의
+> Python 3.11 공통 기준으로 대체한다.
+
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Accepted |

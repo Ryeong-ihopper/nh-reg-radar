@@ -1,5 +1,7 @@
 import unittest
-from typing import final, override
+from typing import final
+
+from typing_extensions import override
 
 from scripts.compare_openapi_contract import JsonObject, compare_contracts
 

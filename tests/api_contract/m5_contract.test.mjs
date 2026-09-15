@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { collectOperationIds, loadOpenApi } from '../../scripts/openapi_tools.mjs';
 
 const root = new URL('../../', import.meta.url);
-const contractPath = new URL('openapi/openapi.yaml', root).pathname;
-const manifestPath = new URL('governance/goal-manifests/G006-m5-review-results.json', root).pathname;
+const contractPath = fileURLToPath(new URL('openapi/openapi.yaml', root));
+const manifestPath = fileURLToPath(new URL('governance/goal-manifests/G006-m5-review-results.json', root));
 
 test('G006-m5 manifest freezes Result Evidence Annotation entry gate', async () => {
   const document = await loadOpenApi(contractPath);

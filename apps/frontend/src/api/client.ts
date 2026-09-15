@@ -73,6 +73,7 @@ export interface AdvertisementCreateInput {
   departmentId: string;
   memo?: string;
   advertisementFile: File;
+  advertisementFiles?: File[];
   productDescriptionFile?: File;
   termsFile?: File;
   additionalFiles?: File[];
@@ -116,6 +117,7 @@ export type EvidenceSearch = operations["searchEvidences"]["parameters"]["query"
 
 interface ErrorResponse {
   code?: unknown;
+  message?: unknown;
   traceId?: unknown;
 }
 
@@ -136,6 +138,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   REFERENCE_METADATA_INVALID: "기준 유형에 필요한 메타데이터를 확인해 주세요.",
   REVIEW_ALREADY_RUNNING: "이미 진행 중인 검토가 있습니다.",
   OCR_UNREADABLE: "문구를 판독하기 어려워 담당자 확인이 필요합니다.",
+  HWP_PREVIEW_UNAVAILABLE: "한글 문서 미리보기 서비스를 사용할 수 없습니다. 원본 다운로드로 확인해 주세요.",
+  HWP_PREVIEW_FAILED: "한글 문서 미리보기를 만들지 못했습니다. 원본 다운로드로 확인해 주세요.",
+  PARSER_LAYOUT_PENDING: "파서 좌표가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+  PARSER_LAYOUT_UNAVAILABLE: "파서 좌표를 표시할 수 없습니다. 원본 문서는 그대로 확인할 수 있습니다.",
 };
 
 export class ApiError extends Error {
@@ -143,8 +149,14 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     public readonly traceId?: string,
+    displayMessage?: string,
   ) {
-    super(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.INTERNAL_ERROR);
+    // Registration conflicts are actionable (for example, the same source
+    // file was already registered).  Keep generic errors generic, but do not
+    // hide this safe server explanation behind an unhelpful status message.
+    super(code === "CONFLICT" && displayMessage
+      ? displayMessage
+      : (ERROR_MESSAGES[code] ?? ERROR_MESSAGES.INTERNAL_ERROR));
     this.name = "ApiError";
   }
 }
@@ -171,7 +183,8 @@ async function readError(response: Response): Promise<ApiError> {
 
   const code = typeof body.code === "string" ? body.code : "INTERNAL_ERROR";
   const traceId = typeof body.traceId === "string" ? body.traceId : undefined;
-  return new ApiError(response.status, code, traceId);
+  const displayMessage = typeof body.message === "string" ? body.message : undefined;
+  return new ApiError(response.status, code, traceId, displayMessage);
 }
 
 type AuthRefreshHandler = () => Promise<LoginResponse | null>;
@@ -304,7 +317,7 @@ export const api = {
     body.set("productGroup", input.productGroup);
     body.set("advertisementType", input.advertisementType);
     body.set("departmentId", input.departmentId);
-    body.set("advertisementFile", input.advertisementFile);
+    for (const advertisementFile of input.advertisementFiles ?? [input.advertisementFile]) body.append("advertisementFile", advertisementFile);
     if (input.channelType) body.set("channelType", input.channelType);
     if (input.memo) body.set("memo", input.memo);
     if (input.productDescriptionFile) body.set("productDescriptionFile", input.productDescriptionFile);

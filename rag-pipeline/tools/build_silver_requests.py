@@ -54,6 +54,19 @@ SYSTEM = """당신은 NH 금융광고 심의 답지 초안을 만드는 검토�
 16. documents는 규칙별 하이브리드 검색으로 좁힌 근거 창이다. evidence_scope[item_id].evidence_ids 안의 근거만 해당 규칙에 사용한다. complete_ad_scan=false이면 이 근거 창에 문구가 없다는 사실만으로 광고 전체 부재를 확정하지 말고 UNDETERMINED로 둔다.
 17. deterministic_facts는 광고 전체 텍스트에서 기계적으로 계산한 관측값이다. review_number_present=true이면 번호가 0000/O/○/□/X 같은 자리표시여도 심의필 번호 형식은 존재하는 것으로 본다. bullet_marker_count가 1 이상이면 불릿 종류가 다르다는 이유로 구분기호 미표시 위반을 만들지 않는다. 날짜도 표면형식이 다르다는 이유만으로 위반 처리하지 않는다.
 18. 모델 confidence는 보정된 확률이 아니며 VIOLATION과 UNDETERMINED는 항상 연구원 검토 대상으로 둔다.
+19. review_stage=사전심의이면 최종 심의필 번호가 아직 발급되지 않은 단계다. 다만
+    `0000-0000`처럼 자리와 구분 형식이 있으면 번호 표시 형식은 존재하는 것으로 본다.
+20. deterministic_facts.parser_visibility는 파서/OCR이 산출한 시인성 관측값이다.
+    계산하거나 보정하지 말고 제공값만 사용한다. 파서가 A4 이상 여부와 대상 문구의
+    글자 크기를 확정한 경우에만 8pt 규칙을 판단한다. 값이 없으면 UNDETERMINED로
+    두며 작은 매체에 8pt 기준을 자동 확대 적용하지 않는다.
+21. 적용성이 APPLICABLE인 표시의무 규칙에서 광고 전체 검사가 완료되었고 필수
+    구성요소 하나라도 MISSING이면, 다른 구성요소가 UNDETERMINED여도 전체 verdict는
+    VIOLATION이다. 이미 확인된 필수 누락은 남은 불확실성으로 상쇄되지 않는다.
+22. complete_ad_scan=true이면 입력된 documents가 광고 전문이다. 판정기준이 특정
+    문구의 명시를 요구할 때 그 문구가 전문에 있는지는 외부 확인사항이 아니다.
+    의미상 동등 표현까지 전문에서 찾지 못했다면 MISSING으로 판정한다. 규칙의 적용
+    조건이나 외부 사실이 불명확한 경우와 문구 자체의 부재를 혼동하지 않는다.
 
 JSON 객체 하나만 출력한다:
 {
@@ -65,7 +78,7 @@ JSON 객체 하나만 출력한다:
       "applicability_basis": "ADVERTISEMENT_EVIDENCE|CONFIRMED_METADATA|NOT_APPLICABLE|UNDETERMINED",
       "applicability_evidence_ids": ["..."],
       "applicability_evidence_line_refs": ["..."],
-      "applicability_metadata_fields": ["template_id|product_subtype|ad_type|product_name_shown|media_type|product_group"],
+      "applicability_metadata_fields": ["template_id|product_subtype|ad_type|product_name_shown|media_type|product_group|review_stage|association_pre_review|external_evidence_available"],
       "verdict": "COMPLIANT|VIOLATION|NOT_APPLICABLE|UNDETERMINED",
       "evidence_ids": ["..."],
       "evidence_line_refs": ["..."],
@@ -104,7 +117,7 @@ def product_applies(groups: list[str], product: str) -> bool:
     return "전체" in groups or product in groups
 
 
-def load_cd_rules() -> list[dict[str, Any]]:
+def load_cd_rules(*, include_layout: bool = False) -> list[dict[str, Any]]:
     items, _ = v2_source.build()
     rows = []
     for item in items:
@@ -113,10 +126,9 @@ def load_cd_rules() -> list[dict[str, Any]]:
             product_applies(groups, "대출성")
             or product_applies(groups, "예금성")
         )
-        # The 104-item scope is derived entirely from v2 columns: 124 items
-        # apply to loan/deposit/overall, and the 20 rows whose v2 judgment type
-        # is layout-required remain deferred as previously decided.
-        if not poc_product or item["판정유형"] == "레이아웃필요":
+        # Historical silver defaults stay reproducible. Operational discovery
+        # includes layout; readiness is checked downstream from observations.
+        if not poc_product or (not include_layout and item["판정유형"] == "레이아웃필요"):
             continue
         rows.append({
             "item_id": item["id"],
@@ -138,9 +150,13 @@ def load_cd_rules() -> list[dict[str, Any]]:
             "rule_summaries": item["규칙요약"],
             "basis_details": item["근거상세"],
             "v2_note": item["비고"],
+            "standard_examples": item.get("표준예시", ""),
+            "standard_guidance": item.get("기재요령", ""),
+            "template_sections": item.get("템플릿섹션", ""),
+            "example_policy": "허용 표현 보조자료이며 독립 의무조건이나 적용성 필터가 아님",
             "source_sheet": "실행_점검항목",
         })
-    if len(rows) != 104:
+    if not include_layout and len(rows) != 104:
         raise RuntimeError(f"v2 C/D 실행범위가 104개가 아님: {len(rows)}")
     return rows
 

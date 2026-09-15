@@ -10,11 +10,12 @@
   "properties": {
     "schema_version": {"const": "ad-evidence-search-v1"},
     "ad_id": {"type": "string", "minLength": 1},
+    "product_id": {"type": ["string", "null"]},
     "source_file": {"type": "string", "minLength": 1},
     "routing": {"type": "object"},
     "routing_metadata": {"type": "object"},
     "page_no": {"type": "integer", "minimum": 1},
-    "region_id": {"type": "string", "minLength": 1},
+    "region_id": {"type": ["string", "null"], "minLength": 1},
     "bbox": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
     "labels": {"type": "array", "items": {"type": "object"}},
     "assignment_status": {"enum": ["assigned", "mixed", "unassigned"]},
@@ -26,7 +27,22 @@
     "text_search": {"type": "string", "minLength": 1},
     "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     "span_status": {"type": "string"},
+    "line_texts": {"type": "object", "additionalProperties": {"type": "string"}},
+    "line_bboxes": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}},
+    "text_selection": {"$ref": "#/$defs/text_selection"},
     "line_spans": {"type": "array", "items": {"type": "object"}}
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "text_selection": {
+      "type": "object",
+      "properties": {
+        "selection_status": {"type": ["string", "null"]},
+        "needs_review": {"type": ["boolean", "null"]},
+        "confidence": {"type": ["number", "null"]},
+        "reason": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  }
 }

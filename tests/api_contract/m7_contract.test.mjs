@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { collectOperationIds, loadOpenApi } from '../../scripts/openapi_tools.mjs';
 
 const root = new URL('../../', import.meta.url);
-const contractPath = new URL('openapi/openapi.yaml', root).pathname;
-const manifestPath = new URL('governance/goal-manifests/G008-m7-kpi.json', root).pathname;
-const fixturePath = new URL('tests/fixtures/m7/validation-kpi-v1.json', root).pathname;
+const contractPath = fileURLToPath(new URL('openapi/openapi.yaml', root));
+const manifestPath = fileURLToPath(new URL('governance/goal-manifests/G008-m7-kpi.json', root));
+const fixturePath = fileURLToPath(new URL('tests/fixtures/m7/validation-kpi-v1.json', root));
 
 const validationOperations = new Set([
   'listValidationDatasets',

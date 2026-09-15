@@ -8,17 +8,18 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from rag.operational.contracts import validate_integrated_input, validate_job_status
-from rag.operational.policy import require_confirmed_product_group, routing_field
-from rag.operational.prepare_inputs import search_docs
+from rag.contracts.validation import validate_integrated_input, validate_job_status
+from rag.judgment.policy import require_confirmed_product_group, routing_field
+from rag.parsing.prepare_inputs import product_scoped_documents, search_docs
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,12 +39,25 @@ def utc_now() -> str:
 
 def write_json_atomic(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    # A fixed .tmp name races when independent operational jobs save adjacent
+    # state on Windows.  Use a process/thread-local name and retry only the
+    # short transient lock taken by an antivirus, indexer, or file viewer.
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        for attempt in range(6):
+            try:
+                temporary.replace(path)
+                return
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.05 * (2 ** attempt))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -61,11 +75,16 @@ class ServiceConfig:
     es_url: str
     es_index: str
     model: str
+    decision_guide_path: Path | None = None
+    template_hwpx_path: Path | None = None
     dgx_host: str | None = None
     dgx_key: Path | None = None
+    model_env: dict[str, str] = dataclass_field(default_factory=dict)
     workers: int = 4
     queue_workers: int = 1
-    judgment_batch_size: int = 8
+    judgment_batch_size: int = 4
+    judgment_max_tokens: int = 4096
+    vector_cache_dir: Path | None = None
     evidence_per_rule: int = 3
     prohibition_max_candidates: int = 30
     job_timeout_seconds: int = 1800
@@ -82,12 +101,27 @@ def config_from_env() -> ServiceConfig:
         regulation_path=Path(regulation),
         es_url=os.environ.get("NH_RAG_ES_URL", "http://127.0.0.1:19201"),
         es_index=es_index,
-        model=os.environ.get("DGX_GEMMA_MODEL", "gemma-4-26b-NVFP4-MTP"),
+        model=os.environ.get(
+            "NH_GPU_GEMMA_MODEL",
+            os.environ.get("DGX_GEMMA_MODEL", "gemma-4-26b-NVFP4-MTP"),
+        ),
+        template_hwpx_path=Path(os.environ["NH_TEMPLATE_HWPX_PATH"]) if os.environ.get("NH_TEMPLATE_HWPX_PATH") else None,
+        decision_guide_path=(
+            Path(os.environ["NH_DECISION_GUIDE_PATH"])
+            if os.environ.get("NH_DECISION_GUIDE_PATH")
+            else None
+        ),
         dgx_host=os.environ.get("DGX_HOST"),
         dgx_key=Path(os.environ["DGX_SSH_KEY"]) if os.environ.get("DGX_SSH_KEY") else None,
         workers=int(os.environ.get("NH_RAG_MODEL_WORKERS", "4")),
         queue_workers=int(os.environ.get("NH_RAG_QUEUE_WORKERS", "1")),
-        judgment_batch_size=int(os.environ.get("NH_RAG_JUDGMENT_BATCH_SIZE", "8")),
+        judgment_batch_size=int(os.environ.get("NH_RAG_JUDGMENT_BATCH_SIZE", "4")),
+        judgment_max_tokens=int(os.environ.get("NH_RAG_JUDGMENT_MAX_TOKENS", "4096")),
+        vector_cache_dir=(
+            Path(os.environ["NH_RAG_VECTOR_CACHE_DIR"])
+            if os.environ.get("NH_RAG_VECTOR_CACHE_DIR")
+            else None
+        ),
         evidence_per_rule=int(os.environ.get("NH_RAG_EVIDENCE_PER_RULE", "3")),
         prohibition_max_candidates=int(
             os.environ.get("NH_RAG_PROHIBITION_MAX_CANDIDATES", "30")
@@ -206,6 +240,9 @@ def apply_routing_overrides(
         "ad_type",
         "product_name_shown",
         "media_type",
+        "review_stage",
+        "association_pre_review",
+        "external_evidence_available",
     }
     unknown = set(overrides) - allowed
     if unknown:
@@ -307,9 +344,17 @@ class OperationalReviewService:
         command: list[str],
         timeout: int = 7200,
     ) -> None:
+        environment = {**os.environ, **self.config.model_env}
+        # BGE/reranker read environment settings, whereas Gemma also receives
+        # CLI arguments. Preserve the same interim GPU target for all clients.
+        if self.config.dgx_host:
+            environment.setdefault("DGX_HOST", self.config.dgx_host)
+        if self.config.dgx_key:
+            environment.setdefault("DGX_SSH_KEY", str(self.config.dgx_key))
         completed = subprocess.run(
             command,
             cwd=ROOT,
+            env=environment,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -344,8 +389,16 @@ class OperationalReviewService:
             integrated_dir = directory / "input" / "integrated"
             integrated_dir.mkdir(parents=True, exist_ok=True)
             document = request["document"]
-            write_json_atomic(integrated_dir / "advertisement.json", document)
-            coarse, fine = search_docs(document)
+            scoped_documents = product_scoped_documents(document)
+            coarse, fine = [], []
+            for index, scoped_document in enumerate(scoped_documents, 1):
+                write_json_atomic(
+                    integrated_dir / f"advertisement-{index:03d}.json",
+                    scoped_document,
+                )
+                scoped_coarse, scoped_fine = search_docs(scoped_document)
+                coarse.extend(scoped_coarse)
+                fine.extend(scoped_fine)
             coarse_path = directory / "input" / "evidence_coarse.jsonl"
             fine_path = directory / "input" / "evidence_fine.jsonl"
             write_jsonl(coarse_path, coarse)
@@ -382,17 +435,27 @@ class OperationalReviewService:
                 str(self.config.workers),
                 "--batch-size",
                 str(self.config.judgment_batch_size),
+                "--judgment-max-tokens",
+                str(self.config.judgment_max_tokens),
                 "--evidence-per-rule",
                 str(self.config.evidence_per_rule),
                 "--prohibition-max-candidates",
                 str(self.config.prohibition_max_candidates),
             ]
+            if self.config.vector_cache_dir:
+                command.extend(["--vector-cache-dir", str(self.config.vector_cache_dir)])
             if request["execute_model"]:
                 command.append("--execute-judgment")
             if self.config.dgx_host:
                 command.extend(["--host", self.config.dgx_host])
             if self.config.dgx_key:
                 command.extend(["--key", str(self.config.dgx_key)])
+            if self.config.decision_guide_path:
+                command.extend(
+                    ["--decision-guide", str(self.config.decision_guide_path)]
+                )
+            if self.config.template_hwpx_path:
+                command.extend(["--template-hwpx", str(self.config.template_hwpx_path)])
             self._invoke(
                 directory=directory,
                 attempt=attempt,
@@ -445,6 +508,8 @@ class OperationalReviewService:
                             self.config.model,
                             "--workers",
                             str(min(self.config.workers, 2)),
+                            "--max-tokens",
+                            str(self.config.judgment_max_tokens),
                         ]
                         if self.config.dgx_host:
                             recovery_command.extend(["--host", self.config.dgx_host])

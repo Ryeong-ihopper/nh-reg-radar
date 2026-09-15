@@ -1,0 +1,1301 @@
+"""Loopback demo adapter: original NH UI -> real parser -> canonical RAG service.
+
+This does not replace the production PostgreSQL/Redis worker. Local state is
+durable JSON; no gold or fixture predictions are used by execution.
+"""
+from __future__ import annotations
+
+import ctypes
+import copy
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from uuid import UUID
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from nh_ad_backend.domain import Advertisement, AdvertisementFile
+from nh_ad_backend.results import ResultAnnotation, ResultEvidence, ResultItem
+from nh_ad_backend.reviews import Review, ReviewBundle, ReviewJob, ReviewStep
+from nh_ad_backend.services import ServiceError
+
+from local_hwp_preview import convert_hwp_to_pdf
+from operational_locations import page_asset, saved_workspace, valid_box
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
+from rag.parsing.prepare_inputs import combine  # noqa: E402
+from rag.templates.catalog import TemplateCatalog  # noqa: E402
+from rag.contracts.validation import validate_ad_intake, validate_integrated_input  # noqa: E402
+from rag.api.service import (  # noqa: E402
+    OperationalReviewService, ServiceConfig, TERMINAL_STATES, write_json_atomic,
+)
+
+FULL_REVIEW = {"REQUIRED_PHRASE", "INTEREST_RATE", "MISLEADING_EXPRESSION", "PRODUCT_CONSISTENCY", "VISIBILITY"}
+PARSER_REUSE_PARENT_STATUSES = {
+    "FAILED", "FAILED_FINAL", "COMPLETED", "COMPLETED_WITH_WARNINGS",
+}
+PRODUCTS = {"LOAN": "대출성", "DEPOSIT": "예금성", "SAVINGS": "예금성", "DEMAND_DEPOSIT": "예금성"}
+STEP_NAMES = ["입력 파일 확인", "OCR/VLM 파싱 (영역·라벨)", "파싱 결과 통합·검증 및 청킹 준비",
+              "규제목록 v2 검색·판정 요청", "하이브리드 검색·Gemma 판정", "실제 결과 저장"]
+
+
+def template_sections_from_hwpx(path: Path) -> list[str]:
+    """Use the same first-class template catalog as the judgment runner."""
+    catalog = TemplateCatalog.from_hwpx(path)
+    sections = [row["template_section"] for row in catalog.document["entries"]]
+    values = {value for value in sections if value.startswith(("예금성", "대출성"))}
+    if not values:
+        raise ValueError("template HWPX contains no supported detailed product classifications")
+    return sorted(values)
+
+
+def parser_layout(document, *, source: str) -> dict:
+    """Project only truthful parser boxes; never infer missing coordinates."""
+    pages = []
+    for page in document.get("pages", []):
+        width, height = int(page.get("canvas_w") or 0), int(page.get("canvas_h") or 0)
+        regions = []
+        asset_id, source_page_no = page_asset(document, page)
+        for region in page.get("regions", []):
+            evidence_id = str(region.get("evidence_id") or "")
+            if asset_id is None and "#asset:" in evidence_id:
+                asset_id = evidence_id.split("#asset:", 1)[1].split(":p", 1)[0]
+            lines = []
+            for line in region.get("lines", []):
+                box = line.get("bbox")
+                if valid_box(box, width, height):
+                    lines.append({
+                        "line_ref": line.get("line_ref"),
+                        "text": line.get("text") or line.get("parser_text") or "",
+                        "bbox": box,
+                        "text_source": line.get("text_source") or line.get("source"),
+                        "confidence": line.get("confidence", line.get("ocr_confidence")),
+                    })
+            box = region.get("bbox")
+            if valid_box(box, width, height):
+                evidence = region.get("text_evidence") or {}
+                primary = evidence.get("parser_primary_text") or {}
+                regions.append({
+                    "region_id": region.get("region_id"),
+                    "bbox": box,
+                    "layout_label": (region.get("layout") or {}).get("label"),
+                    "text": region.get("final_text") or primary.get("text") or "",
+                    "lines": lines,
+                })
+        # Unassigned OCR lines still have real source coordinates. Represent
+        # each as its own display-only region, without a fabricated union box.
+        for line in page.get("unassigned_lines", []):
+            if valid_box(line.get("bbox"), width, height):
+                regions.append({"region_id": f"unassigned:{line['line_ref']}",
+                    "bbox": line["bbox"], "layout_label": None, "text": line.get("text", ""),
+                    "lines": [{"line_ref": line["line_ref"], "text": line.get("text") or line.get("parser_text") or "",
+                               "bbox": line["bbox"], "text_source": line.get("text_source"),
+                               "confidence": line.get("confidence")} ]})
+        pages.append({
+            "page_no": int(page.get("page_no") or len(pages) + 1),
+            "asset_id": asset_id,
+            "source_page_no": source_page_no,
+            "canvas_w": width,
+            "canvas_h": height,
+            "regions": regions,
+        })
+    return {
+        "schema_version": "operational-parser-layout-v1",
+        "source": source,
+        "coordinate_basis": "rendered_original_200dpi",
+        "pages": pages,
+        "counts": {
+            "pages": len(pages),
+            "regions": sum(len(page["regions"]) for page in pages),
+            "lines": sum(len(region["lines"]) for page in pages for region in page["regions"]),
+        },
+    }
+
+
+def parser_runner_layout(config: dict) -> dict[str, str]:
+    """Describe one supported parser runner without guessing output paths."""
+    runner = str(config.get("parser_runner") or "nh_parsing_test_batch")
+    if runner == "nh_parsing_test_batch":
+        return {"runner": runner, "p1_dir": "json", "p3_dir": "review_region_input", "raw_dir": "json"}
+    if runner == "nh_ad_parser_cli":
+        return {"runner": runner, "p1_dir": "evidence", "p3_dir": "review-input", "raw_dir": "parse"}
+    raise ValueError(f"unsupported parser_runner: {runner!r}")
+
+
+def read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def restore_dates(row, fields):
+    value = dict(row)
+    for field in fields:
+        if value.get(field):
+            value[field] = datetime.fromisoformat(value[field])
+    return value
+
+
+class ReviewCanceled(RuntimeError):
+    """Expected user cancellation; never turn it into an execution failure."""
+
+
+class ExecutionBridge:
+    def __init__(self, services, state_dir, config_path, projector):
+        self.services, self.projector = services, projector
+        # Parser subprocesses run from parser_cwd, so every bridge-owned path
+        # must be absolute. Relative paths would otherwise resolve inside the
+        # parser repository and make an input directory look like one missing
+        # extensionless file.
+        self.root = (Path(state_dir) / "execution").resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.config = read_json(config_path)
+        self.parser_layout_config = parser_runner_layout(self.config)
+        self.lock = threading.RLock()
+        self.layout_lock = threading.Lock()
+        cfg = self.config
+        model_env = cfg.get("model_env", {})
+        if not isinstance(model_env, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in model_env.items()
+        ):
+            raise ValueError("model_env must be a string-to-string object")
+        review_workers = int(cfg.get("review_workers", os.environ.get("NH_RAG_QUEUE_WORKERS", "2")))
+        parser_workers = int(cfg.get("parser_workers", os.environ.get("NH_PARSER_WORKERS", "2")))
+        # Spark sustained three concurrent diagnostic calls without contract
+        # or transport errors. Match the canonical RAG service default so one
+        # advertisement does not leave model capacity idle.
+        model_workers = int(cfg.get("model_workers", os.environ.get("NH_RAG_MODEL_WORKERS", "4")))
+        if review_workers < 1 or model_workers < 1 or parser_workers < 1:
+            raise ValueError("review_workers, model_workers and parser_workers must be positive")
+        self.pool = ThreadPoolExecutor(max_workers=review_workers, thread_name_prefix="nh-web-review")
+        # Parser calls use shared GPU/OCR endpoints.  Bound all advertisement
+        # jobs together so a multi-file card cannot multiply remote load.
+        self.parser_workers = parser_workers
+        self.parser_slots = threading.BoundedSemaphore(parser_workers)
+        self.routes, self.links, self.decisions = {}, {}, {}
+        self.active = set()
+        self.stopping = threading.Event()
+        self.rag = OperationalReviewService(ServiceConfig(
+            jobs_dir=self.root / "rag-jobs", regulation_path=Path(cfg["regulation_path"]),
+            es_url=cfg["es_url"], es_index=cfg["es_index"], model=cfg["model"],
+            decision_guide_path=Path(cfg["decision_guide_path"]) if cfg.get("decision_guide_path") else None,
+            template_hwpx_path=Path(cfg["template_source_path"]) if cfg.get("template_source_path") else None,
+            dgx_host=cfg.get("dgx_host"), dgx_key=Path(cfg["dgx_key"]) if cfg.get("dgx_key") else None,
+            model_env=model_env,
+            workers=model_workers, queue_workers=review_workers,
+            judgment_batch_size=4, job_timeout_seconds=3600,
+        ))
+        template_source = cfg.get("template_source_path")
+        if template_source:
+            self.templates = template_sections_from_hwpx(Path(template_source))
+            self.template_source = {
+                "kind": "hwpx_template",
+                "path": str(Path(template_source)),
+                "sha256": hashlib.sha256(Path(template_source).read_bytes()).hexdigest(),
+            }
+        else:
+            # Compatibility fallback only.  A configured HWPX source takes
+            # precedence because it is the detailed intake taxonomy supplied
+            # by the review team. Source-less runs retain the v2 legacy path.
+            import openpyxl
+            book = openpyxl.load_workbook(cfg["regulation_path"], read_only=True, data_only=True)
+            try:
+                rows = book["신규규칙후보"].iter_rows(values_only=True)
+                header = list(next(rows))
+                column = header.index("섹션")
+                self.templates = sorted({str(row[column]) for row in rows if row[column] and
+                                         str(row[column]).startswith(("예금성", "대출성"))})
+            finally:
+                book.close()
+            self.template_source = {"kind": "v2_section_compatibility_fallback"}
+        self.product_classifications = [
+            {
+                "code": value,
+                "label": value,
+                "productGroup": "LOAN" if value.startswith("대출성") else "DEPOSIT",
+            }
+            for value in self.templates
+        ]
+        self.restore()
+        services.reviews.queue = self
+        original_request = services.reviews.request
+
+        def request(actor, advertisement_id, **kwargs):
+            ad = services.advertisements.get(actor, advertisement_id, kwargs["trace_id"])
+            self.validate_request(ad, kwargs)
+            return original_request(actor, advertisement_id, **kwargs)
+
+        services.reviews.request = request
+
+    def parser_command(self, source_dir, output, *, visual: bool = False):
+        """Build the selected parser command; values come only from private config."""
+        runner = self.parser_layout_config["runner"]
+        root = Path(self.config["parser_root"]).resolve()
+        source_dir = Path(source_dir).resolve()
+        output = Path(output).resolve()
+        if runner == "nh_ad_parser_cli":
+            command = [self.config["parser_python"], "-u", str(root / "tools" / "parse.py"),
+                       "--input", str(source_dir), "--out", str(output)]
+            if visual:
+                command.extend(["--region-reading", "off"])
+            return command
+        scope = "visual" if visual else "upload"
+        return [self.config["parser_python"], str(root / "tools" / "run_parsing_batch.py"),
+                "--input-root", f"{scope}={source_dir}", "--out", str(output), "--max-attempts", "1"]
+
+    def parser_outputs(self, output):
+        layout = self.parser_layout_config
+        return (list((output / layout["p1_dir"]).glob("*.json")),
+                list((output / layout["p3_dir"]).glob("*.json")))
+
+    def parser_raw_outputs(self, output):
+        return list((output / self.parser_layout_config["raw_dir"]).glob("*.json"))
+
+    def parser_output_name_matches(self, path, source):
+        if self.parser_layout_config["runner"] == "nh_ad_parser_cli":
+            return path.stem == source.stem
+        return path.name == source.name
+
+    def parser_output_root(self, output):
+        """Return the P1/P3 root for either supported parser runner."""
+        output = Path(output)
+        return output / "upload" if self.parser_layout_config["runner"] == "nh_parsing_test_batch" else output
+
+    def parsed_assets(self, files, source_by_file, output):
+        """Return assets with exactly one P1/P3 pair; retain partial batch output."""
+        p1s, p3s = self.parser_outputs(self.parser_output_root(output))
+        completed, missing = {}, {}
+        for file in files:
+            matches = [path for path in p1s if self.parser_output_name_matches(path, source_by_file[file.file_id])]
+            if len(matches) != 1:
+                missing[file.file_id] = "P1 산출물이 없거나 하나가 아닙니다"
+                continue
+            p1_path = matches[0]
+            p3_matches = [path for path in p3s if path.name == p1_path.name]
+            if len(p3_matches) != 1:
+                missing[file.file_id] = "P3 산출물이 없거나 하나가 아닙니다"
+                continue
+            completed[file.file_id] = (p1_path, p3_matches[0])
+        return completed, missing
+
+    def execute_parser(self, source_dir, output, log_path):
+        """Run one parser input directory and retain its raw log for audit."""
+        env = dict(os.environ)
+        env.update(self.config.get("parser_env", {}))
+        env["PYTHONIOENCODING"] = "utf-8"
+        with Path(log_path).open("w", encoding="utf-8") as log:
+            try:
+                return subprocess.run(
+                    self.parser_command(source_dir, output),
+                    cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
+                    stdout=log, stderr=subprocess.STDOUT, timeout=3600,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                ).returncode
+            except subprocess.TimeoutExpired:
+                log.write("\nPARSER_TIMEOUT: parser exceeded 3600 seconds\n")
+                return 124
+            except OSError as exc:
+                log.write(f"\nPARSER_START_FAILED: {exc}\n")
+                return 126
+
+    def retry_missing_parser_assets(self, files, source_by_file, missing, directory):
+        """Retry only assets absent from a failed/incomplete batch, once each."""
+        retry_root = Path(directory) / "parser-retry"
+        recovered, attempts = {}, []
+        by_id = {file.file_id: file for file in files}
+        for file_id, initial_reason in missing.items():
+            file = by_id[file_id]
+            retry_dir = retry_root / file_id
+            retry_source = retry_dir / "source"
+            retry_output = retry_dir / "output"
+            retry_source.mkdir(parents=True, exist_ok=True)
+            source = source_by_file[file_id]
+            retry_copy = retry_source / source.name
+            shutil.copy2(source, retry_copy)
+            with self.parser_slots:
+                returncode = self.execute_parser(retry_source, retry_output, retry_dir / "parser.log")
+            found, still_missing = self.parsed_assets([file], {file_id: retry_copy}, retry_output)
+            if file_id in found:
+                recovered[file_id] = found[file_id]
+            attempts.append({
+                "file_id": file_id,
+                "file_name": file.original_file_name,
+                "initial_reason": initial_reason,
+                "returncode": returncode,
+                "status": "RECOVERED" if file_id in found else "FAILED",
+                "failure_reason": still_missing.get(file_id),
+                "log": str((retry_dir / "parser.log").relative_to(directory)),
+            })
+        write_json_atomic(retry_root / "parser-retry.json", {
+            "version": "parser-asset-retry-v1",
+            "attempted_at": datetime.now(UTC).isoformat(),
+            "max_attempts_per_asset": 1,
+            "attempts": attempts,
+        })
+        return recovered, attempts
+
+    def parse_assets_in_parallel(self, files, source_by_file, directory):
+        """Parse a multi-file advertisement independently with one shared limit.
+
+        The external parser's folder mode is serial.  Independent inputs retain
+        per-file P1/P3 provenance and allow a long page set to use the same two
+        parser slots already allocated to the operational server.
+        """
+        initial_root = Path(directory) / "parser-initial"
+        canonical_output = Path(directory) / "parser"
+
+        def parse_asset(file):
+            asset_root = initial_root / file.file_id
+            asset_source = asset_root / "source"
+            asset_output = asset_root / "output"
+            asset_source.mkdir(parents=True, exist_ok=True)
+            source = source_by_file[file.file_id]
+            copied = asset_source / source.name
+            shutil.copy2(source, copied)
+            with self.parser_slots:
+                returncode = self.execute_parser(asset_source, asset_output, asset_root / "parser.log")
+            found, missing = self.parsed_assets([file], {file.file_id: copied}, asset_output)
+            return file, returncode, found.get(file.file_id), missing.get(file.file_id)
+
+        completed, missing, attempts = {}, {}, []
+        with ThreadPoolExecutor(max_workers=min(self.parser_workers, len(files))) as executor:
+            futures = {executor.submit(parse_asset, file): file for file in files}
+            for future in futures:
+                file, returncode, pair, reason = future.result()
+                if pair:
+                    completed[file.file_id] = pair
+                    for path, directory_name in zip(pair, (self.parser_layout_config["p1_dir"], self.parser_layout_config["p3_dir"])):
+                        destination = canonical_output / directory_name / path.name
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(path, destination)
+                else:
+                    missing[file.file_id] = reason or "개별 파서 산출물이 없습니다"
+                attempts.append({
+                    "file_id": file.file_id,
+                    "file_name": file.original_file_name,
+                    "returncode": returncode,
+                    "status": "COMPLETED" if pair else "FAILED",
+                    "failure_reason": reason,
+                    "log": str((initial_root / file.file_id / "parser.log").relative_to(directory)),
+                })
+        write_json_atomic(initial_root / "parser-initial.json", {
+            "version": "parser-asset-parallel-v1",
+            "max_workers": self.parser_workers,
+            "attempts": attempts,
+        })
+        (Path(directory) / "parser.log").write_text(
+            "복수 파일 병렬 파싱 요약\n" + "\n".join(
+                f"{row['file_name']}: {row['status']} ({row['log']})" for row in attempts
+            ) + "\n",
+            encoding="utf-8",
+        )
+        return completed, missing, 0 if all(row["returncode"] == 0 for row in attempts) else 1
+
+    def validate_request(self, ad, options):
+        if ad.product_group not in PRODUCTS:
+            raise ServiceError(422, "PRODUCT_GROUP_REQUIRED", "예금 또는 대출 상품군을 확인해 주세요. 이벤트만으로는 상품군을 확정할 수 없습니다.")
+        if options.get("include_suggestion") or options.get("include_opinion_draft"):
+            raise ServiceError(422, "UNSUPPORTED_OUTPUT", "현재 실행기는 문구 추천·심의 의견 초안을 생성하지 않습니다. 해당 옵션을 꺼 주세요.")
+        selected = set(options.get("review_types") or FULL_REVIEW) - {"OCR_QUALITY"}
+        if selected != FULL_REVIEW:
+            raise ServiceError(422, "FULL_REVIEW_REQUIRED", "현재 실행기는 규제목록 v2 전체 적용성 검사를 수행합니다. 전체 검토 범위를 선택해 주세요.")
+        if (
+            not options.get("parent_review_id")
+            and options.get("standard_effective_date") not in (None, date.today())
+        ):
+            raise ServiceError(422, "FIXED_REGULATION_VERSION", "현재는 고정된 규제목록 v2만 사용합니다. 과거 기준일 버전 선택은 연결되지 않았습니다.")
+        files = [f for f in ad.files if f.file_type == "ADVERTISEMENT"]
+        if not files or len(files) != len(ad.files):
+            raise ServiceError(422, "ADVERTISEMENT_ASSETS_REQUIRED", "자동심의에는 동일 광고를 구성하는 광고 원본 파일만 등록해 주세요. 상품설명서·약관 대조는 아직 연결되지 않았습니다.")
+        for file in files:
+            if Path(file.original_file_name).suffix.lower() not in {".pdf", ".png", ".jpg", ".jpeg", ".hwp", ".hwpx"}:
+                raise ServiceError(422, "FILE_NOT_SUPPORTED", "파서가 지원하지 않는 파일 형식입니다.")
+
+    def persist(self):
+        with self.lock:
+            value = {"version": 2, "routing": self.routes, "links": self.links,
+                     "decisions": self.decisions,
+                     "advertisements": [asdict(ad) for ad in list(self.services.repository.advertisements.values())],
+                     "reviews": [asdict(b) for b in list(self.services.reviews.repository._items.values())],
+                     "results": [asdict(r) for r in self.services.results.repository._items]}
+            # Only local typed dataclasses are serialized; no executable pickle.
+            write_json_atomic(self.root / "web-state.json", json.loads(json.dumps(value, default=str)))
+
+    def restore(self):
+        path = self.root / "web-state.json"
+        if not path.is_file():
+            return
+        data = read_json(path)
+        self.routes, self.links = data["routing"], data["links"]
+        self.decisions = data.get("decisions", {})
+        for row in data["advertisements"]:
+            row = restore_dates(row, ["created_at"])
+            row["files"] = [AdvertisementFile(**f) for f in row["files"]]
+            self.services.repository.advertisements[row["advertisement_id"]] = Advertisement(**row)
+        for row in data["reviews"]:
+            review = restore_dates(row["review"], ["requested_at", "completed_at"])
+            review["standard_effective_date"] = date.fromisoformat(review["standard_effective_date"])
+            job = restore_dates(row["job"], ["timeout_at", "next_retry_at", "updated_at"])
+            steps = []
+            for step in row["steps"]:
+                step = restore_dates(step, ["timeout_at"])
+                step["review_step_id"] = UUID(step["review_step_id"])
+                steps.append(ReviewStep(**step))
+            bundle = ReviewBundle(Review(**review), ReviewJob(**job), steps)
+            self.services.reviews.repository._items[bundle.review.review_id] = bundle
+            if bundle.job.status in {"PENDING", "RUNNING", "RETRY_PENDING"}:
+                self.fail(bundle, "PROCESS_RESTARTED", "실행 중 서버가 재시작되었습니다. 재분석을 눌러 다시 실행하세요.", save=False)
+        self.services.results.repository._items = []
+        for row in data["results"]:
+            row["evidences"] = tuple(ResultEvidence(**e) for e in row["evidences"])
+            row["annotation"] = ResultAnnotation(**row["annotation"]) if row["annotation"] else None
+            self.services.results.repository.add(ResultItem(**row))
+        self.persist()
+
+    def publish(self, message):
+        with self.lock:
+            if message.review_id in self.active:
+                return
+            self.active.add(message.review_id)
+            bundle = self.services.reviews.repository.get(message.review_id)
+            ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+            ad.latest_review_id, ad.review_status = message.review_id, "ANALYSIS_REQUESTED"
+            routing = dict(self.routes.get(ad.advertisement_id, {}))
+            for step, name in zip(bundle.steps, STEP_NAMES):
+                step.step_name = name
+                step.timeout_at = datetime.now(UTC) + timedelta(hours=2)
+            bundle.job.timeout_at = datetime.now(UTC) + timedelta(hours=2)
+            self.links[message.review_id] = {"routing": routing, "queued_at": datetime.now(UTC).isoformat()}
+            self.persist()
+            self.pool.submit(self.run, bundle, routing)
+
+    def stage(self, bundle, index):
+        with self.lock:
+            if bundle.job.status == "CANCELED":
+                raise ReviewCanceled("CANCELED_BY_USER")
+            bundle.review.status, bundle.job.status = "ANALYZING", "RUNNING"
+            bundle.job.current_step = bundle.steps[index].step_code
+            bundle.job.progress_rate = round(index / len(bundle.steps) * 100, 1)
+            bundle.job.updated_at = datetime.now(UTC)
+            for i, step in enumerate(bundle.steps):
+                step.status = "COMPLETED" if i < index else "RUNNING" if i == index else "PENDING"
+            self.services.repository.get_advertisement(bundle.review.advertisement_id).review_status = "ANALYZING"
+            self.persist()
+
+    def cancel(self, actor, review_id, reason):
+        """Stop after the current blocking parser/model call returns safely."""
+        bundle = self.services.reviews.status(actor, review_id, "operational-cancel")
+        with self.lock:
+            if bundle.job.status not in {"PENDING", "RUNNING", "RETRY_PENDING", "STALE"}:
+                raise ServiceError(409, "REVIEW_NOT_RUNNING", "진행 중인 검토만 중단할 수 있습니다.")
+            bundle.job.status = "CANCELED"
+            bundle.job.failed_reason_code = "CANCELED_BY_USER"
+            bundle.job.failed_reason = reason or "사용자가 검토 중단을 요청했습니다."
+            bundle.job.is_retryable = True
+            bundle.job.updated_at = datetime.now(UTC)
+            bundle.review.status = "REVIEW_CANCELED"
+            bundle.review.completed_at = bundle.job.updated_at
+            for step in bundle.steps:
+                if step.status in {"PENDING", "RUNNING"}:
+                    step.status, step.failed_reason_code = "CANCELED", "CANCELED_BY_USER"
+            self.services.repository.get_advertisement(bundle.review.advertisement_id).review_status = "UPLOADED"
+            self.links.setdefault(review_id, {}).update(
+                canceled_at=bundle.job.updated_at.isoformat(),
+                cancellation_reason=bundle.job.failed_reason,
+            )
+            self.active.discard(review_id)
+            self.persist()
+        return bundle
+
+    def rebuild_result_projection(self, review_id: str) -> int:
+        """Recreate viewer annotations from an immutable saved model result.
+
+        This is deliberately a projection-only repair: it never invokes the
+        parser, search, or model.  It protects the UI boundary from losing a
+        valid parser line reference while serializing a completed review.
+        """
+        link = self.links.get(review_id) or {}
+        result_path = Path(str(link.get("result_file") or ""))
+        integrated_path = self.root / "runs" / review_id / "integrated.json"
+        if not result_path.is_file() or not integrated_path.is_file():
+            raise ServiceError(409, "RESULT_PROJECTION_UNAVAILABLE", "저장된 판정 또는 파싱 결과가 없습니다.")
+        bundle = self.services.reviews.repository.get(review_id)
+        ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+        result, document = read_json(result_path), read_json(integrated_path)
+        requests_path = result_path.parent / "02_judgment_requests.jsonl"
+        requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        source_file = next(file for file in ad.files if file.file_type == "ADVERTISEMENT")
+        ad_results = [row for row in result["ads"] if row["ad_id"] == ad.advertisement_id]
+        if not ad_results:
+            raise ServiceError(409, "RESULT_PROJECTION_UNAVAILABLE", "저장된 결과에 광고 판정이 없습니다.")
+        self.services.results.repository._items = [
+            item for item in self.services.results.repository._items
+            if item.review_id != review_id
+        ]
+        for ad_result in ad_results:
+            scope_id = ad_result.get("scope_id") or ad_result["ad_id"]
+            payloads = [json.loads(row["messages"][1]["content"]) for row in requests if row.get("ad_id") == scope_id]
+            rules = {rule["item_id"]: rule for payload in payloads for rule in payload["rules"]}
+            evidence = {item["evidence_id"]: item for payload in payloads for item in payload["documents"]}
+            self.projector(
+                self.services, document,
+                [item for item in ad_result["candidates"] if item["status"] == "predicted"],
+                rules, evidence, review_id, source_file.file_id,
+                review_id.removeprefix("REV-"), model=self.config["model"],
+                product_id=ad_result.get("product_id"), product_name=ad_result.get("product_name"),
+            )
+        self.persist()
+        return sum(
+            item.review_id == review_id and item.annotation is not None
+            for item in self.services.results.repository._items
+        )
+
+    def fail(self, bundle, code, message, *, save=True):
+        bundle.job.status, bundle.review.status = "FAILED", "REVIEW_FAILED"
+        bundle.job.failed_reason_code, bundle.job.failed_reason = code, message
+        bundle.job.updated_at, bundle.job.is_retryable = datetime.now(UTC), True
+        for step in bundle.steps:
+            if step.status == "RUNNING":
+                step.status, step.failed_reason_code = "FAILED", code
+        ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+        ad.review_status = "REVIEW_FAILED"
+        if save:
+            self.persist()
+
+    def merge_asset_documents(self, ad, asset_documents):
+        """Make independently parsed assets one evidence-safe advertisement."""
+        if not asset_documents:
+            raise ValueError("no parsed advertisement assets")
+        pages, candidates, asset_provenance, asset_pages = [], [], [], {}
+        page_no = 0
+        for file, integrated in asset_documents:
+            first_page = page_no + 1
+            parser_ad_id = integrated["document"]["ad_id"]
+            asset_provenance.append({
+                "file_id": file.file_id,
+                "file_name": file.original_file_name,
+                "parser_doc_id": parser_ad_id,
+                "p1_sha256": integrated["contract"]["sources"]["p1_sha256"],
+                "p3_sha256": integrated["contract"]["sources"]["p3_sha256"],
+            })
+            for page in integrated["pages"]:
+                page_no += 1
+                value = copy.deepcopy(page)
+                value["page_no"] = page_no
+                for region in value.get("regions", []):
+                    old_region = str(region["region_id"])
+                    region["region_id"] = f"{file.file_id}:{old_region}"
+                    region["evidence_id"] = f"{ad.advertisement_id}#asset:{file.file_id}:p{page_no}:{old_region}"
+                    region["line_refs"] = [f"{file.file_id}::{ref}" for ref in region.get("line_refs", [])]
+                    for line in region.get("lines", []):
+                        line["line_ref"] = f"{file.file_id}::{line['line_ref']}"
+                for line in value.get("unassigned_lines", []):
+                    line["line_ref"] = f"{file.file_id}::{line['line_ref']}"
+                pages.append(value)
+            asset_pages[file.file_id] = {"start": first_page, "end": page_no}
+            for candidate in integrated.get("unverified_recovery_candidates") or []:
+                value = copy.deepcopy(candidate)
+                source_page_no = value.get("page_no")
+                if isinstance(source_page_no, int) and source_page_no >= 1:
+                    value["source_page_no"] = source_page_no
+                    value["page_no"] = first_page + source_page_no - 1
+                value["asset_id"] = file.file_id
+                value["source_file"] = file.original_file_name
+                candidates.append(value)
+        hashes = "".join(row["p1_sha256"] + row["p3_sha256"] for row in asset_provenance).encode("utf-8")
+        result = {
+            "contract": {
+                "version": "nh-ad-review-integrated-input-v1",
+                "sources": {
+                    "p1_contract": "nh-ad-review-evidence-v6",
+                    "p3_contract": "nh-ad-review-region-input-v1",
+                    "p1_sha256": hashlib.sha256(b"p1" + hashes).hexdigest(),
+                    "p3_sha256": hashlib.sha256(b"p3" + hashes).hexdigest(),
+                },
+                "review_unit": "original parser region; asset identity preserved",
+                "final_text_policy": "P3 review_text selected per asset from P1 judge policy",
+            },
+            "document": {
+                "ad_id": ad.advertisement_id,
+                "source_file": ad.advertisement_name,
+                "file_type": "multi_asset" if len(asset_documents) > 1 else asset_documents[0][1]["document"].get("file_type"),
+                "dataset_group": None,
+                "input_relative_path": None,
+                "routing_metadata": {},
+            },
+            "pages": pages,
+            "unverified_recovery_candidates": candidates,
+            "diagnostics": {"assets": asset_provenance, "asset_pages": asset_pages},
+            "quality": {
+                "line_count": sum(
+                    sum(len(region.get("lines") or []) for region in page.get("regions") or [])
+                    + len(page.get("unassigned_lines") or [])
+                    for page in pages
+                ),
+                "line_partition_exact": True,
+                "region_count": sum(len(page.get("regions") or []) for page in pages),
+                "empty_region_count": sum(not str(region.get("final_text") or "").strip() for page in pages for region in page.get("regions") or []),
+            },
+        }
+        validate_integrated_input(result)
+        return result
+
+    def reuse_parent_parser_output(self, ad, directory, source_by_file, parent_review_id):
+        """Reuse a terminal parent's complete parser boundary after strict validation.
+
+        This recovery path is only for an immutable rerun of the same
+        advertisement. A retry may itself only contain a validated
+        ``parser-reuse.json`` pointer, so that audited lineage is followed
+        until the review that owns the physical P1/P3 files is reached. It
+        never reuses judgments or integrated/RAG outputs.
+        """
+        if not parent_review_id:
+            return None
+        files = [file for file in ad.files if file.file_type == "ADVERTISEMENT"]
+        source_review_id = parent_review_id
+        lineage = []
+        seen = set()
+        for _ in range(16):
+            if source_review_id in seen:
+                return None
+            seen.add(source_review_id)
+            parent = self.services.reviews.repository.get(source_review_id)
+            if (
+                parent is None
+                or parent.review.advertisement_id != ad.advertisement_id
+                or parent.job.status not in PARSER_REUSE_PARENT_STATUSES
+            ):
+                return None
+            lineage.append(source_review_id)
+            parent_directory = self.root / "runs" / source_review_id
+            parent_output = parent_directory / "parser"
+            if self.parser_layout_config["runner"] == "nh_parsing_test_batch":
+                parent_output = parent_output / "upload"
+            p1s, p3s = self.parser_outputs(parent_output)
+            p3_by_name = {path.name: path for path in p3s}
+            if len(p1s) == len(files) and set(path.name for path in p1s) == set(p3_by_name):
+                break
+            reuse_path = parent_directory / "parser-reuse.json"
+            if not reuse_path.is_file():
+                return None
+            try:
+                reuse = read_json(reuse_path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                return None
+            if (
+                reuse.get("version") != "validated-parent-parser-reuse-v1"
+                or reuse.get("advertisement_id") != ad.advertisement_id
+                or not isinstance(reuse.get("parser_source_review_id") or reuse.get("parent_review_id"), str)
+            ):
+                return None
+            source_review_id = reuse.get("parser_source_review_id") or reuse["parent_review_id"]
+        else:
+            return None
+        assets = []
+        output_hashes = []
+        for file in files:
+            source = source_by_file[file.file_id]
+            matches = [path for path in p1s if self.parser_output_name_matches(path, source)]
+            if len(matches) != 1:
+                return None
+            p1_path = matches[0]
+            p3_path = p3_by_name[p1_path.name]
+            assets.append((file, combine(p1_path, p3_path)))
+            output_hashes.append({
+                "file_id": file.file_id,
+                "source_sha256": file.checksum,
+                "p1_sha256": hashlib.sha256(p1_path.read_bytes()).hexdigest(),
+                "p3_sha256": hashlib.sha256(p3_path.read_bytes()).hexdigest(),
+            })
+        integrated = self.merge_asset_documents(ad, assets)
+        write_json_atomic(directory / "parser-reuse.json", {
+            "version": "validated-parent-parser-reuse-v1",
+            "parent_review_id": parent_review_id,
+            "parser_source_review_id": source_review_id,
+            "review_lineage": lineage,
+            "advertisement_id": ad.advertisement_id,
+            "reason": "terminal parent parser outputs complete; downstream stages rerun",
+            "assets": output_hashes,
+        })
+        (directory / "parser.log").write_text(
+            f"원본 검토 {source_review_id}의 P1/P3를 부모 재실행 {parent_review_id}에서 "
+            "원본 체크섬·계약·줄 소유권 검증 후 재사용했습니다.\n",
+            encoding="utf-8",
+        )
+        return integrated
+
+    def parse(self, ad, directory, *, parent_review_id=None):
+        files = [file for file in ad.files if file.file_type == "ADVERTISEMENT"]
+        source_dir = directory / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        source_by_file = {}
+        for file in files:
+            filename = Path(file.original_file_name.replace("\\", "/")).name
+            if filename in {"", ".", ".."}:
+                raise ValueError("invalid original filename")
+            source = source_dir / f"{file.file_id}_{filename}"
+            with self.services.advertisements.storage.open(file.storage_key) as stream:
+                body = stream.read()
+            if hashlib.sha256(body).hexdigest() != file.checksum:
+                raise ValueError("stored source checksum mismatch")
+            source.write_bytes(body)
+            source_by_file[file.file_id] = source
+        reused = self.reuse_parent_parser_output(
+            ad, directory, source_by_file, parent_review_id,
+        )
+        if reused is not None:
+            self.prepare_parser_layout(source_by_file[files[0].file_id], directory, reused)
+            return reused
+        output = directory / "parser"
+        if len(files) > 1:
+            completed, missing, batch_returncode = self.parse_assets_in_parallel(files, source_by_file, directory)
+        else:
+            with self.parser_slots:
+                batch_returncode = self.execute_parser(source_dir, output, directory / "parser.log")
+            completed, missing = self.parsed_assets(files, source_by_file, output)
+        retry_attempts = []
+        if missing:
+            recovered, retry_attempts = self.retry_missing_parser_assets(files, source_by_file, missing, directory)
+            completed.update(recovered)
+            missing = {file_id: reason for file_id, reason in missing.items() if file_id not in recovered}
+        if missing:
+            names = [
+                f"{next(file.original_file_name for file in files if file.file_id == file_id)} ({reason})"
+                for file_id, reason in missing.items()
+            ]
+            write_json_atomic(directory / "parser-failure.json", {
+                "version": "parser-asset-failure-v1",
+                "batch_returncode": batch_returncode,
+                "failed_assets": [{"file_id": file_id, "reason": reason} for file_id, reason in missing.items()],
+                "retry_attempts": retry_attempts,
+            })
+            raise RuntimeError("PARSER_ASSET_FAILED: " + "; ".join(names) + ". 성공 파일은 보존됐으며 실패 파일만 1회 재시도했습니다.")
+        assets = []
+        for file in files:
+            p1_path, p3_path = completed[file.file_id]
+            assets.append((file, combine(p1_path, p3_path)))
+        integrated = self.merge_asset_documents(ad, assets)
+        # Parser-layout is a presentation artifact. A temporary rendering or
+        # visual-parser failure must not discard an otherwise valid review.
+        try:
+            self.prepare_parser_layout(source_by_file[files[0].file_id], directory, integrated)
+        except Exception as exc:  # retried lazily by the parser-layout endpoint
+            write_json_atomic(
+                directory / "parser-layout-error.json",
+                {"code": "PARSER_LAYOUT_UNAVAILABLE", "detail": str(exc)},
+            )
+        return integrated
+
+    def apply_intake_scopes(self, ad, document, intake):
+        """Convert saved asset/page scopes into parser evidence ownership."""
+        intake = validate_ad_intake(intake)
+        media_codes = list(intake.get("media_codes") or [])
+        if media_codes:
+            # The registration UI calls this value 광고유형, while the
+            # judgment contract calls the same delivery/creative classification
+            # media_type.  Preserve the user's selection as confirmed intake
+            # metadata instead of silently dropping it between the two schemas.
+            document["document"].setdefault("routing_metadata", {})["media_type"] = {
+                "value": media_codes[0] if len(media_codes) == 1 else media_codes,
+                "source": "web_user",
+                "status": "provided",
+            }
+        asset_pages = (document.get("diagnostics") or {}).get("asset_pages") or {}
+        evidence_by_asset = {}
+        for page in document["pages"]:
+            for region in page.get("regions") or []:
+                asset_id = str(region["evidence_id"]).split(":p", 1)[0].removeprefix(f"{ad.advertisement_id}#asset:")
+                evidence_by_asset.setdefault(asset_id, []).append((page["page_no"], region["evidence_id"]))
+
+        def evidence(scopes):
+            rows = []
+            for scope in scopes:
+                asset_id = scope["asset_id"]
+                ranges = scope["page_ranges"]
+                if ranges is None:
+                    rows.extend(item[1] for item in evidence_by_asset.get(asset_id, []))
+                    continue
+                offset = asset_pages[asset_id]["start"] - 1
+                for start, end in ((item["start"], item["end"]) for item in ranges):
+                    rows.extend(item[1] for item in evidence_by_asset.get(asset_id, []) if offset + start <= item[0] <= offset + end)
+            return list(dict.fromkeys(rows))
+
+        products = []
+        for product in intake["products"]:
+            classification = product["product_classification_code"]
+            products.append({
+                "product_id": product["product_id"],
+                "product_name": product.get("product_name") or product["product_id"],
+                "routing_metadata": {
+                    "product_group": {"value": product["product_group"], "source": "web_user", "status": "provided"},
+                    "product_subtype": {"value": classification, "source": "web_user", "status": "provided"},
+                    "template_id": {"value": classification, "source": "product_classification_mapping", "status": "verified"},
+                },
+                "evidence_ids": evidence(product["asset_scopes"]),
+            })
+        document["document"]["products"] = products
+        document["document"]["shared_evidence_ids"] = evidence(intake["shared_asset_scopes"])
+        validate_integrated_input(document)
+        return document
+
+    def prepare_parser_layout(self, source, directory, integrated):
+        """Build the visual parser projection used by the bbox demonstration."""
+        target = directory / "parser-layout.json"
+        if target.is_file():
+            existing = read_json(target)
+            if all(
+                "asset_id" in page and "source_page_no" in page
+                for page in existing.get("pages", [])
+            ):
+                return existing
+        direct = parser_layout(integrated, source="P1+P3 integrated parser output")
+        if direct["counts"]["lines"] or direct["counts"]["regions"]:
+            write_json_atomic(target, direct)
+            return direct
+        if source.suffix.lower() not in {".hwp", ".hwpx"}:
+            write_json_atomic(target, direct)
+            return direct
+
+        # The current HWP semantic parser preserves text/style but has no page
+        # canvas.  Render the same source to PDF, then run the parser's visual
+        # route solely for demonstrable region/line coordinates.  This visual
+        # projection never replaces the semantic text used by search/judgment.
+        with self.layout_lock, tempfile.TemporaryDirectory(prefix="nh-parser-layout-") as temp:
+            if target.is_file():
+                return read_json(target)
+            visual_input = Path(temp) / "input"
+            visual_input.mkdir()
+            pdf = visual_input / "rendered-original.pdf"
+            pdf.write_bytes(convert_hwp_to_pdf(source.read_bytes(), source.name))
+            output = directory / "parser-visual"
+            env = dict(os.environ)
+            env.update(self.config.get("parser_env", {}))
+            env["REGION_READING_MODE"] = "off"
+            env["PYTHONIOENCODING"] = "utf-8"
+            command = self.parser_command(visual_input, output, visual=True)
+            with (directory / "parser-visual.log").open("w", encoding="utf-8") as log:
+                result = subprocess.run(
+                    command,
+                    cwd=self.config["parser_cwd"],
+                    env=env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    timeout=3600,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+            raw_root = output / "visual" if self.parser_layout_config["runner"] == "nh_parsing_test_batch" else output
+            outputs = self.parser_raw_outputs(raw_root)
+            if result.returncode or len(outputs) != 1:
+                raise RuntimeError("PARSER_VISUAL_LAYOUT_FAILED: HWP bbox 보강에 실패했습니다.")
+            visual = read_json(outputs[0])
+            layout = parser_layout(visual, source="HWP 200-DPI render + parser visual projection")
+            if not layout["counts"]["regions"]:
+                raise RuntimeError("PARSER_VISUAL_LAYOUT_EMPTY: 표시할 파서 bbox가 없습니다.")
+            write_json_atomic(target, layout)
+            return layout
+
+    def review_parser_layout(self, review_id):
+        bundle = self.services.reviews.repository.get(review_id)
+        ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+        directory = self.root / "runs" / review_id
+        target = directory / "parser-layout.json"
+        if target.is_file():
+            existing = read_json(target)
+            if all(
+                "asset_id" in page and "source_page_no" in page
+                for page in existing.get("pages", [])
+            ):
+                return existing
+        integrated_path = directory / "integrated.json"
+        if not integrated_path.is_file():
+            raise ServiceError(409, "PARSER_LAYOUT_PENDING", "파서 결과가 아직 준비되지 않았습니다.")
+        file = next(f for f in ad.files if f.file_type == "ADVERTISEMENT")
+        source_dir = directory / "source"
+        source = source_dir / Path(file.original_file_name.replace("\\", "/")).name
+        if not source.is_file():
+            stored_sources = sorted(source_dir.glob(f"{file.file_id}_*"))
+            if stored_sources:
+                source = stored_sources[0]
+            else:
+                raise ServiceError(404, "PARSER_SOURCE_MISSING", "파서 원본을 찾을 수 없습니다.")
+        return self.prepare_parser_layout(source, directory, read_json(integrated_path))
+
+    def run(self, bundle, routing):
+        directory = self.root / "runs" / bundle.review.review_id
+        directory.mkdir(parents=True, exist_ok=True)
+        started = time.monotonic()
+        if os.name == "nt":
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
+        try:
+            if bundle.job.status == "CANCELED":
+                raise ReviewCanceled("CANCELED_BY_USER")
+            self.stage(bundle, 0)
+            ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+            self.stage(bundle, 1)
+            document = self.parse(
+                ad,
+                directory,
+                parent_review_id=bundle.review.parent_review_id,
+            )
+            if bundle.job.status == "CANCELED":
+                raise ReviewCanceled("CANCELED_BY_USER")
+            if routing.get("intake"):
+                document = self.apply_intake_scopes(ad, document, routing["intake"])
+            parse_seconds = time.monotonic() - started
+            self.stage(bundle, 2)
+            write_json_atomic(directory / "integrated.json", document)
+            overrides = {"product_group": {"value": PRODUCTS[ad.product_group], "source": "web_user", "status": "provided"}}
+            if routing.get("internal_template_id"):
+                overrides["product_subtype"] = {
+                    "value": routing["product_classification_code"],
+                    "source": "web_user",
+                    "status": "provided",
+                }
+                overrides["template_id"] = {
+                    "value": routing["internal_template_id"],
+                    "source": "product_classification_mapping",
+                    "status": "verified",
+                }
+            # No automatic promotion of parser/filename template or ambiguous media metadata.
+            self.stage(bundle, 3)
+            job = self.rag.submit({"schema_version": "operational-review-request-v1", "client_request_id": bundle.review.review_id,
+                                   "document": document, "routing_overrides": overrides, "execute_model": True})
+            with self.lock:
+                self.links[bundle.review.review_id].update(rag_job_id=job["job_id"], parse_seconds=round(parse_seconds, 3))
+            self.stage(bundle, 4)
+            while job["status"] not in TERMINAL_STATES:
+                if bundle.job.status == "CANCELED":
+                    raise ReviewCanceled("CANCELED_BY_USER")
+                if self.stopping.wait(2):
+                    raise RuntimeError("SERVER_STOPPED: 서버가 중지되었습니다.")
+                job = self.rag.store.read(job["job_id"])
+                checkpoint = self.rag.store.directory(job["job_id"]) / f"attempt-{job['attempt']}" / "03_judgment_responses.json.checkpoint.json"
+                if checkpoint.is_file():
+                    try:
+                        completed = read_json(checkpoint)["completed_logical_requests"]
+                    except (OSError, ValueError, KeyError):
+                        continue  # A diagnostic read must not interrupt model execution.
+                    label = f"하이브리드 검색·Gemma 판정 (응답 저장 {completed}묶음)"
+                    if bundle.steps[4].step_name != label:
+                        bundle.steps[4].step_name = label
+                        bundle.job.updated_at = datetime.now(UTC)
+                        self.persist()
+            if job["status"] not in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}:
+                raise RuntimeError(f"RAG_{job['status']}: 일부 결과가 미완료입니다. 성공한 원출력은 작업 폴더에 보존됩니다.")
+            self.stage(bundle, 5)
+            result = self.rag.result(job["job_id"])
+            root = self.rag.store.directory(job["job_id"])
+            requests_path = root / f"attempt-{job['attempt']}" / "02_judgment_requests.jsonl"
+            requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            ad_results = [a for a in result["ads"] if a["ad_id"] == ad.advertisement_id]
+            if not ad_results:
+                raise RuntimeError("RAG result does not contain the submitted advertisement")
+            candidates = [
+                candidate
+                for ad_result in ad_results
+                for candidate in ad_result["candidates"]
+                if candidate["status"] == "predicted"
+            ]
+            source_file = next(f for f in ad.files if f.file_type == "ADVERTISEMENT")
+            with self.lock:
+                if bundle.job.status == "CANCELED":
+                    raise ReviewCanceled("CANCELED_BY_USER")
+                for ad_result in ad_results:
+                    scope_id = ad_result.get("scope_id") or ad_result["ad_id"]
+                    scoped_requests = [row for row in requests if row.get("ad_id") == scope_id]
+                    scoped_payloads = [json.loads(row["messages"][1]["content"]) for row in scoped_requests]
+                    scoped_rules = {r["item_id"]: r for p in scoped_payloads for r in p["rules"]}
+                    scoped_evidence = {d["evidence_id"]: d for p in scoped_payloads for d in p["documents"]}
+                    scoped_candidates = [
+                        candidate
+                        for candidate in ad_result["candidates"]
+                        if candidate["status"] == "predicted"
+                    ]
+                    self.projector(
+                        self.services,
+                        document,
+                        scoped_candidates,
+                        scoped_rules,
+                        scoped_evidence,
+                        bundle.review.review_id,
+                        source_file.file_id,
+                        bundle.review.review_id.removeprefix("REV-"),
+                        model=self.config["model"],
+                        product_id=ad_result.get("product_id"),
+                        product_name=ad_result.get("product_name"),
+                    )
+                # Rebuild from the immutable saved result before completion is
+                # exposed.  This makes the persisted viewer projection the
+                # source-of-truth output and prevents a transient in-memory
+                # projection from silently dropping parser annotations.
+                self.links[bundle.review.review_id]["result_file"] = str(root / job["result_file"])
+                located_annotations = self.rebuild_result_projection(bundle.review.review_id)
+                output_failures = sum(
+                    1 for row in ad_results for candidate in row.get("candidates", [])
+                    if candidate.get("status") == "OUTPUT_FAILURE"
+                )
+                bundle.review.status, bundle.job.status = "REVIEW_COMPLETED", ("COMPLETED_WITH_WARNINGS" if output_failures else "COMPLETED")
+                bundle.review.completed_at = bundle.job.updated_at = datetime.now(UTC)
+                bundle.review.standard_version_ids = ("STDVER-V2",)
+                bundle.job.progress_rate, bundle.job.is_retryable = 100, bool(output_failures)
+                has_pending = output_failures or any(
+                    row.get("review_candidates") or any(
+                        rule.get("reason") != "routing did not select this rule's template section"
+                        for rule in row.get("deferred_rules", [])
+                    )
+                    for row in ad_results
+                )
+                risk = "HIGH" if any(c["judgment"]["verdict"] == "VIOLATION" for c in candidates) else "CHECK_REQUIRED" if has_pending or any(c["judgment"]["verdict"] == "UNDETERMINED" for c in candidates) else "LOW"
+                bundle.review.overall_risk_level = ad.overall_risk_level = risk
+                ad.review_status = "REVIEW_COMPLETED"
+                for step in bundle.steps:
+                    step.status = "COMPLETED"
+                self.links[bundle.review.review_id].update(total_seconds=round(time.monotonic()-started, 3),
+                    result_file=str(root / job["result_file"]), completed_at=bundle.review.completed_at.isoformat(),
+                    predicted_count=len(candidates),
+                    located_annotation_count=located_annotations,
+                    output_failure_count=output_failures,
+                    partial_result_warning=(f"규칙 {output_failures}건은 모델 출력 계약 실패로 결과를 생성하지 못했습니다. 해당 건은 임의로 판단불가 처리하지 않았습니다." if output_failures else None),
+                    deferred_count=sum(len(row.get("deferred_rules", [])) for row in ad_results),
+                    deferred_rules=[rule for row in ad_results for rule in row.get("deferred_rules", [])])
+                self.persist()
+        except ReviewCanceled:
+            # Cancellation is persisted before this worker observes it.
+            pass
+        except Exception as exc:
+            import traceback
+            (directory / "failure.log").write_text(traceback.format_exc(), encoding="utf-8")
+            self.fail(bundle, "OPERATIONAL_EXECUTION_FAILED", str(exc)[:400])
+        finally:
+            with self.lock:
+                self.active.discard(bundle.review.review_id)
+            if os.name == "nt":
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+
+    def install(self, backend):
+        def actor(request):
+            header = request.headers.get("authorization", "")
+            return self.services.auth.authenticate(header.removeprefix("Bearer "))
+
+        @backend.get("/operational/capabilities")
+        async def capabilities(request: Request):
+            actor(request)
+            return {"enabled": True, "productClassifications": self.product_classifications,
+                    "productClassificationSource": {
+                        key: value for key, value in self.template_source.items() if key != "path"
+                    },
+                    "regulation": "규제목록 v2 고정본",
+                    "progressMeaning": "완료한 단계 비율이며 남은 시간의 비율이 아닙니다."}
+
+        @backend.put("/operational/advertisements/{advertisement_id}/routing")
+        async def routing(advertisement_id: str, request: Request):
+            current = actor(request)
+            ad = self.services.advertisements.get(current, advertisement_id, "local-routing")
+            body = await request.json()
+            if not isinstance(body, dict) or set(body) != {"product_classification_code"}:
+                raise ServiceError(422, "INVALID_ROUTING", "상세 상품군 코드만 지정할 수 있습니다.")
+            classification = body["product_classification_code"]
+            if not isinstance(classification, str) or not classification:
+                raise ServiceError(422, "INVALID_PRODUCT_CLASSIFICATION", "상세 상품군을 선택해 주세요.")
+            if classification not in self.templates or not classification.startswith(PRODUCTS.get(ad.product_group, "!")):
+                raise ServiceError(422, "INVALID_PRODUCT_CLASSIFICATION", "상품군에 맞는 상세 상품군을 선택해 주세요.")
+            with self.lock:
+                self.routes[advertisement_id] = {
+                    "product_classification_code": classification,
+                    "internal_template_id": classification,
+                }
+                self.persist()
+            return {"saved": True}
+
+        @backend.put("/operational/advertisements/{advertisement_id}/intake")
+        async def intake(advertisement_id: str, request: Request):
+            current = actor(request)
+            ad = self.services.advertisements.get(current, advertisement_id, "local-intake")
+            body = await request.json()
+            try:
+                value = validate_ad_intake(body)
+            except ValueError as exc:
+                raise ServiceError(422, "INVALID_AD_INTAKE", str(exc)) from exc
+            expected_assets = {file.file_id for file in ad.files if file.file_type == "ADVERTISEMENT"}
+            actual_assets = {row["asset_id"] for row in value["assets"]}
+            if actual_assets != expected_assets:
+                raise ServiceError(422, "INVALID_AD_INTAKE", "등록된 광고 원본 파일과 자산 범위가 일치하지 않습니다.")
+            for product in value["products"]:
+                code = product["product_classification_code"]
+                prefix = product["product_group"]
+                if code not in self.templates or not code.startswith(prefix):
+                    raise ServiceError(422, "INVALID_PRODUCT_CLASSIFICATION", "상품군에 맞는 상세 상품군을 선택해 주세요.")
+            with self.lock:
+                current_route = dict(self.routes.get(advertisement_id, {}))
+                current_route["intake"] = value
+                self.routes[advertisement_id] = current_route
+                self.persist()
+            return {"saved": True}
+
+        @backend.get("/operational/reviews/{review_id}/execution")
+        async def execution(review_id: str, request: Request):
+            self.services.reviews.status(actor(request), review_id, "local-execution")
+            link = dict(self.links.get(review_id, {}))
+            if link.get("result_file") and "deferred_rules" not in link:
+                result = read_json(link["result_file"])
+                ad = result["ads"][0]
+                link["deferred_rules"] = ad.get("deferred_rules", [])
+                link["deferred_count"] = len(link["deferred_rules"])
+            return {k: v for k, v in link.items() if k != "result_file"}
+
+        @backend.get("/operational/reviews/{review_id}/export.json")
+        async def export_review_json(review_id: str, request: Request):
+            current = actor(request)
+            bundle = self.services.reviews.status(current, review_id, "export-review-result")
+            if bundle.review.status != "REVIEW_COMPLETED":
+                raise ServiceError(409, "REVIEW_NOT_COMPLETED", "완료된 검토 결과만 내보낼 수 있습니다.")
+            ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+            workspace = await result_workspace(review_id, request)
+            link = self.links.get(review_id, {})
+            result_file = link.get("result_file")
+            raw_result = read_json(result_file) if result_file and Path(result_file).exists() else {}
+            payload = {
+                "schema_version": "operational-review-export-v2",
+                "review": {"review_id": review_id, "advertisement_id": ad.advertisement_id,
+                           "advertisement_name": ad.advertisement_name, "completed_at": bundle.review.completed_at},
+                "results": workspace["rows"],
+                "review_candidates": workspace["review_candidate_rows"],
+                "deferred_rules": workspace["deferred_rules"],
+                "source_results": [row for row in raw_result.get("ads", [])
+                                   if row["ad_id"] == ad.advertisement_id],
+                "execution": {
+                    "status": bundle.job.status,
+                    "output_failure_count": workspace["output_failure_count"],
+                    "output_failure_pairs": workspace["output_failure_pairs"],
+                    "partial_result_warning": link.get("partial_result_warning"),
+                    "deferred_count": len(workspace["deferred_rules"]),
+                },
+            }
+            return JSONResponse(json.loads(json.dumps(payload, default=str)), headers={
+                "Content-Disposition": f'attachment; filename="review-{review_id}.json"',
+            })
+
+        @backend.post("/operational/reviews/{review_id}/rebuild-annotations")
+        async def rebuild_annotations(review_id: str, request: Request):
+            current = actor(request)
+            if not set(current.roles).intersection({"COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"}):
+                raise ServiceError(403, "FORBIDDEN", "결과 위치 복구 권한이 없습니다.")
+            bundle = self.services.reviews.status(current, review_id, "rebuild-result-annotations")
+            if bundle.review.status != "REVIEW_COMPLETED":
+                raise ServiceError(409, "REVIEW_NOT_COMPLETED", "완료된 검토 결과만 위치를 복구할 수 있습니다.")
+            with self.lock:
+                count = self.rebuild_result_projection(review_id)
+            return {"review_id": review_id, "located_annotations": count}
+
+        @backend.post("/operational/reviews/{review_id}/cancel")
+        async def cancel_review(review_id: str, request: Request):
+            current = actor(request)
+            body = await request.json()
+            if not isinstance(body, dict) or set(body) - {"reason"}:
+                raise ServiceError(422, "INVALID_CANCELLATION", "중단 사유만 입력할 수 있습니다.")
+            reason = str(body.get("reason") or "").strip()
+            if len(reason) > 1000:
+                raise ServiceError(422, "INVALID_CANCELLATION", "중단 사유는 1,000자 이하여야 합니다.")
+            bundle = self.cancel(current, review_id, reason)
+            return {"review_id": bundle.review.review_id, "job_status": bundle.job.status,
+                    "review_status": bundle.review.status, "message": bundle.job.failed_reason}
+
+        @backend.get("/operational/reviews/{review_id}/parser-layout")
+        async def review_parser_layout(review_id: str, request: Request):
+            actor(request)
+            self.services.reviews.status(actor(request), review_id, "local-parser-layout")
+            try:
+                return self.review_parser_layout(review_id)
+            except ServiceError:
+                raise
+            except Exception as exc:
+                raise ServiceError(503, "PARSER_LAYOUT_UNAVAILABLE", str(exc)[:300]) from exc
+
+        @backend.get("/operational/reviews/{review_id}/workspace")
+        async def result_workspace(review_id: str, request: Request):
+            bundle = self.services.reviews.status(actor(request), review_id, "result-workspace")
+            link = self.links.get(review_id, {})
+            raw, payloads, integrated, discovery = {}, [], {}, {}
+            if link.get("result_file"):
+                result_path = Path(link["result_file"])
+                raw = read_json(result_path)
+                discovery_path = result_path.with_name("01_discovery.json")
+                if discovery_path.is_file():
+                    discovery = read_json(discovery_path)
+                requests_path = result_path.parent / "02_judgment_requests.jsonl"
+                if requests_path.exists():
+                    for request_line in requests_path.read_text(encoding="utf-8").splitlines():
+                        if request_line.strip():
+                            payloads.append(json.loads(json.loads(request_line)["messages"][1]["content"]))
+                integrated_path = self.root / "runs" / review_id / "integrated.json"
+                if integrated_path.exists():
+                    integrated = read_json(integrated_path)
+            value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery)
+            value.pop("source_ads", None)
+            return {"available": True, "source_type": "GEMMA", "is_model_output": True,
+                    **value, "status": bundle.review.status,
+                    "output_failure_count": len(value["output_failure_pairs"]),
+                    "partial_result_warning": link.get("partial_result_warning"),
+                    "human_decision": self.decisions.get(review_id)}
+
+        @backend.put("/operational/reviews/{review_id}/decision")
+        async def final_human_decision(review_id: str, request: Request):
+            current = actor(request)
+            if not set(current.roles).intersection({"COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"}):
+                raise ServiceError(403, "FORBIDDEN", "최종 승인·반려는 준법 검토자만 할 수 있습니다.")
+            bundle = self.services.reviews.status(current, review_id, "human-final-decision")
+            if bundle.review.status != "REVIEW_COMPLETED":
+                raise ServiceError(409, "REVIEW_NOT_COMPLETED", "AI 검토가 완료된 뒤 최종 판단할 수 있습니다.")
+            body = await request.json()
+            if not isinstance(body, dict) or set(body) - {"decision", "comment"}:
+                raise ServiceError(422, "INVALID_DECISION", "승인·반려와 검토 의견만 입력할 수 있습니다.")
+            decision = body.get("decision")
+            comment = str(body.get("comment") or "").strip()
+            if decision not in {"APPROVED", "REJECTED"}:
+                raise ServiceError(422, "INVALID_DECISION", "최종 판단은 승인 또는 반려여야 합니다.")
+            if decision == "REJECTED" and not comment:
+                raise ServiceError(422, "DECISION_COMMENT_REQUIRED", "반려 사유를 입력해 주세요.")
+            if len(comment) > 1000:
+                raise ServiceError(422, "DECISION_COMMENT_TOO_LONG", "검토 의견은 1,000자 이하여야 합니다.")
+            with self.lock:
+                if review_id in self.decisions:
+                    raise ServiceError(409, "DECISION_ALREADY_RECORDED", "이미 최종 판단이 기록되어 변경할 수 없습니다.")
+                value = {
+                    "decision": decision,
+                    "comment": comment or None,
+                    "reviewer_id": current.user_id,
+                    "decided_at": datetime.now(UTC).isoformat(),
+                    "ai_result_unchanged": True,
+                }
+                self.decisions[review_id] = value
+                self.persist()
+            return value
+
+        @backend.middleware("http")
+        async def scoped_writes(request: Request, call_next):
+            path = request.url.path.removeprefix("/api/v1")
+            allowed = ("/auth/" in path or
+                request.method == "POST" and (path == "/advertisements" or
+                    re.fullmatch(r"/advertisements/ADV-[\w-]+/reviews", path) or
+                    re.fullmatch(r"/reviews/REV-[\w-]+/rerun", path) or
+                    re.fullmatch(r"/operational/reviews/REV-[\w-]+/rebuild-annotations", path)) or
+                request.method == "POST" and re.fullmatch(r"/operational/reviews/REV-[\w-]+/cancel", path) or
+                request.method == "PUT" and (re.fullmatch(r"/operational/advertisements/ADV-[\w-]+/(routing|intake)", path) or
+                    re.fullmatch(r"/operational/reviews/REV-[\w-]+/decision", path)))
+            if request.method not in {"GET", "HEAD", "OPTIONS"} and not allowed:
+                return JSONResponse({"code": "NOT_CONNECTED", "message": "현재 로컬 실행은 광고 등록·자동심의·재분석만 연결되어 있습니다."}, status_code=409)
+            response = await call_next(request)
+            if allowed and response.status_code < 400 and "/auth/" not in path:
+                self.persist()
+            return response

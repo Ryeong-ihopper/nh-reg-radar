@@ -34,7 +34,35 @@
         "file_type": {"type": ["string", "null"]},
         "dataset_group": {"type": ["string", "null"]},
         "input_relative_path": {"type": ["string", "null"]},
-        "routing_metadata": {"type": "object"}
+        "routing_metadata": {"type": "object"},
+        "parent_ad_id": {"type": ["string", "null"]},
+        "product_id": {"type": ["string", "null"]},
+        "product_name": {"type": ["string", "null"]},
+        "review_case_id": {"type": ["string", "null"]},
+        "products": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["product_id", "product_name", "routing_metadata", "evidence_ids"],
+            "properties": {
+              "product_id": {"type": "string", "minLength": 1},
+              "product_name": {"type": "string", "minLength": 1},
+              "routing_metadata": {"type": "object"},
+              "evidence_ids": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "shared_evidence_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
       },
       "additionalProperties": false
     },
@@ -59,6 +87,16 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "text_selection": {
+      "type": "object",
+      "properties": {
+        "selection_status": {"type": ["string", "null"]},
+        "needs_review": {"type": ["boolean", "null"]},
+        "confidence": {"type": ["number", "null"]},
+        "reason": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
     "line": {
       "type": "object",
       "required": ["line_ref", "text", "bbox", "text_source", "confidence", "style", "labels"],
@@ -69,6 +107,7 @@
         "text_source": {"type": ["string", "null"]},
         "confidence": {"type": ["number", "null"]},
         "style": {"type": ["object", "null"]},
+        "text_selection": {"$ref": "#/$defs/text_selection"},
         "labels": {"type": "array", "items": {"type": "object"}}
       },
       "additionalProperties": false
@@ -78,6 +117,7 @@
       "required": ["evidence_id", "region_id", "final_text", "text_source", "line_refs", "lines", "labels", "assignment_status"],
       "properties": {
         "evidence_id": {"type": "string", "minLength": 1},
+        "source_evidence_id": {"type": ["string", "null"], "minLength": 1},
         "region_id": {"type": "string", "minLength": 1},
         "card_no": {"type": ["integer", "string", "null"]},
         "bbox": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
@@ -89,6 +129,7 @@
         "labels": {"type": "array", "items": {"type": "object"}},
         "assignment_status": {"enum": ["assigned", "mixed", "unassigned"]},
         "visibility": {"type": ["object", "null"]},
+        "text_selection": {"$ref": "#/$defs/text_selection"},
         "table": {"type": ["object", "null"]}
       },
       "additionalProperties": false
@@ -101,6 +142,8 @@
         "canvas_w": {"type": ["number", "null"]},
         "canvas_h": {"type": ["number", "null"]},
         "dpi": {"type": ["number", "null"]},
+        "physical_width_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "physical_height_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
         "parse_route": {"type": ["string", "null"]},
         "parse_status": {"type": ["string", "null"]},
         "regions": {"type": "array", "items": {"$ref": "#/$defs/region"}},

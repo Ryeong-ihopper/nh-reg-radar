@@ -1901,10 +1901,17 @@ components:
         - NOTICE
         - MOBILE_BANNER
         - WEB_BANNER
+        - WEB_PRODUCT_PAGE
         - EVENT_PAGE
+        - SOCIAL_MEDIA
+        - VIDEO
+        - EMAIL
+        - OUTDOOR
+        - PRINT_AD
         - PUSH
         - SMS
         - ALIMTALK
+        - OTHER
       type: string
     AuditLogPage:
       properties:
@@ -2375,10 +2382,14 @@ components:
           type: string
           title: Memo
         advertisementFile:
-          description: jpg/jpeg/png/pdf/hwp/hwpx; maximum 50 MiB.
-          format: binary
+          description: One to twenty source assets of one advertisement; jpg/jpeg/png/pdf/hwp/hwpx; each maximum 50 MiB.
+          items:
+            format: binary
+            type: string
+          minItems: 1
+          maxItems: 20
           title: Advertisementfile
-          type: string
+          type: array
         productDescriptionFile:
           format: binary
           type: string

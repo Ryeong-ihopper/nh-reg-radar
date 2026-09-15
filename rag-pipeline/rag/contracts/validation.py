@@ -11,6 +11,7 @@ from typing import Any, Iterable
 
 
 INTEGRATED_INPUT_VERSION = "nh-ad-review-integrated-input-v1"
+INTAKE_VERSION = "operational-ad-intake-v1"
 SEARCH_DOCUMENT_VERSION = "ad-evidence-search-v1"
 DISCOVERY_VERSION = "operational-discovery-v1"
 FREEZE_VERSION = "operational-e2e-freeze-v1"
@@ -50,6 +51,72 @@ def _unique(values: Iterable[str], location: str) -> list[str]:
     return rows
 
 
+def validate_ad_intake(value: Any) -> dict[str, Any]:
+    """Validate asset/product ownership before parser fan-out.
+
+    Every asset must be assigned to a product or the shared scope. Overlapping
+    whole-file/page scopes are rejected so downstream code never guesses which
+    product owns evidence.
+    """
+    root = _mapping(value, "intake")
+    if root.get("schema_version") != INTAKE_VERSION:
+        raise ContractError(f"schema_version must be {INTAKE_VERSION!r}")
+    _text(root.get("advertisement_name"), "advertisement_name")
+    _unique((_text(code, "media_codes[]") for code in _list(root.get("media_codes"), "media_codes")), "media_codes")
+    assets = _list(root.get("assets"), "assets")
+    if not assets:
+        raise ContractError("assets must not be empty")
+    asset_ids = _unique(
+        (_text(_mapping(row, "assets[]").get("asset_id"), "assets[].asset_id") for row in assets),
+        "assets.asset_id",
+    )
+    known_assets = set(asset_ids)
+    products = _list(root.get("products"), "products")
+    if not products:
+        raise ContractError("products must not be empty")
+    _unique(
+        (_text(_mapping(row, "products[]").get("product_id"), "products[].product_id") for row in products),
+        "products.product_id",
+    )
+    occupied: dict[str, list[tuple[int | None, int | None, str]]] = {}
+
+    def collect(scopes: Any, owner: str) -> None:
+        for raw in _list(scopes, f"{owner}.asset_scopes"):
+            scope = _mapping(raw, f"{owner}.asset_scopes[]")
+            asset_id = _text(scope.get("asset_id"), f"{owner}.asset_scopes[].asset_id")
+            if asset_id not in known_assets:
+                raise ContractError(f"{owner} references unknown asset_id {asset_id!r}")
+            ranges = scope.get("page_ranges")
+            normalized: list[tuple[int | None, int | None, str]] = []
+            if ranges is None:
+                normalized.append((None, None, owner))
+            else:
+                for raw_range in _list(ranges, f"{owner}.page_ranges"):
+                    page_range = _mapping(raw_range, f"{owner}.page_ranges[]")
+                    start, end = page_range.get("start"), page_range.get("end")
+                    if not isinstance(start, int) or not isinstance(end, int) or start < 1 or end < start:
+                        raise ContractError(f"{owner} has invalid page range")
+                    normalized.append((start, end, owner))
+            for start, end, label in normalized:
+                for old_start, old_end, old_owner in occupied.setdefault(asset_id, []):
+                    overlaps = start is None or old_start is None or not (end < old_start or old_end < start)
+                    if overlaps:
+                        raise ContractError(f"asset scope overlap for {asset_id!r}: {old_owner} and {label}")
+                occupied[asset_id].append((start, end, label))
+
+    for index, raw in enumerate(products):
+        product = _mapping(raw, f"products[{index}]")
+        if product.get("product_group") not in {"예금성", "대출성"}:
+            raise ContractError(f"products[{index}].product_group is unsupported")
+        _text(product.get("product_classification_code"), f"products[{index}].product_classification_code")
+        collect(product.get("asset_scopes"), f"products[{index}]")
+    collect(root.get("shared_asset_scopes"), "shared")
+    missing = sorted(known_assets - set(occupied))
+    if missing:
+        raise ContractError(f"unassigned assets require human review: {missing}")
+    return root
+
+
 def validate_integrated_input(value: Any) -> dict[str, Any]:
     root = _mapping(value, "input")
     contract = _mapping(root.get("contract"), "contract")
@@ -70,6 +137,11 @@ def validate_integrated_input(value: Any) -> dict[str, Any]:
     _text(document.get("ad_id"), "document.ad_id")
     _text(document.get("source_file"), "document.source_file")
     _mapping(document.get("routing_metadata"), "document.routing_metadata")
+    for field in ("parent_ad_id", "product_id", "product_name"):
+        if document.get(field) is not None:
+            _text(document.get(field), f"document.{field}")
+    if document.get("review_case_id") is not None:
+        _text(document.get("review_case_id"), "document.review_case_id")
 
     evidence_ids: list[str] = []
     all_refs: list[str] = []
@@ -84,6 +156,16 @@ def validate_integrated_input(value: Any) -> dict[str, Any]:
         if not isinstance(page_no, int) or page_no < 1:
             raise ContractError(f"pages[{page_index}].page_no must be >= 1")
         page_numbers.append(page_no)
+        for dimension in ("physical_width_mm", "physical_height_mm"):
+            raw_dimension = page.get(dimension)
+            if raw_dimension is not None and (
+                isinstance(raw_dimension, bool)
+                or not isinstance(raw_dimension, (int, float))
+                or raw_dimension <= 0
+            ):
+                raise ContractError(
+                    f"pages[{page_index}].{dimension} must be a positive number or null"
+                )
         for region_index, region_raw in enumerate(_list(page.get("regions"), f"pages[{page_index}].regions")):
             region_count += 1
             location = f"pages[{page_index}].regions[{region_index}]"
@@ -110,6 +192,83 @@ def validate_integrated_input(value: Any) -> dict[str, Any]:
     _unique((str(number) for number in page_numbers), "pages.page_no")
     _unique(evidence_ids, "regions.evidence_id")
     _unique(all_refs, "all line_refs")
+
+    products_raw = document.get("products")
+    if products_raw is not None:
+        products = _list(products_raw, "document.products")
+        if not products:
+            raise ContractError("document.products must not be empty")
+        product_ids: list[str] = []
+        product_evidence: set[str] = set()
+        evidence_id_set = set(evidence_ids)
+        for index, product_raw in enumerate(products):
+            location = f"document.products[{index}]"
+            product = _mapping(product_raw, location)
+            product_ids.append(
+                _text(product.get("product_id"), f"{location}.product_id")
+            )
+            _text(product.get("product_name"), f"{location}.product_name")
+            _mapping(product.get("routing_metadata"), f"{location}.routing_metadata")
+            refs = _unique(
+                (
+                    _text(ref, f"{location}.evidence_ids[]")
+                    for ref in _list(
+                        product.get("evidence_ids"), f"{location}.evidence_ids"
+                    )
+                ),
+                f"{location}.evidence_ids",
+            )
+            unknown = sorted(set(refs) - evidence_id_set)
+            if unknown:
+                raise ContractError(
+                    f"{location}.evidence_ids contains unknown IDs: {unknown[:5]}"
+                )
+            duplicate_scope = sorted(product_evidence.intersection(refs))
+            if duplicate_scope:
+                raise ContractError(
+                    "a region shared by products must be declared in "
+                    "document.shared_evidence_ids instead: "
+                    f"{duplicate_scope[:5]}"
+                )
+            product_evidence.update(refs)
+        _unique(product_ids, "document.products.product_id")
+        shared = _unique(
+            (
+                _text(ref, "document.shared_evidence_ids[]")
+                for ref in _list(
+                    document.get("shared_evidence_ids", []),
+                    "document.shared_evidence_ids",
+                )
+            ),
+            "document.shared_evidence_ids",
+        )
+        unknown_shared = sorted(set(shared) - evidence_id_set)
+        if unknown_shared:
+            raise ContractError(
+                "document.shared_evidence_ids contains unknown IDs: "
+                f"{unknown_shared[:5]}"
+            )
+        overlap = sorted(product_evidence.intersection(shared))
+        if overlap:
+            raise ContractError(
+                "product-specific and shared evidence must be disjoint: "
+                f"{overlap[:5]}"
+            )
+        assigned = product_evidence.union(shared)
+        unassigned_evidence = sorted(evidence_id_set - assigned)
+        if unassigned_evidence:
+            raise ContractError(
+                "multi-product input must assign every region to one product or shared: "
+                f"{unassigned_evidence[:5]}"
+            )
+        # With exactly one product, any parser line that could not be attached
+        # to a region still has unambiguous product ownership.  For two or
+        # more products there is no truthful way to choose an owner, so the
+        # intake must be completed before judgment.
+        if len(products) > 1 and any(page.get("unassigned_lines") for page in pages):
+            raise ContractError(
+                "multi-product input cannot contain unscoped unassigned_lines"
+            )
 
     quality = _mapping(root.get("quality"), "quality")
     if quality.get("line_partition_exact") is not True:
@@ -208,6 +367,11 @@ def validate_operational_result(value: Any) -> dict[str, Any]:
             f"schema_version must be {OPERATIONAL_RESULT_VERSION!r}"
         )
     counts = _mapping(root.get("counts"), "counts")
+    audit = _mapping(root.get("audit"), "audit")
+    _mapping(audit.get("model"), "audit.model")
+    _mapping(audit.get("search"), "audit.search")
+    _mapping(audit.get("rule_sources"), "audit.rule_sources")
+    _mapping(audit.get("guardrails"), "audit.guardrails")
     ads = _list(root.get("ads"), "ads")
     if counts.get("ads") != len(ads):
         raise ContractError("counts.ads does not match ads")
@@ -217,6 +381,11 @@ def validate_operational_result(value: Any) -> dict[str, Any]:
     for ad_raw in ads:
         ad = _mapping(ad_raw, "ads[]")
         ad_id = _text(ad.get("ad_id"), "ads[].ad_id")
+        scope_id = ad.get("scope_id") or ad_id
+        _text(scope_id, "ads[].scope_id")
+        for field in ("product_id", "product_name"):
+            if ad.get(field) is not None:
+                _text(ad.get(field), f"ads[].{field}")
         if "deferred_rules" in ad:
             deferred = _list(ad.get("deferred_rules"), "ads[].deferred_rules")
             _unique(
@@ -229,10 +398,37 @@ def validate_operational_result(value: Any) -> dict[str, Any]:
                 ),
                 "ads[].deferred_rules.item_id",
             )
-        for candidate_raw in _list(ad.get("candidates"), "ads[].candidates"):
+        excluded = _list(ad.get("excluded_candidates", []), "ads[].excluded_candidates")
+        review_candidates = _list(ad.get("review_candidates", []), "ads[].review_candidates")
+        for item in review_candidates:
+            candidate = _mapping(item, "review candidate")
+            judgment = candidate.get("judgment") or {}
+            if (
+                candidate.get("discovery_tier") != "SUPPLEMENTAL_V2"
+                or judgment.get("applicability") != "UNDETERMINED"
+            ):
+                raise ContractError(
+                    "review_candidates requires uncertain SUPPLEMENTAL_V2 applicability"
+                )
+        for item in excluded:
+            judgment = _mapping(item, "excluded candidate").get("judgment") or {}
+            if judgment.get("applicability") != "NOT_APPLICABLE" or judgment.get("verdict") != "NOT_APPLICABLE":
+                raise ContractError("only confirmed NOT_APPLICABLE belongs in excluded_candidates")
+        for candidate_raw in [
+            *_list(ad.get("candidates"), "ads[].candidates"),
+            *review_candidates,
+            *excluded,
+        ]:
             candidate = _mapping(candidate_raw, "candidate")
             item_id = _text(candidate.get("item_id"), "candidate.item_id")
-            pairs.append((ad_id, item_id))
+            basis = _mapping(candidate.get("rule_basis"), "candidate.rule_basis")
+            if _text(basis.get("item_id"), "candidate.rule_basis.item_id") != item_id:
+                raise ContractError("candidate.rule_basis.item_id does not match candidate.item_id")
+            _text(basis.get("source_type"), "candidate.rule_basis.source_type")
+            _text(basis.get("source_ref"), "candidate.rule_basis.source_ref")
+            trace = _mapping(candidate.get("decision_trace"), "candidate.decision_trace")
+            _text(trace.get("decision_source"), "candidate.decision_trace.decision_source")
+            pairs.append((scope_id, item_id))
             if candidate.get("status") == "predicted":
                 validate_judgment(candidate.get("judgment"))
                 predicted += 1

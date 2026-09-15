@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rag.operational.service import OperationalReviewService, config_from_env  # noqa: E402
+from rag.api.service import OperationalReviewService, config_from_env  # noqa: E402
 
 
 def create_app(*, allow_unauthenticated: bool = False):

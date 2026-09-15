@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:operational",
+    "build:operational": "tsc -b && vite build --mode operational",
+    "build:standard": "tsc -b && vite build",
     "lint": "eslint src",
     "test": "vitest run",
     "typecheck": "tsc -b --noEmit",

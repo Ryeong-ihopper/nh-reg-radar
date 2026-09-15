@@ -19,6 +19,8 @@ def _run_git(root: Path, arguments: Sequence[str]) -> tuple[int, str, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return process.returncode, process.stdout.strip(), process.stderr.strip()
 

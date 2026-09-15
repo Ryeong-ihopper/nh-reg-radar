@@ -2,7 +2,7 @@
 name = "nh-ad-compliance"
 version = "0.1.0"
 description = "NH advertisement compliance PoC monorepo"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.12"
 dependencies = [
   "nh-ad-backend",
   "nh-ad-ai-providers",
@@ -30,11 +30,11 @@ nh-ad-parser-contracts = { workspace = true }
 nh-ad-worker = { workspace = true }
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py311"
 line-length = 100
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 warn_unreachable = true
 files = [

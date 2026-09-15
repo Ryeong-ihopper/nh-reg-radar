@@ -2,6 +2,8 @@ param(
     [string]$DgxHost = $env:DGX_HOST,
     [string]$SshKey = $env:DGX_SSH_KEY,
     [int]$EsLocalPort = 19201,
+    # The DGX Elasticsearch container exposes 9200 through host port 9201.
+    [int]$EsRemotePort = 9201,
     [int]$BgeLocalPort = 8103,
     [int]$GemmaLocalPort = 8102
 )
@@ -23,7 +25,7 @@ $arguments = @(
     '-o', 'BatchMode=yes',
     '-o', 'ExitOnForwardFailure=yes',
     '-i', $SshKey,
-    '-L', "${EsLocalPort}:127.0.0.1:9200",
+    '-L', "${EsLocalPort}:127.0.0.1:${EsRemotePort}",
     '-L', "${BgeLocalPort}:127.0.0.1:8103",
     '-L', "${GemmaLocalPort}:127.0.0.1:8102",
     $DgxHost

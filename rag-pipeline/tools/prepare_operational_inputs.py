@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rag.operational.prepare_inputs import main  # noqa: E402
+from rag.parsing.prepare_inputs import main  # noqa: E402
 
 
 if __name__ == "__main__":

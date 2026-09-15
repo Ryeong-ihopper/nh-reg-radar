@@ -30,3 +30,10 @@ generated/
 # Local browser visual-verification artifacts
 visual-artifacts/
 apps/frontend/visual-artifacts/
+
+# Private source-template ingestion artifacts
+output/
+output/template-catalog-*/
+# End-to-end diagnostics contain customer originals, model text and local sessions.
+output/pipeline-end-to-end-*/
+rag-pipeline/runtime-cache/

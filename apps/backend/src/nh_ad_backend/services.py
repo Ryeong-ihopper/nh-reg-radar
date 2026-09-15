@@ -47,10 +47,17 @@ class AdvertisementType(StrEnum):
     NOTICE = "NOTICE"
     MOBILE_BANNER = "MOBILE_BANNER"
     WEB_BANNER = "WEB_BANNER"
+    WEB_PRODUCT_PAGE = "WEB_PRODUCT_PAGE"
     EVENT_PAGE = "EVENT_PAGE"
+    SOCIAL_MEDIA = "SOCIAL_MEDIA"
+    VIDEO = "VIDEO"
+    EMAIL = "EMAIL"
+    OUTDOOR = "OUTDOOR"
+    PRINT_AD = "PRINT_AD"
     PUSH = "PUSH"
     SMS = "SMS"
     ALIMTALK = "ALIMTALK"
+    OTHER = "OTHER"
 
 
 class AuthService:

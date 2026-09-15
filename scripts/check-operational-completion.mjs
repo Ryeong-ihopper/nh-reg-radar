@@ -1,0 +1,47 @@
+import {readFile, writeFile, mkdir} from "node:fs/promises";
+import {createRequire} from "node:module";
+import {resolve} from "node:path";
+const require = createRequire(resolve("apps/frontend/package.json"));
+const {chromium} = require("playwright");
+const manifest = JSON.parse(await readFile(process.argv[2], "utf8"));
+const reviewId = process.argv[3], output = process.argv[4];
+await mkdir(output, {recursive:true});
+const browser = await chromium.launch({channel:"msedge",headless:true});
+const page = await browser.newPage({viewport:{width:1500,height:1050}});
+const errors = [];
+page.on("pageerror", e=>errors.push(e.message));
+try {
+  const base = new URL(manifest.url).origin;
+  await page.goto(`${base}/login`);
+  await page.getByLabel("이메일").fill(manifest.email);
+  await page.getByLabel("비밀번호").fill(manifest.password);
+  const login = page.waitForResponse(r=>r.url().endsWith("/auth/login") && r.request().method()==="POST");
+  await page.getByRole("button",{name:"로그인",exact:true}).click();
+  const auth = await (await login).json();
+  await page.waitForURL("**/advertisements");
+  const headers = {Authorization:`Bearer ${auth.accessToken}`};
+  const get = async path => {
+    const r = await page.request.get(`${base}/api/v1/${path}`,{headers});
+    if (!r.ok()) throw new Error(`${path}: ${r.status()} ${await r.text()}`);
+    return r.json();
+  };
+  const status = await get(`reviews/${reviewId}/status`);
+  if (status.jobStatus!=="COMPLETED") throw new Error(`Not completed: ${JSON.stringify(status)}`);
+  const execution = await get(`operational/reviews/${reviewId}/execution`);
+  const summary = await get(`reviews/${reviewId}/summary`);
+  await page.goto(`${base}/reviews/${reviewId}/results`);
+  await page.getByRole("heading",{name:"AI 검토 결과",exact:true}).waitFor();
+  await page.locator(".result-kpis").waitFor();
+  await page.locator("img.file-preview").waitFor();
+  await page.getByText(/자동심의 완료/).waitFor();
+  await page.screenshot({path:`${output}/completed-summary.png`,fullPage:true});
+  await page.getByRole("link",{name:"항목별 검토",exact:true}).click();
+  await page.getByLabel("적정 항목도 보기").check();
+  await page.locator(".result-item-button").first().click();
+  await page.locator(".result-detail-header").waitFor();
+  await page.screenshot({path:`${output}/completed-items.png`,fullPage:true});
+  if(errors.length) throw new Error(JSON.stringify(errors));
+  const report={status:"PASS",reviewId,execution,summary,page_errors:errors};
+  await writeFile(`${output}/completion-check.json`,JSON.stringify(report,null,2));
+  console.log(JSON.stringify({status:"PASS",reviewId,total_seconds:execution.total_seconds,predicted:execution.predicted_count,deferred:execution.deferred_count,page_errors:errors}));
+} finally {await browser.close();}

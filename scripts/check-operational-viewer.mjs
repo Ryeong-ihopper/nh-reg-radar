@@ -1,0 +1,62 @@
+import { readFile, mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+
+const require = createRequire(resolve("apps/frontend/package.json"));
+const { chromium } = require("playwright");
+const manifest = JSON.parse(await readFile(process.argv[2], "utf8"));
+const output = process.argv[3];
+await mkdir(output, { recursive: true });
+const browser = await chromium.launch({ channel: "msedge", headless: true });
+const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });
+const errors = [];
+page.on("pageerror", error => errors.push(error.message));
+try {
+  const base = new URL(manifest.url).origin;
+  await page.goto(`${base}/login`);
+  await page.getByLabel("이메일").fill(manifest.email);
+  await page.getByLabel("비밀번호").fill(manifest.password);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForURL("**/advertisements");
+  if (await page.getByRole("navigation", { name: "주 탐색" }).count()) throw new Error("PoC mode must not expose the full product sidebar");
+  if (await page.getByRole("link", { name: "광고물 등록", exact: true }).count() !== 1) throw new Error("PoC list must expose one registration entry");
+  await page.screenshot({ path: `${output}/list.png`, fullPage: true });
+  await page.getByRole("link", { name: "광고물 등록", exact: true }).click();
+  await page.getByRole("heading", { name: "광고물 등록", exact: true }).waitFor();
+  for (const hiddenLabel of ["광고채널", "상품설명서", "약관", "추가 첨부파일", "비고"]) {
+    if (await page.getByLabel(hiddenLabel, { exact: true }).count()) throw new Error(`PoC registration exposed unsupported input: ${hiddenLabel}`);
+  }
+  await page.screenshot({ path: `${output}/registration.png`, fullPage: true });
+  await page.goto(`${base}/advertisements/${manifest.advertisement_id}`);
+  await page.getByRole("heading", { name: /예금성상품/ }).waitFor();
+  if (await page.getByRole("link", { name: "AI 검토 요청", exact: true }).count() !== 1) throw new Error("PoC detail must expose one review entry");
+  await page.getByRole("link", { name: "AI 검토 요청", exact: true }).click();
+  await page.getByRole("heading", { name: "자동심의 실행", exact: true }).waitFor();
+  if (await page.getByRole("group", { name: "검토 범위" }).count()) throw new Error("PoC request exposed fixed review-type controls");
+  if (await page.getByLabel("요청 메모", { exact: true }).count()) throw new Error("PoC request exposed an unused memo");
+  await page.screenshot({ path: `${output}/request.png`, fullPage: true });
+  await page.goto(manifest.url);
+  await page.getByRole("heading", { name: "AI 검토 결과", exact: true }).waitFor();
+  await page.locator(".result-kpis").waitFor();
+  await page.locator("img.file-preview").waitFor();
+  const resultLinks = page.getByRole("navigation", { name: "검토 결과 메뉴" }).getByRole("link");
+  if (await resultLinks.count() !== 3) throw new Error("PoC result navigation must contain exactly three core views");
+  if (await page.getByRole("link", { name: "검토 및 리포트", exact: true }).count()) throw new Error("PoC mode exposed unsupported report workflow");
+  if (await page.getByRole("link", { name: "수정본 비교·재검토", exact: true }).count()) throw new Error("PoC mode exposed unsupported comparison workflow");
+  await page.screenshot({ path: `${output}/summary.png`, fullPage: true });
+  await page.getByRole("link", { name: "항목별 검토", exact: true }).click();
+  await page.getByLabel("적정 항목도 보기").check();
+  await page.locator(".result-item-button").first().click();
+  await page.locator(".result-detail-header").waitFor();
+  await page.screenshot({ path: `${output}/items.png`, fullPage: true });
+  await page.locator(".result-filters select").nth(2).selectOption("NEEDS_REVISION");
+  await page.waitForFunction(() => document.querySelectorAll(".result-item-button").length > 0);
+  await page.locator(".result-item-button").first().click();
+  const evidenceLocationLink = page.getByRole("link", { name: "광고 화면에서 보기", exact: true });
+  if (await evidenceLocationLink.count()) await evidenceLocationLink.click();
+  else await page.goto(`${base}/reviews/${manifest.review_id}/results/annotations`);
+  await page.locator(".annotation-canvas img").waitFor();
+  await page.screenshot({ path: `${output}/annotations.png`, fullPage: true });
+  if (errors.length) throw new Error(JSON.stringify(errors));
+  console.log(JSON.stringify({status:"PASS",summary:true,items:true,filters:true,annotations_url:page.url(),page_errors:errors}));
+} finally { await browser.close(); }

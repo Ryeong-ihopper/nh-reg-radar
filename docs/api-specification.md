@@ -6,12 +6,34 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.25 |
-| 기준일 | 2026-09-06 |
+| 현행 버전 | v1.30 |
+| 기준일 | 2026-09-15 |
+
+## 로컬 운영 결과 확장 계약
+
+- 결과 행의 선택 필드 `template_example`은 템플릿 예시이며 광고 관찰 증거가 아니다. `requirement_checks`는 저장된 모델 검사 배열이다. workspace/export 모두 동일하게 보존하고 미기재 주장과 원문 참조 실패를 구분한다.
+
+아래는 loopback 운영 어댑터 계약이며 고객사 Worker/API 통합 완료를 뜻하지 않는다.
+
+- `GET /operational/reviews/{review_id}/workspace`: 인증·광고 접근권한 검사 후 저장된 결과를 반환한다.
+  `rows[]`와 `review_candidate_rows[]`의 `evidence_ids`, `evidence_line_refs`는 원래 인용 ID다.
+  `evidence_locations[]`는 `{key, pageNo, bbox:[x1,y1,x2,y2], width, height, asset_id, source_page_no, precision}`이다.
+  `precision=LINE|REGION`; 빈 배열은 위치를 입증하지 못했음을 뜻하며 유사 문장으로 보충하지 않는다.
+- `deferred_rules[].deferred_kind=OTHER_TEMPLATE|INPUT_OR_STRUCTURE|EXECUTION_BUDGET`.
+  실행 한도 보류도 미해당·충족과 구별한다. `output_failure_pairs`는 모델 판단불가와 별개다.
+- `GET /operational/reviews/{review_id}/export.json`: 완료된 검토에 한해 다운로드한다. 부분실패가 남아도
+  저장 가능한 결과를 완료 상태로 보존한 경우 다운로드 가능하다. `schema_version=operational-review-export-v2`.
+  `results`는 화면 `rows`와 동일하며, `review_candidates`, `deferred_rules`, `source_results`, `execution`을 함께 보존한다.
+  v1의 legacy ResultItem 목록과 구조가 다르므로 버전으로 구분한다. 다른 광고의 결과를 포함하지 않는다.
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.30 | 2026-09-15 | 로컬 결과의 템플릿 예시·요소 검사 표시 계약 추가 |
+| v1.29 | 2026-09-15 | 로컬 workspace의 원문 위치·보류 분류와 동일 결과를 내보내는 export-v2 계약 명시 |
+| v1.28 | 2026-09-07 | 인증된 로컬 전용 GET /operational/reviews/{review_id}/workspace 및 /operational/reference/{advertisement_id} 추가. reference는 원본 파일명으로 검수 자료를 찾으며 모델 호출·운영 예측 저장에는 쓰이지 않음. loopback 두 호스트의 인증 갱신 허용 |
+| v1.27 | 2026-09-07 | loopback 자동심의의 HWP 로컬 미리보기와 실제 parser bbox 조회 경계를 추가 |
+| v1.26 | 2026-09-06 | 제품 OpenAPI와 분리된 loopback 웹 실행 어댑터의 API·인증·저장 경계를 추가 |
 | v1.25 | 2026-09-06 | 독립 RAG 정본에 토큰 인증, 비동기 접수·상태·결과·재시도 운영 API 계약을 추가 |
 | v1.24 | 2026-09-05 | 독립 `rag-pipeline/` 정본은 CLI·파일 계약만 제공하며 현행 제품 API와 OpenAPI를 변경하지 않는 경계를 명시 |
 | v1.23 | 2026-07-23 | Q&A를 검토별 대화 세션으로 범위 지정하고 질문·세션·생성시각을 반환하며, 이력 조회는 `reviewId`로 현재 검토만 복원하도록 정정 |
@@ -2866,3 +2888,30 @@ backend는 필요할 때 이 API를 adapter로 호출하며, 파서 이후 통�
 문구 추천 판단은 ADR-0039 기준 `PENDING`, `ACCEPTED`, `REJECTED`, `MODIFIED_AND_USED` 상태와 판단 이력 누적 정책을 따른다.
 
 본 문서를 기준으로 다음 단계에서는 DB 명세서와 테스트케이스를 작성한다.
+
+## 22.2 로컬 웹 실행 어댑터의 명시적 연결
+
+`scripts/operational_web_bridge.py`는 기존 NH 화면의 사용자 요청을 독립 RAG 서비스에
+연결하는 opt-in loopback 어댑터다. 기존 제품 API/OpenAPI와 production 배포는 변경하지 않는다.
+
+- 광고 등록·검토 요청·재분석만 쓰기를 허용하며 미연결 지원 산출물 API는 409로 거절한다.
+- 보조 API 4개(capabilities, advertisement routing PUT, review execution GET, review parser-layout GET)는 기존 bearer 인증,
+  광고/검토 권한을 사용한다. capabilities는 고객용 상세 상품군 선택지를 반환하고 routing 입력은
+  `{product_classification_code: string}`만 허용한다. 서버는 상세 상품군과 상위 상품군을 검증한 뒤 내부
+  `template_id`를 자동 연결하며 내부 템플릿 식별자는 고객 입력 계약에 노출하지 않는다.
+- `POST /advertisements`의 `advertisementFile`은 1~20개를 허용한다. 등록 화면의 파일 구성값이
+  `SAME_AD`이면 이를 하나의 광고 자산 묶음으로 저장하며, `SEPARATE_ADS`이면 화면이 파일별로
+  별도 요청을 보낸다. 한 광고 자산 묶음은 파일별 파싱 후 동일 `ad_id` 아래로만 결합한다.
+- `GET /operational/reviews/{reviewId}/parser-layout`은 제품 OpenAPI 밖의 loopback 전용 조회다. 파서가 실제 반환한
+  200-DPI page canvas와 region/line bbox만 반환하고 누락 좌표를 추정하지 않는다. HWP/HWPX semantic parse에
+  좌표가 없으면 동일 원본을 PDF로 렌더해 시각 파서를 실행하되, 이 결과는 화면 표시 전용이며 검색·판정 본문을
+  대체하지 않는다. 시각 파싱 실패는 기존 심의 결과를 실패로 바꾸지 않는다.
+- 상품군은 등록 화면의 예금/대출 선택만 provided로 전달한다. 추정 template·매체를 확정값으로 승격하지 않는다.
+- 기존 review POST는 작업 ID를 즉시 반환한다. 한 파일을 새로 파싱해 P1·P3 검증 후 통합하고,
+  정답 item_id 없이 현재 규제목록 v2에서 검색·판정한다. 검색·판정에는 과거 저장 결과를 재사용하지 않는다.
+- 로컬 원본 파일은 private storage에, 광고·검토·결과 조회 상태는 원자적 JSON에 저장한다.
+  파싱 산출물, 정본 작업 상태·요청·결과는 별도 비공개 작업 폴더에 보존한다. 프로세스 재시작 시
+  중단 작업은 실패/재분석 가능으로 표시한다. 무인 production 복구를 보장하는 구조는 아니다.
+- 최종 모델 결과에 출력 실패가 남으면 웹 작업도 실패로 둔다. 정상 계약 응답을 임의로 고치지 않는다.
+- 추가 첨부 대조, 부분 범위 선택, 문구 추천, 의견 초안, 과거 규정 기준일 요청은 422로 거절한다.
+- 정밀 시인성 등 추가 입력 필요 규칙과 미선택 템플릿은 자동판정 건수 밖에 별도로 표시한다.

@@ -624,7 +624,9 @@ def install_routes(
         current: Actor,
     ) -> dict[str, object]:
         try:
-            form = await parse_multipart(request)
+            form = await parse_multipart(
+                request, repeatable_files=frozenset({"advertisementFile"})
+            )
         except MultipartError as exc:
             raise ServiceError(exc.status_code, exc.code, str(exc)) from exc
         file_fields = (
@@ -833,13 +835,20 @@ def install_routes(
             finally:
                 stream.close()
             assert rendered is not None
+            rendered_media_type = (
+                "image/png"
+                if rendered.body.startswith(b"\x89PNG\r\n\x1a\n")
+                else "image/svg+xml"
+            )
+            response_headers = {"Cache-Control": "no-store"}
+            if rendered_media_type == "image/svg+xml":
+                response_headers["Content-Security-Policy"] = (
+                    "sandbox; default-src 'none'; style-src 'unsafe-inline'"
+                )
             return StreamingResponse(
                 iter([rendered.body]),
-                media_type="image/svg+xml",
-                headers={
-                    "Cache-Control": "no-store",
-                    "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
-                },
+                media_type=rendered_media_type,
+                headers=response_headers,
             )
         if file.mime_type == "application/pdf":
             try:

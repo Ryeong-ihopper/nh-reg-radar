@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import SwaggerParser from '@apidevtools/swagger-parser';
 
@@ -10,7 +11,7 @@ import {
   validateSchemaExamples,
 } from '../../scripts/openapi_tools.mjs';
 
-const contractPath = new URL('../../openapi/openapi.yaml', import.meta.url).pathname;
+const contractPath = fileURLToPath(new URL('../../openapi/openapi.yaml', import.meta.url));
 
 test('TC-NFR-API-001: M8 source document is valid and capability-bounded', async () => {
   const document = await validateOpenApi(contractPath);

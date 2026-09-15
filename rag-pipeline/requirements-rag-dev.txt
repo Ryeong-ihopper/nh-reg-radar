@@ -1,0 +1,5 @@
+-r requirements-rag.txt
+
+# Validation only; these are not required by the operational service.
+pytest>=8,<9
+ruff>=0.12,<0.13

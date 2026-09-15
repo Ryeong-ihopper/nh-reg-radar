@@ -14,16 +14,31 @@ TESTS = ROOT / "tests"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 UNIT_PATTERNS = (
+    "test_retrieval_separation.py",
+    "test_judge_output_contract.py",
+    "test_parser_contract_adapter.py",
+    "test_reading_quality.py",
+    "test_operational_condition_contracts.py",
+    "test_blind_evaluation.py",
+    "test_operational_template_catalog.py",
     "test_operational_rag_contracts.py",
+    "test_operational_grounding.py",
+    "test_operational_chunking.py",
     "test_operational_schema_contracts.py",
     "test_gold_v2_binding.py",
     "test_operational_recovery.py",
     "test_operational_policy.py",
     "test_operational_service.py",
+    "test_operational_decision_guides.py",
+    "test_operational_reranking.py",
+    "test_operational_search_integrity.py",
+    "test_runtime_call_metrics.py",
 )
 FUNCTION_MODULES = (
+    "test_operational_applicability.py",
     "test_operational_acceleration.py",
     "test_operational_no_leakage.py",
+    "test_operational_codebase_structure.py",
 )
 
 

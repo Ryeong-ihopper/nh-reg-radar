@@ -8,12 +8,25 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.51 |
-| 기준일 | 2026-07-28 |
+| 현행 버전 | v1.61 |
+| 기준일 | 2026-09-15 |
+
+원본 확대와 독립 스크롤은 클라이언트 동작이다. 페이지 변경은 기존 파일 preview API를 자산 ID와 로컬 페이지로 호출한다.
+운영 workspace/export의 `template_example`을 참고 문구로 표시하고 `requirement_checks`로 미기재 주장과 원문 연결 실패 안내를 구분한다. 새 모델 호출은 없다.
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| v1.61 | 2026-09-15 | 원본 독립 탐색과 preview API, 템플릿 예시·요소 검사 표시 연결 |
+| v1.60 | 2026-09-11 | 복수 광고 자산의 파일별 독립 파싱을 서버 전체 2개 슬롯으로 제한하는 실행 경계 추가 |
+| v1.59 | 2026-09-11 | 동일 광고 복수 파일의 부분 파서 실패 시 실패 자산만 재시도하고 작업 로그를 보존하는 실행 경계 추가 |
+| v1.58 | 2026-09-11 | 초안/최종 접수값을 제거하고 사람 최종 결정 보조 API를 기본 화면 비노출 옵션으로 전환 |
+| v1.57 | 2026-09-11 | 접수 검토 단계와 결과 규칙 근거를 전달하고 사람 최종 승인·반려를 별도 불변 보조 API로 연결 |
+| v1.56 | 2026-09-11 | 광고별 카드 일괄 등록을 기존 단건 광고·routing·intake·review API의 독립 병렬 호출로 연결하고 부분 실패 재요청 경계를 명시 |
+| v1.55 | 2026-09-07 | 로컬 결과 화면은 workspace 또는 reference의 실제 표시 행에서 집계하고 parser-layout과 원본 preview를 함께 사용. items/annotations 경로는 요약 화면으로 이동 |
+| v1.54 | 2026-09-07 | 로컬 자동심의 시연 모드에서 실행기에 연결된 입력과 핵심 결과 화면만 노출하도록 화면/API 사용 경계를 축소 |
+| v1.53 | 2026-09-07 | 로컬 자동심의 S-007에 파서 영역·줄 좌표 조회와 HWP 200-DPI 미리보기 연결을 추가 |
+| v1.52 | 2026-09-06 | 로컬 자동심의 어댑터의 템플릿 확인·실제 실행·진행·결과 API 연결을 추가 |
 | v1.51 | 2026-07-28 | 검토 전환 시 이전 검토의 조회 조건(선택 항목, 검색·페이지 조건)과 세션을 요청에 사용하지 않는 기준을 검토 화면 전체로 확대 (API 계약 변경 없음) |
 | v1.50 | 2026-07-28 | S-010에서 검토 식별자가 바뀌면 이전 검토의 Q&A 세션을 요청에 사용하지 않는 기준을 반영 (API 계약 변경 없음) |
 | v1.49 | 2026-07-28 | S-010 질문 전송 시 진행 중인 이력 조회를 먼저 취소하고, 성공 시 즉시 재조회 없이 응답 메시지를 추가하는 기준을 반영. 이전 질의응답 조회가 끝나기 전에는 전송하지 않으며, 실패한 질문은 같은 질문 내용으로 현재 검토 세션에 개별 재호출한다 (API 계약 변경 없음) |
@@ -348,6 +361,7 @@ M2 1차 등록은 OpenAPI v0.2.0 생성 타입을 client 경계에서 사용한�
 | 화면 진입 | 광고물 상세 조회 | `/advertisements/{advertisementId}` | GET | `advertisementId` | 파일 ID, 광고 기본정보 | 상단 정보 영역 |
 | 화면 진입 | 광고 파일 미리보기 | `/files/{fileId}/preview` | GET | `fileId`, `pageNo` | 렌더링 이미지 또는 preview URL | 이미지/PDF/HWP/HWPX 모두 광고 원본 미리보기 영역에 호출. HWP/HWPX는 private 변환 SVG를 반환 |
 | 화면 진입 | Annotation 조회 | `/reviews/{reviewId}/annotations` | GET | `reviewId`, `pageNo`, `reviewType` | 표시 모드, 위치 상태, Coordinate/텍스트 위치, 위험도, 검토유형 | 파일 형식별 Annotation 표시. HWP/HWPX는 구조 좌표를 우선 표시하고, 없으면 private SVG 글자 좌표와 `matchedText`가 정확히 일치하는 항목만 원본 위에 표시한다. 일치하지 않는 offset 항목은 원본 위치 미확정 목록으로 표시 |
+| 로컬 자동심의 화면 진입 | 파서 좌표 조회 | `/operational/reviews/{reviewId}/parser-layout` | GET | `reviewId` | 200-DPI canvas, 페이지별 parser region/line bbox와 실제 텍스트 | 로컬 opt-in 전용. bbox 토글로 원본 위에 표시하며 제품 OpenAPI 계약에는 포함하지 않음 |
 | Annotation 또는 목록 항목 클릭 | 검토 항목 상세 조회 | `/reviews/{reviewId}/items/{reviewItemId}` | GET | `reviewId`, `reviewItemId` | 원문, 문제유형, 판단사유, 근거, 추천문구 | 선택 항목 상세 패널 |
 | 근거 상세 클릭 | 근거 상세 조회 | `/evidences/{evidenceId}` | GET | `evidenceId` | 기준명, 조항, 내용, 적용일 | 근거 상세 팝업 |
 | 필터 선택 | Annotation 필터링 | `/reviews/{reviewId}/annotations` | GET | `reviewType`, `riskLevel`, `pageNo` | 필터링된 Annotation 목록 | 화면 표시 갱신 |
@@ -858,3 +872,31 @@ M7 실행 화면은 frozen v0.7.0의 `createValidationEvaluation`, `getValidatio
 9. `S-015~S-016`에서 PoC 검증 데이터셋과 KPI 평가 API 호출
 
 이 문서를 기준으로 후속 단계에서는 **OpenAPI 3.0 명세**, **DB 설계서**, **화면별 Request/Response 상세 정의**, **테스트 케이스**를 작성하면 된다.
+
+## 로컬 자동심의 어댑터 연결 (2026-09-06)
+
+제품 OpenAPI는 유지하며 loopback 시연 모드에서만 아래 보조 API를 추가한다.
+모든 보조 API는 기존 access token 인증을 사용하고 광고·검토별 접근 권한을 재확인한다.
+
+| 화면 | 요청 | 실행 경계 |
+| --- | --- | --- |
+| S-004 | GET /api/v1/operational/capabilities | 고객용 상세 상품군 선택지 조회; 내부 템플릿 ID 비노출 |
+| S-004 | PUT /api/v1/operational/advertisements/{id}/routing | 사용자 선택 상세 상품군 저장 후 내부 템플릿 자동 연결 |
+| S-004 | 기존 POST /api/v1/advertisements/{id}/reviews | 광고 원본 파싱부터 정본 RAG 비동기 실행 접수 |
+| S-005 | 기존 status/events·rerun | 실제 작업 단계·실패·재분석. 복수 파일 묶음은 성공 자산 보존 후 실패 자산만 단독 1회 재시도 |
+| S-006 | 기존 summary/items/annotations | 저장된 실제 판정 투영 |
+| S-006 | GET /api/v1/operational/reviews/{id}/execution | 처리 시간·자동판정/보류 건수 및 제외 사유 |
+| S-006 (선택) | PUT /api/v1/operational/reviews/{id}/decision | 준법 담당자의 `APPROVED|REJECTED` 최종 결정을 AI 결과와 별도 불변 기록; 기본 PoC UI에서는 비노출 |
+
+새 작업의 routing은 접수 시 동결한다. 이후 광고 설정 변경이 실행 중 작업을 바꾸지 않는다.
+
+시연 모드는 기존 API 계약을 바꾸지 않고 화면 노출만 줄인다. 일괄 등록은 광고별 카드마다 기존 광고 등록 API를
+한 번씩 호출하며, 같은 카드의 광고 원본 여러 개는 동일 `advertisementId`의 자산으로 전송한다. 카드별
+등록→routing→intake→review 순서는 유지하되 서로 다른 카드는 병렬로 요청한다. 부분 실패 시 성공 카드는
+재전송하지 않고 실패 카드만 화면에 보존한다. 상품군·상세 상품군·광고유형은 각 카드의 독립 입력이다.
+실행기가 아직 사용하지 않는 채널·관련 문서·추가 첨부·메모 입력은 시연 화면에서 제공하지 않는다.
+검토 요청은 전체 검토유형과 v2 기준을 고정 전송한다. 등록 단계에서 사용자가 선택한
+`product_classification_code`를 보조 routing API에 저장하고 서버가 내부 `template_id`를 자동 연결한다.
+결과 조회는 단일 workspace 화면으로 모으며 규칙별 `rule_basis`와 `decision_trace`를 투영한다.
+Q&A·리포트·비교 API는 시연 흐름에서 호출하지 않는다. 사람 최종 결정은 실행 완료 후에만 허용하고
+저장 뒤 수정하거나 AI 판정값을 덮어쓰지 않는다.

@@ -11,10 +11,17 @@ const ADVERTISEMENT_TYPE_LABELS: Record<string, string> = {
   NOTICE: "안내문",
   MOBILE_BANNER: "모바일 배너",
   WEB_BANNER: "웹 배너",
+  WEB_PRODUCT_PAGE: "웹 상품상세 페이지",
   EVENT_PAGE: "이벤트 페이지",
+  SOCIAL_MEDIA: "SNS 게시물",
+  VIDEO: "영상 광고",
+  EMAIL: "이메일",
+  OUTDOOR: "옥외 광고",
+  PRINT_AD: "인쇄 광고",
   PUSH: "앱 푸시",
   SMS: "문자 메시지",
   ALIMTALK: "알림톡",
+  OTHER: "기타",
 };
 
 const CHANNEL_LABELS: Record<string, string> = {

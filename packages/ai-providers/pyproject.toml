@@ -2,7 +2,7 @@
 name = "nh-ad-ai-providers"
 version = "0.1.0"
 description = "OpenAI-compatible provider boundaries for NH advertisement compliance"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.12"
 
 [build-system]
 requires = ["hatchling"]

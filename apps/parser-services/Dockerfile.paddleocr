@@ -1,4 +1,4 @@
-FROM paddlepaddle/paddle:2.6.2
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -7,7 +7,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY apps/parser-services/requirements-common.txt ./
 RUN pip install --no-cache-dir --retries 5 --timeout 120 \
-    -r requirements-common.txt paddleocr==2.9.1
+    -r requirements-common.txt numpy==1.26.4 paddlepaddle==2.6.2 paddleocr==2.9.1
 COPY apps/parser-services/service.py apps/parser-services/paddleocr_app.py ./
 EXPOSE 8092
 CMD ["python", "-m", "uvicorn", "paddleocr_app:app", "--host", "0.0.0.0", "--port", "8092"]

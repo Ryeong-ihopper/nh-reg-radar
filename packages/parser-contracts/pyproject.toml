@@ -2,8 +2,8 @@
 name = "nh-ad-parser-contracts"
 version = "0.1.0"
 description = "Versioned parser and OCR contracts for NH advertisement compliance"
-requires-python = ">=3.12,<3.13"
-dependencies = ["pydantic>=2.11,<3"]
+requires-python = ">=3.11,<3.12"
+dependencies = ["pydantic==2.13.4"]
 
 [build-system]
 requires = ["hatchling"]

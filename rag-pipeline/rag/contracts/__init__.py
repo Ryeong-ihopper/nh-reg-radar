@@ -1,6 +1,6 @@
-"""Canonical NH advertisement compliance pipeline contracts and preparation."""
+"""RAG input, output, and job contract validation."""
 
-from .contracts import (
+from .validation import (
     GEMMA_RESPONSE_VERSION,
     INTEGRATED_INPUT_VERSION,
     JOB_STATUS_VERSION,

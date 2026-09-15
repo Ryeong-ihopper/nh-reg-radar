@@ -16,7 +16,14 @@ from starlette.requests import Request
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rag.operational.service import JobStore, apply_routing_overrides  # noqa: E402
+from rag.api.service import (  # noqa: E402
+    JobStore,
+    OperationalReviewService,
+    ServiceConfig,
+    apply_routing_overrides,
+)
+from rag.contracts.validation import validate_search_collections  # noqa: E402
+from rag.parsing.prepare_inputs import _fine_views, compact, product_scoped_documents, search_docs  # noqa: E402
 from tools import serve_operational_api as api  # noqa: E402
 
 
@@ -92,6 +99,41 @@ def integrated_input() -> dict:
 
 
 class OperationalServiceTests(unittest.TestCase):
+    def test_model_environment_is_passed_to_pipeline_process(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / "regulation.xlsx"
+            regulation.write_bytes(b"placeholder")
+            service = OperationalReviewService(
+                ServiceConfig(
+                    jobs_dir=root / "jobs",
+                    regulation_path=regulation,
+                    es_url="http://search.invalid",
+                    es_index="rules",
+                    model="model",
+                    dgx_host="audit-host.invalid",
+                    dgx_key="audit-key",
+                    model_env={"NH_GPU_GEMMA_ENDPOINT": "http://gpu.invalid/v1"},
+                )
+            )
+            completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+            with mock.patch(
+                "rag.api.service.subprocess.run", return_value=completed
+            ) as run:
+                service._invoke(
+                    directory=root,
+                    attempt=1,
+                    label="environment",
+                    command=["python", "--version"],
+                )
+            self.assertEqual(
+                run.call_args.kwargs["env"]["NH_GPU_GEMMA_ENDPOINT"],
+                "http://gpu.invalid/v1",
+            )
+            self.assertEqual(run.call_args.kwargs["env"]["DGX_HOST"], "audit-host.invalid")
+            self.assertEqual(run.call_args.kwargs["env"]["DGX_SSH_KEY"], "audit-key")
+            service.executor.shutdown(wait=True)
+
     def test_request_must_confirm_product_group(self) -> None:
         document = integrated_input()
         with self.assertRaises(ValueError):
@@ -101,6 +143,139 @@ class OperationalServiceTests(unittest.TestCase):
             updated["document"]["routing_metadata"]["product_group"]["status"],
             "provided",
         )
+
+    def test_business_context_overrides_remain_confirmed_metadata(self) -> None:
+        updated = apply_routing_overrides(
+            integrated_input(),
+            {
+                "product_group": "예금성",
+                "review_stage": "사전심의",
+                "association_pre_review": "대상",
+                "external_evidence_available": False,
+            },
+        )
+        routing = updated["document"]["routing_metadata"]
+        self.assertEqual(routing["review_stage"]["value"], "사전심의")
+        self.assertEqual(routing["review_stage"]["status"], "provided")
+        self.assertFalse(routing["external_evidence_available"]["value"])
+
+    def test_multi_product_input_expands_to_isolated_product_scopes(self) -> None:
+        document = integrated_input()
+        evidence_id = document["pages"][0]["regions"][0]["evidence_id"]
+        document["document"]["products"] = [
+            {
+                "product_id": "P-1",
+                "product_name": "상품 A",
+                "routing_metadata": {"template_id": "TEMPLATE-A"},
+                "evidence_ids": [],
+            },
+            {
+                "product_id": "P-2",
+                "product_name": "상품 B",
+                "routing_metadata": {"template_id": "TEMPLATE-B"},
+                "evidence_ids": [],
+            },
+        ]
+        document["document"]["shared_evidence_ids"] = [evidence_id]
+        scopes = product_scoped_documents(document)
+        self.assertEqual(len(scopes), 2)
+        self.assertEqual(
+            {scope["document"]["product_id"] for scope in scopes},
+            {"P-1", "P-2"},
+        )
+        scoped_evidence_ids = {
+            scope["pages"][0]["regions"][0]["evidence_id"] for scope in scopes
+        }
+        self.assertEqual(len(scoped_evidence_ids), 2)
+        self.assertEqual(
+            {
+                scope["pages"][0]["regions"][0]["source_evidence_id"]
+                for scope in scopes
+            },
+            {evidence_id},
+        )
+        self.assertNotEqual(scopes[0]["document"]["ad_id"], scopes[1]["document"]["ad_id"])
+        coarse, fine = [], []
+        for scope in scopes:
+            scoped_coarse, scoped_fine = search_docs(scope)
+            coarse.extend(scoped_coarse)
+            fine.extend(scoped_fine)
+        validate_search_collections(scopes, coarse, fine)
+
+    def test_single_product_scope_preserves_unassigned_parser_lines(self) -> None:
+        document = integrated_input()
+        evidence_id = document["pages"][0]["regions"][0]["evidence_id"]
+        document["unverified_recovery_candidates"] = [
+            {"page_no": 1, "text": "검증 전 후보", "status": "unverified"}
+        ]
+        document["pages"][0]["unassigned_lines"] = [
+            {
+                "line_ref": "p1/unassigned/L00",
+                "text": ">",
+                "bbox": [0, 90, 5, 95],
+                "text_source": "ocr",
+                "confidence": 0.9,
+                "style": None,
+                "labels": [],
+            }
+        ]
+        document["quality"]["line_count"] = 2
+        document["document"]["products"] = [
+            {
+                "product_id": "P-1",
+                "product_name": "단일 상품",
+                "routing_metadata": {"template_id": "TEMPLATE-A"},
+                "evidence_ids": [evidence_id],
+            }
+        ]
+        document["document"]["shared_evidence_ids"] = []
+
+        scopes = product_scoped_documents(document)
+
+        self.assertEqual(len(scopes), 1)
+        self.assertEqual(
+            scopes[0]["pages"][0]["unassigned_lines"][0]["line_ref"],
+            "p1/unassigned/L00",
+        )
+        self.assertEqual(scopes[0]["quality"]["line_count"], 2)
+        self.assertEqual(
+            scopes[0]["unverified_recovery_candidates"][0]["text"],
+            "검증 전 후보",
+        )
+
+    def test_multi_product_scope_rejects_unverified_recovery_candidates(self) -> None:
+        document = integrated_input()
+        evidence_id = document["pages"][0]["regions"][0]["evidence_id"]
+        document["unverified_recovery_candidates"] = [
+            {"page_no": 1, "text": "소유권 불명", "status": "unverified"}
+        ]
+        document["document"]["products"] = [
+            {"product_id": "P-1", "product_name": "상품 A", "routing_metadata": {}, "evidence_ids": []},
+            {"product_id": "P-2", "product_name": "상품 B", "routing_metadata": {}, "evidence_ids": []},
+        ]
+        document["document"]["shared_evidence_ids"] = [evidence_id]
+
+        with self.assertRaisesRegex(ValueError, "unverified recovery candidates"):
+            product_scoped_documents(document)
+
+    def test_fine_views_preserve_selected_region_text_when_lines_differ(self) -> None:
+        region = integrated_input()["pages"][0]["regions"][0]
+        region["final_text"] = "가입기간 12개월\n가입금액 1천원~30만원"
+        region["line_refs"] = ["L-1", "L-2", "L-3"]
+        region["lines"] = [
+            {"line_ref": "L-1", "text": "가입기간 12개월", "labels": []},
+            {"line_ref": "L-2", "text": "W", "labels": []},
+            {"line_ref": "L-3", "text": "가입금액 1천원~30만원", "labels": []},
+        ]
+
+        views = _fine_views(region)
+
+        self.assertEqual(
+            compact("".join(view["text_canonical"] for view in views)),
+            compact(region["final_text"]),
+        )
+        self.assertTrue(all(view["span_status"] == "selected_text_line_aligned" for view in views))
+        self.assertTrue(all(view["line_refs"] == ["L-1", "L-3"] for view in views))
 
     def test_job_store_survives_process_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

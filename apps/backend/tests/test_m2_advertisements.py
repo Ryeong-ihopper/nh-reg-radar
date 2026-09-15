@@ -62,6 +62,21 @@ def test_upload_list_detail_preview_download_and_scope(
         f"/api/v1/advertisements/{advertisement_id}",
         headers={"Authorization": f"Bearer {token_a}"},
     )
+
+
+def test_upload_accepts_multiple_assets_for_one_advertisement(client: TestClient) -> None:
+    token, _ = login(client, "a@example.com")
+    response = client.post(
+        "/api/v1/advertisements",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"advertisementName": "분할 광고", "productGroup": "SAVINGS", "advertisementType": "MOBILE_BANNER", "departmentId": "DPT-A"},
+        files=[
+            ("advertisementFile", ("first.png", PNG, "image/png")),
+            ("advertisementFile", ("second.png", png_with_payload(1), "image/png")),
+        ],
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["files"]) == 2
     assert detail.status_code == 200
 
     preview = client.get(

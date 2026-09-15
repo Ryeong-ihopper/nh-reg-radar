@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rag.operational.contracts import (  # noqa: E402
+from rag.contracts.validation import (  # noqa: E402
     ContractError,
     validate_operational_result,
     validate_search_collections,

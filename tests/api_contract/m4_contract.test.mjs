@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { collectOperationIds, loadOpenApi } from '../../scripts/openapi_tools.mjs';
 
 const root = new URL('../../', import.meta.url);
-const contractPath = new URL('openapi/openapi.yaml', root).pathname;
-const manifestPath = new URL('governance/goal-manifests/G005-m4-parser-ocr-job.json', root).pathname;
+const contractPath = fileURLToPath(new URL('openapi/openapi.yaml', root));
+const manifestPath = fileURLToPath(new URL('governance/goal-manifests/G005-m4-parser-ocr-job.json', root));
 
 test('G005-m4 manifest freezes the Review Job Parser boundary', async () => {
   const document = await loadOpenApi(contractPath);

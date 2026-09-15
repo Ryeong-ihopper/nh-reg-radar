@@ -53,6 +53,28 @@ class GoldV2BindingTests(unittest.TestCase):
         }
         self.assertEqual(validate_rows([row], CURRENT, "sha")[0]["status"], "DRIFT")
 
+    def test_template_rule_shape_can_be_bound(self):
+        template = {
+            "item_id": "T-113",
+            "title": "template title",
+            "question": "template question",
+            "criterion": "template criterion",
+        }
+        row = {
+            "ad_id": "A",
+            "item_id": "T-113",
+            "regulation_binding": {
+                "regulation_sha256": "sha",
+                "item_id": "T-113",
+                "title": "template title",
+                "question": "template question",
+                "criterion": "template criterion",
+            },
+        }
+        result = validate_rows([row], {"T-113": template}, "sha")[0]
+        self.assertEqual(result["status"], "BOUND")
+        self.assertEqual(result["current_rule"]["id"], "T-113")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from rag import build_items as v2_source  # noqa: E402
+from regulation_v2_catalog import load_template_candidate_rules  # noqa: E402
 
 
 SNAPSHOT_FIELDS = ("title", "question", "criterion")
@@ -66,7 +67,8 @@ def validate_rows(
             "status": status,
             "reasons": reasons,
             "current_rule": None if current is None else {
-                field: current.get(field) for field in ("id", *SNAPSHOT_FIELDS)
+                "id": current.get("id") or current.get("item_id"),
+                **{field: current.get(field) for field in SNAPSHOT_FIELDS},
             },
         })
     return output
@@ -81,8 +83,11 @@ def main() -> None:
 
     v2_source.set_agent_path(args.regulation)
     items, _ = v2_source.build()
+    template_rules = load_template_candidate_rules()
     regulation_hash = sha256(args.regulation)
-    results = validate_rows(load_rows(args.gold), {row["id"]: row for row in items}, regulation_hash)
+    item_by_id = {row["id"]: row for row in items}
+    item_by_id.update({row["item_id"]: row for row in template_rules})
+    results = validate_rows(load_rows(args.gold), item_by_id, regulation_hash)
     counts = Counter(row["status"] for row in results)
     payload = {
         "schema_version": "gold-v2-binding-audit-v1",

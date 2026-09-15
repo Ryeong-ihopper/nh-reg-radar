@@ -8,7 +8,6 @@ import { ErrorState, LoadingState } from "../components/RequestState";
 import { PageHeader } from "../components/PageHeader";
 import { Pagination } from "../components/Pagination";
 import { StatusBadge } from "../components/StatusBadge";
-import { WorkflowSteps } from "../components/WorkflowSteps";
 import { advertisementTypeLabel, productGroupLabel } from "../components/displayLabels";
 
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
@@ -75,7 +74,6 @@ export function AdvertisementListPage() {
 
   return (
     <section aria-labelledby="advertisement-list-heading">
-      <WorkflowSteps current={1} />
       <PageHeader
         headingId="advertisement-list-heading"
         eyebrow="광고 심의 업무"

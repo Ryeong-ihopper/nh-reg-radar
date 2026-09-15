@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 import { ApiError, userMessage } from "../api/client";
+import { operationalMode } from "../api/operational";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -18,7 +19,7 @@ export function LoginPage() {
       setError("이메일과 비밀번호를 입력해 주세요.");
       return;
     }
-    if (password.length < 10) {
+    if (!operationalMode && password.length < 10) {
       setError("비밀번호는 10자 이상 입력해 주세요.");
       return;
     }
@@ -41,7 +42,7 @@ export function LoginPage() {
       <h2 id="login-heading">로그인</h2>
       <form onSubmit={submit} noValidate>
         <label htmlFor="email">이메일</label>
-        <input id="email" name="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <input id="email" name="email" type={operationalMode ? "text" : "email"} autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
         <label htmlFor="password">비밀번호</label>
         <input id="password" name="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
         {error ? <p role="alert" className="field-error">{error}</p> : null}

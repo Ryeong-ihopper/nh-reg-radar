@@ -1,12 +1,13 @@
-FROM python:3.13-slim AS build
+FROM python:3.11-slim AS build
 
 ARG DOCUMENT_PROCESSOR_COMMIT=07c679086d80e674880dbad88c21757d8ae7dcf1
+ARG DOCUMENT_PROCESSOR_SOURCE=https://github.com/CGINSIDE-ROOKIES/document-processor/archive/${DOCUMENT_PROCESSOR_COMMIT}.tar.gz
 COPY apps/parser-services/requirements-document-processor.txt /tmp/requirements-document-processor.txt
 RUN pip wheel --wheel-dir /wheels \
     -r /tmp/requirements-document-processor.txt \
-    "document-processor @ https://github.com/CGINSIDE-ROOKIES/document-processor/archive/${DOCUMENT_PROCESSOR_COMMIT}.tar.gz"
+    "document-processor @ ${DOCUMENT_PROCESSOR_SOURCE}"
 
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 ARG DOCUMENT_PROCESSOR_COMMIT=07c679086d80e674880dbad88c21757d8ae7dcf1
 ENV PYTHONDONTWRITEBYTECODE=1 \

@@ -18,6 +18,7 @@ import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pag
 import { StandardManagementPage } from "./pages/StandardManagementPage";
 import { ValidationDatasetsPage, ValidationEvaluationPage } from "./pages/ValidationPage";
 import nhBankLogo from "./assets/brand/nh-bank-logo.png";
+import { operationalMode } from "./api/operational";
 
 const ADVERTISEMENT_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
@@ -65,8 +66,8 @@ function Shell() {
         {session ? <Link className="brand" to={homePath(session.user.roles)}><img className="brand-mark brand-mark--inverse" src={nhBankLogo} alt="NH농협은행" /><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></Link> : <div className="brand"><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></div>}
         {session ? <div className="account-context"><span><strong>{session.user.userName}</strong><small>{session.user.departmentName}</small></span><button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button></div> : null}
       </header>
-      <div className={session ? "app-workspace" : "app-workspace app-workspace--public"} data-sidebar-collapsed={session ? sidebarCollapsed : undefined}>
-        {session ? <aside className="app-sidebar">
+      <div className={session ? "app-workspace" : "app-workspace app-workspace--public"} data-sidebar-collapsed={session ? sidebarCollapsed : undefined} data-operational={session && operationalMode ? "true" : undefined}>
+        {session && !operationalMode ? <aside className="app-sidebar">
           <button
             type="button"
             className="sidebar-toggle"
@@ -94,8 +95,8 @@ function Shell() {
           <Route path="/reviews/:reviewId" element={<ReviewScopedBoundary />}>
             <Route path="status" element={<ReviewProgressPage />} />
             <Route path="results" element={<ReviewSummaryPage />} />
-            <Route path="results/items" element={<ReviewItemsPage />} />
-            <Route path="results/annotations" element={<ReviewAnnotationsPage />} />
+            <Route path="results/items" element={operationalMode ? <Navigate to="../results" replace /> : <ReviewItemsPage />} />
+            <Route path="results/annotations" element={operationalMode ? <Navigate to="../results" replace /> : <ReviewAnnotationsPage />} />
             <Route path="results/qa" element={<ComplianceQaPage />} />
             <Route path="support" element={<M6SupportPage />} />
           </Route>

@@ -16,7 +16,16 @@
         "template_id": {"type": ["string", "null"]},
         "ad_type": {"type": ["string", "null"]},
         "product_name_shown": {"type": ["string", "null"]},
-        "media_type": {"type": ["string", "null"]}
+        "media_type": {"type": ["string", "null"]},
+        "review_stage": {
+          "type": ["string", "null"],
+          "enum": ["사전심의", "사후보고", "게재전확인", null]
+        },
+        "association_pre_review": {
+          "type": ["string", "null"],
+          "enum": ["대상", "비대상", "미확정", null]
+        },
+        "external_evidence_available": {"type": ["boolean", "null"]}
       },
       "additionalProperties": false
     },

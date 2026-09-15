@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { collectOperationIds, loadOpenApi } from '../../scripts/openapi_tools.mjs';
 
 const root = new URL('../../', import.meta.url);
-const contractPath = new URL('openapi/openapi.yaml', root).pathname;
-const manifestPath = new URL('tests/fixtures/m3/trace-manifest.json', root).pathname;
+const contractPath = fileURLToPath(new URL('openapi/openapi.yaml', root));
+const manifestPath = fileURLToPath(new URL('tests/fixtures/m3/trace-manifest.json', root));
 
 test('G004-m3 manifest freezes the Standards/Evidence/Reindex/Search boundary', async () => {
   const document = await loadOpenApi(contractPath);

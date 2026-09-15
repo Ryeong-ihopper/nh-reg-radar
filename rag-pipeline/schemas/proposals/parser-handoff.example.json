@@ -1,0 +1,73 @@
+{
+  "contract": "parser-handoff-vnext-proposal",
+  "provenance": {
+    "parser_build": "synthetic-example-not-production",
+    "ocr_model": null,
+    "reader_model": null,
+    "judge_model": null,
+    "settings_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source_evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "intake_context": {
+    "advertisement_id": "ad-example",
+    "asset_id": "asset-example",
+    "original_filename": "example.pdf",
+    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "product_classification_code": "예금성상품-적립식",
+    "media_codes": ["WEB_PRODUCT_PAGE"],
+    "product_ids": ["product-example"]
+  },
+  "coverage": {
+    "expected_page_count": 1,
+    "complete_document_read": false,
+    "failed_page_ids": []
+  },
+  "pages": [{
+    "page_id": "asset-example:p1",
+    "original_page_no": 1,
+    "parse_status": "partial",
+    "coordinates": {
+      "unit": "px",
+      "origin": "top-left",
+      "bbox_format": "xyxy",
+      "render_id": "asset-example:render1",
+      "canvas_width": 1000,
+      "canvas_height": 1400,
+      "source_to_canvas": null,
+      "unavailable_reason": "예시에서는 원본 좌표에서 렌더 좌표로의 변환 미제공. bbox는 첨부 렌더 이미지 기준."
+    },
+    "lines": [{
+      "line_id": "asset-example:p1:L1",
+      "region_id": "asset-example:p1:R1",
+      "text": "계약 전 상품설명서를 확인해 주세요.",
+      "bbox": [20, 30, 480, 55],
+      "source": "digital",
+      "style": {
+        "size_pt": 12,
+        "size_basis": "declared",
+        "bold": false,
+        "color": "#202020",
+        "style_source": "pdf_font_metadata"
+      }
+    }],
+    "selected_segments": [{
+      "segment_id": "asset-example:p1:S1",
+      "region_id": "asset-example:p1:R1",
+      "text": "계약 전 상품설명서를 확인해 주세요.",
+      "selected_source": "digital_parser",
+      "selection_status": "parser_without_vlm_comparison",
+      "source_line_ids": ["asset-example:p1:L1"],
+      "mapping_status": "exact",
+      "needs_review": false,
+      "reason": null
+    }],
+    "tables": [],
+    "relations": [],
+    "unread_regions": [{
+      "region_id": "asset-example:p1:R2",
+      "bbox": [20, 900, 980, 1250],
+      "reason": "작은 이미지 글씨를 판독하지 못함. 빈 영역으로 확정하지 않음.",
+      "retryable": true
+    }]
+  }]
+}

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nh:parser-handoff:proposal:vnext",
+  "title": "Parser handoff proposal — not an accepted runtime contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "provenance", "intake_context", "coverage", "pages"],
+  "properties": {
+    "contract": {"const": "parser-handoff-vnext-proposal"},
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["parser_build", "ocr_model", "reader_model", "judge_model", "settings_sha256", "source_evidence_sha256"],
+      "properties": {
+        "parser_build": {"$ref": "#/$defs/id"},
+        "ocr_model": {"type": ["string", "null"]}, "reader_model": {"type": ["string", "null"]}, "judge_model": {"type": ["string", "null"]},
+        "settings_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_evidence_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "intake_context": {
+      "type": "object", "additionalProperties": false,
+      "required": ["advertisement_id", "asset_id", "original_filename", "source_sha256", "product_classification_code", "media_codes"],
+      "properties": {
+        "advertisement_id": {"$ref": "#/$defs/id"},
+        "asset_id": {"$ref": "#/$defs/id"},
+        "original_filename": {"$ref": "#/$defs/id"},
+        "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "product_classification_code": {"type": ["string", "null"]},
+        "media_codes": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+        "product_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["expected_page_count", "complete_document_read", "failed_page_ids"],
+      "properties": {
+        "expected_page_count": {"type": ["integer", "null"], "minimum": 1},
+        "complete_document_read": {"type": "boolean"},
+        "failed_page_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+      }
+    },
+    "pages": {"type": "array", "items": {"$ref": "#/$defs/page"}}
+  },
+  "allOf": [{
+    "if": {"properties": {"coverage": {"properties": {"complete_document_read": {"const": true}}}}},
+    "then": {"properties": {
+      "coverage": {"properties": {"failed_page_ids": {"maxItems": 0}}},
+      "pages": {"minItems": 1, "items": {"properties": {"parse_status": {"enum": ["ok", "empty"]}, "unread_regions": {"maxItems": 0}}}}
+    }}
+  }],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1},
+    "refs": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+    "bbox": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+    "style": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "required": ["style_source"],
+      "properties": {
+        "size_pt": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "size_pt_min": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "size_pt_max": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "size_basis": {"enum": ["declared", "fontbox", null]},
+        "bold": {"type": ["boolean", "null"]}, "font_weight": {"type": ["integer", "null"]},
+        "color": {"type": ["string", "null"]}, "colors": {"type": "array", "items": {"type": "string"}},
+        "font": {"type": ["string", "null"]}, "style_source": {"$ref": "#/$defs/id"}
+      }
+    },
+    "page": {
+      "type": "object", "additionalProperties": false,
+      "required": ["page_id", "original_page_no", "parse_status", "coordinates", "lines", "selected_segments", "tables", "relations", "unread_regions"],
+      "properties": {
+        "page_id": {"$ref": "#/$defs/id"},
+        "original_page_no": {"type": "integer", "minimum": 1},
+        "parse_status": {"enum": ["ok", "partial", "failed", "empty"]},
+        "coordinates": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["unit", "origin", "bbox_format", "render_id", "canvas_width", "canvas_height", "source_to_canvas"],
+          "properties": {
+            "unit": {"const": "px"}, "origin": {"const": "top-left"}, "bbox_format": {"const": "xyxy"},
+            "render_id": {"$ref": "#/$defs/id"},
+            "canvas_width": {"type": "integer", "minimum": 1},
+            "canvas_height": {"type": "integer", "minimum": 1},
+            "source_to_canvas": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 6, "maxItems": 6},
+            "unavailable_reason": {"type": ["string", "null"]}
+          }
+        },
+        "lines": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["line_id", "region_id", "text", "bbox", "source", "style"],
+          "properties": {
+            "line_id": {"$ref": "#/$defs/id"}, "region_id": {"type": ["string", "null"]},
+            "text": {"type": "string"}, "bbox": {"$ref": "#/$defs/bbox"},
+            "source": {"enum": ["digital", "ocr", "vlm", "vlm_sweep", "hybrid"]},
+            "style": {"$ref": "#/$defs/style"}
+          }
+        }},
+        "selected_segments": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["segment_id", "region_id", "text", "selected_source", "selection_status", "source_line_ids", "mapping_status", "needs_review", "reason"],
+          "properties": {
+            "segment_id": {"$ref": "#/$defs/id"}, "region_id": {"$ref": "#/$defs/id"},
+            "text": {"type": "string"}, "source_line_ids": {"$ref": "#/$defs/refs"},
+            "selected_source": {"$ref": "#/$defs/id"}, "selection_status": {"$ref": "#/$defs/id"},
+            "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "mapping_status": {"enum": ["exact", "region_only", "unresolved"]},
+            "needs_review": {"type": "boolean"}, "reason": {"type": ["string", "null"]}
+          },
+          "if": {"properties": {"mapping_status": {"const": "exact"}}},
+          "then": {"properties": {"source_line_ids": {"minItems": 1}}}
+        }},
+        "tables": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["table_id", "cells"],
+          "properties": {
+            "table_id": {"$ref": "#/$defs/id"},
+            "cells": {"type": "array", "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["cell_id", "row", "col", "row_span", "col_span", "bbox", "line_ids", "header_cell_ids", "footnote_line_ids"],
+              "properties": {
+                "cell_id": {"$ref": "#/$defs/id"}, "row": {"type": "integer", "minimum": 0}, "col": {"type": "integer", "minimum": 0},
+                "row_span": {"type": "integer", "minimum": 1}, "col_span": {"type": "integer", "minimum": 1},
+                "bbox": {"$ref": "#/$defs/bbox"}, "line_ids": {"$ref": "#/$defs/refs"},
+                "header_cell_ids": {"$ref": "#/$defs/refs"}, "footnote_line_ids": {"$ref": "#/$defs/refs"}
+              }
+            }}
+          }
+        }},
+        "relations": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "from_line_ids", "to_line_ids", "status"],
+          "properties": {
+            "type": {"enum": ["header_for", "footnote_for", "continuation_of", "condition_context"]},
+            "from_line_ids": {"allOf": [{"$ref": "#/$defs/refs"}, {"minItems": 1}]},
+            "to_line_ids": {"allOf": [{"$ref": "#/$defs/refs"}, {"minItems": 1}]},
+            "status": {"enum": ["observed", "inferred"]}, "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+          }
+        }},
+        "unread_regions": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["region_id", "bbox", "reason", "retryable"],
+          "properties": {"region_id": {"$ref": "#/$defs/id"}, "bbox": {"$ref": "#/$defs/bbox"}, "reason": {"$ref": "#/$defs/id"}, "retryable": {"type": "boolean"}}
+        }}
+      }
+    }
+  }
+}

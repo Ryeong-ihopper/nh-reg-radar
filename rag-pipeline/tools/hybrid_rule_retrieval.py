@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """규제항목 ID 없이 적용 규칙을 발견하는 공통 하이브리드 검색 함수.
 
-규제목록은 v2 PoC 실행범위 104개만 사용한다. 표시의무·양식/절차 항목은
+운영 검색은 예금·대출·전체 범위의 시인성 항목까지 포함한다. 104개 비시인성
+범위는 과거 비교용 기본값으로만 유지한다. 표시의무·양식/절차 항목은
 상품군 적용성으로 전개하고, 금지 항목은 광고 fine 청크에서 Elasticsearch의
 Nori BM25와 BGE-M3 벡터검색으로 찾는다. 규칙을 유발한 광고 청크는 후속
 판단의 최초 근거로 보존한다.
@@ -14,9 +15,13 @@ from __future__ import annotations
 import argparse
 import collections
 import hashlib
+import io
 import json
+import os
 import sys
+import tempfile
 import time
+import warnings
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -34,6 +39,7 @@ from rag import build_items as v2_source  # noqa: E402
 from build_ad_evidence_vectors import (  # noqa: E402
     MODEL_NAME,
 )
+from dgx_bge_client import validate_embeddings  # noqa: E402
 
 
 SEARCH_DIR = ROOT / "output" / "_rag" / "search_0902_normalized"
@@ -116,7 +122,7 @@ def index_exists(base_url: str, index: str) -> bool:
         raise
 
 
-def load_scope() -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+def load_scope(*, include_layout: bool = False) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     items, _ = v2_source.build()
     by_id = {row["id"]: row for row in items}
     scoped = [
@@ -126,9 +132,11 @@ def load_scope() -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
             or "예금성" in row["적용상품"]
             or "대출성" in row["적용상품"]
         )
-        and row["판정유형"] != "레이아웃필요"
+        and (include_layout or row["판정유형"] != "레이아웃필요")
     ]
-    if len(scoped) != 104 or len({row['id'] for row in scoped}) != 104:
+    if len(by_id) != len(items):
+        raise ValueError("duplicate source rule ID")
+    if not include_layout and len(scoped) != 104:
         raise RuntimeError("v2 PoC 실행범위가 104개가 아님")
     return scoped, by_id
 
@@ -195,12 +203,22 @@ def rule_docs(
 
 
 def load_model():
-    from dgx_bge_client import DGXSentenceEncoder, health
+    from dgx_bge_client import DGXSentenceEncoder
 
-    service = health()
-    if service.get("embedding_model") != MODEL_NAME or service.get("device") != "cuda":
-        raise RuntimeError(f"DGX BGE 서비스 계약 불일치: {service}")
     return DGXSentenceEncoder()
+
+
+def _atomic_cache_write(path: Path, content: bytes) -> None:
+    """Unique temp paths prevent parallel jobs from sharing an in-progress file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def load_or_encode(
@@ -214,7 +232,12 @@ def load_or_encode(
     batch_size: int,
     force: bool,
 ) -> tuple[np.ndarray, bool, float]:
+    if len({row["doc_id"] for row in rows}) != len(rows):
+        raise ValueError("duplicate embedding doc_id")
+    if any(not isinstance(row.get(text_key), str) or not row[text_key].strip() for row in rows):
+        raise ValueError("embedding input text must be a nonempty string")
     expected = {
+        "cache_contract_version": 2,
         "model": MODEL_NAME,
         "documents": len(rows),
         "source_sha256": sha256(source),
@@ -223,33 +246,63 @@ def load_or_encode(
         "normalize_embeddings": True,
         "max_seq_length": 1024,
     }
+    cache_rebuild_reason = "forced" if force else "cache_missing"
     if not force and vectors_path.exists() and meta_path.exists():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        matrix = np.load(vectors_path).astype("float32")
-        if all(meta.get(k) == v for k, v in expected.items()) and (
-            matrix.shape[0] == len(rows)
-        ):
-            matrix /= np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9
-            return matrix, True, 0.0
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not isinstance(meta, dict):
+                raise ValueError("embedding cache metadata must be an object")
+            cache_rebuild_reason = "identity_changed"
+            if all(meta.get(k) == v for k, v in expected.items()):
+                raw = vectors_path.read_bytes()
+                if hashlib.sha256(raw).hexdigest() != meta.get("vectors_sha256"):
+                    raise ValueError("embedding cache checksum mismatch")
+                matrix = validate_embeddings(
+                    np.load(io.BytesIO(raw), allow_pickle=False), len(rows)
+                )
+                matrix /= np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9
+                return matrix, True, 0.0
+        except (ValueError, EOFError, OSError) as exc:
+            cache_rebuild_reason = f"invalid_cache:{type(exc).__name__}"
+            warnings.warn(f"Embedding cache rejected; re-encoding ({exc})", RuntimeWarning)
 
     started = time.perf_counter()
+    # Repeated template wording and repeated ad text still have distinct source
+    # IDs. Encode identical text once, then restore every original row/position.
+    unique_texts = list(dict.fromkeys(row[text_key] for row in rows))
+    text_positions = {text: index for index, text in enumerate(unique_texts)}
     matrix = model.encode(
-        [row[text_key] for row in rows],
+        unique_texts,
         batch_size=batch_size,
         convert_to_numpy=True,
         normalize_embeddings=True,
         show_progress_bar=True,
-    ).astype("float32")
+    )
+    matrix = validate_embeddings(matrix, len(unique_texts))
+    matrix = matrix[[text_positions[row[text_key]] for row in rows]]
     seconds = time.perf_counter() - started
     vectors_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(vectors_path, matrix.astype("float16"))
-    meta_path.write_text(json.dumps({
+    # 캐시는 float16으로 저장한다. 첫 실행이 원본 float32를 쓰면 이후 실행과
+    # 점수가 미세하게 달라져 근사 동점의 순위가 뒤집힌다. 실측: 규칙 136개 중
+    # 14개가 근거 3위와 4위의 점수차 1e-3 미만이고 float16 해상도는 4.9e-4다.
+    # 저장할 정밀도를 그대로 돌려주어 첫 실행과 이후 실행을 일치시킨다.
+    stored_matrix = matrix.astype("float16")
+    buffer = io.BytesIO()
+    np.save(buffer, stored_matrix, allow_pickle=False)
+    raw = buffer.getvalue()
+    _atomic_cache_write(vectors_path, raw)
+    matrix = stored_matrix.astype("float32")
+    matrix /= np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9
+    _atomic_cache_write(meta_path, (json.dumps({
         **expected,
         "dimension": int(matrix.shape[1]),
         "dtype": "float16",
+        "vectors_sha256": hashlib.sha256(raw).hexdigest(),
+        "cache_rebuild_reason": cache_rebuild_reason,
+        "unique_texts_encoded": len(unique_texts),
         "embedding_seconds_dgx_cuda": round(seconds, 3),
-    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    }, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     return matrix, False, seconds
 
 
@@ -299,6 +352,17 @@ def index_mapping(meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def rule_index_fingerprint(docs: list[dict[str, Any]], vectors: np.ndarray) -> str:
+    digest = hashlib.sha256(json.dumps(docs, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+    digest.update(np.asarray(vectors, dtype="<f4").tobytes())
+    return digest.hexdigest()
+
+
+def versioned_rule_index(base: str, docs: list[dict[str, Any]], vectors: np.ndarray) -> str:
+    """Do not mutate an index used by an already-running review."""
+    return f"{base}-catalog-{rule_index_fingerprint(docs, vectors)[:16]}"
+
+
 def ensure_rule_index(
     base_url: str,
     index: str,
@@ -307,12 +371,16 @@ def ensure_rule_index(
     *,
     source_sha: str,
 ) -> str:
+    validate_embeddings(vectors, len(docs))
+    if len({row["item_id"] for row in docs}) != len(docs):
+        raise ValueError("duplicate index item_id")
     encoded = urllib.parse.quote(index, safe="")
     expected_meta = {
-        "schema_version": "regulation-v2-es-index-v1",
+        "schema_version": "regulation-v2-es-index-v2",
         "source_file": str(v2_source.AGENT),
         "source_sha256": source_sha,
-        "scope": "v2 PoC 실행경로 104개",
+        "scope": "explicit supplied source catalog; applicability is checked downstream",
+        "corpus_vectors_sha256": rule_index_fingerprint(docs, vectors),
         "documents": len(docs),
         "embedding_model": MODEL_NAME,
         "dimension": int(vectors.shape[1]),
@@ -328,9 +396,11 @@ def ensure_rule_index(
         actual = mapping[index]["mappings"].get("_meta", {})
         keys = (
             "schema_version", "source_sha256", "documents", "dimension",
-            "search_text_variant",
+            "search_text_variant", "corpus_vectors_sha256", "embedding_model",
         )
         if all(actual.get(key) == expected_meta.get(key) for key in keys):
+            if request(base_url, "GET", f"/{encoded}/_count")["count"] != len(docs):
+                raise RuntimeError("규칙 인덱스 일부 적재/유실: metadata와 실제 문서 수 불일치")
             return "valid_existing_index"
         raise RuntimeError(
             f"동명 규칙 인덱스가 현재 v2와 다름: index={index}, meta={actual}"
@@ -383,10 +453,12 @@ def _normalize_product_groups(product_groups: str | Iterable[str]) -> list[str]:
 def semantic_rule_filter(
     product_group: str | Iterable[str],
     deterministic_item_ids: set[str],
+    categories: Iterable[str] | None = None,
 ) -> dict[str, Any]:
+    category_values = list(dict.fromkeys(categories or ["PROHIBIT"]))
     result: dict[str, Any] = {
         "filter": [
-            {"term": {"category": "PROHIBIT"}},
+            {"terms": {"category": category_values}},
             {"terms": {"product_groups": ["전체", *_normalize_product_groups(product_group)]}},
         ]
     }
@@ -419,6 +491,16 @@ def bm25_hits(
     return request(base_url, "POST", f"/{index}/_search", body)["hits"]["hits"]
 
 
+def exact_vector_query(vector: np.ndarray, rule_filter: dict[str, Any]) -> dict[str, Any]:
+    """Exact cosine is affordable for the small source-rule catalog (not ad corpus)."""
+    validate_embeddings(np.asarray(vector)[None, :], 1)
+    return {"script_score": {
+        "query": rule_filter,
+        "script": {"source": "(cosineSimilarity(params.q, 'text_vector') + 1.0) / 2.0",
+                   "params": {"q": np.asarray(vector, dtype="float32").tolist()}},
+    }}
+
+
 def vector_hits(
     base_url: str,
     index: str,
@@ -430,15 +512,15 @@ def vector_hits(
     body = {
         "size": k,
         "_source": SOURCE_FIELDS,
-        "knn": {
-            "field": "text_vector",
-            "query_vector": query_vector.astype("float32").tolist(),
-            "k": k,
-            "num_candidates": max(50, k),
-            "filter": semantic_rule_filter(product_group, deterministic_item_ids),
-        },
+        "query": exact_vector_query(query_vector, semantic_rule_filter(product_group, deterministic_item_ids)),
+        "sort": [{"_score": "desc"}, {"item_id": "asc"}],
     }
     return request(base_url, "POST", f"/{index}/_search", body)["hits"]["hits"]
+
+
+def validate_search_response(response: dict[str, Any]) -> None:
+    if response.get("error") or response.get("timed_out") or (response.get("_shards") or {}).get("failed", 0):
+        raise RuntimeError("Elasticsearch search failed or returned partial results")
 
 
 def hybrid_hits_batch(
@@ -449,6 +531,7 @@ def hybrid_hits_batch(
     product_group: str,
     deterministic_item_ids: set[str],
     k: int,
+    categories: Iterable[str] | None = None,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """한 광고의 fine→규칙 검색을 Elasticsearch 한 번의 msearch로 묶는다."""
     searchable = [
@@ -457,9 +540,17 @@ def hybrid_hits_batch(
     ]
     if not searchable:
         return {}
-    rule_filter = semantic_rule_filter(product_group, deterministic_item_ids)["bool"]
-    ndjson: list[str] = []
+    category_values = list(dict.fromkeys(categories or ["PROHIBIT"]))
+    unique_queries, representative = {}, {}
     for fine in searchable:
+        query = str(fine.get("text_search") or fine.get("text_canonical") or "").strip()
+        key = (query, np.asarray(fine_vector_by_id[fine["doc_id"]], dtype="<f4").tobytes())
+        unique_queries.setdefault(key, fine)
+        representative[fine["doc_id"]] = unique_queries[key]["doc_id"]
+    plans = [(fine, category) for fine in unique_queries.values() for category in category_values]
+    ndjson: list[str] = []
+    for fine, category in plans:
+        rule_filter = semantic_rule_filter(product_group, deterministic_item_ids, [category])["bool"]
         query = str(fine.get("text_search") or fine.get("text_canonical") or "").strip()
         vector = fine_vector_by_id[fine["doc_id"]]
         ndjson.extend([
@@ -478,13 +569,9 @@ def hybrid_hits_batch(
             json.dumps({
                 "size": k,
                 "_source": SOURCE_FIELDS,
-                "knn": {
-                    "field": "text_vector",
-                    "query_vector": vector.astype("float32").tolist(),
-                    "k": k,
-                    "num_candidates": max(50, k),
-                    "filter": semantic_rule_filter(product_group, deterministic_item_ids),
-                },
+                "query": exact_vector_query(vector, semantic_rule_filter(
+                    product_group, deterministic_item_ids, [category])),
+                "sort": [{"_score": "desc"}, {"item_id": "asc"}],
             }, ensure_ascii=False),
         ])
     payload = ("\n".join(ndjson) + "\n").encode("utf-8")
@@ -496,26 +583,30 @@ def hybrid_hits_batch(
         content_type="application/x-ndjson",
     )
     responses = result.get("responses") or []
-    expected = len(searchable) * 2
+    expected = len(plans) * 2
     if len(responses) != expected:
         raise RuntimeError(f"msearch 응답 수 불일치: expected={expected}, actual={len(responses)}")
     output: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for offset, fine in enumerate(searchable):
+    for offset, (fine, category) in enumerate(plans):
         bm25_response = responses[offset * 2]
         vector_response = responses[offset * 2 + 1]
         for channel, response in (
             ("bm25_nori", bm25_response),
-            ("bge_m3_hnsw", vector_response),
+            ("bge_m3_exact_cosine", vector_response),
         ):
-            if response.get("error"):
+            try:
+                validate_search_response(response)
+            except RuntimeError as exc:
                 raise RuntimeError(
-                    f"msearch 실패 doc_id={fine['doc_id']} channel={channel}: {response['error']}"
-                )
-        output[fine["doc_id"]] = {
-            "bm25_nori": bm25_response["hits"]["hits"],
-            "bge_m3_hnsw": vector_response["hits"]["hits"],
-        }
-    return output
+                    f"msearch incomplete doc_id={fine['doc_id']} channel={channel}"
+                ) from exc
+        row = output.setdefault(fine["doc_id"], {"bm25_nori": [], "bge_m3_exact_cosine": []})
+        row["bm25_nori"].extend(bm25_response["hits"]["hits"])
+        row["bge_m3_exact_cosine"].extend(vector_response["hits"]["hits"])
+    for row in output.values():
+        for hits in row.values():
+            hits.sort(key=lambda hit: (-float(hit["_score"]), hit["_source"]["item_id"]))
+    return {row["doc_id"]: output[representative[row["doc_id"]]] for row in searchable}
 
 
 def routing_scope(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -611,6 +702,7 @@ def discover_prohibitions(
     per_chunk_k: int,
     rrf_k: int,
     deterministic_item_ids: set[str],
+    categories: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     events: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     rule_source: dict[str, dict[str, Any]] = {}
@@ -622,6 +714,7 @@ def discover_prohibitions(
         product_group,
         deterministic_item_ids,
         per_chunk_k,
+        categories,
     )
     for fine in ad_fine:
         query = str(fine.get("text_search") or fine.get("text_canonical") or "").strip()
@@ -633,14 +726,17 @@ def discover_prohibitions(
                 source = hit["_source"]
                 item_id = source["item_id"]
                 rule_source[item_id] = source
-                event = {
-                    "channel": channel,
-                    "rank_within_chunk": rank,
-                    "raw_score": round(float(hit["_score"]), 6),
-                    "rrf_contribution": round(1.0 / (rrf_k + rank), 8),
-                    "trigger": trigger_doc(fine),
-                }
-                events[item_id].append(event)
+                for member in fine.get("_query_members") or [fine]:
+                    event = {
+                        "channel": channel,
+                        "rank_within_chunk": rank,
+                        "raw_score": round(float(hit["_score"]), 6),
+                        "rrf_contribution": round(1.0 / (rrf_k + rank), 8),
+                        "trigger": trigger_doc(member),
+                    }
+                    if fine.get("_query_members"):
+                        event["trigger"]["query_context_doc_ids"] = [row["doc_id"] for row in fine["_query_members"]]
+                    events[item_id].append(event)
 
     # 여러 광고 청크 중 우연히 한 번 채널 1위가 된 것만으로 모든 규칙이
     # 동점이 되는 것을 막는다. 광고 전체에서 규칙별 최고 원점수를 먼저
@@ -662,7 +758,7 @@ def discover_prohibitions(
                 best_event[item_id][channel] = event
 
     aggregate_rank: dict[str, dict[str, int]] = collections.defaultdict(dict)
-    for channel in ("bm25_nori", "bge_m3_hnsw"):
+    for channel in ("bm25_nori", "bge_m3_exact_cosine"):
         ordered = sorted(
             (
                 (item_id, channels[channel])
@@ -692,6 +788,10 @@ def discover_prohibitions(
                 "normalized_score": 0.0,
                 "channel_hits": {},
             })
+            if event["trigger"].get("query_context_doc_ids"):
+                trigger_row["trigger"]["query_context_doc_ids"] = list(dict.fromkeys(
+                    (trigger_row["trigger"].get("query_context_doc_ids") or []) +
+                    event["trigger"]["query_context_doc_ids"]))
             channel = event["channel"]
             old = trigger_row["channel_hits"].get(channel)
             if old is None or event["raw_score"] > old["raw_score"]:

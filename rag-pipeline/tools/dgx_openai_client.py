@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DGX의 OpenAI 호환 API를 지속 터널 우선, SSH 대체로 호출한다."""
+"""Call an OpenAI-compatible GPU model service; retain DGX SSH fallback."""
 from __future__ import annotations
 
 import json
@@ -14,10 +14,12 @@ from pathlib import Path
 DEFAULT_HOST = os.environ.get("DGX_HOST")
 DEFAULT_KEY = Path(os.environ["DGX_SSH_KEY"]) if os.environ.get("DGX_SSH_KEY") else None
 LOCAL_ENDPOINT = os.environ.get(
-    "DGX_GEMMA_LOCAL_ENDPOINT", "http://127.0.0.1:8102/v1/chat/completions",
+    "NH_GPU_GEMMA_ENDPOINT",
+    os.environ.get("DGX_GEMMA_LOCAL_ENDPOINT", "http://127.0.0.1:8102/v1/chat/completions"),
 )
 REMOTE_ENDPOINT = os.environ.get(
-    "DGX_GEMMA_REMOTE_ENDPOINT", "http://127.0.0.1:8102/v1/chat/completions",
+    "NH_GPU_GEMMA_REMOTE_ENDPOINT",
+    os.environ.get("DGX_GEMMA_REMOTE_ENDPOINT", LOCAL_ENDPOINT),
 )
 
 
@@ -42,7 +44,8 @@ def post_json(
 
     if not host or key is None:
         raise RuntimeError(
-            "local Gemma endpoint is unavailable; set DGX_HOST and DGX_SSH_KEY for SSH fallback"
+            "GPU Gemma endpoint is unavailable; set NH_GPU_GEMMA_ENDPOINT or configure "
+            "DGX_HOST and DGX_SSH_KEY for the interim SSH fallback"
         )
 
     remote = (

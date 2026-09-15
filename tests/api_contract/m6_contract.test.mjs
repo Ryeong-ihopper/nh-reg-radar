@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { collectOperationIds, loadOpenApi } from '../../scripts/openapi_tools.mjs';
 
 const root = new URL('../../', import.meta.url);
-const contractPath = new URL('openapi/openapi.yaml', root).pathname;
-const manifestPath = new URL('governance/goal-manifests/G007-m6-support-outputs.json', root).pathname;
+const contractPath = fileURLToPath(new URL('openapi/openapi.yaml', root));
+const manifestPath = fileURLToPath(new URL('governance/goal-manifests/G007-m6-support-outputs.json', root));
 
 test('G007 M6 manifest freezes the provider-independent support-output contract', async () => {
   const document = await loadOpenApi(contractPath);

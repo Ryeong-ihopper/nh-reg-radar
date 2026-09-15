@@ -10,7 +10,7 @@ from fastapi import Request
 from nh_ad_backend.storage import MAX_FILE_SIZE
 
 
-MAX_FILES = 13
+MAX_FILES = 20
 MAX_MULTIPART_SIZE = MAX_FILES * MAX_FILE_SIZE + 1024 * 1024
 
 
@@ -39,6 +39,7 @@ async def parse_multipart(
     *,
     extra_fields: frozenset[str] = frozenset(),
     extra_files: frozenset[str] = frozenset(),
+    repeatable_files: frozenset[str] = frozenset(),
 ) -> MultipartForm:
     content_type = request.headers.get("content-type", "")
     if (
@@ -134,7 +135,7 @@ async def parse_multipart(
         "termsFile",
         "revisedAdvertisementFile",
     ):
-        if len(files.get(name, [])) > 1:
+        if name not in repeatable_files and len(files.get(name, [])) > 1:
             raise MultipartError(400, "BAD_REQUEST", f"{name} 파일은 하나만 첨부할 수 있습니다.")
     if len(files.get("additionalFiles", [])) > 10:
         raise MultipartError(400, "BAD_REQUEST", "additionalFiles는 최대 10개입니다.")

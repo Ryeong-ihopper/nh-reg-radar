@@ -9,6 +9,7 @@ import { PageHeader } from "../components/PageHeader";
 import { ReviewOriginalPanel } from "../components/ReviewOriginalPanel";
 import { WorkflowSteps } from "../components/WorkflowSteps";
 import { advertisementTypeLabel, productGroupLabel } from "../components/displayLabels";
+import { operationalMode } from "../api/operational";
 
 const REVIEW_TYPES: ReadonlyArray<{ value: ReviewType; label: string }> = [
   { value: "REQUIRED_PHRASE", label: "필수 문구 누락" },
@@ -31,7 +32,7 @@ export function ReviewRequestPage() {
   const navigate = useNavigate();
   const [reviewTypes, setReviewTypes] = useState<ReviewType[]>(REVIEW_TYPES.map(({ value }) => value));
   const [standardEffectiveDate, setStandardEffectiveDate] = useState(() => localDateInputValue());
-  const [includeSuggestion, setIncludeSuggestion] = useState(true);
+  const [includeSuggestion, setIncludeSuggestion] = useState(!operationalMode);
   const [includeOpinionDraft, setIncludeOpinionDraft] = useState(false);
   const [requestMemo, setRequestMemo] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -42,8 +43,15 @@ export function ReviewRequestPage() {
     enabled: Boolean(advertisementId),
     retry: false,
   });
+  const reviewHistory = useQuery({
+    queryKey: ["advertisement-reviews", advertisementId],
+    queryFn: () => api.listAdvertisementReviews(session?.accessToken ?? "", advertisementId),
+    enabled: Boolean(advertisementId && advertisement.data),
+    retry: false,
+  });
+  const activeReview = (reviewHistory.data ?? []).find((review) => ["ANALYSIS_REQUESTED", "ANALYZING"].includes(review.reviewStatus));
   const requestReview = useMutation({
-    mutationFn: (input: ReviewRequestInput) => api.requestAdvertisementReview(
+    mutationFn: async (input: ReviewRequestInput) => api.requestAdvertisementReview(
       session?.accessToken ?? "",
       advertisementId,
       input,
@@ -59,6 +67,10 @@ export function ReviewRequestPage() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (activeReview) {
+      navigate(`/reviews/${encodeURIComponent(activeReview.reviewId)}/status`, { replace: true });
+      return;
+    }
     if (reviewTypes.length === 0) {
       setValidationError("검토 항목을 하나 이상 선택해 주세요.");
       return;
@@ -79,8 +91,8 @@ export function ReviewRequestPage() {
       <PageHeader
         headingId="review-request-heading"
         eyebrow="3단계 · AI 검토"
-        title="검토 항목과 기준 선택"
-        description="광고 원본을 보면서 적용할 검토 범위와 기준일을 확인한 뒤 분석을 요청합니다."
+        title={operationalMode ? "자동심의 실행" : "검토 항목과 기준 선택"}
+        description={operationalMode ? "등록한 상세 상품군과 광고 원본을 기준으로 전체 자동심의를 시작합니다." : "광고 원본을 보면서 적용할 검토 범위와 기준일을 확인한 뒤 분석을 요청합니다."}
       />
       {advertisement.isPending ? <LoadingState label="광고물 정보를 불러오는 중입니다." /> : null}
       {advertisement.isError && advertisement.error instanceof ApiError && advertisement.error.status === 403 ? (
@@ -98,21 +110,27 @@ export function ReviewRequestPage() {
             <div><dt>광고유형</dt><dd>{advertisementTypeLabel(advertisement.data.advertisementType)}</dd></div>
           </dl>
           <form className="review-form review-request-form" onSubmit={submit}>
-            <fieldset>
+            {activeReview ? <div role="status" className="state-message state-warning"><strong>이미 AI 검토가 진행 중입니다.</strong><p>새 요청을 만들지 않고 현재 진행 상태로 이동합니다.</p><Link to={`/reviews/${encodeURIComponent(activeReview.reviewId)}/status`}>진행 상태 확인</Link></div> : null}
+            {operationalMode ? <div className="state-message state-warning">
+              <strong>실제 자동심의 · 규제목록 v2 + Gemma</strong>
+              <p>광고 원본 전체를 규제목록 v2로 검토합니다. 자동 판정할 수 없는 시인성·외부자료 항목은 확인 필요로 구분합니다.</p>
+              <p>등록 시 선택한 상세 상품군에 맞는 내부 체크리스트와 규제목록 v2를 시스템이 적용합니다.</p>
+            </div> : null}
+            {!operationalMode ? <fieldset>
               <legend><span>01</span> 검토 범위</legend>
               <p className="fieldset-description">자동 검토할 항목을 하나 이상 선택하세요.</p>
               <div className="checkbox-grid">{REVIEW_TYPES.map(({ value, label }) => (
-                <label key={value}><input type="checkbox" checked={reviewTypes.includes(value)} onChange={() => toggleReviewType(value)} />{label}</label>
+                <label key={value}><input type="checkbox" disabled={operationalMode} checked={reviewTypes.includes(value)} onChange={() => toggleReviewType(value)} />{label}</label>
               ))}</div>
-            </fieldset>
-            <div className="review-options"><label>기준 적용일<input type="date" value={standardEffectiveDate} onChange={(event) => setStandardEffectiveDate(event.target.value)} /></label><p>선택한 날짜에 유효한 규정과 가이드라인을 기준으로 검토합니다.</p></div>
-            <label>요청 메모<textarea value={requestMemo} onChange={(event) => setRequestMemo(event.target.value)} maxLength={1000} placeholder="중점적으로 확인할 상품 조건이나 표현을 입력해 주세요." /></label>
-            <div className="review-output-options" aria-label="추가 산출물"><strong>추가 산출물</strong><label className="inline-check"><input type="checkbox" checked={includeSuggestion} onChange={(event) => setIncludeSuggestion(event.target.checked)} />문구 추천 포함</label><label className="inline-check"><input type="checkbox" checked={includeOpinionDraft} onChange={(event) => setIncludeOpinionDraft(event.target.checked)} />심의 의견 초안 포함</label></div>
+            </fieldset> : null}
+            {!operationalMode ? <div className="review-options"><label>기준 적용일<input type="date" value={standardEffectiveDate} onChange={(event) => setStandardEffectiveDate(event.target.value)} /></label><p>선택한 날짜에 유효한 규정과 가이드라인을 기준으로 검토합니다.</p></div> : null}
+            {!operationalMode ? <label>요청 메모<textarea value={requestMemo} onChange={(event) => setRequestMemo(event.target.value)} maxLength={1000} placeholder="중점적으로 확인할 상품 조건이나 표현을 입력해 주세요." /></label> : null}
+            {!operationalMode ? <div className="review-output-options" aria-label="추가 산출물"><strong>추가 산출물</strong><label className="inline-check"><input type="checkbox" checked={includeSuggestion} onChange={(event) => setIncludeSuggestion(event.target.checked)} />문구 추천 포함</label><label className="inline-check"><input type="checkbox" checked={includeOpinionDraft} onChange={(event) => setIncludeOpinionDraft(event.target.checked)} />심의 의견 초안 포함</label></div> : null}
             {validationError ? <p role="alert" className="field-error">{validationError}</p> : null}
             {requestReview.isError ? <ErrorState error={requestReview.error} /> : null}
             <div className="form-actions">
               <Link className="button-link button-secondary" to={`/advertisements/${encodeURIComponent(advertisementId)}`}>이전</Link>
-              <button type="submit" disabled={requestReview.isPending}>{requestReview.isPending ? "검토를 요청하는 중..." : "AI 검토 시작"}</button>
+              <button type="submit" disabled={requestReview.isPending}>{requestReview.isPending ? "검토를 요청하는 중..." : activeReview ? "AI 검토 진행 중" : "AI 검토 시작"}</button>
             </div>
           </form>
           </div>
