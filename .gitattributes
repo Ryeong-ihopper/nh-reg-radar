@@ -1,0 +1,11 @@
+# Release evidence hashes refer to exact bytes. Keep these text inputs identical
+# across Linux CI and Windows checkouts; the validator still hashes raw bytes.
+openapi/openapi.yaml text eol=lf
+apps/frontend/src/api/generated/openapi.ts text eol=lf
+apps/backend/migrations/versions/0008_m8_support_privileges.py text eol=lf
+tests/fixtures/m8/provider-free-release-v1.json text eol=lf
+tests/e2e/test_m8_provider_free_release.py text eol=lf
+# Shell entry points must also execute in the Linux governance test runtime.
+.githooks/* text eol=lf
+scripts/*.sh text eol=lf
+scripts/**/*.sh text eol=lf

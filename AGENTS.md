@@ -26,6 +26,11 @@ python3 -m scripts.doc_guard validate --scope working
 python3 -m unittest discover -s tests/governance -v
 ```
 
+Windows에서는 마지막 검사를 `python scripts/run_governance_tests.py`로 실행한다.
+실행 중인 Docker Desktop의 Linux 엔진이 필요하다. 동일한 전체 unittest를 Linux
+파일시스템에서 수행하며, POSIX 심볼릭 링크·권한·FIFO 검사를 생략하지 않는다.
+Linux/WSL에서는 위 unittest 명령 또는 같은 Python 실행기를 사용한다.
+
 ## Documentation Rules
 
 - 활성 Markdown 문서 파일명은 영문 kebab-case를 사용한다.
