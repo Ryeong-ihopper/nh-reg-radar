@@ -159,6 +159,73 @@ class SourceContextTests(unittest.TestCase):
         self.assertNotIn("3", expand_source_context(["2"], rows)[0])
 
 
+class ChainedSourceRelationTests(unittest.TestCase):
+    """Observed condition/footnote chains keep source scope and budget boundaries."""
+
+    def rows(self):
+        rows = [
+            {"doc_id": name, "ad_id": "ad", "product_id": "product",
+             "source_file": "source.pdf", "page_no": i + 1,
+             "parent_doc_id": f"region-{name}", "line_refs": [name],
+             "text_canonical": name * 4}
+            for i, name in enumerate(("a", "b", "c"))
+        ]
+        rows[0]["source_relations"] = [
+            {"type": "condition_context", "status": "observed",
+             "from_line_ids": ["a"], "to_line_ids": ["b"]}]
+        rows[1]["source_relations"] = [
+            {"type": "footnote_for", "status": "observed",
+             "from_line_ids": ["b"], "to_line_ids": ["c"]}]
+        return rows
+
+    def test_observed_two_step_chain_includes_terminal_footnote(self):
+        selected, audit = expand_source_context(["a"], self.rows())
+        self.assertEqual(selected, ["a", "b", "c"])
+        self.assertEqual(audit["relation_added_ids"], ["b", "c"])
+        self.assertEqual(audit["added_chars"], 8)
+        self.assertFalse(audit["semantic_dependencies_complete"])
+
+    def test_second_step_over_budget_is_explicitly_deferred(self):
+        selected, audit = expand_source_context(["a"], self.rows(), char_budget=4)
+        self.assertEqual(selected, ["a", "b"])
+        self.assertEqual(audit["deferred_groups"][0]["reason"], "source_relation_budget")
+        self.assertEqual(audit["deferred_groups"][0]["evidence_ids"], ["c"])
+
+    def test_exact_budget_and_zero_budget(self):
+        self.assertEqual(expand_source_context(["a"], self.rows(), char_budget=8)[0], ["a", "b", "c"])
+        self.assertEqual(expand_source_context(["a"], self.rows(), char_budget=0)[0], ["a"])
+
+    def test_second_step_inferred_link_is_not_followed(self):
+        rows = self.rows()
+        rows[1]["source_relations"][0]["status"] = "inferred"
+        selected, audit = expand_source_context(["a"], rows)
+        self.assertEqual(selected, ["a", "b"])
+        self.assertEqual(audit["deferred_groups"][0]["reason"], "unverified_source_relation")
+
+    def test_second_step_cannot_cross_advertisement_or_product(self):
+        for field in ("ad_id", "product_id"):
+            with self.subTest(field=field):
+                rows = self.rows()
+                rows[2][field] = "other"
+                selected, audit = expand_source_context(["a"], rows)
+                self.assertEqual(selected, ["a", "b"])
+                self.assertEqual(audit["deferred_groups"][0]["reason"], "relation_target_missing_or_outside_scope")
+
+    def test_cycle_finishes_without_duplicate_or_double_charge(self):
+        rows = self.rows()
+        rows[2]["source_relations"] = [
+            {"type": "continuation_of", "status": "observed",
+             "from_line_ids": ["c"], "to_line_ids": ["a"]}]
+        selected, audit = expand_source_context(["a"], rows)
+        self.assertEqual(selected, ["a", "b", "c"])
+        self.assertEqual(audit["added_chars"], 8)
+
+    def test_unrelated_metadata_does_not_consume_relation_before_valid_seed(self):
+        rows = self.rows()
+        rows[0]["source_relations"].insert(0, dict(rows[1]["source_relations"][0]))
+        self.assertEqual(expand_source_context(["a"], rows)[0], ["a", "b", "c"])
+
+
 class BulletBoundaryTests(unittest.TestCase):
     """소수와 날짜는 번호 매기기 말머리가 아니다."""
 

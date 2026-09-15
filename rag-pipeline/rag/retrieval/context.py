@@ -71,7 +71,13 @@ def expand_source_context(
     for row in rows:
         for ref in row.get("line_refs") or []:
             by_scope_ref.setdefault((row.get("ad_id"), row.get("product_id"), str(ref)), []).append(row["doc_id"])
-    for seed_id in list(selected):
+    # Newly recovered conditions can themselves point to an observed footnote.
+    # Visit each selected document once; relation_seen and the shared budget
+    # bound cycles and cost without inventing missing semantic connections.
+    relation_cursor = 0
+    while relation_cursor < len(selected):
+        seed_id = selected[relation_cursor]
+        relation_cursor += 1
         seed = by_id[seed_id]
         for relation in seed.get("source_relations") or []:
             if not isinstance(relation, dict):
@@ -85,10 +91,10 @@ def expand_source_context(
             key = (seed.get("ad_id"), seed.get("product_id"), relation.get("type"), tuple(source_refs), tuple(target_refs))
             if key in relation_seen:
                 continue
-            relation_seen.add(key)
             refs = [*source_refs, *target_refs]
             if not set(refs).intersection(seed.get("line_refs") or []):
                 continue
+            relation_seen.add(key)
             if relation.get("status") != "observed" or relation.get("type") not in {
                 "header_for", "footnote_for", "continuation_of", "condition_context"}:
                 pending.append({"seed_id": seed_id, "reason": "unverified_source_relation", "relation": relation})
