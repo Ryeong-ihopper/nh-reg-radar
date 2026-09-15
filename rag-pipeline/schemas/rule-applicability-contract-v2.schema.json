@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source-bound applicability and obligation checklist contract v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope_ref",
+    "scope_text",
+    "scope_source_sha256",
+    "scope_policy",
+    "product_groups",
+    "product_subtype",
+    "applicability_mode",
+    "applicability_conditions",
+    "review_conditions",
+    "obligation",
+    "unknown_policy",
+    "source_note",
+    "obligation_checks",
+    "obligation_policy",
+    "obligation_structure"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rule-applicability-contract-v2"
+    },
+    "scope_ref": {
+      "const": "SCOPE"
+    },
+    "scope_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope_source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "product_groups": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "product_subtype": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "applicability_mode": {
+      "enum": [
+        "UNCONDITIONAL",
+        "SOURCE_SCOPED",
+        "CONDITIONAL"
+      ]
+    },
+    "applicability_conditions": {
+      "$ref": "#/$defs/conditions"
+    },
+    "review_conditions": {
+      "$ref": "#/$defs/conditions"
+    },
+    "obligation": {
+      "type": "object",
+      "required": [
+        "obligation_id",
+        "text",
+        "source"
+      ],
+      "properties": {
+        "obligation_id": {
+          "const": "O1"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "const": "criterion"
+        }
+      },
+      "additionalProperties": false
+    },
+    "unknown_policy": {
+      "const": "UNDETERMINED"
+    },
+    "source_note": {
+      "type": "string"
+    },
+    "obligation_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "obligation_structure": {
+      "enum": [
+        "SOURCE_TEXT_ONLY",
+        "SOURCE_PLUS_EXPLICIT_REQUIREMENTS"
+      ]
+    },
+    "obligation_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "obligation_id",
+          "text",
+          "source"
+        ],
+        "properties": {
+          "obligation_id": {
+            "type": "string",
+            "pattern": "^O[1-9][0-9]*$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "enum": [
+              "criterion",
+              "bound_guide.requirements"
+            ]
+          },
+          "guide_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "condition_id",
+          "text",
+          "source"
+        ],
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "pattern": "^[AU][1-9][0-9]*$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "const": "authoritative_rule_or_bound_guide"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

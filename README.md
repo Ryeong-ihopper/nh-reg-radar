@@ -1,7 +1,10 @@
 # nh-reg-radar
 
-> 광고심의 RAG의 현재 정본 실행 경로와 스키마는 [RAG_PIPELINE.md](RAG_PIPELINE.md)를
-> 참조하십시오. `output/`, 답지, 연구원 피드백은 Git 저장소에 포함하지 않습니다.
+> 현재 광고심의 실행 코드는 [rag-pipeline/](rag-pipeline/README.md)에 있습니다.
+> 저장소 루트의 과거 RAG 코드는 현행 실행 경로가 아닙니다.
+> 검증: `python rag-pipeline/tools/run_rag_ci.py`.
+> 웹 앱과 첫 실행 안내는 [nh-ad-compliance 작업 브랜치](https://github.com/CGINSIDE-ROOKIES/nh-ad-compliance/tree/feat/regulation-collection-viewer)를 사용합니다.
+> 원본 광고·규제목록·답지·실행 결과·접속 설정은 포함하지 않습니다.
 
 금융 광고심의 근거 규정 수집 · 조문 단위 개정 감지.
 

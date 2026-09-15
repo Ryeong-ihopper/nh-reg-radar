@@ -1,0 +1,876 @@
+# -*- coding: utf-8 -*-
+"""Combine P1 evidence-v6 and P3 region-input-v1, then build search views.
+
+P1 remains the audit source.  P3 supplies the non-merged region text and label
+spans.  The combined JSON is the downstream review contract; Elasticsearch
+documents are projections of it, not a second source of truth.
+"""
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import json
+import re
+from pathlib import Path
+from typing import Any, Iterable
+
+from rag.contracts.validation import (
+    INTEGRATED_INPUT_VERSION,
+    SEARCH_DOCUMENT_VERSION,
+    validate_integrated_input,
+    validate_search_collections,
+)
+from rag.judgment.policy import routing_field
+from rag.parsing.parser_contract_adapter import adapt_p1_p3
+
+
+MAX_FINE_CHARS = 700
+# ``\d+[.)]``는 번호 매기기 말머리를 뜻한다. 뒤에 숫자가 이어지면 그것은
+# 말머리가 아니라 소수(0.7)나 날짜(2026.6.22.)이므로 자르지 않는다.
+BULLET_START = re.compile(
+    r"(?m)(?=^\s*(?:[•▪◦‣⁃※\uf0a7*-]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]|\d+[.)](?!\d)))"
+)
+
+# 표 영역은 라벨 셀과 값 셀이 서로 다른 파서 라인으로 나온다. 두 라인의 세로
+# 구간이 이만큼 겹치면 같은 시각적 행으로 본다.
+ROW_OVERLAP_RATIO = 0.5
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def compact(text: str) -> str:
+    return "".join(char for char in str(text or "") if not char.isspace())
+
+
+def search_text(text: str) -> str:
+    """Normalize whitespace only; canonical characters must be unchanged."""
+    original = str(text or "")
+    value = re.sub(r"\s+", " ", original).strip()
+    if compact(value) != compact(original):
+        raise ValueError("search normalization changed canonical characters")
+    return value
+
+
+def parser_classification_field(
+    classification: dict[str, Any], field_name: str
+) -> dict[str, Any]:
+    """Parser confidence never grants the authority of confirmed intake."""
+    value = classification.get(field_name)
+    source = str(classification.get("source") or "parser_classification")
+    confidence = classification.get("confidence")
+    return {
+        "value": value,
+        "source": f"parser_classification:{source}",
+        "status": "inferred" if value not in (None, "") else "unknown",
+        "confidence": confidence,
+    }
+
+
+def parser_template_field(template: dict[str, Any]) -> dict[str, Any]:
+    """Keep the parser's template decision as an observation, not intake."""
+    value = template.get("template_id")
+    parser_status = str(template.get("status") or "")
+    return {
+        "value": value,
+        "source": "parser_template",
+        "status": "inferred" if value not in (None, "") else "unknown",
+        "parser_status": parser_status,
+    }
+
+
+def _label_by_line(region_p3: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+    for label in region_p3.get("labels") or []:
+        base = {"label_id": label.get("label_id"), "label": label.get("label")}
+        for span in label.get("spans") or []:
+            item = {**base, "sources": span.get("sources") or []}
+            if span.get("confidence") is not None:
+                item["confidence"] = span["confidence"]
+            for ref in span.get("line_refs") or []:
+                bucket = result.setdefault(str(ref), [])
+                if item not in bucket:
+                    bucket.append(item)
+    return result
+
+
+def _minimal_line(line: dict[str, Any], labels: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "line_ref": str(line.get("line_ref") or ""),
+        "text": str(line.get("parser_text", line.get("text") or "")),
+        "bbox": line.get("bbox"),
+        "text_source": line.get("text_source", line.get("source")),
+        "confidence": line.get("ocr_confidence", line.get("confidence")),
+        "style": line.get("style"),
+        "labels": labels,
+    }
+
+
+def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
+    p1, p3 = read_json(p1_path), read_json(p3_path)
+    p1, p3 = adapt_p1_p3(p1, p3)
+    if (p1.get("reading_evidence_contract") or {}).get("version") != "nh-ad-review-evidence-v6":
+        raise ValueError(f"not P1 evidence-v6: {p1_path}")
+    if (p3.get("contract") or {}).get("version") != "nh-ad-review-region-input-v1":
+        raise ValueError(f"not P3 region-input-v1: {p3_path}")
+    if p1.get("doc_id") != (p3.get("document") or {}).get("doc_id"):
+        raise ValueError(f"P1/P3 doc_id mismatch: {p1_path.name}")
+
+    p3_pages = {page.get("page_no"): page for page in p3.get("pages") or []}
+    p1_page_numbers = [page.get("page_no") for page in p1.get("pages") or []]
+    if set(p3_pages) != set(p1_page_numbers):
+        raise ValueError(f"P1/P3 page set mismatch: {p1_path.name}")
+    pages: list[dict[str, Any]] = []
+    source_refs: list[str] = []
+    p3_partition_refs: list[str] = []
+    for page in p1.get("pages") or []:
+        page_no = page.get("page_no")
+        p3_page = p3_pages.get(page_no) or {}
+        p3_regions = {str(region.get("region_id")): region for region in p3_page.get("regions") or []}
+        regions: list[dict[str, Any]] = []
+        for region in page.get("regions") or []:
+            region_id = str(region.get("region_id") or "")
+            lines_raw = region.get("lines") or []
+            if not lines_raw:
+                continue
+            region_p3 = p3_regions.get(region_id)
+            if region_p3 is None:
+                raise ValueError(f"P3 missing non-empty region {page_no}/{region_id}")
+            by_line = _label_by_line(region_p3)
+            expected_refs = [str(ref) for ref in region_p3.get("line_refs") or []]
+            lines = []
+            for line in lines_raw:
+                ref = str(line.get("line_ref") or "")
+                if not ref:
+                    raise ValueError(f"missing line_ref {page_no}/{region_id}")
+                source_refs.append(ref)
+                lines.append(_minimal_line(line, by_line.get(ref, [])))
+            refs = [line["line_ref"] for line in lines]
+            p3_partition_refs.extend(expected_refs)
+            if refs != expected_refs:
+                raise ValueError(f"P1/P3 region line_ref mismatch: {page_no}/{region_id}")
+            labels = region_p3.get("labels") or []
+            labelled_count = sum(bool(line["labels"]) for line in lines)
+            regions.append({
+                "evidence_id": f"{p1['doc_id']}#p{page_no}:{region_id}",
+                "region_id": region_id,
+                "card_no": region.get("card_no"),
+                "bbox": region.get("bbox"),
+                "layout": region.get("layout"),
+                "final_text": str(region_p3.get("review_text") or ""),
+                "text_source": region_p3.get("text_source"),
+                "text_selection": copy.deepcopy(region_p3.get("text_selection") or {}),
+                "line_refs": refs,
+                "lines": lines,
+                "labels": labels,
+                "assignment_status": (
+                    "unassigned" if labelled_count == 0
+                    else "assigned" if labelled_count == len(lines)
+                    else "mixed"
+                ),
+                "visibility": region.get("visibility"),
+                "table": region.get("table"),
+            })
+
+        unassigned = []
+        p3_unassigned = {str(row.get("line_ref")): row for row in p3_page.get("unassigned_text") or []}
+        for line in page.get("unassigned_lines") or []:
+            ref = str(line.get("line_ref") or "")
+            if not ref or ref not in p3_unassigned:
+                raise ValueError(f"P3 missing unassigned line {page_no}/{ref}")
+            source_refs.append(ref)
+            p3_partition_refs.append(ref)
+            projected_line = _minimal_line(line, [])
+            projected_line["text_selection"] = copy.deepcopy(p3_unassigned[ref].get("text_selection") or {})
+            unassigned.append(projected_line)
+        pages.append({
+            "page_no": page_no,
+            "canvas_w": page.get("canvas_w"),
+            "canvas_h": page.get("canvas_h"),
+            "dpi": page.get("dpi"),
+            "physical_width_mm": page.get("physical_width_mm"),
+            "physical_height_mm": page.get("physical_height_mm"),
+            "parse_route": page.get("parse_route"),
+            "parse_status": page.get("parse_status"),
+            "unread_regions": copy.deepcopy(page.get("unread_regions") or []),
+            "relations": copy.deepcopy(page.get("relations") or []),
+            "regions": regions,
+            "unassigned_lines": unassigned,
+        })
+
+    if (
+        len(source_refs) != len(set(source_refs))
+        or len(p3_partition_refs) != len(set(p3_partition_refs))
+        or source_refs != p3_partition_refs
+    ):
+        raise ValueError("line partition is not exact")
+
+    classification = p1.get("classification") or {}
+    template = p1.get("template") or {}
+    result = {
+        "contract": {
+            "version": INTEGRATED_INPUT_VERSION,
+            "sources": {
+                "p1_contract": "nh-ad-review-evidence-v6",
+                "p3_contract": "nh-ad-review-region-input-v1",
+                "p1_sha256": sha256(p1_path),
+                "p3_sha256": sha256(p3_path),
+            },
+            "review_unit": "original parser region; same-label regions are not merged",
+            "final_text_policy": "P3 review_text selected from P1 judge policy",
+        },
+        "document": {
+            "ad_id": p1.get("doc_id"),
+            "source_file": p1.get("source_file"),
+            "file_type": p1.get("file_type"),
+            "dataset_group": (p1.get("batch_source") or {}).get("input_group"),
+            "input_relative_path": (p1.get("batch_source") or {}).get("relative_path"),
+            "routing_metadata": {
+                "product_group": parser_classification_field(classification, "product_group"),
+                "ad_type": parser_classification_field(classification, "ad_type"),
+                "product_name_shown": parser_classification_field(
+                    classification, "product_name_shown"
+                ),
+                "template_id": parser_template_field(template),
+                "classification_source": classification.get("source"),
+                "classification_observation": classification,
+                "template_observation": template,
+            },
+        },
+        "pages": pages,
+        "relations": copy.deepcopy(p1.get("relations") or []),
+        "unverified_recovery_candidates": p3.get("unverified_recovery_candidates") or [],
+        "diagnostics": {
+            **(p3.get("diagnostics") or {}),
+            **({"parser_contract_adapter": p1["_adapter_provenance"]}
+               if p1.get("_adapter_provenance") else {}),
+        },
+        "quality": {
+            **copy.deepcopy(p1.get("quality") or {}),
+            **({"complete_document_read": False if (p1.get("quality") or {}).get("complete_document_read") is False
+               else p1["coverage"]["complete_document_read"]}
+               if "complete_document_read" in (p1.get("coverage") or {}) else {}),
+            "line_count": len(source_refs),
+            "line_partition_exact": True,
+            "region_count": sum(len(page["regions"]) for page in pages),
+            "empty_region_count": sum(
+                not region["final_text"].strip() for page in pages for region in page["regions"]
+            ),
+        },
+    }
+    validate_integrated_input(result)
+    return result
+
+
+def _split_parts(
+    line: dict[str, Any], *, split_bullets: bool = True
+) -> list[dict[str, Any]]:
+    text = line["text"]
+    if not text:
+        return []
+    starts = (
+        sorted({0, *(match.start() for match in BULLET_START.finditer(text) if match.start() > 0)})
+        if split_bullets else [0]
+    )
+    parts = []
+    for idx, start in enumerate(starts):
+        end = starts[idx + 1] if idx + 1 < len(starts) else len(text)
+        if text[start:end].strip():
+            parts.append({"text": text[start:end], "line_ref": line["line_ref"],
+                          "char_start": start, "char_end": end, "bbox": line.get("bbox")})
+    return parts
+
+
+def _is_table_region(region: dict[str, Any]) -> bool:
+    label = str(((region.get("layout") or {}).get("label") or "")).lower()
+    return "table" in label
+
+
+def _same_visual_row(previous: Any, current: Any) -> bool:
+    """두 파서 라인이 한 표 행에 속하는지 세로 겹침으로 본다."""
+    if not (isinstance(previous, (list, tuple)) and isinstance(current, (list, tuple))):
+        return False
+    if len(previous) < 4 or len(current) < 4:
+        return False
+    top, bottom = max(previous[1], current[1]), min(previous[3], current[3])
+    overlap = bottom - top
+    if overlap <= 0:
+        return False
+    shortest = min(previous[3] - previous[1], current[3] - current[1])
+    return shortest > 0 and overlap >= ROW_OVERLAP_RATIO * shortest
+
+
+def _template_label_names_by_line(region: dict[str, Any]) -> dict[str, set[str]]:
+    """파서가 라인에 붙인 템플릿 항목 라벨을 줄 참조별로 모은다.
+
+    라벨의 줄 참조는 ``p1/p1_r004/L015`` 형태이고 파서 라인은 자산 접두어가
+    붙은 ``FILE-xxxx::p1/p1_r004/L015`` 형태라 접미부로 맞춘다.
+    """
+    mapping: dict[str, set[str]] = {}
+    for label in region.get("labels") or []:
+        name = str(label.get("label") or "").strip()
+        if not name:
+            continue
+        for span in label.get("spans") or []:
+            for line_ref in span.get("line_refs") or []:
+                mapping.setdefault(str(line_ref), set()).add(name)
+    return mapping
+
+
+def _unit_label(
+    unit: list[dict[str, Any]], label_by_line: dict[str, set[str]]
+) -> str | None:
+    """한 묶음이 단일 항목에 속할 때만 그 항목 이름을 돌려준다."""
+    names: set[str] = set()
+    for part in unit:
+        suffix = str(part.get("line_ref") or "").split("::", 1)[-1]
+        names |= label_by_line.get(suffix, set())
+    return next(iter(names)) if len(names) == 1 else None
+
+
+def _label_groups(
+    rows: list[list[dict[str, Any]]], *, region: dict[str, Any]
+) -> list[list[dict[str, Any]]] | None:
+    """표의 행을 파서 라벨 경계로 묶는다. 라벨이 없으면 ``None``.
+
+    라벨이 붙지 않은 행은 직전 항목에 딸린 내용으로 보고 이어 붙인다. 주석이
+    본문 뒤에 오는 표에서 주석만 떨어져 나가지 않게 하려는 것이다.
+    """
+    label_by_line = _template_label_names_by_line(region)
+    # 라벨이 서로 다른 항목을 둘 이상 구분해 줄 때만 경계로 쓴다. 한 종류뿐이면
+    # 표 전체가 한 덩어리가 되어 좌표 방식보다 거칠어진다.
+    distinct = {name for names in label_by_line.values() for name in names}
+    if len(distinct) < 2:
+        return None
+    groups: list[list[dict[str, Any]]] = []
+    current_label: str | None = None
+    for row in rows:
+        name = _unit_label(row, label_by_line)
+        if not groups or (name is not None and current_label is not None
+                          and name != current_label):
+            groups.append(list(row))
+            current_label = name
+        else:
+            groups[-1].extend(row)
+            if name is not None and current_label is None:
+                current_label = name
+    return groups
+
+
+def _row_start_x(row: list[dict[str, Any]]) -> float | None:
+    xs = [
+        part["bbox"][0]
+        for part in row
+        if isinstance(part.get("bbox"), (list, tuple)) and len(part["bbox"]) >= 4
+    ]
+    return min(xs) if xs else None
+
+
+def _field_groups(
+    rows: list[list[dict[str, Any]]], *, region: dict[str, Any]
+) -> list[list[dict[str, Any]]]:
+    """표의 행들을 항목 단위로 묶는다.
+
+    왼쪽 라벨 열에서 시작하는 행이 새 항목이고, 그보다 들여쓴 행은 그 항목에
+    딸린 내용이다. 라벨 열 위치는 이 표 안에서 가장 왼쪽 행 시작점으로 잡는다.
+    좌표를 모르면 행 하나를 그대로 항목으로 둔다.
+    """
+    starts = [_row_start_x(row) for row in rows]
+    known = [x for x in starts if x is not None]
+    if not known:
+        return [list(row) for row in rows]
+    label_x = min(known)
+    bbox = region.get("bbox")
+    width = (
+        bbox[2] - bbox[0]
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4 else 0
+    )
+    tolerance = max(8.0, 0.02 * width)
+    groups: list[list[dict[str, Any]]] = []
+    for row, start in zip(rows, starts):
+        if not groups or (start is not None and start - label_x <= tolerance):
+            groups.append(list(row))
+        else:
+            groups[-1].extend(row)
+    return groups
+
+
+def _split_oversized(
+    groups: list[list[dict[str, Any]]], rows_by_group: list[list[list[dict[str, Any]]]]
+) -> list[list[dict[str, Any]]]:
+    """항목 하나가 상한을 넘으면 행 경계에서만 나눈다."""
+    output: list[list[dict[str, Any]]] = []
+    for group, rows in zip(groups, rows_by_group):
+        if sum(len(part["text"]) for part in group) <= MAX_FINE_CHARS:
+            output.append(group)
+            continue
+        current: list[dict[str, Any]] = []
+        size = 0
+        for row in rows:
+            row_size = sum(len(part["text"]) for part in row)
+            if current and size + row_size > MAX_FINE_CHARS:
+                output.append(current)
+                current, size = [], 0
+            current.extend(row)
+            size += row_size
+        if current:
+            output.append(current)
+    return output
+
+
+def _atomic_groups(
+    parts: list[dict[str, Any]], *, table: bool
+) -> list[list[dict[str, Any]]]:
+    """청킹이 절대 쪼개면 안 되는 최소 묶음을 만든다.
+
+    표가 아니면 파서 라인 하나가 최소 묶음이라 종전과 같다. 표이면 같은
+    시각적 행의 라인들을 한 묶음으로 두어 라벨과 값이 갈리지 않게 한다.
+    """
+    if not table:
+        return [[part] for part in parts]
+    groups: list[list[dict[str, Any]]] = []
+    for part in parts:
+        if groups and _same_visual_row(groups[-1][-1].get("bbox"), part.get("bbox")):
+            groups[-1].append(part)
+        else:
+            groups.append([part])
+    return groups
+
+
+def _selected_text_line_refs(region: dict[str, Any]) -> list[str] | None:
+    """Align P3 selected text to the P1 lines which actually contain it.
+
+    A visual parser region can cover most of a page while P3 selects only a
+    navigation row or a disclosure inside it.  Returning every region line as
+    provenance makes the UI highlight unrelated server headers and lets the
+    model cite text it never received.  Use a monotonic exact-text alignment;
+    if it cannot be proved, retain the conservative region-level provenance.
+    """
+    target = compact(str(region.get("final_text") or ""))
+    if not target:
+        return None
+    # Keep at most two paths per matched prefix: two complete matches already
+    # prove ambiguity. A greedy first match can wrongly assign a repeated
+    # heading/amount to whichever identical line happens to appear first.
+    paths: dict[int, list[tuple[str, ...]]] = {0: [()]}
+    matches: list[tuple[str, ...]] = []
+    for line in region.get("lines") or []:
+        value = compact(str(line.get("text") or ""))
+        if not value:
+            continue
+        next_paths = {offset: list(choices) for offset, choices in paths.items()}
+        for offset, choices in paths.items():
+            if not target.startswith(value, offset):
+                continue
+            end = offset + len(value)
+            for refs in choices:
+                candidate = (*refs, str(line["line_ref"]))
+                if end == len(target):
+                    if candidate not in matches:
+                        matches.append(candidate)
+                    if len(matches) > 1:
+                        return None
+                else:
+                    bucket = next_paths.setdefault(end, [])
+                    if len(bucket) < 2 and candidate not in bucket:
+                        bucket.append(candidate)
+        paths = next_paths
+    return list(matches[0]) if matches else None
+
+
+def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
+    is_table = _is_table_region(region)
+    line_parts = [
+        part
+        for line in region["lines"]
+        for part in _split_parts(line, split_bullets=not is_table)
+    ]
+    line_text = "".join(part["text"] for part in line_parts)
+    if compact(line_text) != compact(region["final_text"]):
+        # P3 may select region-level OCR/VLM text that deliberately drops a
+        # parser artifact or otherwise differs from the P1 line sequence. In
+        # that case line-exact character spans would be false provenance, so
+        # split the selected canonical text itself while retaining all source
+        # line references as region-level evidence.
+        text = region["final_text"]
+        starts = sorted({0, *(match.start() for match in BULLET_START.finditer(text) if match.start() > 0)})
+        raw_parts = []
+        for idx, start in enumerate(starts):
+            end = starts[idx + 1] if idx + 1 < len(starts) else len(text)
+            if text[start:end].strip():
+                raw_parts.append({
+                    "text": text[start:end],
+                    "line_ref": None,
+                    "char_start": start,
+                    "char_end": end,
+                })
+        parts = raw_parts
+        selected_refs = _selected_text_line_refs(region)
+        evidence_refs = selected_refs or region["line_refs"]
+        span_status = (
+            "selected_text_line_aligned" if selected_refs
+            else "region_level_selected_text"
+        )
+    else:
+        parts = line_parts
+        evidence_refs = None
+        span_status = "parser_line_exact"
+    if parts is not line_parts:
+        # 선택 텍스트를 직접 쪼갠 경로에는 라인 bbox가 없어 행 복원이 불가능하다.
+        is_table = False
+    units = _atomic_groups(parts, table=is_table)
+    if is_table:
+        # 표는 항목 하나가 한 청크다. 인접 항목을 상한까지 이어붙이면 서로 다른
+        # 항목의 수치가 한 창에 섞여 산술 검산이 어긋난다.
+        rows_by_group: list[list[list[dict[str, Any]]]] = []
+        groups = _label_groups(units, region=region)
+        if groups is None:
+            groups = _field_groups(units, region=region)
+        index = 0
+        for group in groups:
+            taken: list[list[dict[str, Any]]] = []
+            covered = 0
+            while index < len(units) and covered < len(group):
+                taken.append(units[index])
+                covered += len(units[index])
+                index += 1
+            rows_by_group.append(taken)
+        groups = _split_oversized(groups, rows_by_group)
+    else:
+        groups = []
+        current: list[dict[str, Any]] = []
+        size = 0
+        for unit in units:
+            starts_bullet = bool(BULLET_START.match(unit[0]["text"]))
+            unit_size = sum(len(part["text"]) for part in unit)
+            if current and (starts_bullet or size + unit_size > MAX_FINE_CHARS):
+                groups.append(current)
+                current, size = [], 0
+            current.extend(unit)
+            size += unit_size
+        if current:
+            groups.append(current)
+    rows = []
+    for index, group in enumerate(groups, 1):
+        text = "\n".join(part["text"] for part in group)
+        refs = evidence_refs or list(dict.fromkeys(part["line_ref"] for part in group))
+        view_span_status = span_status
+        if span_status == "region_level_selected_text":
+            # A correction elsewhere in the region must not prevent proving
+            # the exact source of an unchanged fine view. Never fuzzy-match.
+            aligned = _selected_text_line_refs({**region, "final_text": text})
+            if aligned:
+                refs = aligned
+                view_span_status = "selected_text_line_aligned"
+        rows.append({
+            "doc_id": f"{region['evidence_id']}~s{index:03d}",
+            "parent_doc_id": region["evidence_id"],
+            "view_type": "fine_text",
+            "text_canonical": text,
+            "text_search": search_text(text),
+            "line_refs": refs,
+            "span_status": view_span_status,
+            "line_spans": [
+                {"line_ref": part["line_ref"], "char_start": part["char_start"], "char_end": part["char_end"]}
+                for part in group
+            ] if span_status == "parser_line_exact" else [],
+        })
+    if compact("".join(row["text_canonical"] for row in rows)) != compact(region["final_text"]):
+        raise ValueError(f"fine views lost characters: {region['evidence_id']}")
+    return rows
+
+
+def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    coarse, fine = [], []
+    meta = ad["document"]
+    source = meta["routing_metadata"].get("classification_source")
+    routing_metadata = {
+        "product_group": routing_field(
+            meta["routing_metadata"].get("product_group"), default_source=source
+        ),
+        "ad_type": routing_field(
+            meta["routing_metadata"].get("ad_type"), default_source=source
+        ),
+        "product_name_shown": routing_field(
+            meta["routing_metadata"].get("product_name_shown"), default_source=source
+        ),
+        "template_id": routing_field(
+            meta["routing_metadata"].get("template_id"),
+            default_source="parser_template",
+        ),
+        "product_subtype": routing_field(
+            meta["routing_metadata"].get("product_subtype"), default_source=source
+        ),
+        "media_type": routing_field(
+            meta["routing_metadata"].get("media_type"), default_source=source
+        ),
+        "review_stage": routing_field(
+            meta["routing_metadata"].get("review_stage"), default_source=source
+        ),
+        "association_pre_review": routing_field(
+            meta["routing_metadata"].get("association_pre_review"), default_source=source
+        ),
+        "external_evidence_available": routing_field(
+            meta["routing_metadata"].get("external_evidence_available"),
+            default_source=source,
+        ),
+    }
+    for page in ad["pages"]:
+        # Unassigned canonical lines still belong to this advertisement. Give
+        # each a search projection without inventing a parser region or label.
+        unassigned_views = [
+            {
+                "evidence_id": f"{meta['ad_id']}#unassigned:{line['line_ref']}",
+                "region_id": None,
+                "bbox": line.get("bbox"),
+                "final_text": line["text"],
+                "lines": [line],
+                "line_refs": [line["line_ref"]],
+                "labels": [],
+                "assignment_status": "unassigned",
+                "text_selection": copy.deepcopy(line.get("text_selection") or {}),
+            }
+            for line in page.get("unassigned_lines") or []
+            if str(line.get("text") or "").strip()
+        ]
+        for region in [*page["regions"], *unassigned_views]:
+            if not region["final_text"].strip():
+                continue
+            base = {
+                "schema_version": SEARCH_DOCUMENT_VERSION,
+                "ad_id": meta["ad_id"],
+                "product_id": meta.get("product_id"),
+                "source_file": meta["source_file"],
+                "routing": meta["routing_metadata"],
+                "routing_metadata": routing_metadata,
+                "page_no": page["page_no"],
+                "region_id": region["region_id"],
+                "bbox": region["bbox"],
+                "labels": region["labels"],
+                "assignment_status": region["assignment_status"],
+                "text_selection": copy.deepcopy(region.get("text_selection") or {}),
+            }
+            line_bbox_by_ref = {
+                line["line_ref"]: line.get("bbox")
+                for line in region["lines"]
+                if line.get("bbox") is not None
+            }
+            coarse_refs = _selected_text_line_refs(region) or region["line_refs"]
+            line_text_by_ref = {line["line_ref"]: line["text"] for line in region["lines"]}
+            coarse.append({
+                **base,
+                "doc_id": region["evidence_id"],
+                "parent_doc_id": None,
+                "parent_chunk_id": None,
+                "view_type": "canonical_region",
+                "text_canonical": region["final_text"],
+                "text_search": search_text(region["final_text"]),
+                "line_refs": coarse_refs,
+                "line_texts": {ref: line_text_by_ref[ref] for ref in coarse_refs if ref in line_text_by_ref},
+                "line_bboxes": {
+                    ref: line_bbox_by_ref[ref]
+                    for ref in coarse_refs if ref in line_bbox_by_ref
+                },
+            })
+            line_labels = {line["line_ref"]: line["labels"] for line in region["lines"]}
+            for view in _fine_views(region):
+                labels = []
+                for ref in view["line_refs"]:
+                    for label in line_labels.get(ref, []):
+                        if label not in labels:
+                            labels.append(label)
+                fine.append({
+                    **base,
+                    **view,
+                    "parent_chunk_id": view["parent_doc_id"],
+                    "labels": labels,
+                    "line_texts": {
+                        ref: line_text_by_ref[ref]
+                        for ref in view["line_refs"] if ref in line_text_by_ref
+                    },
+                    "line_bboxes": {
+                        ref: line_bbox_by_ref[ref]
+                        for ref in view["line_refs"] if ref in line_bbox_by_ref
+                    },
+                })
+    relations = [*(ad.get("relations") or []),
+                 *(relation for page in ad["pages"] for relation in page.get("relations") or [])]
+    for relation in relations:
+        if not isinstance(relation, dict) or any(
+            not isinstance(relation.get(key), list)
+            or not all(isinstance(ref, str) and ref for ref in relation[key])
+            for key in ("from_line_ids", "to_line_ids")
+        ):
+            raise ValueError("source relation must contain from_line_ids/to_line_ids string arrays")
+    for row in [*coarse, *fine]:
+        refs = set(row.get("line_refs") or [])
+        linked = [copy.deepcopy(relation) for relation in relations
+            if isinstance(relation, dict) and refs.intersection(
+                [*(relation.get("from_line_ids") or []), *(relation.get("to_line_ids") or [])])]
+        if linked:
+            row["source_relations"] = linked
+    return coarse, fine
+
+
+def product_scoped_documents(ad: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn one multi-product advertisement into isolated judgment scopes.
+
+    Shared regions are copied into every product scope. Product-specific
+    regions appear only in their own scope. The source advertisement ID and
+    product identity stay explicit so downstream results can be regrouped
+    without using filenames or model inference.
+    """
+    validate_integrated_input(ad)
+    document = ad["document"]
+    products = document.get("products") or []
+    if not products:
+        return [ad]
+    if len(products) > 1 and ad.get("unverified_recovery_candidates"):
+        raise ValueError(
+            "multi-product input has unverified recovery candidates; "
+            "assign them before product-scoped judgment"
+        )
+
+    source_ad_id = str(document["ad_id"])
+    shared = set(document.get("shared_evidence_ids") or [])
+    scoped: list[dict[str, Any]] = []
+    single_product = len(products) == 1
+    for product in products:
+        product_id = str(product["product_id"])
+        allowed = shared.union(map(str, product.get("evidence_ids") or []))
+        value = copy.deepcopy(ad)
+        scoped_document = value["document"]
+        scoped_document.pop("products", None)
+        scoped_document.pop("shared_evidence_ids", None)
+        scoped_document["parent_ad_id"] = source_ad_id
+        scoped_document["product_id"] = product_id
+        scoped_document["product_name"] = str(product["product_name"])
+        suffix = hashlib.sha256(product_id.encode("utf-8")).hexdigest()[:12]
+        scoped_document["ad_id"] = f"{source_ad_id}::product:{suffix}"
+        scope_prefix = scoped_document["ad_id"]
+        scoped_document["routing_metadata"] = {
+            **copy.deepcopy(document.get("routing_metadata") or {}),
+            **copy.deepcopy(product.get("routing_metadata") or {}),
+        }
+
+        region_count = 0
+        line_count = 0
+        empty_region_count = 0
+        pages = []
+        for page in value["pages"]:
+            page["regions"] = [
+                region
+                for region in page.get("regions") or []
+                if str(region.get("evidence_id")) in allowed
+            ]
+            for region in page["regions"]:
+                source_evidence_id = str(region["evidence_id"])
+                region["source_evidence_id"] = source_evidence_id
+                region["evidence_id"] = f"{scope_prefix}::{source_evidence_id}"
+            # A sole product owns every line in the advertisement, including
+            # parser lines that have no region assignment.  In a true
+            # multi-product advertisement those lines are rejected by the
+            # input validator because their owner cannot be inferred.
+            page["unassigned_lines"] = (
+                copy.deepcopy(page.get("unassigned_lines") or [])
+                if single_product
+                else []
+            )
+            if not page["regions"] and not page["unassigned_lines"]:
+                continue
+            region_count += len(page["regions"])
+            line_count += (
+                sum(len(region.get("lines") or []) for region in page["regions"])
+                + len(page["unassigned_lines"])
+            )
+            empty_region_count += sum(
+                1 for region in page["regions"] if not str(region.get("final_text") or "").strip()
+            )
+            pages.append(page)
+        if not pages or region_count == 0:
+            raise ValueError(f"product {product_id!r} has no scoped advertisement regions")
+        value["pages"] = pages
+        value["quality"] = {
+            **copy.deepcopy(value.get("quality") or {}),
+            "line_count": line_count,
+            "line_partition_exact": True,
+            "region_count": region_count,
+            "empty_region_count": empty_region_count,
+        }
+        validate_integrated_input(value)
+        scoped.append(value)
+    return scoped
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batch-root", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    p1_files = sorted(args.batch_root.rglob("json/*.json"))
+    if not p1_files:
+        raise SystemExit(f"no P1 files under {args.batch_root}")
+    all_coarse, all_fine = [], []
+    docs = []
+    for p1_path in p1_files:
+        p3_path = p1_path.parent.parent / "review_region_input" / p1_path.name
+        if not p3_path.is_file():
+            raise ValueError(f"missing P3 pair: {p3_path}")
+        ad = combine(p1_path, p3_path)
+        target = args.out / "integrated" / p1_path.name
+        write_json(target, ad)
+        coarse, fine = search_docs(ad)
+        all_coarse.extend(coarse)
+        all_fine.extend(fine)
+        docs.append({
+            "ad_id": ad["document"]["ad_id"],
+            "source_file": ad["document"]["source_file"],
+            "p1": str(p1_path.resolve()),
+            "p3": str(p3_path.resolve()),
+            "integrated": str(target.resolve()),
+            "regions": len(coarse),
+            "fine_views": len(fine),
+        })
+    write_jsonl(args.out / "evidence_coarse.jsonl", all_coarse)
+    write_jsonl(args.out / "evidence_fine.jsonl", all_fine)
+    validate_search_collections(
+        [read_json(args.out / "integrated" / path.name) for path in p1_files],
+        all_coarse,
+        all_fine,
+    )
+    write_json(args.out / "manifest.json", {
+        "schema_version": "p1-p3-search-build-v1",
+        "documents": docs,
+        "counts": {"ads": len(docs), "coarse": len(all_coarse), "fine": len(all_fine)},
+        "checks": {
+            "p1_p3_identity": "pass",
+            "same_label_regions_not_merged": "pass",
+            "line_partition_exact": "pass",
+            "fine_character_coverage": "pass",
+        },
+    })
+    print(json.dumps({"out": str(args.out), "ads": len(docs), "coarse": len(all_coarse), "fine": len(all_fine)}, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

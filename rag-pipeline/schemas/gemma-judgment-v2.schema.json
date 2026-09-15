@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gemma rule judgment v2",
+  "type": "object",
+  "required": [
+    "item_id", "applicability", "applicability_basis",
+    "applicability_evidence_ids", "applicability_evidence_line_refs",
+    "applicability_metadata_fields", "verdict", "evidence_ids",
+    "evidence_line_refs", "requirement_checks", "reason",
+    "confidence", "needs_researcher_review"
+  ],
+  "properties": {
+    "item_id": {"type": "string", "minLength": 1},
+    "applicability": {"enum": ["APPLICABLE", "NOT_APPLICABLE", "UNDETERMINED"]},
+    "applicability_basis": {"enum": ["ADVERTISEMENT_EVIDENCE", "CONFIRMED_METADATA", "NOT_APPLICABLE", "UNDETERMINED"]},
+    "applicability_evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "applicability_evidence_line_refs": {"type": "array", "items": {"type": "string"}},
+    "applicability_metadata_fields": {"type": "array", "items": {"type": "string"}},
+    "scope_check": {
+      "type": "object",
+      "required": ["scope_ref", "status"],
+      "properties": {
+        "scope_ref": {"const": "SCOPE"},
+        "status": {"enum": ["MATCHED", "NOT_MATCHED", "UNDETERMINED"]}
+      },
+      "additionalProperties": false
+    },
+    "condition_checks": {"$ref": "#/$defs/conditionChecks"},
+    "review_condition_checks": {"$ref": "#/$defs/reviewConditionChecks"},
+    "verdict": {"enum": ["COMPLIANT", "VIOLATION", "NOT_APPLICABLE", "UNDETERMINED"]},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "evidence_line_refs": {"type": "array", "items": {"type": "string"}},
+    "requirement_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["requirement", "status", "finding_basis", "evidence_ids", "evidence_line_refs", "reason"],
+        "properties": {
+          "requirement": {"type": "string", "minLength": 1},
+          "status": {"enum": ["SATISFIED", "MISSING", "VIOLATED", "NOT_APPLICABLE", "UNDETERMINED"]},
+          "finding_basis": {"enum": ["OBSERVED", "ABSENCE", "UNKNOWN"]},
+          "evidence_ids": {"type": "array", "items": {"type": "string"}},
+          "evidence_line_refs": {"type": "array", "items": {"type": "string"}},
+          "reason": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "reason": {"type": "string", "minLength": 1},
+    "confidence": {"enum": ["HIGH", "MEDIUM", "LOW"]},
+    "needs_researcher_review": {"type": "boolean"}
+  },
+  "$defs": {
+    "conditionChecks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["condition_ref", "status"],
+        "properties": {
+          "condition_ref": {"type": "string", "pattern": "^A[1-9][0-9]*$"},
+          "status": {"enum": ["SATISFIED", "NOT_SATISFIED", "UNDETERMINED"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "reviewConditionChecks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["condition_ref", "status"],
+        "properties": {
+          "condition_ref": {"type": "string", "pattern": "^U[1-9][0-9]*$"},
+          "status": {"enum": ["TRIGGERED", "NOT_TRIGGERED", "UNDETERMINED"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

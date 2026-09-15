@@ -1,0 +1,22 @@
+{
+  "runtime_profile": "dgx-interim",
+  "regulation_path": "/data/NH_광고심의_에이전트_규제목록_v2.xlsx",
+  "template_source_path": "/data/광고-템플릿.hwpx",
+  "es_url": "http://127.0.0.1:19201",
+  "es_index": "nh-rules-v2-operational",
+  "model": "gemma-4-26b-NVFP4-MTP",
+  "dgx_host": "user@gpu-host",
+  "dgx_key": "/run/secrets/dgx_ssh_key",
+  "model_env": {
+    "NH_GPU_BGE_ENDPOINT": "http://127.0.0.1:8103",
+    "NH_GPU_GEMMA_ENDPOINT": "http://127.0.0.1:8102/v1/chat/completions",
+    "NH_GPU_GEMMA_MODEL": "gemma-4-26b-NVFP4-MTP"
+  },
+  "parser_root": "/opt/nh-parser",
+  "parser_cwd": "/data/parser-work",
+  "parser_python": "/opt/nh-parser/.venv/bin/python",
+  "parser_runner": "nh_parsing_test_batch",
+  "parser_env": {
+    "REGION_READING_MODE": "shadow"
+  }
+}

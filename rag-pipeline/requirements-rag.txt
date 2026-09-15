@@ -1,0 +1,10 @@
+# Python 3.11 runtime dependencies for the canonical RAG and operational web path.
+# Versions already present in DAP are fixed exactly; separately supplied document
+# readers use bounded ranges with Python 3.11 wheels.
+numpy==2.4.6
+openpyxl==3.1.5
+pypdfium2==5.13.0
+Pillow==12.3.0
+requests==2.34.2
+fastapi==0.139.2
+uvicorn==0.51.0

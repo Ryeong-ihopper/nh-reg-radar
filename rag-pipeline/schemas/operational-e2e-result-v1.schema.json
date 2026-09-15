@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Operational compliance result v1",
+  "type": "object",
+  "required": ["schema_version", "status", "freeze", "audit", "counts", "output_failure_pairs", "ads"],
+  "properties": {
+    "schema_version": {"const": "operational-e2e-result-v1"},
+    "status": {"const": "silver_researcher_review_required"},
+    "freeze": {"type": "string", "minLength": 1},
+    "audit": {
+      "type": "object",
+      "required": ["model", "search", "rule_sources", "guardrails"],
+      "properties": {
+        "model": {"type": "object"},
+        "search": {"type": "object"},
+        "rule_sources": {"type": "object"},
+        "guardrails": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "counts": {
+      "type": "object",
+      "required": ["ads", "requested_pairs", "predicted_pairs", "output_failures"],
+      "properties": {
+        "ads": {"type": "integer", "minimum": 0},
+        "requested_pairs": {"type": "integer", "minimum": 0},
+        "predicted_pairs": {"type": "integer", "minimum": 0},
+        "output_failures": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "output_failure_pairs": {"type": "array", "items": {"type": "object"}},
+    "ads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ad_id", "routing", "parser_coverage", "candidates"],
+        "properties": {
+          "ad_id": {"type": "string", "minLength": 1},
+          "scope_id": {"type": "string", "minLength": 1},
+          "product_id": {"type": ["string", "null"]},
+          "product_name": {"type": ["string", "null"]},
+          "routing": {"type": "object"},
+          "parser_coverage": {"enum": ["READY", "PARTIAL"]},
+          "excluded_candidates": {"type": "array", "items": {"type": "object"}},
+          "deferred_rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item_id", "reason"],
+              "properties": {
+                "item_id": {"type": "string", "minLength": 1},
+                "reason": {"type": "string", "minLength": 1},
+                "required_medium": {"type": ["string", "null"]},
+                "input_requirement": {"type": ["string", "null"]},
+                "template_basis": {"type": "object"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item_id", "status", "judgment", "source", "rule_basis", "decision_trace"],
+              "properties": {
+                "item_id": {"type": "string", "minLength": 1},
+                "status": {"enum": ["predicted", "OUTPUT_FAILURE"]},
+                "judgment": {"oneOf": [
+                  {"$ref": "gemma-judgment-v1.schema.json"},
+                  {"$ref": "gemma-judgment-v2.schema.json"},
+                  {"type": "null"}
+                ]},
+                "source": {"type": ["string", "null"]},
+                "rule_basis": {
+                  "type": "object",
+                  "required": ["item_id", "source_type", "source_ref", "legal_basis_refs", "basis_status"],
+                  "properties": {
+                    "item_id": {"type": "string", "minLength": 1},
+                    "source_type": {"enum": ["INTERNAL_TEMPLATE", "REGULATION_V2"]},
+                    "source_ref": {"type": "string", "minLength": 1},
+                    "source_sha256": {"type": ["string", "null"]},
+                    "legal_basis_refs": {"type": "array", "items": {"type": "string"}},
+                    "basis_status": {"enum": ["SOURCE_BOUND", "LEGAL_BASIS_BOUND", "LEGAL_BASIS_NOT_PROVIDED"]}
+                  },
+                  "additionalProperties": false
+                },
+                "condition_contract": {"oneOf": [
+                  {"$ref": "rule-applicability-contract-v1.schema.json"},
+                  {"$ref": "rule-applicability-contract-v2.schema.json"}
+                ]},
+                "decision_trace": {
+                  "type": "object",
+                  "required": ["decision_source", "model_result_source", "evidence_ids", "evidence_line_refs"],
+                  "properties": {
+                    "decision_source": {"enum": ["LLM_VALIDATED_BY_DETERMINISTIC_GUARDRAILS", "OUTPUT_CONTRACT_FAILURE"]},
+                    "model_result_source": {"type": ["string", "null"]},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    "evidence_line_refs": {"type": "array", "items": {"type": "string"}}
+                  },
+                  "additionalProperties": false
+                },
+                "template_basis": {"type": "object"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
