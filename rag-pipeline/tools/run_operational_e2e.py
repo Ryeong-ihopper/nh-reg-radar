@@ -26,6 +26,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
+from rag.retrieval.evidence_bundle import search_terms, supplement_evidence  # noqa: E402
+from rag.judgment.manual_review import requires_visual_review, deferred_input_reason  # noqa: E402
 
 import build_silver_requests as judgment_input  # noqa: E402
 import hybrid_rule_retrieval as discovery  # noqa: E402
@@ -547,6 +549,11 @@ def evidence_documents(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         output.append({
             "evidence_id": row["doc_id"],
             "parent_evidence_id": row.get("parent_doc_id"),
+            "asset_id": row.get("asset_id"),
+            "source_file": row.get("source_file"),
+            "source_page_no": row.get("source_page_no"),
+            "table": row.get("table"),
+            "source_relations": row.get("source_relations") or [],
             "page_no": row.get("page_no"),
             "region_id": row.get("region_id"),
             "product_id": row.get("product_id"),
@@ -631,26 +638,46 @@ def rerank_prohibition_candidates(
     pool, _ = balanced_candidates(candidates, rules, candidate_pool)
     pairs = []
     retained = []
+    pair_indexes = []
     for candidate in pool:
         triggers = candidate.get("trigger_evidence") or []
-        trigger_id = str(((triggers[0] if triggers else {}).get("trigger") or {}).get("doc_id") or "")
-        trigger = fine_documents.get(trigger_id)
         rule = rules.get(str(candidate.get("item_id")))
-        if trigger is None or rule is None:
+        if rule is None:
             continue
-        retained.append(candidate)
-        context_ids = ((triggers[0].get("trigger") or {}).get("query_context_doc_ids") or [trigger_id])
-        if any(doc_id not in fine_documents for doc_id in context_ids):
-            raise ValueError("reranker query context refers to missing evidence")
-        candidate["reranker_evidence_ids"] = context_ids
-        pairs.append([
-            "\n".join(str(fine_documents[doc_id].get("text_canonical") or
-                          fine_documents[doc_id].get("text_search") or "") for doc_id in context_ids),
-            judgment_rule_text(rule),
-        ])
+        contexts, indexes = [], []
+        for event in triggers:
+            trigger = event.get("trigger") or {}
+            trigger_id = str(trigger.get("doc_id") or "")
+            if trigger_id not in fine_documents:
+                continue
+            context_ids = list(dict.fromkeys([*(trigger.get("query_context_doc_ids") or []), trigger_id]))
+            if any(doc_id not in fine_documents for doc_id in context_ids):
+                raise ValueError("reranker query context refers to missing evidence")
+            if any(set(context_ids) == set(previous) for previous in contexts):
+                continue
+            contexts.append(context_ids)
+            indexes.append(len(pairs))
+            pairs.append([
+                "\n".join(str(fine_documents[doc_id].get("text_canonical") or
+                              fine_documents[doc_id].get("text_search") or "") for doc_id in context_ids),
+                judgment_rule_text(rule),
+            ])
+        if indexes:
+            retained.append(candidate)
+            pair_indexes.append(indexes)
+            candidate["reranker_evidence_ids"] = list(dict.fromkeys(key for group in contexts for key in group))
+            candidate["reranker_contexts"] = contexts
     if not pairs:
         return candidates
-    scores = dgx_rerank(pairs, batch_size=16, max_length=512)
+    pair_scores = dgx_rerank(pairs, batch_size=16, max_length=512)
+    if len(pair_scores) != len(pairs) or not np.isfinite(pair_scores).all():
+        raise ValueError("reranker returned missing or non-finite scores")
+    # A rule can be relevant to any one occurrence. Averaging would penalize
+    # a strong match merely because other occurrences were also retrieved.
+    scores = [max(float(pair_scores[i]) for i in indexes) for indexes in pair_indexes]
+    for candidate, indexes in zip(retained, pair_indexes):
+        candidate["reranker_context_scores"] = [float(pair_scores[i]) for i in indexes]
+        candidate["reranker_aggregation"] = "max_unique_contexts"
     rerank_order = sorted(
         range(len(retained)),
         key=lambda index: (-float(scores[index]), str(retained[index]["item_id"])),
@@ -711,15 +738,7 @@ def top_rule_evidence(
     )
     vector_ranked = [doc_id for _, doc_id in scored]
 
-    stopwords = {
-        "광고", "광고물", "표시", "기재", "여부", "경우", "관련", "대한",
-        "않았는가", "있는가", "확인", "점검", "규정", "위반", "항목",
-    }
-    terms = {
-        token
-        for token in re.findall(r"[가-힣A-Za-z0-9]{3,}", rule_text.lower())
-        if token not in stopwords
-    }
+    terms = search_terms(rule_text)
     lexical_scored: list[tuple[int, int, str]] = []
     for row in ad_fine_rows:
         text = str(row.get("text_canonical") or row.get("text_search") or "").lower()
@@ -795,6 +814,8 @@ def automated_input_ready(
     rule: dict[str, Any], ad: dict[str, Any] | None = None
 ) -> bool:
     """Whether the integrated evidence contains the input v2 actually requires."""
+    if requires_visual_review(rule):
+        return False
     required_medium = str(rule.get("required_medium") or "").strip()
     input_requirement = str(rule.get("input_requirement") or "").strip()
     if "랜딩캡처" in input_requirement:
@@ -898,10 +919,13 @@ def freeze_manifest(
         ROOT / "rag/judgment/grounding.py",
         ROOT / "rag/judgment/evidence_projection.py",
         ROOT / "rag/judgment/condition_contracts.py",
+        ROOT / "rag/judgment/manual_review.py",
         ROOT / "rag/templates/catalog.py",
         ROOT / "rag/retrieval/queries.py",
         ROOT / "rag/retrieval/candidates.py",
         ROOT / "rag/retrieval/context.py",
+        ROOT / "rag/retrieval/evidence_bundle.py",
+        ROOT / "rag/parsing/source_structure.py",
         ROOT / "tools/hybrid_rule_retrieval.py",
         ROOT / "tools/build_ad_evidence_vectors.py",
         ROOT / "tools/run_gemma_exhaustive_dgx.py",
@@ -1343,7 +1367,7 @@ def main() -> None:
                 "item_id": item["id"],
                 "required_medium": item["필요매체"],
                 "input_requirement": item["입력요건"],
-                "reason": "template-mapped v2 rule lacks required external/layout input",
+                "reason": deferred_input_reason(rule_by_id[item["id"]]),
             }
             for item in mapped_v2_items
             if not automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
@@ -1377,7 +1401,7 @@ def main() -> None:
             and automated_input_ready(rule, ads[ad_id])
         ]
         deferred_input_rules.extend(
-            {"item_id": rule["item_id"], "reason": "template rule requires exact original/layout observation",
+            {"item_id": rule["item_id"], "reason": deferred_input_reason(rule),
              "required_medium": rule.get("required_medium"),
              "input_requirement": rule.get("input_requirement")}
             for rule in t_rules
@@ -1423,7 +1447,7 @@ def main() -> None:
                 "item_id": row["item_id"],
                 "required_medium": rule_by_id[row["item_id"]].get("required_medium"),
                 "input_requirement": rule_by_id[row["item_id"]].get("input_requirement"),
-                "reason": "supplemental v2 trigger found but required external/layout input is unavailable",
+                "reason": deferred_input_reason(rule_by_id[row["item_id"]]),
             }
             for row in supplemental_v2_retrieved
             if not automated_input_ready(rule_by_id[row["item_id"]], ads[ad_id])
@@ -1443,6 +1467,10 @@ def main() -> None:
             supplemental_v2, rule_by_id, args.prohibition_max_candidates)
         candidate_rows = [*template_candidates, *enumerated, *supplemental_v2]
         candidate_ids = list(dict.fromkeys(row["item_id"] for row in candidate_rows))
+        # Even the optional model applicability screen cannot bypass the
+        # user's coordinate-only / human visibility review boundary.
+        candidate_ids = [item_id for item_id in candidate_ids
+                         if not requires_visual_review(rule_by_id[item_id])]
         discovery_tier_by_item = {
             **{row["item_id"]: "TEMPLATE_PRIMARY" for row in template_candidates},
             **{row["item_id"]: "MAPPED_V2" for row in enumerated},
@@ -1484,7 +1512,7 @@ def main() -> None:
             # Preserve genuinely unavailable rules which were outside the search candidates.
             deferred_input_rules.extend(
                 {"item_id": item["id"],
-                 "reason": "template-mapped v2 rule lacks required external/layout input",
+                 "reason": deferred_input_reason(rule_by_id[item["id"]]),
                  "required_medium": item["필요매체"], "input_requirement": item["입력요건"]}
                 for item in mapped_v2_items if item["id"] not in screened
                 and not automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
@@ -1523,8 +1551,17 @@ def main() -> None:
         }
         context_audit = {}
         for item_id, seed_ids in evidence_by_item.items():
-            evidence_by_item[item_id], context_audit[item_id] = expand_source_context(
+            selected, source_audit = expand_source_context(
                 seed_ids, fine_by_ad[ad_id], char_budget=args.context_char_budget)
+            remaining = args.context_char_budget - source_audit["added_chars"]
+            selected, facet_audit = supplement_evidence(
+                selected, fine_by_ad[ad_id], rule_by_id[item_id], char_budget=remaining)
+            remaining -= facet_audit["added_chars"]
+            evidence_by_item[item_id], followup_audit = expand_source_context(
+                selected, fine_by_ad[ad_id], char_budget=remaining)
+            context_audit[item_id] = {**source_audit, "source_facets": facet_audit,
+                "followup_context": followup_audit,
+                "total_added_chars": source_audit["added_chars"] + facet_audit["added_chars"] + followup_audit["added_chars"]}
         # Keep a short advertisement complete without repeating 200+ region
         # records (including long evidence IDs and line refs) in every rule
         # request.  The transcript is context only; retrieved fine documents

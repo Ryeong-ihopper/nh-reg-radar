@@ -72,6 +72,7 @@
       "items": {"$ref": "#/$defs/page"}
     },
     "unverified_recovery_candidates": {"type": "array"},
+    "relations": {"type": "array", "items": {"type": "object"}},
     "diagnostics": {"type": "object"},
     "quality": {
       "type": "object",
@@ -139,6 +140,10 @@
       "required": ["page_no", "regions", "unassigned_lines"],
       "properties": {
         "page_no": {"type": "integer", "minimum": 1},
+        "source_page_no": {"type": "integer", "minimum": 1},
+        "asset_id": {"type": "string", "minLength": 1},
+        "source_file": {"type": "string", "minLength": 1},
+        "relations": {"type": "array", "items": {"type": "object"}},
         "canvas_w": {"type": ["number", "null"]},
         "canvas_h": {"type": ["number", "null"]},
         "dpi": {"type": ["number", "null"]},

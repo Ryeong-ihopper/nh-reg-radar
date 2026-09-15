@@ -14,6 +14,8 @@ TESTS = ROOT / "tests"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 UNIT_PATTERNS = (
+    "test_manual_review_scope.py",
+    "test_evidence_bundle.py",
     "test_retrieval_separation.py",
     "test_judge_output_contract.py",
     "test_parser_contract_adapter.py",

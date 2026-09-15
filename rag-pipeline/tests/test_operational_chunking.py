@@ -14,6 +14,7 @@ from rag.parsing.prepare_inputs import (  # noqa: E402
     _label_groups,
     _selected_text_line_refs,
     compact,
+    search_docs,
 )
 from rag.retrieval.context import expand_source_context  # noqa: E402
 
@@ -60,6 +61,50 @@ def region(lines, *, labels=None, layout="table"):
 
 
 class SelectedTextAlignmentTests(unittest.TestCase):
+    def search(self, source):
+        source["assignment_status"] = "assigned"
+        return search_docs({"document": {"ad_id": "AD", "source_file": "test.png", "routing_metadata": {}},
+                            "pages": [{"page_no": 1, "regions": [source]}]})
+
+    def test_selected_subset_keeps_per_chunk_spans_and_labels(self):
+        source = self.make_region(["메뉴", "- 회사 안내", "- 비용 안내", "푸터"], "- 회사 안내\n- 비용 안내")
+        source["lines"][0]["labels"] = [{"label": "상품명"}]
+        source["lines"][1]["labels"] = [{"label": "회사명"}]
+        source["lines"][2]["labels"] = [{"label": "부대비용"}]
+        coarse, fine = self.search(source)
+        self.assertEqual(fine[0]["line_refs"], source["line_refs"][1:2])
+        self.assertEqual(fine[1]["line_refs"], source["line_refs"][2:3])
+        self.assertEqual(fine[0]["labels"], [{"label": "회사명"}])
+        self.assertEqual(fine[1]["labels"], [{"label": "부대비용"}])
+        self.assertNotIn({"label": "상품명"}, coarse[0]["labels"])
+        self.assertTrue(all(view["line_spans"] for view in fine))
+
+    def test_changed_text_and_duplicate_text_do_not_inherit_original_labels(self):
+        for texts, selected in [(["금리 3%"], "금리 4%"), (["같은 문장", "같은 문장"], "같은 문장")]:
+            source = self.make_region(texts, selected)
+            source["lines"][0]["labels"] = [{"label": "대출금리"}]
+            source["text_selection"] = {"needs_review": False}
+            coarse, fine = self.search(source)
+            for view in [*coarse, *fine]:
+                self.assertEqual(view["labels"], [])
+                self.assertTrue(view["text_selection"]["needs_review"])
+                self.assertEqual(view["text_canonical"], selected)
+            self.assertEqual(source["lines"][0]["text"], texts[0])
+
+    def test_selected_table_subset_keeps_visual_rows(self):
+        lines = [line(0, "메뉴", top=0, bottom=8),
+                 line(1, "가입기간", top=20, bottom=28),
+                 line(2, "6개월", top=20, bottom=28, left=540),
+                 line(3, "가입금액", top=40, bottom=48),
+                 line(4, "월 20만원", top=40, bottom=48, left=540)]
+        source = region(lines)
+        source["final_text"] = "가입기간 6개월\n가입금액 월 20만원"
+        views = _fine_views(source)
+        self.assertEqual(len(views), 2)
+        self.assertEqual(views[0]["line_refs"], source["line_refs"][1:3])
+        self.assertEqual(views[1]["line_refs"], source["line_refs"][3:5])
+        self.assertTrue(all(v["line_spans"] for v in views))
+
     def test_one_corrected_part_does_not_hide_exact_other_chunk(self):
         source = self.make_region(["- 조건 안내", "- 금리 3%"], "- 조건 안내\n- 금리 4%")
         views = _fine_views(source)

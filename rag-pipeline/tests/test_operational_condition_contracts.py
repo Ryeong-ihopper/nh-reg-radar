@@ -216,6 +216,26 @@ class ConditionContractValidationTests(unittest.TestCase):
         errors = gemma.validate(request_with_contract(self.multiple_contract()), value)
         self.assertTrue(any('구성요소 미충족' in error for error in errors))
 
+    def test_independent_violation_cannot_be_hidden_by_unknown_other_obligation(self):
+        for category in ('PRESENCE', 'PROHIBIT', 'STYLE'):
+            with self.subTest(category=category):
+                request = request_with_contract(self.multiple_contract())
+                request['category'] = category
+                value = self.complete_judgment()
+                result = value['results'][0]
+                result.update(verdict='UNDETERMINED', needs_researcher_review=True)
+                result['requirement_checks'][0].update(status='VIOLATED', finding_basis='OBSERVED')
+                result['requirement_checks'][1].update(status='UNDETERMINED', finding_basis='UNKNOWN')
+                self.assertTrue(any('전체 verdict 불일치' in error for error in gemma.validate(request, value)))
+                result['verdict'] = 'VIOLATION'
+                self.assertEqual(gemma.validate(request, value), [])
+
+    def test_unknown_without_confirmed_violation_stays_unknown(self):
+        value = self.complete_judgment()
+        value['results'][0].update(verdict='UNDETERMINED', needs_researcher_review=True)
+        value['results'][0]['requirement_checks'][1].update(status='UNDETERMINED', finding_basis='UNKNOWN')
+        self.assertEqual(gemma.validate(request_with_contract(self.multiple_contract()), value), [])
+
     def test_unknown_placeholder_preserves_all_source_obligations(self):
         value = judgment()
         value['results'][0].update(verdict='UNDETERMINED', requirement_checks=[])

@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 
 from rag.judgment.grounding import grounding_errors  # noqa: E402
 from rag.judgment.evidence_projection import pack_documents  # noqa: E402
+from rag.parsing.source_structure import compact_source_structure  # noqa: E402
 from rag.judgment.reading_quality import apply_reading_guard, reading_issues  # noqa: E402
 from rag.judgment.output_contract import response_format, response_mode  # noqa: E402
 
@@ -92,6 +93,12 @@ notes narrow the criterion; an umbrella rule is not a substitute for all other
 rules. Preserve source exceptions and ANY_OF choices. Never split examples into
 mandatory items. If the applicable set of elements cannot be established, use
 UNDETERMINED rather than asserting complete compliance.
+Search facets are retrieval hints, not additional obligations or proof of absence.
+Resolve each O against its source conditions, exceptions and alternatives before
+assigning its status. A definitive VIOLATED obligation remains an overall VIOLATION
+even when another obligation is UNDETERMINED; do not hide a confirmed independent
+violation behind uncertainty elsewhere. Do not mark an O VIOLATED while its own
+applicability or exception remains unresolved.
 MATCHED SCOPE requires a supporting allowed evidence reference or a confirmed
 metadata field. Do not leave both empty when claiming a match. Before returning
 each rule, check every cited alias against that rule's allowlist. If the supplied
@@ -103,6 +110,15 @@ enum 값은 지정된 영문을 그대로 유지하고, 원문 고유명사·수
 
 Document lines maps L aliases to exact source text; line_bboxes maps the same
 aliases to coordinates. These are source lines, not new or independent evidence.
+source_relations and table cells describe parser structure between canonical L
+lines. They do not prove legal applicability. Missing structure is not a missing
+disclosure. A table cell with status other than observed is navigation context,
+not proof of a row/column association. Use canonical text or UNDETERMINED instead.
+asset_ref separates source files; never mix rates from different
+products, variants, dates or conditions into one arithmetic comparison. First
+establish the same scope from readable source evidence. Cell text outside the
+canonical lines is not supplied as evidence. Unknown unit, date, rate basis or
+visual measurement requires UNDETERMINED for the dependent obligation.
 Resolve each document's text_selection_ref in reading_contexts: it describes
 OCR/VLM reading uncertainty, not legal review. A shared Q entry does not mean
 the documents are independent readings or share a source location.
@@ -270,6 +286,18 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
                 compact_document.pop("text")  # Avoid sending identical text twice.
         compact_documents.append(compact_document)
 
+    # Resolve cross-document endpoints only after every canonical line has an
+    # alias. Asset aliases preserve variant boundaries without treating names
+    # as classification evidence. Table OCR cannot become extra citable text.
+    asset_aliases = {}
+    source_documents = payload.get("documents") or []
+    for source, target in zip(source_documents, compact_documents):
+        asset = source.get("asset_id") or source.get("source_file")
+        if asset:
+            target["asset_ref"] = asset_aliases.setdefault(str(asset), f"F{len(asset_aliases) + 1}")
+            target["source_page_no"] = source.get("source_page_no")
+        target.update(compact_source_structure(source, line_to_ref))
+
     def compact_scope(scope: dict[str, Any]) -> dict[str, Any]:
         allowed_evidence = set(map(str, scope.get("evidence_ids") or []))
         return {
@@ -373,6 +401,7 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         "ref_to_item": ref_to_item,
         "ref_to_evidence": ref_to_evidence,
         "ref_to_line": ref_to_line,
+        "ref_to_asset": {alias: source for source, alias in asset_aliases.items()},
     }
 
 
@@ -958,19 +987,20 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             status in {"MISSING", "VIOLATED"} for status in check_statuses
         ):
             errors.append(f"{item_id}: 위반 구성요소 없이 VIOLATION")
-        presence_failure = "VIOLATED" in check_statuses or (
+        obligation_failure = "VIOLATED" in check_statuses or (
+            request_row.get("category") == "PRESENCE"
+            and
             isinstance(item_scope, dict)
             and item_scope.get("complete_ad_scan") is True
             and "MISSING" in check_statuses
         )
         if (
-            request_row.get("category") == "PRESENCE"
-            and applicability == "APPLICABLE"
-            and presence_failure
+            applicability == "APPLICABLE"
+            and obligation_failure
             and verdict != "VIOLATION"
         ):
             errors.append(
-                f"{item_id}: 표시의무 필수요건 누락·위반과 전체 verdict 불일치"
+                f"{item_id}: 필수요건 누락·위반과 전체 verdict 불일치"
             )
         if (
             check_reading and isinstance(item_scope, dict)

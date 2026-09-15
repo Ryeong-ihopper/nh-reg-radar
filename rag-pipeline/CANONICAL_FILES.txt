@@ -22,6 +22,7 @@ rag/judgment/condition_contracts.py
 rag/judgment/decision_guides.py
 rag/judgment/evidence_projection.py
 rag/judgment/grounding.py
+rag/judgment/manual_review.py
 rag/judgment/output_contract.py
 rag/judgment/policy.py
 rag/judgment/reading_quality.py
@@ -29,9 +30,11 @@ rag/judgment/runtime_metrics.py
 rag/parsing/__init__.py
 rag/parsing/parser_contract_adapter.py
 rag/parsing/prepare_inputs.py
+rag/parsing/source_structure.py
 rag/retrieval/__init__.py
 rag/retrieval/candidates.py
 rag/retrieval/context.py
+rag/retrieval/evidence_bundle.py
 rag/retrieval/queries.py
 rag/templates/__init__.py
 rag/templates/catalog.py
@@ -51,8 +54,10 @@ schemas/review-decision-guide-v1.schema.json
 schemas/rule-applicability-contract-v1.schema.json
 schemas/rule-applicability-contract-v2.schema.json
 tests/test_blind_evaluation.py
+tests/test_evidence_bundle.py
 tests/test_gold_v2_binding.py
 tests/test_judge_output_contract.py
+tests/test_manual_review_scope.py
 tests/test_operational_acceleration.py
 tests/test_operational_applicability.py
 tests/test_operational_chunking.py
