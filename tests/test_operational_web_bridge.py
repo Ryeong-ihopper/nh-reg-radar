@@ -35,6 +35,7 @@ class BridgeTests(unittest.TestCase):
                          {"version": "user-template-labeling-v1", "template_id": "예금성상품-적립식"},
                          {"version": "user-template-labeling-v2", "template_id": "예금성상품-적립식"},
                          {"version": "user-template-labeling-v3", "template_id": "예금성상품-적립식"},
+                         {"version": "user-template-labeling-v4", "template_id": "예금성상품-적립식"},
                          {"version": "old-policy", "template_id": "예금성상품-적립식"}):
             if manifest is not None:
                 (parent_dir / "parser-intake.json").write_text(json.dumps(manifest), encoding="utf-8")

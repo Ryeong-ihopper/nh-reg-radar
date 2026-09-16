@@ -123,7 +123,7 @@ index e13c940..02c5a3a 100644
                  needs_review_regions += 1
              region["text_evidence"] = {
 diff --git a/src/nh_parser/review/labeling.py b/src/nh_parser/review/labeling.py
-index fa08468..1957aa9 100644
+index fa08468..a6001d1 100644
 --- a/src/nh_parser/review/labeling.py
 +++ b/src/nh_parser/review/labeling.py
 @@ -3,11 +3,14 @@
@@ -212,7 +212,50 @@ index fa08468..1957aa9 100644
                      ],
                      "additionalProperties": False,
                  },
-@@ -142,6 +167,16 @@ def _fixed_phrases(template: dict[str, Any]) -> list[tuple[str, str]]:
+@@ -110,6 +135,12 @@ def _schema(region_ids: list[str], gubuns: list[str]) -> dict[str, Any]:
+ def _explicit_label(text: str, gubuns: set[str]) -> str | None:
+     stripped = _LEADING.sub("", text).strip()
+     normalized = _norm(stripped)
++    heading = re.split(r"[:：|]", stripped, maxsplit=1)[0].strip()
++    heading = re.sub(
++        r"\s*[（(]\s*(?:연\s*)?(?:%p?|원|천원|만원|억원|개월|년)\s*[）)]\s*$",
++        "", heading, flags=re.IGNORECASE,
++    )
++    heading_key = _norm(heading)
+     aliases = {
+         "금리": ("기본금리", "최고금리", "최저금리", "연이자율"),
+         "대출금리": ("대출금리",),
+@@ -117,16 +148,22 @@ def _explicit_label(text: str, gubuns: set[str]) -> str | None:
+         "회사명": ("nh농협은행", "nh농협카드", "농협은행", "농협카드"),
+     }
+     for gubun in sorted(gubuns, key=len, reverse=True):
+-        target = _norm(gubun)
+-        if normalized == target or normalized.startswith(target + "은"):
+-            return gubun
+-        # 표제 뒤에 값이 이어진 경우만 허용한다. '상품 안내'를 '상품명'으로 보는 식의
+-        # 부분 문자열 판정은 하지 않는다.
+-        if re.match(rf"^{re.escape(gubun)}\s*[:：|]", stripped):
++        if heading_key == _norm(gubun):
+             return gubun
+     for gubun, values in aliases.items():
+-        if gubun in gubuns and any(normalized.startswith(_norm(value)) for value in values):
++        if gubun not in gubuns:
++            continue
++        if any(heading_key == _norm(value) for value in values):
+             return gubun
++        # 식별 번호가 표식에 바로 이어지는 기존 심의필 형식도 보존한다.
++        # '심의필 여부를 확인' 같은 문장은 숫자 경계를 통과하지 않는다.
++        if gubun == "심의번호":
++            for value in values:
++                marker = _norm(value)
++                if normalized.startswith(marker) and re.match(
++                    r"^(?:번호)?(?:제)?\d", normalized[len(marker):],
++                ):
++                    return gubun
+     return None
+
+
+@@ -142,6 +179,16 @@ def _fixed_phrases(template: dict[str, Any]) -> list[tuple[str, str]]:
      return values
 
 
@@ -229,7 +272,7 @@ index fa08468..1957aa9 100644
  def _state() -> dict[str, Any]:
      return {"sources": set(), "confidences": [], "reasons": []}
 
-@@ -235,20 +270,50 @@ def label_regions(
+@@ -235,20 +282,50 @@ def label_regions(
          for region in page.get("regions") or []
          if region.get("lines") and not region.get("is_illustrative")
      }
@@ -281,7 +324,7 @@ index fa08468..1957aa9 100644
 
  구분값과 원본 템플릿 예시:
  {_definitions(template)}
-@@ -265,25 +330,35 @@ def label_regions(
+@@ -265,25 +342,35 @@ def label_regions(
              )
          except Exception as exc:
              notes.append(f"구분값 VLM 판정 실패({','.join(region_ids)}): {exc}")
@@ -326,7 +369,7 @@ index fa08468..1957aa9 100644
                  _add(line_states[index], label, "semantic_vlm", confidence, reason)
 
      # VLM 뒤에 결정론적 근거를 적용한다. 명시적인 표제 줄에서는 다른 VLM 라벨을
-@@ -291,13 +366,16 @@ def label_regions(
+@@ -291,13 +378,16 @@ def label_regions(
      for region_id, region in region_index.items():
          line_states = states_by_region[region_id]
          for index, line in enumerate(region.get("lines") or []):
@@ -346,7 +389,7 @@ index fa08468..1957aa9 100644
              normalized = _norm(text)
              for label, phrase in fixed_phrases:
                  if phrase in normalized:
-@@ -312,4 +390,5 @@ def label_regions(
+@@ -312,4 +402,5 @@ def label_regions(
          "template_id": template_id,
          "by_region": by_region,
          "notes": notes,
@@ -375,7 +418,7 @@ index b07c1bb..72dfa74 100644
      values: list[str] = []
      for page in doc.get("pages") or []:
 diff --git a/tests/test_review_labeling.py b/tests/test_review_labeling.py
-index d43cea5..92710d8 100644
+index d43cea5..1ccc878 100644
 --- a/tests/test_review_labeling.py
 +++ b/tests/test_review_labeling.py
 @@ -1,4 +1,9 @@
@@ -398,7 +441,7 @@ index d43cea5..92710d8 100644
              "gubun": "가입금액",
              "confidence": 0.8,
              "reason": "기간과 납입액 영역",
-@@ -52,3 +56,52 @@ def test_템플릿_미확정이면_원문을_건드리지_않고_라벨링을_
+@@ -52,3 +56,83 @@ def test_템플릿_미확정이면_원문을_건드리지_않고_라벨링을_
 
      assert result["status"] == "skipped"
      assert result["by_region"] == {}
@@ -451,6 +494,37 @@ index d43cea5..92710d8 100644
 +    result = labeling.label_regions(raw, {"template_id": "대출성상품-상품명 노출"})
 +    assert result["by_region"]["p1_r000"] == []
 +    assert result["needs_review_regions"] == ["p1_r000"]
++
++
++@pytest.mark.parametrize("text,expected", [
++    ("가입금액은 직접 입력하세요", None),
++    ("기본금리 계산기 입력 예시", None),
++    ("최고금리를 확인하세요", None),
++    ("상품명은 검색어입니다", None),
++    ("준법감시인 심의필 여부를 확인하세요", None),
++    ("농협은행에서 적용 금리를 확인하세요", None),
++    ("가입금액", "가입금액"),
++    ("가입금액(원): 20,000", "가입금액"),
++    ("기본금리(%)", "금리"),
++    ("금리(연%): 4.1", "금리"),
++    ("최고금리: 연 4.1%", "금리"),
++    ("회사명: 한빛은행", "회사명"),
++    ("준법감시인 심의필번호 ·2040-1234(심의일: 2040.01.01.)", "심의번호"),
++    ("심의번호 제2040-1234", "심의번호"),
++])
++def test_explicit_heading_boundary(text, expected):
++    allowed = {"가입금액", "금리", "회사명", "상품명", "심의번호"}
++    assert labeling._explicit_label(text, allowed) == expected
++
++
++def test_heading_boundary_does_not_overwrite_semantic_label_on_a_sentence(monkeypatch):
++    raw = _document()
++    raw["pages"][0]["regions"][0]["lines"] = [{"text": "가입금액은 없고 가입기간만 18개월입니다."}]
++    monkeypatch.setattr(labeling.vlm_client, "chat_json", lambda *a, **k: {"verdicts": [{
++        "region_id": "p1_r000", "line_ids": [0], "gubun": "가입기간", "confidence": .9, "reason": "기간 명시",
++    }]})
++    result = labeling.label_regions(raw, {"template_id": "예금성상품-적립식"})
++    assert [entry["label"] for entry in result["by_region"]["p1_r000"]] == ["가입기간"]
 diff --git a/tools/parse.py b/tools/parse.py
 index 4b56ed1..b9364b6 100644
 --- a/tools/parse.py

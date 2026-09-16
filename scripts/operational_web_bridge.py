@@ -664,7 +664,7 @@ class ExecutionBridge:
 
     @staticmethod
     def parser_intake(template_id):
-        return {"version": "user-template-labeling-v4", "template_id": template_id}
+        return {"version": "user-template-labeling-v5", "template_id": template_id}
 
     @staticmethod
     def validate_parser_template(p1_path, p3_path, template_id):
