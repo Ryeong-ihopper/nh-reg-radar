@@ -1,0 +1,7 @@
+pydantic==2.13.5
+pypdfium2==5.12.0
+Pillow==12.3.0
+requests==2.34.2
+jpype1==1.7.1
+pypdf==6.18.1
+python-docx==1.2.0

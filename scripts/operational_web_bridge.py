@@ -19,7 +19,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -50,6 +50,13 @@ PARSER_REUSE_PARENT_STATUSES = {
 PRODUCTS = {"LOAN": "대출성", "DEPOSIT": "예금성", "SAVINGS": "예금성", "DEMAND_DEPOSIT": "예금성"}
 STEP_NAMES = ["입력 파일 확인", "OCR/VLM 파싱 (영역·라벨)", "파싱 결과 통합·검증 및 청킹 준비",
               "규제목록 v2 검색·판정 요청", "하이브리드 검색·Gemma 판정", "실제 결과 저장"]
+
+
+def registration_review_date(created_at: datetime) -> str:
+    """Freeze review day at the original service registration, in Korea time."""
+    # Legacy persisted naive timestamps are UTC, like the repository clock.
+    registered = created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)
+    return registered.astimezone(timezone(timedelta(hours=9))).date().isoformat()
 
 
 def template_sections_from_hwpx(path: Path) -> list[str]:
@@ -97,11 +104,12 @@ def parser_layout(document, *, source: str) -> dict:
                 })
         # Unassigned OCR lines still have real source coordinates. Represent
         # each as its own display-only region, without a fabricated union box.
-        for line in page.get("unassigned_lines", []):
+        for index, line in enumerate(page.get("unassigned_lines", [])):
             if valid_box(line.get("bbox"), width, height):
-                regions.append({"region_id": f"unassigned:{line['line_ref']}",
+                display_id = line.get("line_ref") or f"visual-p{page.get('page_no', len(pages)+1)}-{index}"
+                regions.append({"region_id": f"unassigned:{display_id}",
                     "bbox": line["bbox"], "layout_label": None, "text": line.get("text", ""),
-                    "lines": [{"line_ref": line["line_ref"], "text": line.get("text") or line.get("parser_text") or "",
+                    "lines": [{"line_ref": line.get("line_ref"), "text": line.get("text") or line.get("parser_text") or "",
                                "bbox": line["bbox"], "text_source": line.get("text_source"),
                                "confidence": line.get("confidence")} ]})
         pages.append({
@@ -282,7 +290,7 @@ class ExecutionBridge:
         return output / "upload" if self.parser_layout_config["runner"] == "nh_parsing_test_batch" else output
 
     def parsed_assets(self, files, source_by_file, output):
-        """Return assets with exactly one P1/P3 pair; retain partial batch output."""
+        """Accept validated, nonempty P1/P3 pairs; retain partial batch output."""
         p1s, p3s = self.parser_outputs(self.parser_output_root(output))
         completed, missing = {}, {}
         for file in files:
@@ -295,8 +303,29 @@ class ExecutionBridge:
             if len(p3_matches) != 1:
                 missing[file.file_id] = "P3 산출물이 없거나 하나가 아닙니다"
                 continue
+            try:
+                self.read_parser_asset(p1_path, p3_matches[0])
+            except (OSError, ValueError):
+                missing[file.file_id] = "PARSER_INPUT_UNREADABLE: 유효한 심의 원문 영역이 없습니다. 파서 로그를 확인하세요"
+                continue
             completed[file.file_id] = (p1_path, p3_matches[0])
         return completed, missing
+
+    @staticmethod
+    def read_parser_asset(p1_path, p3_path):
+        """An output file alone does not prove that parsing succeeded.
+
+        Partial documents and text without geometry remain reviewable. Empty
+        or unassigned-only output cannot supply scoped advertisement evidence.
+        """
+        document = combine(p1_path, p3_path)
+        if not any(
+            str(region.get("final_text") or "").strip()
+            for page in document.get("pages", [])
+            for region in page.get("regions", [])
+        ):
+            raise ValueError("PARSER_INPUT_UNREADABLE: no reviewable advertisement regions")
+        return document
 
     def execute_parser(self, source_dir, output, log_path, *, template_id=None):
         """Run one parser input directory and retain its raw log for audit."""
@@ -744,7 +773,11 @@ class ExecutionBridge:
                     self.validate_parser_template(p1_path, p3_path, template_id)
                 except ValueError:
                     return None
-            assets.append((file, combine(p1_path, p3_path)))
+            try:
+                document = self.read_parser_asset(p1_path, p3_path)
+            except (OSError, ValueError):
+                return None
+            assets.append((file, document))
             output_hashes.append({
                 "file_id": file.file_id,
                 "source_sha256": file.checksum,
@@ -794,7 +827,7 @@ class ExecutionBridge:
             template_id=template_id,
         )
         if reused is not None:
-            self.prepare_parser_layout(source_by_file[files[0].file_id], directory, reused)
+            self.prepare_optional_parser_layout(source_by_file[files[0].file_id], directory, reused)
             return reused
         output = directory / "parser"
         if len(files) > 1:
@@ -828,13 +861,7 @@ class ExecutionBridge:
         integrated = self.merge_asset_documents(ad, assets)
         # Parser-layout is a presentation artifact. A temporary rendering or
         # visual-parser failure must not discard an otherwise valid review.
-        try:
-            self.prepare_parser_layout(source_by_file[files[0].file_id], directory, integrated)
-        except Exception as exc:  # retried lazily by the parser-layout endpoint
-            write_json_atomic(
-                directory / "parser-layout-error.json",
-                {"code": "PARSER_LAYOUT_UNAVAILABLE", "detail": str(exc)},
-            )
+        self.prepare_optional_parser_layout(source_by_file[files[0].file_id], directory, integrated)
         return integrated
 
     def apply_intake_scopes(self, ad, document, intake):
@@ -888,6 +915,15 @@ class ExecutionBridge:
         document["document"]["shared_evidence_ids"] = evidence(intake["shared_asset_scopes"])
         validate_integrated_input(document)
         return document
+
+    def prepare_optional_parser_layout(self, source, directory, integrated):
+        """A preview failure cannot discard validated semantic source text."""
+        try:
+            return self.prepare_parser_layout(source, directory, integrated)
+        except Exception as exc:  # retried lazily by the parser-layout endpoint
+            write_json_atomic(directory / "parser-layout-error.json",
+                              {"code": "PARSER_LAYOUT_UNAVAILABLE", "detail": str(exc)})
+            return None
 
     def prepare_parser_layout(self, source, directory, integrated):
         """Build the visual parser projection used by the bbox demonstration."""
@@ -1011,6 +1047,8 @@ class ExecutionBridge:
             # No automatic promotion of parser/filename template or ambiguous media metadata.
             self.stage(bundle, 3)
             job = self.rag.submit({"schema_version": "operational-review-request-v1", "client_request_id": bundle.review.review_id,
+                                   "review_date": registration_review_date(ad.created_at),
+                                   "review_date_basis": "advertisement_registration_date",
                                    "document": document, "routing_overrides": overrides, "execute_model": True})
             with self.lock:
                 self.links[bundle.review.review_id].update(rag_job_id=job["job_id"], parse_seconds=round(parse_seconds, 3))
@@ -1268,12 +1306,23 @@ class ExecutionBridge:
             bundle = self.services.reviews.status(actor(request), review_id, "result-workspace")
             link = self.links.get(review_id, {})
             raw, payloads, integrated, discovery = {}, [], {}, {}
+            reading_audits = {}
             if link.get("result_file"):
                 result_path = Path(link["result_file"])
                 raw = read_json(result_path)
                 discovery_path = result_path.with_name("01_discovery.json")
                 if discovery_path.is_file():
                     discovery = read_json(discovery_path)
+                for response_name in ("03_judgment_responses.json", "06_recovery_responses.json"):
+                    response_path = result_path.with_name(response_name)
+                    if response_path.is_file():
+                        for response in read_json(response_path).get("rows", []):
+                            for guard in response.get("reading_quality_guards", []):
+                                original = guard.get("original_result") or {}
+                                reading_audits[(response.get("ad_id"), guard.get("item_id"))] = {
+                                    "verdict": original.get("verdict"), "reason": original.get("reason"),
+                                    "status": "WITHHELD_BY_READING_GUARD",
+                                }
                 requests_path = result_path.parent / "02_judgment_requests.jsonl"
                 if requests_path.exists():
                     for request_line in requests_path.read_text(encoding="utf-8").splitlines():
@@ -1282,7 +1331,7 @@ class ExecutionBridge:
                 integrated_path = self.root / "runs" / review_id / "integrated.json"
                 if integrated_path.exists():
                     integrated = read_json(integrated_path)
-            value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery)
+            value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery, reading_audits)
             value.pop("source_ads", None)
             return {"available": True, "source_type": "GEMMA", "is_model_output": True,
                     **value, "status": bundle.review.status,

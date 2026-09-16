@@ -19,6 +19,8 @@ from tools.run_operational_e2e import model_rule_view
 from tools import run_operational_e2e as runner
 from test_operational_service import integrated_input
 from rag.parsing.prepare_inputs import search_docs
+from rag.judgment.condition_contracts import compile_condition_contract
+from rag.templates.coverage import audit_template_coverage
 import numpy as np
 
 
@@ -93,6 +95,36 @@ class TemplateCatalogTests(unittest.TestCase):
         )
         self.assertEqual([row["item_id"] for row in grouped[1:]], ["TPL-4", "TPL-5"])
 
+    def test_cost_and_comparison_guidance_do_not_imply_visual_contrast(self):
+        for text in ("해당되는 부대비용 기재", "전년 대비 수치의 기준일 표시", "대비하여 비용 안내"):
+            with self.subTest(text=text):
+                self.assertEqual(required_observation_medium(text)[2], "텍스트")
+        for text in ("글자와 배경의 대비 확인", "색상 대비 확인", "명암 대비 확인",
+                     "부대비용은 한 줄로 기재", "배경 대비가 충분한 글자"):
+            with self.subTest(text=text):
+                self.assertEqual(required_observation_medium(text)[2], "레이아웃")
+
+    def test_method_guidance_survives_model_and_obligation_projection(self):
+        rows = [
+            {"item_id": f"TPL-{i}", "product_subtype": "예금성상품-유형",
+             "source_sheet": "HWPX_TEMPLATE", "title": "표시", "template_required": "O",
+             "example_text": f"[방식 {i}] 예시 {i}", "guide": guide,
+             "template_basis": {"source_ref": f"source#{i}", "legal_basis_refs": []}}
+            for i, guide in enumerate(("기준일은 검토일 기준 14일 이내", "별도 수수료 기재", ""), 1)
+        ]
+        before = json.dumps(rows, ensure_ascii=False, sort_keys=True)
+        choice = group_explicit_alternatives(rows)[0]
+        choice["condition_contract"] = compile_condition_contract(choice)
+        projected = model_rule_view(choice)
+        obligation = projected["condition_contract"]["obligation_checks"][0]["text"]
+        for row in rows[:2]:
+            self.assertIn(row["guide"], projected["criterion"])
+            self.assertIn(row["guide"], obligation)
+        self.assertIn("[방식 2]", obligation)
+        self.assertIn("한 방식", obligation)
+        self.assertEqual(json.dumps(rows, ensure_ascii=False, sort_keys=True), before)
+        self.assertEqual(choice["template_basis"]["alternative_policy"], "ANY_OF")
+
     def test_independent_rules_preserve_repeated_paragraphs_and_style(self):
         self.write([p("[대출성상품-유형]") + '<p><run>' + table() + '</run></p>'])
         catalog = TemplateCatalog.from_hwpx(self.path)
@@ -117,6 +149,42 @@ class TemplateCatalogTests(unittest.TestCase):
         self.assertEqual(len(catalog.document["entries"]), 1)
         self.assertEqual(catalog.source["tables"][1]["parent_cell_ref"], catalog.source["tables"][0]["cells"][5]["ref"])
         self.assertEqual(catalog.document["entries"][0]["status"], "REVIEW_REQUIRED")
+        rule = catalog.operational_rules()[0]
+        self.assertTrue(rule['template_basis']['text_review_ready'])
+        self.assertTrue(rule['template_basis']['manual_review_required'])
+        self.assertIn('내부 표', catalog.source['tables'][1]['cells'][0]['text'])
+        self.assertTrue(runner.automated_input_ready(rule, integrated_input()))
+
+    def test_readable_obligation_survives_visual_deferral_and_coverage_is_exact(self):
+        self.write([p('[예금성상품-유형]') + table().replace('조건 성립 시 표시', '한 줄에 두 문구 배치 불가')])
+        catalog = TemplateCatalog.from_hwpx(self.path)
+        rule = catalog.operational_rules()[0]
+        self.assertTrue(rule['template_basis']['text_facet_only'])
+        self.assertIn('예시', rule['criterion'])
+        self.assertNotIn('한 줄에 두 문구 배치 불가', rule['criterion'])
+        self.assertEqual(rule['template_basis']['manual_guidance'], '한 줄에 두 문구 배치 불가')
+        contract = compile_condition_contract(rule)
+        self.assertNotIn('한 줄에 두 문구 배치 불가', contract['obligation_checks'][0]['text'])
+        self.assertTrue(runner.automated_input_ready(rule, integrated_input()))
+        summary = audit_template_coverage(catalog, '예금성상품-유형', [rule], [rule['item_id']], [rule])
+        self.assertEqual((summary['source_row_count'], summary['requested_count'], summary['manual_review_count']), (1, 1, 1))
+        with self.assertRaisesRegex(ValueError, 'no disposition'):
+            audit_template_coverage(catalog, '예금성상품-유형', [rule], [], [])
+        with self.assertRaisesRegex(ValueError, 'missing, duplicated'):
+            audit_template_coverage(catalog, '예금성상품-유형', [], [], [])
+        with self.assertRaisesRegex(ValueError, 'missing, duplicated'):
+            audit_template_coverage(catalog, '예금성상품-유형', [rule, rule], [rule['item_id']], [])
+
+    def test_conditional_exemption_polarity_and_unknown_header_remain_explicit(self):
+        self.write([p('[예금성상품-유형]') + table(mark='△').replace('조건 성립 시 표시', '제한 없는 경우 생략 가능')])
+        rule = TemplateCatalog.from_hwpx(self.path).operational_rules()[0]
+        condition = compile_condition_contract(rule)['applicability_conditions'][0]['text']
+        self.assertIn('생략·면제가 확인되면 NOT_SATISFIED', condition)
+        self.assertIn('UNDETERMINED', condition)
+        self.assertIn('제한 없는 경우 생략 가능', condition)
+        self.write([p('[예금성상품-유형]') + table(headers=['구분','예시문구','','기재요령'])])
+        rule = TemplateCatalog.from_hwpx(self.path).operational_rules()[0]
+        self.assertFalse(rule['template_basis']['text_review_ready'])
 
     def test_blank_header_keeps_rows_without_guessing_requirement(self):
         self.write([p("[예금성상품-유형]") + '<p><run>' + table(headers=["구분", "예시문구", "", "기재요령"]) + '</run></p>'])
@@ -172,6 +240,7 @@ class TemplateCatalogTests(unittest.TestCase):
         regulation.write_bytes(b"synthetic workbook; loaders mocked")
         output = root / "run"
         args = ["runner", "--inputs-dir", str(inputs), "--coarse", str(root / "coarse"),
+                "--review-date", "2026-04-12",
                 "--fine", str(root / "fine"), "--regulation", str(regulation),
                 "--template-hwpx", str(self.path), "--output-dir", str(output),
                 "--es-index", "synthetic", "--vector-cache-dir", str(root / "cache")]
@@ -192,5 +261,8 @@ class TemplateCatalogTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         payload = json.loads(requests[0]["messages"][1]["content"])
         self.assertEqual(payload["rules"][0]["template_basis"]["basis_type"], "INTERNAL_TEMPLATE")
+        self.assertEqual(payload['review_context']['review_date'], '2026-04-12')
+        discovery = json.loads((output / '01_discovery.json').read_text(encoding='utf8'))
+        self.assertEqual(discovery['ads'][0]['template_coverage']['missing_count'], 0)
         freeze = json.loads((output / "FREEZE_BEFORE_PREDICTION.json").read_text(encoding="utf-8"))
         self.assertIn(str(self.path.resolve()), [entry["path"] for entry in freeze["inputs"]])

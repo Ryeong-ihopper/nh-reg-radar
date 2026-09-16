@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from operational_web_bridge import (  # noqa: E402
     ExecutionBridge, FULL_REVIEW, PARSER_REUSE_PARENT_STATUSES,
-    parser_layout, parser_runner_layout,
+    parser_layout, parser_runner_layout, registration_review_date,
 )
 from nh_ad_backend.domain import Advertisement, AdvertisementFile, User  # noqa: E402
 from nh_ad_backend.main import build_services, create_app  # noqa: E402
@@ -25,6 +25,110 @@ from nh_ad_backend.settings import Settings  # noqa: E402
 
 
 class BridgeTests(unittest.TestCase):
+    def test_registration_review_day_uses_korea_timezone_and_preserves_legacy_utc(self):
+        for timestamp, day in (("2026-04-10T14:59:59+00:00", "2026-04-10"),
+                               ("2026-04-10T15:00:00+00:00", "2026-04-11"),
+                               ("2026-04-11T23:00:00+09:00", "2026-04-11"),
+                               ("2026-04-10T15:00:00", "2026-04-11")):
+            with self.subTest(timestamp=timestamp):
+                self.assertEqual(registration_review_date(datetime.fromisoformat(timestamp)), day)
+
+    def test_rerun_submit_uses_original_ad_registration_not_review_request(self):
+        self.ad.created_at = datetime(2026, 4, 10, 15, tzinfo=UTC)
+        for requested in (datetime(2026, 4, 12, tzinfo=UTC), datetime(2026, 5, 1, tzinfo=UTC)):
+            bundle = self.request()
+            bundle.review.requested_at = requested
+            with patch.object(self.bridge, "stage"), patch.object(self.bridge, "parse", return_value={}), \
+                    patch.object(self.bridge.rag, "submit", side_effect=RuntimeError("stop after capture")) as submit:
+                self.bridge.run(bundle, {})
+            self.assertEqual(submit.call_args.args[0]["review_date"], "2026-04-11")
+            self.assertEqual(submit.call_args.args[0]["review_date_basis"], "advertisement_registration_date")
+
+    def write_parser_pair(self, output, name, *, text="검토 원문", status="ok"):
+        template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
+        first = {
+            "reading_evidence_contract": {"version": "nh-ad-review-evidence-v6"},
+            "doc_id": "DOC-test", "source_file": "input.pdf", "file_type": "pdf",
+            "template": template,
+            "pages": [{"page_no": 1, "parse_status": status, "regions": [{
+                "region_id": "r1", "lines": [{"line_ref": "p1/r1/L1", "text": text}],
+            }]}],
+        }
+        third = {
+            "contract": {"version": "nh-ad-review-region-input-v1"},
+            "document": {"doc_id": "DOC-test", "template": template},
+            "pages": [{"page_no": 1, "regions": [{
+                "region_id": "r1", "review_text": text, "line_refs": ["p1/r1/L1"],
+            }]}],
+        }
+        paths = []
+        for folder, data in (("evidence", first), ("review-input", third)):
+            path = Path(output) / folder / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data), encoding="utf-8")
+            paths.append(path)
+        return paths
+
+    def test_parser_pair_requires_text_but_not_geometry_or_complete_read(self):
+        for text, status, accepted in (("원문", "ok", True), ("일부 원문", "partial", True),
+                                       ("", "unreadable", False), (" \n", "ok", False)):
+            with self.subTest(text=text, status=status):
+                pair = self.write_parser_pair(self.root / "pair", "input.json", text=text, status=status)
+                before = [path.read_bytes() for path in pair]
+                if accepted:
+                    document = self.bridge.read_parser_asset(*pair)
+                    self.assertEqual(document["pages"][0]["regions"][0]["final_text"], text)
+                    self.assertIsNone(document["pages"][0]["regions"][0]["bbox"])
+                else:
+                    with self.assertRaisesRegex(ValueError, "PARSER_INPUT_UNREADABLE"):
+                        self.bridge.read_parser_asset(*pair)
+                self.assertEqual(before, [path.read_bytes() for path in pair])
+
+    def test_empty_or_invalid_pair_is_retryable_not_completed(self):
+        self.bridge.parser_layout_config = parser_runner_layout({"parser_runner": "nh_ad_parser_cli"})
+        output = self.root / "pair"
+        source = self.root / "input.pdf"
+        for invalid in ("empty", "json", "ownership", "unassigned_only"):
+            with self.subTest(invalid=invalid):
+                pair = self.write_parser_pair(output, "input.json", text="" if invalid == "empty" else "원문")
+                if invalid == "json":
+                    pair[1].write_text("{", encoding="utf-8")
+                elif invalid == "ownership":
+                    data = json.loads(pair[1].read_text(encoding="utf-8"))
+                    data["pages"][0]["regions"][0]["line_refs"] = ["other"]
+                    pair[1].write_text(json.dumps(data), encoding="utf-8")
+                elif invalid == "unassigned_only":
+                    for index, path in enumerate(pair):
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        page = data["pages"][0]
+                        page["regions"] = []
+                        page["unassigned_lines" if index == 0 else "unassigned_text"] = [
+                            {"line_ref": "p1/unknown/L1", "text": "미배정 원문"}]
+                        path.write_text(json.dumps(data), encoding="utf-8")
+                completed, missing = self.bridge.parsed_assets(self.ad.files, {"FILE-test": source}, output)
+                self.assertEqual(completed, {})
+                self.assertIn("PARSER_INPUT_UNREADABLE", missing["FILE-test"])
+
+    def test_empty_parent_parser_output_is_not_reused(self):
+        self.bridge.parser_layout_config = parser_runner_layout({"parser_runner": "nh_ad_parser_cli"})
+        parent = self.request()
+        parent.job.status = "FAILED"
+        parent_dir = self.bridge.root / "runs" / parent.review.review_id
+        self.write_parser_pair(parent_dir / "parser", "input.json", text="", status="unreadable")
+        (parent_dir / "parser-intake.json").write_text(
+            json.dumps(self.bridge.parser_intake("예금성상품-적립식")), encoding="utf-8")
+        current = self.root / "new-run"
+        self.assertIsNone(self.bridge.reuse_parent_parser_output(
+            self.ad, current, {"FILE-test": self.root / "input.pdf"}, parent.review.review_id,
+            template_id="예금성상품-적립식"))
+        self.assertFalse((current / "parser-reuse.json").exists())
+        self.write_parser_pair(parent_dir / "parser", "input.json", text="정상 원문", status="partial")
+        current.mkdir()
+        self.assertIsNotNone(self.bridge.reuse_parent_parser_output(
+            self.ad, current, {"FILE-test": self.root / "input.pdf"}, parent.review.review_id,
+            template_id="예금성상품-적립식"))
+        self.assertTrue((current / "parser-reuse.json").exists())
+
     def test_missing_or_changed_user_template_prevents_parent_parser_reuse(self):
         parent = self.request()
         parent.job.status = "COMPLETED"
@@ -160,8 +264,7 @@ class BridgeTests(unittest.TestCase):
         for name in ("evidence", "review-input"):
             (batch_output / name).mkdir(parents=True)
         first_output_name = f"{sources['FILE-test'].stem}.json"
-        (batch_output / "evidence" / first_output_name).write_text("{}", encoding="utf-8")
-        (batch_output / "review-input" / first_output_name).write_text("{}", encoding="utf-8")
+        self.write_parser_pair(batch_output, first_output_name)
         completed, missing = self.bridge.parsed_assets(self.ad.files, sources, batch_output)
         self.assertEqual(set(completed), {"FILE-test"})
         self.assertEqual(set(missing), {"FILE-second"})
@@ -169,9 +272,7 @@ class BridgeTests(unittest.TestCase):
         def write_retry_output(retry_source, retry_output, log_path, *, template_id=None):
             self.assertEqual(template_id, "대출성상품-상품명 노출")
             source = next(Path(retry_source).iterdir())
-            for name in ("evidence", "review-input"):
-                (Path(retry_output) / name).mkdir(parents=True, exist_ok=True)
-                (Path(retry_output) / name / f"{source.stem}.json").write_text("{}", encoding="utf-8")
+            self.write_parser_pair(retry_output, f"{source.stem}.json")
             Path(log_path).write_text("retried", encoding="utf-8")
             return 0
 
@@ -210,9 +311,7 @@ class BridgeTests(unittest.TestCase):
         def write_output(asset_source, asset_output, log_path, *, template_id=None):
             self.assertEqual(template_id, "예금성상품-적립식")
             source = next(Path(asset_source).iterdir())
-            for name in ("evidence", "review-input"):
-                (Path(asset_output) / name).mkdir(parents=True, exist_ok=True)
-                (Path(asset_output) / name / f"{source.stem}.json").write_text("{}", encoding="utf-8")
+            self.write_parser_pair(asset_output, f"{source.stem}.json")
             Path(log_path).write_text("parsed", encoding="utf-8")
             return 0
 
@@ -475,6 +574,27 @@ class BridgeTests(unittest.TestCase):
         page = value["pages"][0]
         self.assertEqual((page["asset_id"], page["source_page_no"]), ("FILE-b", 1))
         self.assertEqual(value["counts"]["lines"], 1)
+
+    def test_preview_raw_unassigned_line_without_canonical_reference_is_display_only(self):
+        from test_operational_locations import source
+        document = source()
+        document['pages'][0]['regions'] = []
+        line = document['pages'][0]['unassigned_lines'][0]
+        line.pop('line_ref')
+        value = parser_layout(document, source='visual-only')
+        projected = value['pages'][0]['regions'][0]['lines'][0]
+        self.assertIsNone(projected['line_ref'])
+        self.assertEqual(projected['bbox'], line['bbox'])
+        self.assertEqual(value['counts']['lines'], 1)
+
+    def test_optional_preview_failure_preserves_semantic_input(self):
+        from unittest.mock import patch
+        document = {'semantic': 'preserved'}
+        with patch.object(self.bridge, 'prepare_parser_layout', side_effect=KeyError('line_ref')):
+            self.assertIsNone(self.bridge.prepare_optional_parser_layout(Path('source.hwp'), self.root, document))
+        self.assertEqual(document, {'semantic': 'preserved'})
+        self.assertEqual(json.loads((self.root/'parser-layout-error.json').read_text(encoding='utf8'))['code'],
+                         'PARSER_LAYOUT_UNAVAILABLE')
 
 
 if __name__ == "__main__":

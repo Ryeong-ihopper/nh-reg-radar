@@ -5,7 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, resolveApiUrl } from "../api/client";
 import { operationalRequest, type ParserLayout } from "../api/operational";
 import { useAuth } from "../auth/useAuth";
-import { missingSourceLabel, resultEvidenceBoxes, resultCounts, type ResultWorkspace } from "../components/operationalResultModel";
+import { legalBasisLines, missingSourceLabel, resultEvidenceBoxes, resultCounts, type ResultWorkspace } from "../components/operationalResultModel";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { WorkflowSteps } from "../components/WorkflowSteps";
 
@@ -116,6 +116,11 @@ export function OperationalResultsPage() {
     {status.isError ? <ErrorState error={status.error} onRetry={() => void status.refetch()} /> : null}
     {workspace.isPending ? <LoadingState label="검토 결과를 불러오는 중입니다." /> : null}
     {workspace.isError ? <ErrorState error={workspace.error} onRetry={() => void workspace.refetch()} /> : null}
+    {workspace.data?.template_coverage?.map((coverage, index) => <aside className="state-message" key={`${coverage.template_section}:${index}`}>
+      <strong>선택 템플릿 전체 항목 확인 · {coverage.template_section}</strong>
+      <p>원문 {coverage.source_row_count}행 → 택일 항목 통합 후 {coverage.rule_count}항목 · 자동 판정 요청 {coverage.requested_count}항목 · 사람 확인 포함 {coverage.manual_review_count}항목 · 처리 기록 누락 {coverage.missing_count}항목</p>
+      <small>텍스트 판정과 시각·구조 확인은 같은 항목에 함께 있을 수 있습니다. 판정 요청 건수는 충족 건수가 아닙니다.</small>
+    </aside>)}
     <div className="operational-summary" aria-label="판정 상태 요약">
       <article className="operational-summary-state"><span>검토 상태</span><strong>{reviewState}</strong><small>높음·중간·낮음은 광고의 판정값이 아닙니다. 위반·판단불가 항목을 먼저 확인하는 데만 쓰는 보조 우선순위입니다.</small></article>
       <article><span>위반</span><strong data-verdict="위반">{counts.violation}</strong></article>
@@ -144,12 +149,18 @@ export function OperationalResultsPage() {
       <div className="single-regulations"><header className="single-regulations-heading"><div><h3>규정별 판정 <small>{rows.length}건</small></h3><p>위험도 대신 판정 상태를 기준으로 확인합니다.</p></div></header>
         <div className="verdict-filter" aria-label="판정 상태 필터"><button type="button" aria-pressed={filter === "ALL"} onClick={() => setFilter("ALL")}>전체 {counts.total}</button>{VERDICTS.map((verdict) => <button key={verdict} type="button" data-verdict={verdict} aria-pressed={filter === verdict} onClick={() => setFilter(verdict)}>{verdict} {counts[COUNT_KEY[verdict]]}</button>)}</div>
         <div className="single-regulations-scroll" tabIndex={0} aria-label="규정별 판정 목록">
-        {rows.map((row) => { const rowId = row.row_id ?? row.item_id; return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
+        {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const basisLines = legalBasisLines(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
           <header><strong>{row.item_id} · {row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
           {row.question ? <p className="regulation-question">{row.question}</p> : null}
-          {row.template_example ? <p className="template-item-detail"><strong>템플릿 참고 문구</strong> {row.template_example}<small>동일 취지의 표현을 허용하며, 예시와의 문구 완전일치를 요구하지 않습니다.</small></p> : null}
-          <p>{row.reason}</p>
-          {row.rule_basis ? <p className="regulation-basis"><strong>판정 기준</strong> {row.rule_basis.source_type === "INTERNAL_TEMPLATE" ? "내부 심의 템플릿" : "규제목록 v2"} · {row.rule_basis.source_ref}{row.rule_basis.legal_basis_refs.length ? ` · ${row.rule_basis.legal_basis_refs.join(" · ")}` : " · 별도 법령 근거 미기재"}</p> : null}
+          {row.template_example ? <details className="template-item-detail"><summary>템플릿 작성 예시 보기</summary><p>{row.template_example}</p><small>작성 방식을 보여 주는 예시입니다. 광고에 이 문구를 그대로 쓸 필요는 없습니다.</small></details> : null}
+          {row.judgment_scope === "TEXT_ONLY" ? <p className="panel-note">텍스트 의무의 판정입니다. 배치·로고·원문 구조는 별도 사람 확인이 남아 있습니다.</p> : null}
+          <p>{row.reading_quality_review?.issues.length || row.model_assessment ? <strong>시스템의 자동 확정 보류 사유: </strong> : null}{row.reason}</p>
+          {row.model_assessment ? <details className="panel-note"><summary>보류 전 모델 판단 보기 · 최종 판정으로 채택되지 않음</summary><p><strong>{({VIOLATION:"위반",COMPLIANT:"충족",UNDETERMINED:"판단불가",NOT_APPLICABLE:"미해당"} as Record<string,string>)[row.model_assessment.verdict] ?? row.model_assessment.verdict}</strong> · {row.model_assessment.reason}</p></details> : null}
+          {row.rule_basis ? <dl className="regulation-basis">
+            {row.rule_basis.source_type === "INTERNAL_TEMPLATE" ? <div><dt>기준 출처</dt><dd>{`일반 심의 템플릿${row.template_section ? ` · ${row.template_section}` : ""}`}</dd></div> : null}
+            {row.template_requirement ? <div><dt>기재 구분</dt><dd>{({REQUIRED: "필수", CONDITIONAL: "조건에 따라 필수"} as Record<string,string>)[row.template_requirement] ?? row.template_requirement}</dd></div> : null}
+            <div><dt>판정 기준</dt><dd>{basisLines.length ? <ul className="legal-basis-list">{basisLines.map(ref => <li key={ref}>{ref}</li>)}</ul> : "이 항목에는 개별 법 조문을 연결하지 않았습니다."}</dd></div>
+          </dl> : null}
           <small>{locationLabel(rowId, row.verdict, row.evidence)}</small>
         </article>; })}
         {!rows.length && workspace.data ? <p className="panel-note">이 상태의 판정 항목이 없습니다.</p> : null}
@@ -163,7 +174,7 @@ export function OperationalResultsPage() {
         {deferred.length ? <details className="panel-note"><summary>판정 미실행 항목 {deferred.length}건 · 사유 구분</summary>
           <p>다른 템플릿 범위 {deferred.filter(row => row.deferred_kind === "OTHER_TEMPLATE").length}건 · 입력·구조 확인 필요 {deferred.filter(row => row.deferred_kind === "INPUT_OR_STRUCTURE").length}건 · 추가 검색 실행 한도 {deferred.filter(row => row.deferred_kind === "EXECUTION_BUDGET").length}건</p>
           <p>실행 한도로 보류된 항목은 미해당이나 충족으로 판정된 것이 아닙니다.</p>
-          <ul>{deferred.map((row, index) => <li key={`${row.scope_id}:${row.item_id}:${index}`}>{row.item_id} · {row.reason.startsWith("시인성은 사람 검토") ? row.reason : row.deferred_kind === "OTHER_TEMPLATE" ? "선택한 상세 상품군의 템플릿 범위 밖" : row.deferred_kind === "EXECUTION_BUDGET" ? "추가 검색 실행 한도로 미판정" : "입력 또는 원문 구조 확인 필요 · 사람 검토"}</li>)}</ul>
+          <ul>{deferred.map((row, index) => <li key={`${row.scope_id}:${row.item_id}:${index}`}>{row.item_id} · {row.reason.startsWith("텍스트 의무는") || row.reason.startsWith("시인성은 사람 검토") ? row.reason : row.deferred_kind === "OTHER_TEMPLATE" ? "선택한 상세 상품군의 템플릿 범위 밖" : row.deferred_kind === "EXECUTION_BUDGET" ? "추가 검색 실행 한도로 미판정" : "입력 또는 원문 구조 확인 필요 · 사람 검토"}</li>)}</ul>
         </details> : null}
         </div>
       </div>

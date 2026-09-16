@@ -45,7 +45,8 @@ from nh_ad_backend.security import hash_password
 from nh_ad_backend.settings import Settings
 
 from local_hwp_preview import LocalHwpPreview
-from operational_locations import resolve_locations
+from operational_server_config import load_server_config
+from operational_locations import project_reading_citations, resolve_locations
 
 
 VERDICTS = {
@@ -115,7 +116,7 @@ def project_results(
     product_name=None,
 ):
     for candidate in candidates:
-        judgment = candidate["judgment"]
+        judgment = project_reading_citations(candidate["judgment"])
         if judgment.get("applicability") == "NOT_APPLICABLE" or judgment.get("verdict") == "NOT_APPLICABLE":
             continue
         item_id = candidate["item_id"]
@@ -181,17 +182,19 @@ def project_results(
 def build_operational_server(args):
     """Start the real registration → queue → pipeline path with no seed result."""
     args.state_dir.mkdir(parents=True, exist_ok=True)
+    server = load_server_config(args.server_config) if getattr(args, "server_config", None) else None
     settings = Settings(
         app_env="test",
-        refresh_cookie_secure=False,
-        cors_allowed_origins=f"http://localhost:{args.port},http://127.0.0.1:{args.port}",
+        refresh_cookie_secure=bool(server),
+        jwt_secret=server.jwt_secret if server else None,
+        cors_allowed_origins=server.public_url if server else f"http://localhost:{args.port},http://127.0.0.1:{args.port}",
         private_storage_path=args.state_dir / "private",
     )
     services = build_services(settings)
     # This loopback-only PoC viewer deliberately uses one fixed local account.
     # It is not a production authentication configuration.
-    login_id = LOCAL_VIEWER_LOGIN
-    password = LOCAL_VIEWER_PASSWORD
+    login_id = server.login_id if server else LOCAL_VIEWER_LOGIN
+    password = server.password if server else LOCAL_VIEWER_PASSWORD
     user = User(
         "local-operator", "광고 심의 담당자", login_id, hash_password(password),
         "DPT-LOCAL", "로컬 검토", ("PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"),
@@ -208,7 +211,7 @@ def build_operational_server(args):
     @app.get("/open/{token}")
     async def open_local(token: str):
         nonlocal entry_token
-        if not entry_token or not secrets.compare_digest(token, entry_token):
+        if server or not entry_token or not secrets.compare_digest(token, entry_token):
             return JSONResponse({"message": "사용된 로컬 연결입니다. 로그인 화면을 이용하세요."}, status_code=404)
         entry_token = ""
         _, refresh, _ = services.auth.login(user.email, password, "127.0.0.1", "operational-web", "local-open")
@@ -227,12 +230,15 @@ def build_operational_server(args):
         except (ValueError, TypeError) as exc:
             return JSONResponse({"code": getattr(exc, "code", "UNAUTHORIZED"), "message": getattr(exc, "message", "로그인에 실패했습니다.")}, status_code=getattr(exc, "status_code", 401))
         response = JSONResponse({"accessToken": access, "tokenType": "Bearer", "expiresIn": 1800, "user": {"userId": authenticated.user_id, "userName": authenticated.user_name, "departmentId": authenticated.department_id, "departmentName": authenticated.department_name, "roles": list(authenticated.roles)}})
-        response.set_cookie("refreshToken", refresh, httponly=True, secure=False, samesite="lax", path="/api/v1/auth")
+        response.set_cookie("refreshToken", refresh, httponly=True, secure=bool(server), samesite="lax", path="/api/v1/auth")
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     app.mount("/api/v1", backend)
     app.mount("/", SpaFiles(directory=args.static_dir, html=True))
-    (args.state_dir / "viewer-session.json").write_text(json.dumps({"url": f"http://localhost:{args.port}/advertisements", "open_url": f"http://localhost:{args.port}/open/{entry_token}", "email": user.email, "password": password, "mode": "operational_registration"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest = ({"url": f"{server.public_url}/advertisements", "mode": "server_operational_registration"}
+                if server else {"url": f"http://localhost:{args.port}/advertisements", "open_url": f"http://localhost:{args.port}/open/{entry_token}", "email": user.email, "password": password, "mode": "operational_registration"})
+    (args.state_dir / "viewer-session.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return app
 
 
@@ -428,10 +434,13 @@ if __name__ == "__main__":
         help="Disable new operational execution and show only the supplied saved result.",
     )
     parser.add_argument("--port", type=int, default=5180)
+    parser.add_argument("--server-config", type=Path, help="Explicit HTTPS/login secrets for server execution")
     args = parser.parse_args()
     supplied_seed = [args.result, args.requests, args.integrated, args.original]
     if any(supplied_seed) and not all(supplied_seed):
         parser.error("saved-result mode requires --result, --requests, --integrated, and --original together")
+    if args.server_config and any(supplied_seed):
+        parser.error("server mode restores its persistent state; saved-result seed mode is local only")
     if args.read_only:
         if args.result is None:
             parser.error("--read-only requires a saved result input")
@@ -441,4 +450,7 @@ if __name__ == "__main__":
             "operational execution config was not found: "
             f"{args.execution_config}. Provide --execution-config or use --read-only."
         )
-    uvicorn.run(build_viewer(args), host="127.0.0.1", port=args.port)
+    server = load_server_config(args.server_config) if args.server_config else None
+    uvicorn.run(build_viewer(args), host=server.bind_host if server else "127.0.0.1", port=args.port,
+                ssl_certfile=server.tls_cert_file if server else None,
+                ssl_keyfile=server.tls_key_file if server else None)

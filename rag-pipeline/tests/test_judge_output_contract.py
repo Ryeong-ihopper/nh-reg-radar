@@ -7,11 +7,186 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from test_operational_rag_contracts import gemma, request_row
+from test_operational_rag_contracts import gemma, request_row, result
 from rag.judgment.output_contract import response_format
 
 
 class OutputContractTests(unittest.TestCase):
+    def focused_fixture(self):
+        row = request_row(['TEST-A', 'TEST-B'])
+        payload = json.loads(row['messages'][1]['content'])
+        payload['documents'][0]['line_texts'] = {'L-1': '테스트 근거'}
+        payload['documents'][0]['labels'] = ['보조 검색 라벨']
+        payload['full_ad_text'] = '허용 근거 밖 전문'
+        payload['documents'].append({'evidence_id': 'OTHER', 'line_refs': [], 'text': '다른 항목 근거'})
+        payload['evidence_scope'] = {'TEST-A': {'evidence_ids': ['E-1']},
+                                     'TEST-B': {'evidence_ids': ['E-1', 'OTHER']}}
+        payload['rules'][0]['condition_contract'] = {'applicability_mode': 'UNCONDITIONAL'}
+        row['messages'][1]['content'] = json.dumps(payload)
+        unknown = result('TEST-A')
+        unknown.update(verdict='UNDETERMINED', evidence_ids=[], evidence_line_refs=[],
+                       needs_researcher_review=True)
+        unknown['requirement_checks'][0].update(status='UNKNOWN', finding_basis='UNKNOWN',
+                                               evidence_ids=[], evidence_line_refs=[])
+        batch = {'parsed': {'ad_id': row['ad_id'], 'results': [unknown, result('TEST-B')]},
+                 'model_parsed': {'original': True}, 'validation_errors': [], 'call_history': []}
+        return row, payload, batch
+
+    def test_focus_uses_only_existing_scope_preserves_neighbor_and_audit(self):
+        row, _, batch = self.focused_fixture()
+        frozen_row, frozen_batch = copy.deepcopy(row), copy.deepcopy(batch)
+        retry = {'parsed': {'ad_id': row['ad_id'], 'results': [result('TEST-A')]},
+                 'validation_errors': [], 'usage': {'total_tokens': 7}}
+        retry['parsed']['results'][0].update(scope_check={'scope_ref': None, 'status': 'MATCHED'},
+                                             condition_checks=[], review_condition_checks=[])
+        with patch.object(gemma, 'call_with_retry', return_value=retry) as call:
+            updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+        isolated = call.call_args.args[0]
+        self.assertEqual(isolated['requested_item_ids'], ['TEST-A'])
+        self.assertEqual(len(isolated['messages']), 3)
+        focused_payload = json.loads(isolated['messages'][1]['content'])
+        self.assertNotIn('full_ad_text', focused_payload)
+        self.assertNotIn('labels', focused_payload['documents'][0])
+        self.assertEqual([d['evidence_id'] for d in json.loads(isolated['messages'][1]['content'])['documents']], ['E-1'])
+        self.assertEqual(updated['parsed']['results'][0]['verdict'], 'COMPLIANT')
+        self.assertEqual(updated['parsed']['results'][1], batch['parsed']['results'][1])
+        self.assertEqual(updated['model_parsed'], batch['model_parsed'])
+        self.assertEqual(updated['source_focus_attempts'][0]['response'], retry)
+        self.assertEqual(updated['source_focus_attempts'][0]['request'], isolated)
+        self.assertEqual(updated['call_history'][0]['usage']['total_tokens'], 7)
+        self.assertEqual(updated['source_focus_applied'], ['TEST-A'])
+        self.assertEqual(row, frozen_row)
+        self.assertEqual(batch, frozen_batch)
+
+    def test_focus_does_not_replace_unknown_invalid_or_inapplicable(self):
+        for mode in ('unknown', 'invalid', 'not_applicable', 'exception'):
+            with self.subTest(mode=mode):
+                row, _, batch = self.focused_fixture()
+                retry = {'parsed': {'ad_id': row['ad_id'], 'results': [copy.deepcopy(batch['parsed']['results'][0])]},
+                         'validation_errors': []}
+                if mode == 'invalid':
+                    retry['validation_errors'] = ['invalid reference']
+                if mode == 'not_applicable':
+                    retry['parsed']['results'][0]['verdict'] = 'NOT_APPLICABLE'
+                with patch.object(gemma, 'call_with_retry', return_value=retry,
+                                  side_effect=RuntimeError('timeout') if mode == 'exception' else None) as call:
+                    updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+                self.assertEqual(call.call_count, 1)
+                self.assertEqual(updated['parsed'], batch['parsed'])
+                self.assertEqual(updated['source_focus_applied'], [])
+
+    def test_focus_records_existing_contract_correction_calls(self):
+        row, _, batch = self.focused_fixture()
+        valid = {'parsed': {'ad_id': row['ad_id'], 'results': [result('TEST-A')]},
+                 'validation_errors': [], 'usage': {'total_tokens': 7}}
+        valid['parsed']['results'][0].update(scope_check={'scope_ref': None, 'status': 'MATCHED'},
+                                             condition_checks=[], review_condition_checks=[])
+        invalid = {'validation_errors': ['quoted text not on cited line'], 'usage': {'total_tokens': 3}}
+        with patch.object(gemma, 'call_once', side_effect=[invalid, valid]) as call:
+            updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(updated['source_focus_applied'], ['TEST-A'])
+        self.assertEqual(sum(event['usage']['total_tokens'] for event in updated['call_history']), 10)
+        self.assertTrue(all(event['purpose'] == 'isolated_source_judgment' for event in updated['call_history']))
+
+    def test_focus_skips_guarded_conditional_external_and_other_requests(self):
+        for mode in ('guarded', 'conditional', 'external', 'unsafe', 'other_category'):
+            with self.subTest(mode=mode):
+                row, payload, batch = self.focused_fixture()
+                if mode == 'guarded':
+                    batch['parsed']['results'][0]['reading_quality_review'] = {'status': 'REVIEW'}
+                if mode == 'conditional':
+                    payload['rules'][0]['condition_contract']['applicability_conditions'] = ['A1']
+                if mode == 'external':
+                    payload['external_input_assessment'] = {'TEST-A': {'input_mode': 'EXTERNAL'}}
+                if mode == 'unsafe':
+                    payload['documents'][0]['text_selection'] = {'needs_review': True}
+                if mode == 'other_category':
+                    row['category'] = 'CONSISTENCY'
+                row['messages'][1]['content'] = json.dumps(payload)
+                with patch.object(gemma, 'call_with_retry') as call:
+                    updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+                call.assert_not_called()
+                self.assertIs(updated, batch)
+
+    def test_focus_includes_source_scoped_presence_and_source_arithmetic(self):
+        for category in ('PRESENCE', 'PROHIBIT'):
+            row, payload, batch = self.focused_fixture()
+            row['category'] = category
+            payload['rules'][0]['condition_contract']['applicability_mode'] = 'SOURCE_SCOPED'
+            if category == 'PROHIBIT':
+                payload['rules'][0]['condition_contract']['obligation_checks'] = [{'text': '표기된 합산 결과 검산'}]
+            batch['parsed']['results'][0]['evidence_line_refs'] = ['L-1']
+            row['messages'][1]['content'] = json.dumps(payload)
+            with patch.object(gemma, 'call_with_retry', return_value={'parsed': {}, 'validation_errors': []}) as call:
+                updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(updated['parsed'], batch['parsed'])
+
+    def test_focus_single_request_does_not_mutate_original_messages(self):
+        row, payload, batch = self.focused_fixture()
+        row['requested_item_ids'] = ['TEST-A']
+        payload['rules'] = payload['rules'][:1]
+        row['messages'][1]['content'] = json.dumps(payload)
+        batch['parsed']['results'] = batch['parsed']['results'][:1]
+        frozen = copy.deepcopy(row)
+        with patch.object(gemma, 'call_with_retry', return_value={'parsed': {}, 'validation_errors': []}) as call:
+            gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(row, frozen)
+
+    def test_uncertain_candidates_are_preserved_but_not_citable(self):
+        row = request_row(['TEST-A'])
+        payload = json.loads(row['messages'][1]['content'])
+        readable = payload['documents'][0]
+        readable['line_texts'] = {'L-1': '독립적으로 읽힌 회사명 문장'}
+        unsafe = {**copy.deepcopy(readable), 'evidence_id': 'E-uncertain', 'line_refs': ['L-unsafe'],
+                  'line_texts': {'L-unsafe': '불확실한 로고'}, 'text': '불확실한 로고',
+                  'text_selection': {'needs_review': True}}
+        payload['documents'].insert(0, unsafe)
+        payload['evidence_scope'] = {'TEST-A': {'evidence_ids': ['E-uncertain', 'E-1'], 'complete_ad_scan': True}}
+        row['messages'][1]['content'] = json.dumps(payload)
+        frozen = copy.deepcopy(row)
+        messages, aliases = gemma._compact_model_request(row)
+        wire = json.loads(messages[1]['content'])
+        self.assertEqual(aliases['ref_to_evidence'], {'E1': 'E-1'})
+        self.assertEqual(aliases['ref_to_line'], {'L1': 'L-1'})
+        self.assertFalse(wire['evidence_scope']['R1']['complete_ad_scan'])
+        self.assertEqual(wire['evidence_scope']['R1']['line_refs'], ['L1'])
+        self.assertEqual(wire['evidence_scope']['R1']['evidence_refs'], ['L1'])
+        schema = response_format(wire)['json_schema']['schema']
+        self.assertEqual(schema['properties']['results']['items']['properties']['scope_check']
+                         ['properties']['evidence_refs']['items']['enum'], ['L1'])
+        self.assertEqual(wire['uncertain_context'][0]['text'], '불확실한 로고')
+        self.assertFalse(wire['uncertain_context'][0]['citable'])
+        self.assertEqual(row, frozen)
+        readable['text_selection'] = {'needs_review': True}
+        row['messages'][1]['content'] = json.dumps(payload)
+        messages, aliases = gemma._compact_model_request(row)
+        self.assertEqual(aliases['ref_to_line'], {})
+        self.assertEqual(json.loads(messages[1]['content'])['documents'], [])
+
+    def test_observed_compliance_requires_exact_line_when_supplied(self):
+        row = request_row(['TEST-A'])
+        payload = json.loads(row['messages'][1]['content'])
+        payload['documents'][0]['line_texts'] = {'L-1': '테스트 근거'}
+        row['messages'][1]['content'] = json.dumps(payload)
+        judgment = result('TEST-A')
+        judgment['requirement_checks'][0]['evidence_line_refs'] = []
+        parsed = {'ad_id': row['ad_id'], 'results': [judgment]}
+        self.assertTrue(any('원본 줄을 직접' in error for error in gemma.validate(row, parsed)))
+        judgment['requirement_checks'][0]['evidence_line_refs'] = ['L-1']
+        self.assertEqual(gemma.validate(row, parsed), [])
+        payload['documents'][0]['span_status'] = 'region_level_selected_text'
+        row['messages'][1]['content'] = json.dumps(payload)
+        judgment['requirement_checks'][0]['evidence_line_refs'] = []
+        self.assertEqual(gemma.validate(row, parsed), [])
+        # Legacy region-only text does not acquire a fabricated exact line.
+        payload['documents'][0].pop('line_texts')
+        row['messages'][1]['content'] = json.dumps(payload)
+        judgment['requirement_checks'][0]['evidence_line_refs'] = []
+        self.assertEqual(gemma.validate(row, parsed), [])
+
     def setUp(self):
         self.env = patch.dict(os.environ, {"NH_JUDGE_RESPONSE_FORMAT": "json_schema"})
         self.env.start()
@@ -33,6 +208,30 @@ class OutputContractTests(unittest.TestCase):
             "condition_checks": [], "review_condition_checks": [],
             "verdict": "UNDETERMINED", "requirement_checks": [],
             "reason": "추가 입력 필요", "confidence": "LOW"}]}
+
+    def test_review_date_survives_compact_wire_projection(self):
+        payload = json.loads(self.row['messages'][1]['content'])
+        payload['review_context'] = {'review_date': '2026-04-12', 'date_basis': 'review_request_date'}
+        self.row['messages'][1]['content'] = json.dumps(payload)
+        messages, _ = gemma._compact_model_request(self.row)
+        self.assertEqual(json.loads(messages[1]['content'])['review_context'], payload['review_context'])
+
+    def test_wire_uses_bound_obligations_without_competing_auxiliary_visual_guidance(self):
+        payload = json.loads(self.row['messages'][1]['content'])
+        rule = payload['rules'][0]
+        rule.update(standard_guidance='다른 범위의 표준 안내', guide='한 줄 배치',
+                    template_basis={'text_facet_only': True, 'source_ref': 'source/row1',
+                                    'fields': {'guidance': '한 줄 배치'}, 'manual_guidance': '한 줄 배치'})
+        self.row['messages'][1]['content'] = json.dumps(payload)
+        frozen = copy.deepcopy(self.row)
+        messages, _ = gemma._compact_model_request(self.row)
+        wire = json.loads(messages[1]['content'])['rules'][0]
+        self.assertNotIn('standard_guidance', wire)
+        self.assertNotIn('guide', wire)
+        self.assertNotIn('fields', wire['template_basis'])
+        self.assertTrue(wire['template_basis']['text_facet_only'])
+        self.assertEqual(wire['template_basis']['source_ref'], 'source/row1')
+        self.assertEqual(self.row, frozen)
 
     def test_empty_or_missing_result_rejected(self):
         self.assertEqual(self.schema["required"], ["results"])
@@ -86,3 +285,28 @@ class OutputContractTests(unittest.TestCase):
         props = response_format(p)["json_schema"]["schema"]["properties"]["results"]["items"]["properties"]
         self.assertEqual(props["condition_checks"]["items"]["properties"]["condition_ref"]["enum"], ["A1"])
         self.assertNotIn("obligation_ref", props["requirement_checks"]["items"]["required"])
+
+    def test_required_gate_entries_cannot_be_omitted_but_can_abstain(self):
+        compact = copy.deepcopy(self.compact)
+        compact["rules"][0]["output_check_refs"]["condition_checks"] = ["A1"]
+        schema = response_format(compact)["json_schema"]["schema"]
+        props = schema["properties"]["results"]["items"]["properties"]
+        checks = props["condition_checks"]
+        self.assertEqual((checks.get("minItems", 0), checks.get("maxItems")), (1, 1))
+        self.assertIn("UNDETERMINED", checks["items"]["properties"]["status"]["enum"])
+        self.assertIn("NOT_MATCHED", props["scope_check"]["properties"]["status"]["enum"])
+        self.assertEqual(props["requirement_checks"].get("minItems", 0), 0)
+
+    def test_mixed_rule_gate_lengths_keep_each_source_contract_possible(self):
+        compact = copy.deepcopy(self.compact)
+        second = copy.deepcopy(compact["rules"][0])
+        second["rule_ref"] = "R2"
+        second["output_check_refs"]["review_condition_checks"] = ["C1", "C2"]
+        compact["rules"].append(second)
+        schema = response_format(compact)["json_schema"]["schema"]
+        checks = schema["properties"]["results"]["items"]["properties"]["review_condition_checks"]
+        self.assertEqual((checks.get("minItems", 0), checks.get("maxItems")), (0, 2))
+        compact["rules"][0]["output_check_refs"]["review_condition_checks"] = ["C1", "C2"]
+        schema = response_format(compact)["json_schema"]["schema"]
+        checks = schema["properties"]["results"]["items"]["properties"]["review_condition_checks"]
+        self.assertEqual((checks["minItems"], checks["maxItems"]), (2, 2))

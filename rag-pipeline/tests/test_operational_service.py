@@ -99,6 +99,35 @@ def integrated_input() -> dict:
 
 
 class OperationalServiceTests(unittest.TestCase):
+    def test_explicit_review_date_is_validated_frozen_and_idempotency_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / 'rules.xlsx'
+            regulation.write_bytes(b'synthetic')
+            service = OperationalReviewService(ServiceConfig(jobs_dir=root/'jobs', regulation_path=regulation,
+                es_url='http://search.invalid', es_index='synthetic', model='synthetic'))
+            self.addCleanup(service.executor.shutdown)
+            request = {'schema_version':'operational-review-request-v1', 'client_request_id':'DATE-TEST',
+                       'document': integrated_input(), 'routing_overrides': {'product_group':'예금성'},
+                       'review_date':'2026-04-12', 'execute_model':False}
+            with mock.patch.object(service.executor, 'submit'):
+                first = service.submit(request)
+                saved = json.loads((service.store.directory(first['job_id'])/'request.json').read_text(encoding='utf8'))
+                self.assertEqual(saved['review_date'], '2026-04-12')
+                self.assertTrue(service.submit(request)['idempotent_replay'])
+                registered = service.submit({**request, 'client_request_id': 'REGISTERED',
+                                             'review_date_basis': 'advertisement_registration_date'})
+                stored = json.loads((service.store.directory(registered['job_id'])/'request.json').read_text(encoding='utf8'))
+                self.assertEqual(stored['review_date_basis'], 'advertisement_registration_date')
+                with self.assertRaisesRegex(ValueError, 'different input'):
+                    service.submit({**request, 'client_request_id': 'REGISTERED',
+                                    'review_date_basis': 'explicit_review_date'})
+                with self.assertRaisesRegex(ValueError, 'different input'):
+                    service.submit({**request,'review_date':'2026-04-13'})
+                for value in ('2026-02-30','20260412',12):
+                    with self.subTest(value=value), self.assertRaises(ValueError):
+                        service.submit({**request,'review_date':value})
+
     def test_model_environment_is_passed_to_pipeline_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

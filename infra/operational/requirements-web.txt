@@ -1,0 +1,7 @@
+-r ../../rag-pipeline/requirements-rag.txt
+pydantic-settings==2.14.2
+SQLAlchemy==2.0.51
+alembic==1.16.5
+psycopg[binary]==3.2.10
+redis==8.0.1
+httpx==0.28.1

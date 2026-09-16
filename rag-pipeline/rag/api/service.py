@@ -13,7 +13,7 @@ import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field as dataclass_field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -283,12 +283,23 @@ class OperationalReviewService:
             "document",
             "routing_overrides",
             "execute_model",
+            "review_date",
+            "review_date_basis",
         }
         if set(request) - allowed:
             raise ValueError(f"unsupported request fields: {sorted(set(request) - allowed)}")
         if "execute_model" in request and not isinstance(request["execute_model"], bool):
             raise ValueError("execute_model must be boolean")
         client_request_id = request.get("client_request_id")
+        review_date = request.get("review_date")
+        review_date_basis = request.get("review_date_basis", "explicit_review_date")
+        if review_date_basis not in {"explicit_review_date", "advertisement_registration_date"}:
+            raise ValueError("unsupported review_date_basis")
+        if request.get("review_date_basis") and not review_date:
+            raise ValueError("review_date_basis requires review_date")
+        if review_date is not None:
+            if not isinstance(review_date, str) or date.fromisoformat(review_date).isoformat() != review_date:
+                raise ValueError("review_date must be YYYY-MM-DD")
         if client_request_id is not None and (
             not isinstance(client_request_id, str) or not client_request_id.strip()
         ):
@@ -304,8 +315,13 @@ class OperationalReviewService:
             "document": prepared,
             "execute_model": request.get("execute_model", True) is not False,
             "client_request_id": request.get("client_request_id"),
+            "review_date": review_date,
+            "review_date_basis": review_date_basis,
             "input_sha256": hashlib.sha256(
-                json.dumps(prepared, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                json.dumps(prepared if review_date is None else
+                           {"document": prepared, "review_date": review_date,
+                            **({"review_date_basis": review_date_basis} if "review_date_basis" in request else {})},
+                           ensure_ascii=False, sort_keys=True).encode("utf-8")
             ).hexdigest(),
         }
         job = self.store.create(stored)
@@ -444,6 +460,9 @@ class OperationalReviewService:
             ]
             if self.config.vector_cache_dir:
                 command.extend(["--vector-cache-dir", str(self.config.vector_cache_dir)])
+            if request.get("review_date"):
+                command.extend(["--review-date", request["review_date"]])
+                command.extend(["--review-date-basis", request.get("review_date_basis", "explicit_review_date")])
             if request["execute_model"]:
                 command.append("--execute-judgment")
             if self.config.dgx_host:

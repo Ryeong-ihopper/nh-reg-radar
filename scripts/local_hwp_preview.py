@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -18,6 +19,7 @@ def resolve_soffice() -> Path:
     configured = os.environ.get("NH_LOCAL_SOFFICE")
     candidates = [
         Path(configured) if configured else None,
+        Path(shutil.which("soffice") or shutil.which("libreoffice") or "/nonexistent/soffice"),
         Path(r"C:\Program Files\LibreOffice\program\soffice.com"),
         Path(r"C:\Program Files\LibreOffice\program\soffice.exe"),
     ]
@@ -38,7 +40,8 @@ def convert_hwp_to_pdf(body: bytes, file_name: str) -> bytes:
         source.write_bytes(body)
         try:
             result = subprocess.run(
-                [str(resolve_soffice()), "--headless", "--convert-to", "pdf",
+                [str(resolve_soffice()), f"-env:UserInstallation={(root / 'profile').as_uri()}",
+                 "--headless", "--convert-to", "pdf",
                  "--outdir", str(root), str(source)],
                 check=False,
                 capture_output=True,

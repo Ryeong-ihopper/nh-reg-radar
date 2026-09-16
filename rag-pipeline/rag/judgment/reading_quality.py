@@ -10,7 +10,43 @@ import copy
 from typing import Any
 
 
-VERSION = "reading-quality-gate-v1"
+VERSION = "reading-quality-gate-v2"
+
+
+def project_reading_citations(result: dict[str, Any]) -> dict[str, Any]:
+    """Exclude revoked claims from active citations, including saved v1 results.
+
+    This is a projection, not a new judgment or a semantic relevance check.
+    The caller's saved result and the guard's original_result remain untouched.
+    An unrelated UNDETERMINED result is not grounds to suppress its citations.
+    """
+    issues = (result.get("reading_quality_review") or {}).get("issues") or []
+    if not issues:
+        return result
+    projected = copy.deepcopy(result)
+    gate_issue = any(not issue["location"].startswith("requirement_checks:") for issue in issues)
+    if gate_issue:
+        projected["applicability_evidence_ids"] = []
+        projected["applicability_evidence_line_refs"] = []
+        checks = [projected.get("scope_check"),
+                  *(projected.get("condition_checks") or []),
+                  *(projected.get("review_condition_checks") or []),
+                  *(projected.get("requirement_checks") or [])]
+    else:
+        affected = {int(issue["location"].split(":")[1]) for issue in issues}
+        checks = [check for index, check in enumerate(projected.get("requirement_checks") or [])
+                  if index in affected]
+    for check in checks:
+        if isinstance(check, dict):
+            check["evidence_ids"], check["evidence_line_refs"] = [], []
+    retained = [] if gate_issue else [
+        check for index, check in enumerate(projected.get("requirement_checks") or [])
+        if index not in affected and check.get("finding_basis") == "OBSERVED"
+        and check.get("status") in {"SATISFIED", "VIOLATED"}
+    ]
+    for field in ("evidence_ids", "evidence_line_refs"):
+        projected[field] = list(dict.fromkeys(ref for check in retained for ref in check.get(field, [])))
+    return projected
 
 
 def needs_reading_review(value: dict[str, Any]) -> bool:
@@ -130,6 +166,7 @@ def apply_reading_guard(payload: dict[str, Any], parsed: dict[str, Any]) -> list
             if check.get("status") in {"VIOLATED", "MISSING"}) + " / " + reason
             if has_independent_violation else reason)
         result["reading_quality_review"] = {"policy": VERSION, "issues": issues}
+        result.update(project_reading_citations(result))
         audit.append({"item_id": result.get("item_id"), "policy": VERSION,
             "issues": issues, "original_result": before, "final_verdict": result["verdict"]})
     return audit

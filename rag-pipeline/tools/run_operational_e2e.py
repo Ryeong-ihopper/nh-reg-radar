@@ -17,7 +17,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -62,10 +62,11 @@ from rag.judgment.condition_contracts import (  # noqa: E402
 from dgx_openai_client import post_json  # noqa: E402
 from dgx_bge_client import rerank as gpu_rerank  # noqa: E402
 from rag.templates.catalog import TemplateCatalog  # noqa: E402
+from rag.templates.coverage import audit_template_coverage  # noqa: E402
 from rag.retrieval.context import expand_source_context  # noqa: E402
 from rag.retrieval.queries import build_context_queries  # noqa: E402
 from rag.retrieval.candidates import balanced_candidates  # noqa: E402
-from rag.judgment.reading_quality import uncertain_ad_readings  # noqa: E402
+from rag.judgment.reading_quality import needs_reading_review, uncertain_ad_readings  # noqa: E402
 
 # Existing reports/tests import this name; execution itself is provider-neutral.
 dgx_rerank = gpu_rerank
@@ -108,6 +109,13 @@ OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다.
     한정은 모두 같은 광고 맥락에서 성립해야 MATCHED다. 예를 들어 넓은 '담당자' 표현만으로
     더 좁은 모집인·특정 영업주체 조건을 충족했다고 추정하지 않는다. 조건이 불명확하면
     의무를 충족·위반으로 확정하지 말고 UNDETERMINED로 둔다.
+19. review_context.review_date는 전달된 심의일이다. 서비스에서는 광고 최초 등록일로 고정한다.
+광고에 인쇄된 금리 기준일과 구분하고,
+    원문 규칙이 심의시점과의 기간 비교를 요구하면 두 날짜를 대조한다. 검토일이 없으면 추정하지 않는다.
+20. template_basis.text_facet_only=true이면 읽을 수 있는 텍스트 의무만 판정한다.
+    시인성·로고·중첩 구조의 충족 여부는 별도 사람 검토에 남아 있으며 텍스트 판정으로 확정하지 않는다.
+21. '조건 성립 시 생략 가능'은 면제 조건이다. 면제를 확인하지 못한 것을 미해당으로 바꾸지 않는다.
+    의무가 적용되는 조건과 생략이 허용되는 조건을 구분하고, 미확정이면 UNDETERMINED다.
 """
 
 
@@ -324,7 +332,7 @@ def rule_basis(
 def decision_trace(result: dict[str, Any] | None, source: str | None) -> dict[str, Any]:
     return {
         "decision_source": (
-            "LLM_VALIDATED_BY_DETERMINISTIC_GUARDRAILS"
+            "DETERMINISTIC_SOURCE_ARITHMETIC" if (source or '').endswith('#DETERMINISTIC_SOURCE_ARITHMETIC') else "LLM_VALIDATED_BY_DETERMINISTIC_GUARDRAILS"
             if result else "OUTPUT_CONTRACT_FAILURE"
         ),
         "model_result_source": source,
@@ -716,6 +724,7 @@ def top_rule_evidence(
     trigger_ids: list[str],
     k: int,
     rule_text: str = "",
+    rule_label: str = "",
 ) -> list[str]:
     """Select a small auditable evidence window for one rule.
 
@@ -737,6 +746,15 @@ def top_rule_evidence(
         reverse=True,
     )
     vector_ranked = [doc_id for _, doc_id in scored]
+    # The selected template's source field is a retrieval hint, never a
+    # classification gate or proof of compliance. Preserve text/dense access
+    # for unlabeled evidence and prefer readable observations among label hits.
+    label_hits = [row for row in ad_fine_rows if rule_label and any(
+        isinstance(label, dict) and str(label.get('label') or '').strip() == rule_label.strip()
+        for label in row.get('labels') or [])]
+    dense_position = {doc_id: rank for rank, doc_id in enumerate(vector_ranked)}
+    label_hits.sort(key=lambda row: (needs_reading_review(row), dense_position[str(row['doc_id'])]))
+    label_ranked = [str(row['doc_id']) for row in label_hits]
 
     terms = search_terms(rule_text)
     lexical_scored: list[tuple[int, int, str]] = []
@@ -757,7 +775,7 @@ def top_rule_evidence(
         for rank, doc_id in enumerate(ranking, 1):
             fused_scores[doc_id] += 1.0 / (60 + rank)
     fused = sorted(fused_scores, key=lambda doc_id: (-fused_scores[doc_id], doc_id))
-    ranked = list(dict.fromkeys([*lexical_ranked[:1], *vector_ranked[:1], *fused]))
+    ranked = list(dict.fromkeys([*label_ranked[:1], *lexical_ranked[:1], *vector_ranked[:1], *fused]))
     selected = list(dict.fromkeys(trigger_ids))
     if k <= 0:
         return selected
@@ -916,11 +934,14 @@ def freeze_manifest(
         ROOT / "rag/judgment/applicability.py",
         ROOT / "rag/judgment/policy.py",
         ROOT / "rag/judgment/reading_quality.py",
+        ROOT / "rag/judgment/temporal.py",
+        ROOT / "rag/judgment/source_checks.py",
         ROOT / "rag/judgment/grounding.py",
         ROOT / "rag/judgment/evidence_projection.py",
         ROOT / "rag/judgment/condition_contracts.py",
         ROOT / "rag/judgment/manual_review.py",
         ROOT / "rag/templates/catalog.py",
+        ROOT / "rag/templates/coverage.py",
         ROOT / "rag/retrieval/queries.py",
         ROOT / "rag/retrieval/candidates.py",
         ROOT / "rag/retrieval/context.py",
@@ -1046,6 +1067,10 @@ def apply_routing_manifest(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--inputs-dir", type=Path, required=True)
+    parser.add_argument("--review-date", type=date.fromisoformat,
+                        help="Explicit review day (YYYY-MM-DD); never the printed rate basis date")
+    parser.add_argument("--review-date-basis", default="explicit_review_date",
+                        choices=("explicit_review_date", "advertisement_registration_date"))
     parser.add_argument("--coarse", type=Path, required=True)
     parser.add_argument("--fine", type=Path, required=True)
     parser.add_argument("--regulation", type=Path, required=True)
@@ -1397,7 +1422,8 @@ def main() -> None:
             if template_value
             and t_rule_applies(rule, candidate_groups)
             and rule.get("product_subtype") == template_value
-            and (not rule.get("template_basis") or rule["template_basis"]["structure_status"] == "STRUCTURED")
+            and (not rule.get("template_basis") or rule["template_basis"]["structure_status"] == "STRUCTURED"
+                 or rule["template_basis"].get("text_review_ready"))
             and automated_input_ready(rule, ads[ad_id])
         ]
         deferred_input_rules.extend(
@@ -1415,6 +1441,14 @@ def main() -> None:
             for rule in t_rules
             if rule.get("product_subtype") == template_value and rule.get("template_basis")
             and rule["template_basis"]["structure_status"] != "STRUCTURED"
+            and not rule["template_basis"].get("text_review_ready")
+        )
+        deferred_input_rules.extend(
+            {"item_id": rule["item_id"], "title": rule["title"], "facet": "VISUAL_OR_STRUCTURE",
+             "reason": "텍스트 의무는 별도 판정하며 배치·로고·중첩 원문 구조는 사람 확인 필요",
+             "template_basis": rule["template_basis"]}
+            for rule in t_rules if rule.get("product_subtype") == template_value
+            and (rule.get("template_basis") or {}).get("manual_review_required")
         )
         deferred_template_rules = [
             rule["item_id"]
@@ -1546,6 +1580,8 @@ def main() -> None:
                 trigger_ids=trigger_by_item.get(item_id, []),
                 k=args.evidence_per_rule,
                 rule_text=judgment_rule_text(rule_by_id[item_id]),
+                rule_label=(str(rule_by_id[item_id].get('title') or '')
+                            if rule_by_id[item_id].get('source_sheet') == 'HWPX_TEMPLATE' else ''),
             )
             for item_id in candidate_ids
         }
@@ -1587,6 +1623,8 @@ def main() -> None:
                 payload = {
                     "request_id": request_id,
                     "ad_id": ad_id,
+                    "review_context": {"review_date": args.review_date.isoformat() if args.review_date else None,
+                                       "date_basis": args.review_date_basis},
                     "routing": model_routing_view(route_context),
                     "parser_coverage": parser_coverage(ads[ad_id]),
                     "reading_quality": {"requires_review": bool(uncertain_ad_readings(ads[ad_id])),
@@ -1627,6 +1665,10 @@ def main() -> None:
             "product_id": (ads[ad_id].get("document") or {}).get("product_id"),
             "product_name": (ads[ad_id].get("document") or {}).get("product_name"),
             "routing": route_context,
+            "template_coverage": audit_template_coverage(
+                template_catalog, template_value, t_rules, candidate_ids,
+                [*deferred_input_rules, *applicability_pending]
+            ) if template_catalog and template_value else None,
             "parser_coverage": parser_coverage(ads[ad_id]),
             "evidence_context": context_audit,
             "counts": {
@@ -1791,6 +1833,7 @@ def main() -> None:
             "product_name": discovery_by_ad[ad_id].get("product_name"),
             "routing": discovery_by_ad[ad_id]["routing"],
             "parser_coverage": discovery_by_ad[ad_id]["parser_coverage"],
+            "template_coverage": discovery_by_ad[ad_id].get("template_coverage"),
             "deferred_rules": [
                 *discovery_by_ad[ad_id].get("template_scope_deferred", []),
                 *discovery_by_ad[ad_id]["deferred_input_rules"],

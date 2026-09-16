@@ -1,22 +1,33 @@
 # API 명세서
 
+## 빈 파서 산출물과 재사용 경계 — 2026-09-16
+
+로컬 검토 어댑터는 P1/P3 파일 존재만으로 OCR_EXTRACTION을 완료하지 않는다. 계약/줄 소유권 오류 또는 선택 원문 영역 부재는 `PARSER_INPUT_UNREADABLE` 사유로 기존 자산별 1회 재시도 경로에 보낸다. 재시도 후에도 실패하면 검색·판정 접수 전에 실패하며 로그를 보존한다. 부모 검토가 종료 상태여도 빈 파싱 산출물은 재사용하지 않는다. 부분 판독과 좌표 없는 유효 텍스트는 허용한다. 제품 OpenAPI/DB 스키마 변경은 없다.
+
+## 판독 가드 이후 활성 근거 — 2026-09-16
+
+판독 가드가 철회한 판단의 인용은 활성 근거의 텍스트·ID·줄·bbox에서 함께 제외한다. 적용성 게이트 보류는 해당 결론의 인용을 제거하고, 일부 요건 보류는 나머지 독립 관찰 근거를 유지한다. 가드 없는 판단불가의 인용을 일괄 숨기거나 검색 후보로 대체하지 않는다. 기존 저장 판정·원응답·가드 이전 결과는 그대로 보존하고 조회 시 비변경 투영을 적용한다.
+
+로컬 workspace/export 결과 행에 선택 필드 `reading_quality_review`로 가드 정책과 이슈를 전달한다. `evidence_ids`, `evidence_line_refs`, `evidence`, `evidence_locations`는 활성 인용만 담는다. export `source_results`는 원본 인용을 보존한다. 제품 OpenAPI·DB 변경은 없다.
+
+
 ## AI 활용 금융상품 광고심의 적정성 검토 에이전트
 
 ## 문서 현행 정보
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.30 |
-| 기준일 | 2026-09-15 |
+| 현행 버전 | v1.35 |
+| 기준일 | 2026-09-16 |
 
 ## 로컬 운영 결과 확장 계약
 
-- 결과 행의 선택 필드 `template_example`은 템플릿 예시이며 광고 관찰 증거가 아니다. `requirement_checks`는 저장된 모델 검사 배열이다. workspace/export 모두 동일하게 보존하고 미기재 주장과 원문 참조 실패를 구분한다.
+- 결과 행의 선택 필드 `template_example`은 템플릿 예시이며 광고 관찰 증거가 아니다. `requirement_checks`는 저장된 검사 배열에서 가드가 철회한 인용을 제외한 표시용 배열이다. workspace/export 모두 동일하게 보존하고 미기재 주장과 원문 참조 실패를 구분한다.
 
 아래는 loopback 운영 어댑터 계약이며 고객사 Worker/API 통합 완료를 뜻하지 않는다.
 
 - `GET /operational/reviews/{review_id}/workspace`: 인증·광고 접근권한 검사 후 저장된 결과를 반환한다.
-  `rows[]`와 `review_candidate_rows[]`의 `evidence_ids`, `evidence_line_refs`는 원래 인용 ID다.
+  `rows[]`와 `review_candidate_rows[]`의 `evidence_ids`, `evidence_line_refs`는 가드가 철회한 인용을 제외한 활성 인용 ID다.
   `evidence_locations[]`는 `{key, pageNo, bbox:[x1,y1,x2,y2], width, height, asset_id, source_page_no, precision}`이다.
   `precision=LINE|REGION`; 빈 배열은 위치를 입증하지 못했음을 뜻하며 유사 문장으로 보충하지 않는다.
 - `deferred_rules[].deferred_kind=OTHER_TEMPLATE|INPUT_OR_STRUCTURE|EXECUTION_BUDGET`.
@@ -29,6 +40,12 @@
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
+| --- | --- | --- |
+| v1.35 | 2026-09-16 | 원문 수치의 결정론적 검산·모델 호출 생략·과거 결과 투영 경계 |
+| v1.34 | 2026-09-16 | 심의일 출처 전달 및 확정 원문 줄 인용 계약 |
+| v1.33 | 2026-09-16 | 운영 검토일과 결과 출처·커버리지 확장 |
+| v1.32 | 2026-09-16 | 빈/무효 P1/P3 성공 처리 및 부모 재사용 차단, HWP 실행 복구 검증 |
+| v1.31 | 2026-09-16 | 판독 가드 철회 인용의 활성 근거·좌표 제외와 감사 보존 |
 | v1.30 | 2026-09-15 | 로컬 결과의 템플릿 예시·요소 검사 표시 계약 추가 |
 | v1.29 | 2026-09-15 | 로컬 workspace의 원문 위치·보류 분류와 동일 결과를 내보내는 export-v2 계약 명시 |
 | v1.28 | 2026-09-07 | 인증된 로컬 전용 GET /operational/reviews/{review_id}/workspace 및 /operational/reference/{advertisement_id} 추가. reference는 원본 파일명으로 검수 자료를 찾으며 모델 호출·운영 예측 저장에는 쓰이지 않음. loopback 두 호스트의 인증 갱신 허용 |
@@ -2915,3 +2932,22 @@ backend는 필요할 때 이 API를 adapter로 호출하며, 파서 이후 통�
 - 최종 모델 결과에 출력 실패가 남으면 웹 작업도 실패로 둔다. 정상 계약 응답을 임의로 고치지 않는다.
 - 추가 첨부 대조, 부분 범위 선택, 문구 추천, 의견 초안, 과거 규정 기준일 요청은 422로 거절한다.
 - 정밀 시인성 등 추가 입력 필요 규칙과 미선택 템플릿은 자동판정 건수 밖에 별도로 표시한다.
+
+
+## 2026-09-16 운영 검토일과 결과 출처·커버리지 확장
+
+운영 RAG 요청의 선택 필드 review_date는 YYYY-MM-DD의 검토 요청일이며 광고 금리 기준일이 아니다. 유효한 날짜만 허용하고 요청 동일성 해시에 포함한다. 웹 요청은 requested_at을 한국 날짜로 변환해 전달한다. 기존 날짜 미지정 요청은 추정값을 채우지 않는다.
+
+운영 workspace에는 template_coverage 배열, rows[].judgment_scope, rows[].model_assessment, rows[].evidence_location_status를 추가한다. 위치 상태는 MAPPED/NO_CITATION/SOURCE_GEOMETRY_MISSING/UNRESOLVED_REFERENCE다. model_assessment는 판독 가드 적용 전의 미채택 verdict/reason과 상태만 제공하며 활성 근거를 복원하지 않는다. 기존 원본 결과 파일은 보존한다. 서버 모드는 HTTPS·Secure 쿠키·외부 비밀 파일을 사용하고 로컬용 자동 로그인 경로는404다.
+
+## 운영 심의 날짜 출처
+
+operational-review-request-v1의 review_date는 웹 광고 최초 등록일의 한국 날짜다. 선택 필드 review_date_basis는 advertisement_registration_date 또는 explicit_review_date이며 날짜 없이 출처만 보내면 거부한다. 날짜 출처도 입력 동결·멱등성 해시에 반영한다. 모델의 OBSERVED 확정에는 제공된 정확한 원문 줄 직접 인용을 요구하며 검색 후보와 불확실 원문은 별도로 보존한다.
+
+## 저장 결과 원문 인용 보류
+
+운영 workspace/결과 다운로드는 template_section·template_requirement를 제공한다. 직접 인용 불일치 결과는 원저장을 유지한 채 UNDETERMINED 표시, 빈 활성 인용·좌표, model_assessment의 원래 verdict/reason과 WITHHELD_BY_GROUNDING_GUARD 상태를 반환한다. 의미 판단을 새로 생성하거나 다른 줄 ID로 바꾸지 않는다.
+
+## 산술 검산 결과 출처 — 2026-09-16
+
+운영 결과 및 workspace/export의 decision_trace.decision_source에 DETERMINISTIC_SOURCE_ARITHMETIC을 추가한다. 지원되는 원문 수치 검산을 모델 호출 없이 완료한 경우다. reason에는 규칙 기반 검산과 수식을, evidence_line_refs에는 피연산자의 실제 정본 줄을 반환한다. 기존 LLM/출력 실패 값은 유지한다. 과거 결과는 원저장 변경 없이 동일 계산을 조회 시 적용하며 다운로드 source_results는 당시 결과를 보존한다. 제품 OpenAPI/DB 스키마 변경은 없다.

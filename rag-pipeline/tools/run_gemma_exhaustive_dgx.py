@@ -24,7 +24,11 @@ if str(ROOT) not in sys.path:
 from rag.judgment.grounding import grounding_errors  # noqa: E402
 from rag.judgment.evidence_projection import pack_documents  # noqa: E402
 from rag.parsing.source_structure import compact_source_structure  # noqa: E402
-from rag.judgment.reading_quality import apply_reading_guard, reading_issues  # noqa: E402
+from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review, reading_issues  # noqa: E402
+from rag.judgment.temporal import basis_date_observations, temporal_claim_errors  # noqa: E402
+from rag.judgment.manual_review import text_facet_claim_errors  # noqa: E402
+from rag.judgment.source_checks import source_claim_errors  # noqa: E402
+from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.output_contract import response_format, response_mode  # noqa: E402
 
 
@@ -110,6 +114,13 @@ enum 값은 지정된 영문을 그대로 유지하고, 원문 고유명사·수
 
 Document lines maps L aliases to exact source text; line_bboxes maps the same
 aliases to coordinates. These are source lines, not new or independent evidence.
+For every SATISFIED/VIOLATED OBSERVED check, cite the specific supporting L aliases
+when exact lines are supplied. An E region alone is insufficient: select the
+actual source sentence, not all lines in the region. Uncertain source readings
+are retained as context but have no citable aliases; use readable evidence.
+When claiming a name or phrase is present, quote the observed wording in the
+reason and cite the L line that actually contains it. The first line of a
+region cannot stand in for a different sentence elsewhere in that region.
 source_relations and table cells describe parser structure between canonical L
 lines. They do not prove legal applicability. Missing structure is not a missing
 disclosure. A table cell with status other than observed is navigation context,
@@ -119,6 +130,17 @@ products, variants, dates or conditions into one arithmetic comparison. First
 establish the same scope from readable source evidence. Cell text outside the
 canonical lines is not supplied as evidence. Unknown unit, date, rate basis or
 visual measurement requires UNDETERMINED for the dependent obligation.
+An arithmetic VIOLATED check must include a reproducible source-based witness
+in its Korean reason: "검산: a+b-c != d", replacing variables with actual cited
+numbers. The sum/difference must really differ from the advertised result.
+Equal values are not violations. Complex or unresolved formulas need human
+review; do not invent a mismatch or sum alternative benefit conditions together.
+Verify the arithmetic relationships actually asserted in the source. Separate
+the stated base example from conditional adjustments. An adjustment without a
+separately advertised total creates no extra equality to verify: do not demand
+an unstated variant total or treat the adjustment as part of a different base
+example. Explain each computable base sum/difference and benefit alternative
+before identifying any genuinely unresolved advertised calculation.
 Resolve each document's text_selection_ref in reading_contexts: it describes
 OCR/VLM reading uncertainty, not legal review. A shared Q entry does not mean
 the documents are independent readings or share a source location.
@@ -233,7 +255,16 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         for rule in (payload.get("rules") or [])
         if isinstance(rule, dict)
     )
-    for evidence_index, document in enumerate(payload.get("documents") or [], 1):
+    # Preserve the frozen candidates, including uncertain readings, but never
+    # offer revoked observations as citable aliases. This uses existing parser
+    # uncertainty; it neither reclassifies labels nor repairs source text.
+    source_documents = [document for document in payload.get("documents") or []
+                        if not needs_reading_review(document)]
+    line_citable_ids = {str(doc['evidence_id']) for doc in source_documents
+                        if doc.get('line_texts') and doc.get('span_status') != 'region_level_selected_text'}
+    uncertain_documents = [document for document in payload.get("documents") or []
+                           if needs_reading_review(document)]
+    for evidence_index, document in enumerate(source_documents, 1):
         evidence_id = str(document["evidence_id"])
         evidence_ref = f"E{evidence_index}"
         evidence_to_ref[evidence_id] = evidence_ref
@@ -290,7 +321,6 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
     # alias. Asset aliases preserve variant boundaries without treating names
     # as classification evidence. Table OCR cannot become extra citable text.
     asset_aliases = {}
-    source_documents = payload.get("documents") or []
     for source, target in zip(source_documents, compact_documents):
         asset = source.get("asset_id") or source.get("source_file")
         if asset:
@@ -300,19 +330,18 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
 
     def compact_scope(scope: dict[str, Any]) -> dict[str, Any]:
         allowed_evidence = set(map(str, scope.get("evidence_ids") or []))
+        allowed_lines = list(dict.fromkeys(
+            line_to_ref[str(ref)] for document in source_documents
+            if str(document['evidence_id']) in allowed_evidence
+            for ref in document.get('line_refs') or []))
         return {
             "evidence_refs": [
                 evidence_to_ref[value]
                 for value in map(str, scope.get("evidence_ids") or [])
-                if value in evidence_to_ref
-            ],
-            "line_refs": list(dict.fromkeys(
-                line_to_ref[str(ref)]
-                for document in payload.get("documents") or []
-                if str(document["evidence_id"]) in allowed_evidence
-                for ref in document.get("line_refs") or []
-            )),
-            "complete_ad_scan": scope.get("complete_ad_scan") is True,
+                if value in evidence_to_ref and value not in line_citable_ids
+            ] + allowed_lines,
+            "line_refs": allowed_lines,
+            "complete_ad_scan": scope.get("complete_ad_scan") is True and not uncertain_documents,
         }
 
     rules = []
@@ -321,6 +350,15 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         compact_rule = {key: value for key, value in rule.items() if key != "item_id"}
         contract = compact_rule.get("condition_contract")
         if isinstance(contract, dict):
+            # The compiled contract retains authoritative conditions and
+            # explicit bound guide obligations. Raw auxiliary guidance is
+            # retained in the frozen request, not a second competing rule.
+            for field in ('standard_guidance', 'standard_examples', 'guide', 'rule_summaries'):
+                compact_rule.pop(field, None)
+            basis = compact_rule.get('template_basis')
+            if isinstance(basis, dict):
+                compact_rule['template_basis'] = {key: value for key, value in basis.items()
+                    if key not in {'fields', 'manual_guidance', 'alternative_members'}}
             contract = copy.deepcopy(contract)
             compact_rule["condition_contract"] = contract
             compact_rule["output_check_refs"] = {
@@ -350,7 +388,7 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         for region in page.get("regions") or []:
             parent_id = str(region.pop("evidence_id", ""))
             region["evidence_refs"] = [evidence_to_ref[str(doc["evidence_id"])]
-                for doc in payload.get("documents") or []
+                for doc in source_documents
                 if str(doc.get("parent_evidence_id") or doc["evidence_id"]) == parent_id]
             region["measurement_scope"] = "source_region_not_individual_chunk"
             region["line_styles"] = [
@@ -359,10 +397,23 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
                 if str(line.get("line_ref")) in line_to_ref]
     compact_documents, reading_contexts = pack_documents(compact_documents)
     compact_payload = {
+        "basis_date_observations": [
+            {"basis_date": value['basis_date'], "review_date": value['review_date'],
+             "elapsed_days": value['elapsed_days'], "evidence_ref": evidence_to_ref[value['evidence_id']],
+             "line_refs": [line_to_ref[ref] for ref in value['line_refs'] if ref in line_to_ref]}
+            for value in basis_date_observations(source_documents,
+                (payload.get('review_context') or {}).get('review_date'))
+        ],
+        "review_context": payload.get("review_context"),
         "routing": payload.get("routing") or {},
         "parser_coverage": payload.get("parser_coverage"),
         "reading_quality": payload.get("reading_quality") or {},
         "observed_ad_text": payload.get("full_ad_text"),
+        "uncertain_context": [{"text": doc.get("text") or "",
+                               "page_no": doc.get("page_no"),
+                               "span_status": doc.get("span_status") or "unknown",
+                               "text_selection": doc.get("text_selection") or {},
+                               "citable": False} for doc in uncertain_documents],
         "documents": compact_documents,
         "reading_contexts": reading_contexts,
         "evidence_scope": {
@@ -740,6 +791,9 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             errors.append(f"results[{result_index}]가 객체가 아님: {type(row).__name__}")
             continue
         item_id = row.get("item_id")
+        errors.extend(temporal_claim_errors(payload, row))
+        errors.extend(text_facet_claim_errors(payload, row))
+        errors.extend(source_claim_errors(payload, row))
         if check_reading:
             errors.extend(f"{item_id}: reading_quality:{issue['code']}:{issue['location']}"
                           for issue in reading_issues(payload, row))
@@ -962,6 +1016,12 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                 errors.append(
                     f"{item_id}: OBSERVED에는 직접 광고 근거가 필요"
                 )
+            if (finding_basis == "OBSERVED" and check_status in {"SATISFIED", "VIOLATED"}
+                    and not check_refs and isinstance(check_ids, list)
+                    and any(document_by_id.get(str(ref), {}).get("line_texts")
+                            and document_by_id[str(ref)].get("span_status") != "region_level_selected_text"
+                            for ref in check_ids)):
+                errors.append(f"{item_id}: OBSERVED 확정에는 제공된 원본 줄을 직접 인용해야 함")
             if (
                 check_reading and finding_basis == "ABSENCE"
                 and isinstance(item_scope, dict)
@@ -1355,7 +1415,7 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
     return result
 
 
-def split_request_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+def split_request_row(row: dict[str, Any], *, cpu_items: set[str] | None = None) -> list[dict[str, Any]]:
     """Split a failed request and isolate every child to its rule evidence."""
     expected = list(row.get("requested_item_ids") or [])
     if len(expected) < 2:
@@ -1365,8 +1425,11 @@ def split_request_row(row: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(rules, list) or [rule.get("item_id") for rule in rules] != expected:
         raise ValueError("요청 rules와 requested_item_ids 순서가 다름")
     midpoint = len(rules) // 2
+    groups = (("a", rules[:midpoint]), ("b", rules[midpoint:])) if cpu_items is None else (
+        ("cpu", [rule for rule in rules if rule['item_id'] in cpu_items]),
+        ("model", [rule for rule in rules if rule['item_id'] not in cpu_items]))
     children = []
-    for label, child_rules in (("a", rules[:midpoint]), ("b", rules[midpoint:])):
+    for label, child_rules in groups:
         child = copy.deepcopy(row)
         child_id = f"{row['request_id']}~split-{label}"
         child_payload = copy.deepcopy(payload)
@@ -1411,11 +1474,29 @@ def call_with_retry_and_split(
     max_split_depth: int = 8,
 ) -> list[dict[str, Any]]:
     """Retry contract failures and recursively isolate oversized bad batches."""
+    payload = json.loads(row['messages'][1]['content'])
+    computed = [calculate_loan_rates(payload, rule) for rule in payload.get('rules', [])]
+    if computed and all(computed):
+        parsed = {'ad_id': row['ad_id'], 'results': computed}
+        errors = validate(row, parsed)
+        if not errors:
+            return [{'request_id': row['request_id'], 'ad_id': row['ad_id'],
+                     'category': row['category'], 'parsed': parsed, 'validation_errors': [],
+                     'decision_source': ARITHMETIC_METHOD, 'model_returned': None,
+                     'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                     'seconds': 0, 'call_history': [], 'attempts': 0,
+                     'logical_request_id': row.get('logical_request_id', row['request_id']),
+                     'split_depth': depth}]
+    elif any(computed) and len(row.get('requested_item_ids', [])) > 1:
+        # Separate CPU-certifiable items before sending any request to the GPU.
+        return [response for child in split_request_row(row, cpu_items={r['item_id'] for r in computed if r})
+                for response in call_with_retry_and_split(child, host, key, model, max_tokens,
+                    depth=depth + 1, max_split_depth=max_split_depth)]
     result = call_with_retry(row, host, key, model, max_tokens)
     result["logical_request_id"] = row.get("logical_request_id", row["request_id"])
     result["split_depth"] = depth
     if not result["validation_errors"]:
-        return [result]
+        return [focus_unresolved_source_checks(row, result, host, key, model, max_tokens)]
     if len(row.get("requested_item_ids") or []) < 2 or depth >= max_split_depth:
         return [result]
     output: list[dict[str, Any]] = []
@@ -1428,6 +1509,99 @@ def call_with_retry_and_split(
         # Retain each discarded ancestor exactly once, not once per leaf.
         output[0]["call_history"] = result.get("call_history", []) + output[0].get("call_history", [])
     return output
+
+
+def focus_unresolved_source_checks(
+    row: dict[str, Any], result: dict[str, Any], host: str | None,
+    key: Path | None, model: str, max_tokens: int,
+) -> dict[str, Any]:
+    """One isolated source check for a presence/arithmetic abstention.
+
+    Never re-read parser labels, waive uncertainty, supply a target verdict or
+    retry a reading guard. Valid neighboring judgments stay byte-for-byte equal.
+    If the isolated answer is invalid or still unknown, the original survives.
+    """
+    if not row.get('requested_item_ids'):
+        return result
+    payload = json.loads(row['messages'][1]['content'])
+    rules = {r['item_id']: r for r in payload.get('rules') or []}
+    documents = {d['evidence_id']: d for d in payload.get('documents') or []}
+    targets = []
+    for judgment in (result.get('parsed') or {}).get('results') or []:
+        item = judgment.get('item_id')
+        contract = (rules.get(item) or {}).get('condition_contract') or {}
+        arithmetic = bool(re.search(r'산술|산식|합산', ' '.join(
+            str(check.get('text') or '') for check in contract.get('obligation_checks') or [])))
+        assessment = (payload.get('external_input_assessment') or {}).get(item) or {}
+        scoped = (payload.get('evidence_scope') or {}).get(item) or {}
+        if ((row.get('category') == 'PRESENCE' or arithmetic)
+                and judgment.get('verdict') == 'UNDETERMINED'
+                and judgment.get('applicability') == 'APPLICABLE'
+                and not judgment.get('reading_quality_review')
+                and contract.get('applicability_mode') in {'UNCONDITIONAL', 'SOURCE_SCOPED'}
+                and not contract.get('applicability_conditions') and not contract.get('review_conditions')
+                and assessment.get('input_mode') not in {'PARTIAL', 'EXTERNAL'}
+                and any(not needs_reading_review(documents[eid]) and documents[eid].get('line_texts')
+                        for eid in scoped.get('evidence_ids') or [] if eid in documents)):
+            targets.append(item)
+    if not targets:
+        return result
+    focused = copy.deepcopy(result)
+    focused['source_focus_attempts'] = []
+    focused['source_focus_applied'] = []
+    for item in targets:
+        isolated = copy.deepcopy(row)
+        while len(isolated['requested_item_ids']) > 1:
+            isolated = next(child for child in split_request_row(isolated)
+                            if item in child['requested_item_ids'])
+        isolated_payload = json.loads(isolated['messages'][1]['content'])
+        isolated_payload.pop('full_ad_text', None)
+        for document in isolated_payload.get('documents') or []:
+            document.pop('labels', None)
+        isolated['messages'][1]['content'] = json.dumps(isolated_payload, ensure_ascii=False)
+        isolated['messages'].append({'role': 'user', 'content': (
+            '이 단일 항목의 허용 documents.lines를 줄마다 확인하십시오. 긍정 존재 판정은 '
+            '읽을 수 있는 해당 문구와 그 줄 ID를 함께 찾아야 합니다. PARTIAL은 전체 부재 '
+            '확정을 제한하지만 읽힌 문구의 존재 확인까지 금지하지 않습니다. 예시 답안의 '
+            '첫 줄 ID를 복사하지 마십시오. 충족 여부는 원문과 규칙으로 판단하고 근거가 '
+            '부족하면 판단불가를 유지하십시오. 완전히 읽힌 범위에서는 원문이 명시적으로 '
+            '요구하는 필수 문구의 부재도 확인하십시오. 산술 요건이면 원문이 같은 조건으로 '
+            '주장한 합·차를 직접 검산하고 수치와 설명을 제시하십시오. 별도 최종 결과값이 '
+            '없는 조건부 가산에 새 합계 기재 의무를 만들지 마십시오.'
+        )})
+        # No parent answer, expected status, or parser relabeling is sent.
+        started = time.perf_counter()
+        try:
+            retry = call_with_retry(isolated, host, key, model, max_tokens)
+        except Exception as exc:
+            retry = {'validation_errors': [str(exc)]}
+        original = next(j for j in focused['parsed']['results'] if j['item_id'] == item)
+        focused['source_focus_attempts'].append({'item_id': item, 'request': copy.deepcopy(isolated),
+                                                'original_result': copy.deepcopy(original),
+                                                'response': retry})
+        history = retry.get('call_history') or [{
+            'request_id': isolated['request_id'], 'attempt': 1,
+            'purpose': 'isolated_source_judgment',
+            'seconds': round(time.perf_counter() - started, 3),
+            'validation_errors': copy.deepcopy(retry.get('validation_errors', [])),
+            'finish_reason': retry.get('finish_reason'), 'usage': retry.get('usage'),
+            'response_format': retry.get('response_format'),
+        }]
+        focused.setdefault('call_history', []).extend([
+            {**event, 'purpose': 'isolated_source_judgment'} for event in history
+        ])
+        replacements = (retry.get('parsed') or {}).get('results') or []
+        if not retry.get('validation_errors') and len(replacements) == 1:
+            replacement = replacements[0]
+            if replacement.get('item_id') == item and replacement.get('verdict') in {'COMPLIANT', 'VIOLATION'}:
+                candidate = copy.deepcopy(focused['parsed'])
+                candidate['results'] = [replacement if j['item_id'] == item else j for j in candidate['results']]
+                if not validate(row, candidate):
+                    focused['parsed'] = candidate
+                    focused['source_focus_applied'].append(item)
+    if focused['source_focus_applied']:
+        focused['contract_projection'] = 'gate-derived-v1+isolated-source-v1'
+    return focused
 
 
 def completed_item_ids(result_rows: list[dict[str, Any]]) -> list[str]:

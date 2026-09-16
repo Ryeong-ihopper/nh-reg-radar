@@ -6,6 +6,8 @@
   "properties": {
     "schema_version": {"const": "operational-review-request-v1"},
     "client_request_id": {"type": ["string", "null"]},
+    "review_date": {"type": ["string", "null"], "format": "date", "description": "Review day; service uses the original advertisement registration day in Korea time"},
+    "review_date_basis": {"type": "string", "enum": ["explicit_review_date", "advertisement_registration_date"]},
     "document": {"$ref": "nh-ad-review-integrated-input-v1.schema.json"},
     "routing_overrides": {
       "type": "object",

@@ -5,12 +5,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tools')]
-from rag.judgment.manual_review import requires_visual_review, deferred_input_reason  # noqa: E402
+from rag.judgment.manual_review import requires_visual_review, deferred_input_reason, text_facet_claim_errors  # noqa: E402
 from rag.judgment.reading_quality import needs_reading_review, apply_reading_guard  # noqa: E402
 from tools.run_operational_e2e import automated_input_ready  # noqa: E402
 
 
 class ManualReviewScopeTests(unittest.TestCase):
+    def test_text_facet_rejects_visual_conclusions_but_preserves_text_and_abstention(self):
+        rule = {'item_id': 'SYNTHETIC', 'source_sheet': 'HWPX_TEMPLATE',
+                'template_basis': {'text_facet_only': True}}
+        for requirement, status, rejected in [
+            ('한 줄에 두 문구 배치 불가', 'VIOLATED', True),
+            ('문구의 글자 크기를 확인', 'SATISFIED', True),
+            ('안내 로고 필수', 'SATISFIED', True),
+            ('같은 줄 배치 여부', 'UNDETERMINED', False),
+            ('중도해지 우대금리 제외 안내', 'VIOLATED', False),
+            ('부대비용과 전년 대비 차이 안내', 'SATISFIED', False),
+        ]:
+            result = {'item_id': 'SYNTHETIC', 'requirement_checks': [
+                {'requirement': requirement, 'status': status}]}
+            with self.subTest(requirement=requirement):
+                self.assertEqual(bool(text_facet_claim_errors({'rules': [rule]}, result)), rejected)
+                self.assertEqual(text_facet_claim_errors({'rules': []}, result), [])
+
     def test_visual_rules_always_manual_even_when_measurements_arrive(self):
         ad = {'pages':[{'regions':[{'bbox':[0,0,100,100], 'visibility':{'contrast_ratio':7},
             'lines':[{'style':{'size_pt':12},'bbox':[0,0,20,10]}]}]}]}

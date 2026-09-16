@@ -12,12 +12,47 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'tools')]
 from test_operational_rag_contracts import request_row, result
 import run_gemma_exhaustive_dgx as gemma
 import run_operational_e2e as operational
-from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review
+from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review, project_reading_citations
 from rag.judgment.policy import deterministic_facts
 from rag.judgment.grounding import cited_window_text
 
 
 class ReadingQualityTests(unittest.TestCase):
+    def test_gate_revokes_active_citations_and_preserves_original_audit(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer.update(applicability_basis='ADVERTISEMENT_EVIDENCE',
+                      applicability_evidence_ids=['E-1'], applicability_evidence_line_refs=['L-1'])
+        original = copy.deepcopy(answer)
+        audit = apply_reading_guard(payload, parsed)
+        self.assertEqual(audit[0]['original_result'], original)
+        for field in ('evidence_ids', 'evidence_line_refs', 'applicability_evidence_ids', 'applicability_evidence_line_refs'):
+            self.assertEqual(answer[field], [])
+        self.assertEqual(answer['requirement_checks'], [])
+        self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+    def test_mixed_guard_keeps_only_independent_observed_citations(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer['requirement_checks'].append({'requirement': 'independent', 'status': 'VIOLATED',
+            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'], 'reason': 'observed'})
+        apply_reading_guard(payload, parsed)
+        self.assertEqual(answer['verdict'], 'VIOLATION')
+        self.assertEqual(answer['evidence_ids'], ['E-2'])
+        self.assertEqual(answer['evidence_line_refs'], ['L-2'])
+        self.assertEqual(answer['requirement_checks'][0]['evidence_ids'], [])
+        self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+    def test_legacy_projection_is_non_mutating_and_not_a_blanket_unknown_filter(self):
+        legacy = {'verdict': 'UNDETERMINED', 'evidence_ids': ['E-1'], 'evidence_line_refs': ['L-1'],
+            'requirement_checks': [], 'reading_quality_review': {'policy': 'reading-quality-gate-v1',
+                'issues': [{'location': 'applicability', 'code': 'UNCERTAIN_READING_EVIDENCE'}]}}
+        before = copy.deepcopy(legacy)
+        self.assertEqual(project_reading_citations(legacy)['evidence_ids'], [])
+        self.assertEqual(legacy, before)
+        legacy.pop('reading_quality_review')
+        self.assertEqual(project_reading_citations(legacy)['evidence_ids'], ['E-1'])
+
     def test_explicit_partial_reading_survives_parser_adapter_and_combine(self):
         from test_parser_contract_adapter import external_pair
         from rag.parsing.prepare_inputs import combine

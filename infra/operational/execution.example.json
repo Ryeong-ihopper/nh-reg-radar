@@ -1,0 +1,28 @@
+{
+  "runtime_profile": "dgx-interim",
+  "regulation_path": "/data/regulation.xlsx",
+  "template_source_path": "/data/template.hwpx",
+  "es_url": "http://127.0.0.1:9201",
+  "es_index": "nh-rules-v2-operational",
+  "model": "gemma-4-26b-NVFP4-MTP",
+  "model_env": {
+    "NH_GPU_BGE_ENDPOINT": "http://127.0.0.1:8103",
+    "NH_GPU_GEMMA_ENDPOINT": "http://127.0.0.1:8102/v1/chat/completions",
+    "NH_GPU_GEMMA_MODEL": "gemma-4-26b-NVFP4-MTP"
+  },
+  "parser_root": "/opt/nh-parser",
+  "parser_cwd": "/work",
+  "parser_python": "/opt/parser-venv/bin/python",
+  "parser_runner": "nh_ad_parser_cli",
+  "parser_env": {
+    "PYTHONPATH": "/opt/nh-parser/src:/opt/document-processor/src",
+    "REGION_READING_MODE": "shadow",
+    "PADDLEX_URL": "http://ocr.internal:8081/layout-parsing",
+    "GEMMA_URL": "http://127.0.0.1:8102/v1/chat/completions",
+    "GEMMA_MODEL": "gemma-4-26b-NVFP4-MTP"
+  },
+  "vector_cache_dir": "/work/vector-cache",
+  "review_workers": 2,
+  "parser_workers": 2,
+  "model_workers": 4
+}

@@ -1,0 +1,9 @@
+{
+  "public_url": "https://review.internal.example:5180",
+  "bind_host": "0.0.0.0",
+  "login_id": "reviewer",
+  "password_file": "/run/config/login-password",
+  "jwt_secret_file": "/run/config/jwt-secret",
+  "tls_cert_file": "/run/config/server.crt",
+  "tls_key_file": "/run/config/server.key"
+}

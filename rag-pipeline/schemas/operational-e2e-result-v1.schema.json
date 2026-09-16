@@ -42,6 +42,7 @@
           "product_name": {"type": ["string", "null"]},
           "routing": {"type": "object"},
           "parser_coverage": {"enum": ["READY", "PARTIAL"]},
+          "template_coverage": {"type": ["object", "null"]},
           "excluded_candidates": {"type": "array", "items": {"type": "object"}},
           "deferred_rules": {
             "type": "array",
@@ -51,6 +52,8 @@
               "properties": {
                 "item_id": {"type": "string", "minLength": 1},
                 "reason": {"type": "string", "minLength": 1},
+                "title": {"type": "string"},
+                "facet": {"enum": ["VISUAL_OR_STRUCTURE"]},
                 "required_medium": {"type": ["string", "null"]},
                 "input_requirement": {"type": ["string", "null"]},
                 "template_basis": {"type": "object"}
@@ -93,7 +96,7 @@
                   "type": "object",
                   "required": ["decision_source", "model_result_source", "evidence_ids", "evidence_line_refs"],
                   "properties": {
-                    "decision_source": {"enum": ["LLM_VALIDATED_BY_DETERMINISTIC_GUARDRAILS", "OUTPUT_CONTRACT_FAILURE"]},
+                    "decision_source": {"enum": ["LLM_VALIDATED_BY_DETERMINISTIC_GUARDRAILS", "DETERMINISTIC_SOURCE_ARITHMETIC", "OUTPUT_CONTRACT_FAILURE"]},
                     "model_result_source": {"type": ["string", "null"]},
                     "evidence_ids": {"type": "array", "items": {"type": "string"}},
                     "evidence_line_refs": {"type": "array", "items": {"type": "string"}}

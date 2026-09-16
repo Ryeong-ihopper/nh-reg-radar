@@ -1,11 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { evidenceBoxes, resultEvidenceBoxes, resultCounts, missingSourceLabel, type ResultRow } from "./components/operationalResultModel";
+import { legalBasisLines, evidenceBoxes, resultEvidenceBoxes, resultCounts, missingSourceLabel, type ResultRow } from "./components/operationalResultModel";
 import type { ParserLayout } from "./api/operational";
 
 const layout: ParserLayout = {schema_version: "operational-parser-layout-v1", source: "test", coordinate_basis: "rendered_original_200dpi",
   counts: {pages:1, regions:1, lines:1}, pages: [{page_no:1,canvas_w:100,canvas_h:200,regions:[{region_id:"R",bbox:[0,0,100,100],layout_label:null,text:"",lines:[{line_ref:"new-ref",text:"가입 전 상품설명서를 읽어주세요",bbox:[10,20,90,30],text_source:"ocr",confidence:null}]}]}]};
 
 describe("single operational result", () => {
+  it("deduplicates citation text but preserves distinct article spellings", () => {
+    const refs = ["C-052", "R-1583", "은행 광고심의 기준 제16조 제1항 제4호; 은행 광고심의 기준 제16조 제1항 4",
+      "은행 광고심의 기준 제16조 제1항 제4호(표시 기준)", "은행 광고심의 기준 제16조 제1항 4"];
+    const original = [...refs];
+    expect(legalBasisLines(refs)).toEqual(["은행 광고심의 기준 제16조 제1항 제4호", "은행 광고심의 기준 제16조 제1항 4"]);
+    expect(refs).toEqual(original);
+  });
+  it("preserves names and different provisions while removing internal reference metadata", () => {
+    expect(legalBasisLines(["실행_점검항목:C-052", "R-1583 · 금융소비자 보호에 관한 법률 제22조 제2항(명확·공정 전달)",
+      "금융소비자 보호에 관한 법률 제22조 제3항\n가상 기준(특례) 제2조", ""])).toEqual([
+      "금융소비자 보호에 관한 법률 제22조 제2항", "금융소비자 보호에 관한 법률 제22조 제3항", "가상 기준(특례) 제2조"]);
+  });
+  it("withholds mismatched saved source quotations instead of displaying a valid bbox", () => {
+    const row = {evidence: "", evidence_locations: [], model_assessment: {status: "WITHHELD_BY_GROUNDING_GUARD", verdict: "COMPLIANT", reason: "old result"}} as unknown as ResultRow;
+    expect(missingSourceLabel(row)).toContain("설명과 원문 인용이 불일치");
+    expect(resultEvidenceBoxes(row, layout)).toEqual([]);
+  });
+  it("distinguishes missing source geometry from whole-ad assessment", () => {
+    const row = {evidence: "specific source", evidence_locations: [], evidence_location_status: "SOURCE_GEOMETRY_MISSING"} as unknown as ResultRow;
+    expect(missingSourceLabel(row)).toContain("판정용 원문에 좌표 없음");
+    expect(missingSourceLabel({...row, evidence_location_status: "UNRESOLVED_REFERENCE"})).toContain("광고 전체 판정이라는 뜻은 아님");
+    expect(resultEvidenceBoxes(row, layout)).toEqual([]);
+  });
+  it("explains revoked reading citations without hiding unrelated unknown evidence", () => {
+    const row = {verdict: "판단불가", evidence: "", evidence_locations: [],
+      reading_quality_review: {policy:"reading-quality-gate-v1",issues:[{location:"applicability",code:"UNCERTAIN_READING_EVIDENCE"}]}} as unknown as ResultRow;
+    expect(missingSourceLabel(row)).toContain("근거 인용 보류");
+    expect(resultEvidenceBoxes(row, layout)).toEqual([]);
+    expect(missingSourceLabel({...row,evidence:"독립 근거"})).toContain("bbox 매핑 없음");
+    expect(missingSourceLabel({...row,reading_quality_review:null})).toBe("판정 응답에 원문 줄 참조 없음");
+  });
   it("distinguishes a missing-content assertion from a broken source reference without certifying coverage", () => {
     const row = {verdict: "위반", evidence: ""} as ResultRow;
     expect(missingSourceLabel(row)).toBe("판정 응답에 원문 줄 참조 없음");

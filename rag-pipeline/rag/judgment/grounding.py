@@ -27,6 +27,40 @@ _CITATION = re.compile(r"제\s*\d+\s*(?:조|항|호|목|절|장)(?:\s*의\s*\d+)
 # 날짜·전화번호·조문 번호처럼 계산 대상이 아닌 숫자는 들어오지 않는다.
 _RATIO = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:%p|%|퍼센트|프로)|(?<![\d.])(\d+\.\d+)(?![\d.])")
 
+# A positive verbatim-source claim must occur on the cited line, not merely
+# somewhere else in its region. Rule quotations and descriptions of absence
+# are not assertions that the quoted wording occurs in the advertisement.
+_POSITIVE_QUOTE = re.compile(
+    r"[‘'\"“]([^’'\"”\n]{2,100})[’'\"”]([^.!?\n]{0,100})")
+
+
+def ungrounded_source_quotes(reason: str, window: str) -> list[str]:
+    normalized = re.sub(r'\s+', '', window)
+    missing = []
+    for match in _POSITIVE_QUOTE.finditer(reason):
+        quote, tail = match.groups()
+        prefix = reason[max(0, match.start()-30):match.start()]
+        # An observed quote may start the sentence or follow any field name.
+        # Do not let "'<name>' is shown" evade checking without an "ad" prefix.
+        if re.search(r'(?:규정|기준|예시|요건)(?:은|는|에|의|에서)\s*$', prefix):
+            continue
+        if not re.search(r'표시|기재|명시|확인|포함|존재', tail):
+            continue
+        if re.search(r'없|않|미기재|누락|불명|불가|필요|요구|필수', tail):
+            continue
+        # An explicit ellipsis can omit text, never invent or reorder it.
+        parts = [part for part in re.split(r'\.{3,}|…+', re.sub(r'\s+', '', quote)) if part]
+        cursor, matched = 0, True
+        for part in parts:
+            index = normalized.find(part, cursor)
+            if index < 0:
+                matched = False
+                break
+            cursor = index + len(part)
+        if not matched:
+            missing.append(quote)
+    return missing
+
 def ratio_values(text: str) -> list[str]:
     """이유문에서 비율·소수 수치를 원문 표기 그대로 뽑는다."""
     cleaned = _CITATION.sub(" ", str(text or "")).replace(",", "")
@@ -105,6 +139,8 @@ def grounding_errors(
         return []
     errors: list[str] = []
     window = cited_window_text(refs, documents)
+    if ungrounded_source_quotes(reason, window):
+        errors.append(f"{item_id}: {location} 원문에 있다고 설명한 인용 문구가 선택한 줄에 없음; 해당 문구의 실제 원본 줄을 인용해야 함")
     ungrounded = _ungrounded_values(reason, window)
     if ungrounded:
         errors.append(
