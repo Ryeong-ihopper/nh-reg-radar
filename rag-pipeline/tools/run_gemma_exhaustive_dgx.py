@@ -1154,7 +1154,7 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
     structural_errors = validate(row, parsed, check_reading=False)
     reading_quality_guards = [] if structural_errors else apply_reading_guard(
         json.loads(row["messages"][1]["content"]), parsed)
-    return {
+    result = {
         "request_id": row["request_id"],
         "ad_id": row["ad_id"],
         "category": row["category"],
@@ -1170,6 +1170,8 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
         "reading_quality_guards": reading_quality_guards,
         "validation_errors": validate(row, parsed),
     }
+    from rag.judgment.unsupported_observations import abstain_unresolved_applicability
+    return abstain_unresolved_applicability(row, result, validate)
 
 
 def normalize_contract_sentinels(
@@ -1314,6 +1316,52 @@ def contract_attempt_limit(row: dict[str, Any]) -> int:
     return 3
 
 
+def select_request_items(row: dict[str, Any], item_ids: list[str], suffix: str) -> dict[str, Any]:
+    """Keep frozen evidence and scope; narrow only the requested obligations."""
+    child = copy.deepcopy(row)
+    payload = json.loads(child['messages'][1]['content'])
+    child['request_id'] = f"{row['request_id']}~{suffix}"
+    child['logical_request_id'] = row.get('logical_request_id', row['request_id'])
+    child['requested_item_ids'] = item_ids
+    payload['request_id'] = child['request_id']
+    payload['rules'] = [rule for rule in payload['rules'] if rule['item_id'] in item_ids]
+    if isinstance(payload.get('evidence_scope'), dict):
+        payload['evidence_scope'] = {key: value for key, value in payload['evidence_scope'].items()
+                                     if key in item_ids}
+        if len(payload['evidence_scope']) == len(item_ids):
+            allowed = {str(eid) for scope in payload['evidence_scope'].values()
+                       for eid in scope.get('evidence_ids') or []}
+            payload['documents'] = [doc for doc in payload.get('documents') or []
+                                    if str(doc.get('evidence_id')) in allowed]
+    child['messages'][1]['content'] = json.dumps(payload, ensure_ascii=False)
+    return child
+
+
+def validated_batch_items(row: dict[str, Any], response: dict[str, Any]) -> list[str]:
+    """Salvage only complete, uniquely identified, fully validated item results.
+
+    Unknown IDs, reordered/duplicate/missing items or a wrong advertisement
+    cannot be hidden by item selection. Do not relax any citation or semantic
+    check to save a call. The original failed response stays in call_history.
+    """
+    expected = row.get('requested_item_ids') or []
+    parsed = response.get('parsed')
+    if len(expected) < 2 or not isinstance(parsed, dict) or parsed.get('ad_id') != row['ad_id']:
+        return []
+    results = parsed.get('results')
+    if (not isinstance(results, list) or any(not isinstance(value, dict) for value in results)
+            or [value.get('item_id') for value in results] != expected or len(set(expected)) != len(expected)):
+        return []
+    valid = []
+    for value in results:
+        item = value['item_id']
+        child = select_request_items(row, [item], 'validate')
+        if not validate(child, {'ad_id': parsed['ad_id'], 'results': [value]}):
+            valid.append(item)
+    # All-items-valid + batch-invalid indicates a global error we must retain.
+    return valid if len(valid) < len(expected) else []
+
+
 def retry_contract_instruction(
     row: dict[str, Any], validation_errors: list[str]
 ) -> str:
@@ -1430,6 +1478,13 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
             result["transport_attempts"] = transport_attempt
             result["attempted_validation_errors"] = attempts
             return result
+        valid_items = validated_batch_items(row, result)
+        if valid_items:
+            result['validated_item_ids'] = valid_items
+            result['contract_attempts'] = contract_attempt
+            result['transport_attempts'] = transport_attempt
+            result['attempted_validation_errors'] = attempts
+            return result
         if contract_attempt < max_attempts:
             current = copy.deepcopy(row)
             if isinstance(result.get("model_parsed"), dict):
@@ -1496,6 +1551,26 @@ def split_request_row(row: dict[str, Any], *, cpu_items: set[str] | None = None)
     return children
 
 
+def order_response_items(row: dict[str, Any], responses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Restore original item order after CPU/retained/pending partitions."""
+    ordered = []
+    for response in responses:
+        if response.get('validation_errors'):
+            ordered.append(response)
+            continue
+        for index, value in enumerate(response['parsed']['results']):
+            fragment = dict(response)
+            fragment['request_id'] = f"{response['request_id']}~item-{index}"
+            fragment['parsed'] = {**response['parsed'], 'results': [value]}
+            fragment['call_history'] = response.get('call_history', []) if index == 0 else []
+            ordered.append(fragment)
+    positions = {item: index for index, item in enumerate(row['requested_item_ids'])}
+    return sorted(ordered, key=lambda response: min(
+        [positions.get(value.get('item_id'), len(positions))
+         for value in (response.get('parsed') or {}).get('results') or [] if isinstance(value, dict)]
+        or [len(positions)]))
+
+
 def call_with_retry_and_split(
     row: dict[str, Any],
     host: str | None,
@@ -1522,9 +1597,9 @@ def call_with_retry_and_split(
                      'split_depth': depth}]
     elif any(computed) and len(row.get('requested_item_ids', [])) > 1:
         # Separate CPU-certifiable items before sending any request to the GPU.
-        return [response for child in split_request_row(row, cpu_items={r['item_id'] for r in computed if r})
+        return order_response_items(row, [response for child in split_request_row(row, cpu_items={r['item_id'] for r in computed if r})
                 for response in call_with_retry_and_split(child, host, key, model, max_tokens,
-                    depth=depth + 1, max_split_depth=max_split_depth)]
+                    depth=depth + 1, max_split_depth=max_split_depth)])
     result = call_with_retry(row, host, key, model, max_tokens)
     result["logical_request_id"] = row.get("logical_request_id", row["request_id"])
     result["split_depth"] = depth
@@ -1534,6 +1609,26 @@ def call_with_retry_and_split(
         return [result]
     if not result["validation_errors"]:
         return [focus_unresolved_source_checks(row, result, host, key, model, max_tokens)]
+    valid_items = result.get('validated_item_ids') or validated_batch_items(row, result)
+    if valid_items and depth < max_split_depth:
+        retained = copy.deepcopy(result)
+        retained.update(request_id=f"{row['request_id']}~retained", validation_errors=[],
+                        decision_source='validated_partial_batch', validated_item_ids=valid_items)
+        retained['parsed']['results'] = [value for value in result['parsed']['results']
+                                         if value['item_id'] in valid_items]
+        retained['retained_from_request_id'] = row['request_id']
+        pending = select_request_items(row,
+            [item for item in row['requested_item_ids'] if item not in valid_items], 'pending')
+        # Keep the existing source-focus policy for eligible unresolved items;
+        # reducing retries must not skip an existing evidence check. Settled
+        # neighbors remain byte-for-byte unchanged by that policy.
+        retained = focus_unresolved_source_checks(
+            select_request_items(row, valid_items, 'retained'), retained,
+            host, key, model, max_tokens)
+        # The parent audit belongs to the retained row exactly once.
+        responses = [retained, *call_with_retry_and_split(pending, host, key, model, max_tokens,
+            depth=depth + 1, max_split_depth=max_split_depth)]
+        return order_response_items(row, responses)
     if len(row.get("requested_item_ids") or []) < 2 or depth >= max_split_depth:
         from rag.judgment.unsupported_observations import quarantine_unsupported_observations
         return [quarantine_unsupported_observations(row, result, validate)]

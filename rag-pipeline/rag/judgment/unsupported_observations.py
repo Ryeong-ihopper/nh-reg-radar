@@ -3,6 +3,43 @@ import copy
 import re
 
 
+def abstain_unresolved_applicability(request, response, validate):
+    """No evidence of applicability is uncertainty, never an exclusion.
+
+    Only this specific semantic inconsistency can be abstained from. Schema,
+    identity, citation and transport errors continue through normal repair.
+    """
+    errors = response.get('validation_errors') or []
+    affected = []
+    for error in errors:
+        match = re.fullmatch(r'([^:]+): explanation says applicability cannot be determined; unknown is UNDETERMINED, not NOT_APPLICABLE', error)
+        if not match:
+            return response
+        affected.append(match[1])
+    if not affected or not isinstance(response.get('parsed'), dict):
+        return response
+    guarded = copy.deepcopy(response)
+    for value in guarded['parsed'].get('results') or []:
+        if value.get('item_id') not in affected:
+            continue
+        value.update(applicability='UNDETERMINED', applicability_basis='UNDETERMINED',
+            verdict='UNDETERMINED', confidence='LOW', needs_researcher_review=True,
+            applicability_evidence_ids=[], applicability_evidence_line_refs=[],
+            applicability_metadata_fields=[], evidence_ids=[], evidence_line_refs=[],
+            requirement_checks=[],
+            reason='적용 조건을 확인할 근거가 충분하지 않아 적용 제외로 확정할 수 없습니다. 사람이 원문과 적용 조건을 확인해야 합니다.')
+        for check in [value.get('scope_check'), *(value.get('condition_checks') or []),
+                      *(value.get('review_condition_checks') or [])]:
+            if isinstance(check, dict):
+                check.update(status='UNDETERMINED', evidence_ids=[], evidence_line_refs=[])
+    if validate(request, guarded['parsed']):
+        return response
+    guarded['applicability_quality_review'] = {'policy': 'unresolved-applicability-review-v1',
+        'validation_errors': errors, 'original_result': copy.deepcopy(response['parsed'])}
+    guarded['validation_errors'] = []
+    return guarded
+
+
 def quarantine_unsupported_observations(request, response, validate):
     errors = response.get("validation_errors") or []
     if not errors or not response.get("parsed"):

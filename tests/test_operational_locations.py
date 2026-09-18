@@ -16,6 +16,26 @@ def source():
                        "unassigned_lines": [{"line_ref": "FILE-b::U1", "text": "unassigned", "bbox": [1, 30, 80, 40]}]}]}
 
 
+def test_saved_absence_disguised_as_observed_is_projected_without_mutating_original():
+    prediction = {'item_id': 'SYNTHETIC', 'verdict': 'VIOLATION', 'reason': '필수 안내의 누락으로 판단됩니다.',
+        'evidence_ids': ['E'], 'evidence_line_refs': ['FILE-b::L1'], 'requirement_checks': [{
+            'status': 'VIOLATED', 'finding_basis': 'OBSERVED', 'reason': '안내 문구가 확인되지 않습니다.',
+            'evidence_ids': ['E'], 'evidence_line_refs': ['FILE-b::L1']}]}
+    raw = {'ads': [{'ad_id': 'ADV', 'candidates': [{'item_id': 'SYNTHETIC', 'judgment': prediction}]}]}
+    request = {'ad_id': 'ADV', 'parser_coverage': 'PARTIAL', 'rules': [{'item_id': 'SYNTHETIC'}],
+        'documents': [{'evidence_id': 'E', 'line_refs': ['FILE-b::L1'], 'text': 'repeated text'}],
+        'evidence_scope': {'SYNTHETIC': {'evidence_ids': ['E'], 'complete_ad_scan': False}}}
+    frozen = copy.deepcopy((raw, request))
+    row = saved_workspace(raw, [request], source(), 'ADV')['rows'][0]
+    assert row['verdict'] == '판단불가'
+    assert row['evidence_locations'] == []
+    assert row['model_assessment']['verdict'] == 'VIOLATION'
+    assert (raw, request) == frozen
+    request['parser_coverage'] = 'FULL'
+    request['evidence_scope']['SYNTHETIC']['complete_ad_scan'] = True
+    assert saved_workspace(raw, [request], source(), 'ADV')['rows'][0]['verdict'] == '위반'
+
+
 def test_template_appropriate_judgment_guide_is_exact_and_display_only(tmp_path):
     import openpyxl
     path = tmp_path / "1. 대출성상품-상품명 노출.xlsx"

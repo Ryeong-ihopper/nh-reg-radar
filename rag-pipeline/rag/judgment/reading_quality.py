@@ -7,10 +7,34 @@ retained by the caller; guard records explain each conservative abstention.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any
 
 
-VERSION = "reading-quality-gate-v2"
+VERSION = "reading-quality-gate-v3"
+
+
+def claims_disclosure_absence(check: dict[str, Any], result_reason: str = "") -> bool:
+    """An explicit missing-disclosure explanation cannot become an observation.
+
+    This only abstains when reading is incomplete; it never supplies a missing
+    obligation, infers a violation, or treats an observed numerical error as
+    absence. The aggregate reason is supplied only for a single obligation.
+    """
+    if check.get("status") == "MISSING":
+        return True
+    if check.get("status") != "VIOLATED":
+        return False
+    reason = str(check.get("reason") or "") + "\n" + result_reason
+    # Negated absence claims and quoted source phrases are not missing facts.
+    reason = re.sub(r"[‘'\"“][^’'\"”\n]*[’'\"”]", "", reason)
+    reason = re.sub(r"누락(?:된\s*(?:문구|항목))?\s*(?:없이|없음|없다|없습니다)|누락되지\s*않\S*", "", reason)
+    return bool(re.search(
+        r"누락(?:되|됐|된|으로|이라고|입니다|[.!]?(?:\n|$))|미(?:기재|표시|표기|고지)"
+        r"|(?:문구|안내|설명|고지|기재|표시|표기)(?:가|는|이|도)?\s*(?:없|존재하지)"
+        r"|(?:문구|안내|설명|고지|기재|표시|표기|내용|조건|항목)(?:가|는|이|도)?\s*(?:확인|발견|관찰)되지\s*않"
+        r"|(?:기재|표시|표기|명시|고지|안내)(?:되어)?\s*(?:있지|되지|하지)\s*않",
+        reason))
 
 
 def project_reading_citations(result: dict[str, Any]) -> dict[str, Any]:
@@ -112,11 +136,14 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
         for index, value in enumerate(values if isinstance(values, list) else []):
             if isinstance(value, dict) and value.get("status") != "UNDETERMINED":
                 check_refs(value, f"{name}:{index}")
-    for index, check in enumerate(result.get("requirement_checks") or []):
+    checks = result.get("requirement_checks") or []
+    for index, check in enumerate(checks):
         if not isinstance(check, dict) or check.get("status") not in {"SATISFIED", "MISSING", "VIOLATED"}:
             continue
         location = f"requirement_checks:{index}"
-        if check.get("finding_basis") == "ABSENCE" and incomplete:
+        absence = check.get("finding_basis") == "ABSENCE" or claims_disclosure_absence(
+            check, str(result.get("reason") or "") if len(checks) == 1 else "")
+        if absence and incomplete:
             issues.append({"location": location, "code": "INCOMPLETE_READING_ABSENCE"})
         elif check.get("finding_basis") == "OBSERVED":
             check_refs(check, location)

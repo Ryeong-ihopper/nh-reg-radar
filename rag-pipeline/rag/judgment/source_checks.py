@@ -19,6 +19,7 @@ def unresolved_applicability(result):
     return result.get('verdict') == 'NOT_APPLICABLE' and bool(
         unsupported_condition
         or re.search(r'적용\s*여부.{0,24}(?:판단|확인).{0,12}(?:없|불가|어렵)', reason)
+        or re.search(r'(?:여부|인지).{0,35}(?:판단|확인).{0,12}(?:없|불가|어렵)', reason)
         or re.search(r'(?:자료|근거|정보)(?:가|는)?\s*(?:없|부족|불충분).{0,45}(?:적용|해당|대상|제외|의무)', reason))
 
 

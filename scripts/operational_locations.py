@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import copy
 import hashlib
 import re
 import sys
@@ -9,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "rag-pipeline"))
-from rag.judgment.reading_quality import project_reading_citations  # noqa: E402
+from rag.judgment.reading_quality import apply_reading_guard, project_reading_citations  # noqa: E402
 from rag.judgment.source_checks import unresolved_applicability, template_heading_only_citation  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.grounding import cited_window_text, ungrounded_source_quotes  # noqa: E402
@@ -136,6 +137,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
     """Single projection shared by the active UI and JSON download."""
     ads = [ad for ad in raw.get("ads", []) if ad["ad_id"] == advertisement_id]
     scoped = {}
+    reading_payloads = {}
     arithmetic = {}
     for request in requests:
         if request.get("ad_id") != advertisement_id and not request.get("ad_id", "").startswith(advertisement_id + "::"):
@@ -145,6 +147,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
         definitions.update({rule["item_id"]: rule for rule in request["rules"]})
         evidence.update({doc["evidence_id"]: doc for doc in request["documents"]})
         for rule in request['rules']:
+            reading_payloads[(key, rule['item_id'])] = request
             verified = calculate_loan_rates(request, rule)
             if verified:
                 arithmetic[(key, rule['item_id'])] = verified
@@ -165,6 +168,15 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 if arithmetic_result and not prediction.get('reading_quality_review'):
                     prediction = arithmetic_result
                 applicability_audit = None
+                reading_payload = reading_payloads.get((key, candidate['item_id']))
+                if reading_payload and prediction:
+                    guarded = copy.deepcopy(prediction)
+                    guarded.setdefault('item_id', candidate['item_id'])
+                    audit = apply_reading_guard(reading_payload, {'results': [guarded]})
+                    if audit:
+                        applicability_audit = {'verdict': prediction['verdict'],
+                            'reason': prediction.get('reason', ''), 'status': 'WITHHELD_BY_READING_GUARD'}
+                        prediction = guarded
                 if prediction.get('verdict') in {'COMPLIANT', 'VIOLATION'}:
                     inconsistent = False
                     for check in prediction.get('requirement_checks') or []:
