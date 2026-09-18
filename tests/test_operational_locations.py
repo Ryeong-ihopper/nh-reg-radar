@@ -15,6 +15,29 @@ def source():
                        "unassigned_lines": [{"line_ref": "FILE-b::U1", "text": "unassigned", "bbox": [1, 30, 80, 40]}]}]}
 
 
+def test_manual_rule_names_require_matching_frozen_source_hash(tmp_path):
+    import hashlib
+    import openpyxl
+    from operational_locations import frozen_rule_metadata
+    path = tmp_path / 'source.xlsx'
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.title = '실행_점검항목'
+    sheet.append(['항목ID', '약칭', '점검문구', '근거법령'])
+    sheet.append(['SYN', '합성 항목', '사람 확인 질문', '합성 기준 제2조'])
+    book.save(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    frozen = {'inputs': [{'path': 'old-location/source.xlsx', 'sha256': digest}]}
+    metadata = frozen_rule_metadata(path, frozen)
+    assert metadata['SYN']['title'] == '합성 항목'
+    assert metadata['SYN']['rule_basis']['source_sha256'] == digest
+    assert frozen_rule_metadata(path, {'inputs': [{'path': 'other.xlsx', 'sha256': 'wrong'}]}) == {}
+    raw = {'ads': [{'ad_id': 'ADV', 'deferred_rules': [{'item_id': 'SYN', 'reason': '사람 확인'}]}]}
+    row = saved_workspace(raw, [], source(), 'ADV', rule_metadata=metadata)['rows'][0]
+    assert row['title'] == '합성 항목' and row['question'] == '사람 확인 질문'
+    assert row['verdict'] == '판단불가'
+
+
 def test_unresolved_exclusion_is_visible_without_rewriting_saved_prediction():
     judgment = {'verdict': 'NOT_APPLICABLE', 'reason': '자료가 없어 의무 적용 여부를 판단할 수 없습니다.',
                 'evidence_ids': ['E'], 'evidence_line_refs': ['FILE-b::L1']}
@@ -120,6 +143,29 @@ def test_invalid_geometry_and_unknown_refs_fail_closed():
     assert resolve_locations(source(), {"evidence_line_refs": ["another-product::L1"]}, {}) == []
 
 
+def test_manual_facets_merge_without_hiding_violations_or_counting_twice():
+    candidates = [{'item_id': item, 'judgment': {'verdict': verdict, 'reason': 'text finding'}}
+                  for item, verdict in [('PASS', 'COMPLIANT'), ('FAIL', 'VIOLATION')]]
+    deferred = [{'item_id': item, 'reason': '사람 시각 확인 필요'} for item in ['PASS', 'FAIL', 'NEW', 'NEW']]
+    deferred += [{'item_id': 'OTHER', 'reason': "routing did not select this rule's template section"},
+                 {'item_id': 'OTHER-V2', 'reason': 'confirmed template does not match this v2 product subtype'}]
+    raw = {'ads': [{'ad_id': 'ADV', 'candidates': candidates, 'deferred_rules': deferred,
+                   'excluded_candidates': [{'item_id': 'EX', 'judgment': {'verdict': 'NOT_APPLICABLE', 'reason': '대상 상품 아님'}}],
+                   'review_candidates': [{'item_id': 'PENDING', 'judgment': {'verdict': 'UNDETERMINED', 'reason': '적용성 확인 필요'}}]}]}
+    before = copy.deepcopy(raw)
+    value = saved_workspace(raw, [], source(), 'ADV')
+    rows = {r['item_id']: r for r in value['rows']}
+    assert set(rows) == {'PASS', 'FAIL', 'NEW', 'PENDING'}
+    assert rows['PASS']['verdict'] == rows['NEW']['verdict'] == rows['PENDING']['verdict'] == '판단불가'
+    assert rows['PASS']['automated_assessment']['verdict'] == '충족'
+    assert rows['FAIL']['verdict'] == '위반'
+    assert rows['NEW']['evidence_locations'] == []
+    assert len(rows['NEW']['manual_review_reasons']) == 1
+    assert [r['item_id'] for r in value['excluded_rows']] == ['EX']
+    assert value['deferred_rules'] == value['review_candidate_rows'] == []
+    assert raw == before
+
+
 def test_workspace_scopes_rules_and_preserves_failure_distinction():
     ads, requests = [], []
     for suffix in ("a", "b"):
@@ -130,20 +176,23 @@ def test_workspace_scopes_rules_and_preserves_failure_distinction():
         requests.append({"ad_id": scope, "rules": [{"item_id": "R1", "title": suffix}], "documents": []})
     raw = {"ads": ads, "output_failure_pairs": [{"ad_id": "ADV", "item_id": "FAILED", "reason": "invalid JSON"}, {"ad_id": "OTHER"}]}
     value = saved_workspace(raw, requests, source(), "ADV")
-    assert [r["title"] for r in value["rows"]] == ["a", "b"]
-    assert all(r["verdict"] == "미해당" for r in value["rows"])
+    assert value['rows'] == []
+    assert [r["title"] for r in value["excluded_rows"]] == ["a", "b"]
+    assert all(r["verdict"] == "미해당" for r in value["excluded_rows"])
     assert len(value["output_failure_pairs"]) == 1
     assert value["output_failure_pairs"][0]["reason"] == "invalid JSON"
 
 
-def test_budget_deferral_is_visible_but_not_a_verdict_or_input_failure():
+def test_legacy_budget_omission_is_unknown_and_explicitly_incomplete():
     raw = {"ads": [{"ad_id": "ADV", "scope_id": "S", "candidates": [],
                     "deferred_rules": [{"item_id": "R1", "reason": "routing did not select this rule's template section"}]}]}
     discovery = {"ads": [{"ad_id": "S", "candidate_budget": {"deferred_ids": ["R2"]}},
                          {"ad_id": "OTHER", "candidate_budget": {"deferred_ids": ["R3"]}}]}
     value = saved_workspace(raw, [], source(), "ADV", discovery)
-    assert [r["deferred_kind"] for r in value["deferred_rules"]] == ["OTHER_TEMPLATE", "EXECUTION_BUDGET"]
-    assert value["rows"] == []
+    assert value['deferred_rules'] == []
+    assert len(value['execution_omissions']) == 1
+    assert all(row['verdict'] == '판단불가' for row in value['rows'])
+    assert [row['item_id'] for row in value['rows']] == ['R2']
 
 
 def test_recovered_legacy_result_uses_its_frozen_scope_coverage_without_mutation():

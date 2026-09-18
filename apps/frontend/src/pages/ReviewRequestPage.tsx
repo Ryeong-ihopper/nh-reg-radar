@@ -102,7 +102,7 @@ export function ReviewRequestPage() {
         <ErrorState error={advertisement.error} onRetry={() => void advertisement.refetch()} />
       ) : null}
       {advertisement.data ? (
-        <div className="review-workspace">
+        <div className="review-workspace review-workspace--execution">
           <div>
           <dl className="review-summary" aria-label="검토 대상 광고 정보">
             <div><dt>광고명</dt><dd>{advertisement.data.advertisementName}</dd></div>

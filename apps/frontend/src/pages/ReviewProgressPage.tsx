@@ -140,7 +140,7 @@ export function ReviewProgressPage() {
       {forbidden ? <div role="alert" className="state-message state-error"><strong>접근 권한이 없습니다.</strong><p>검토 상태를 볼 수 있는 부서 또는 역할인지 확인해 주세요.</p></div> : null}
       {progress.isError && !forbidden ? <ErrorState error={progress.error} onRetry={() => void progress.refetch()} /> : null}
       {displayedProgress ? (
-        <div className="review-workspace">
+        <div className="review-workspace review-workspace--execution">
           <div>
           <StatusNotice progress={displayedProgress} />
           {operationalMode ? <p className="fieldset-description">진행률은 완료한 단계 수 기준이며 남은 시간 비율이 아닙니다. 파싱·Gemma 판정 중에는 같은 단계에서 수 분 머무를 수 있습니다.</p> : null}

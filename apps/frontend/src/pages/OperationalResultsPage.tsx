@@ -9,12 +9,12 @@ import { legalBasisLines, missingSourceLabel, resultEvidenceBoxes, resultCounts,
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { WorkflowSteps } from "../components/WorkflowSteps";
 
-type Verdict = "위반" | "판단불가" | "충족" | "미해당";
+type Verdict = "위반" | "판단불가" | "충족";
 type VerdictFilter = "ALL" | Verdict;
 
-const VERDICTS: Verdict[] = ["위반", "판단불가", "충족", "미해당"];
-const VERDICT_ORDER: Record<Verdict, number> = { 위반: 0, 판단불가: 1, 충족: 2, 미해당: 3 };
-const COUNT_KEY = { 위반: "violation", 판단불가: "unknown", 충족: "compliant", 미해당: "notApplicable" } as const;
+const VERDICTS: Verdict[] = ["위반", "판단불가", "충족"];
+const VERDICT_ORDER: Record<Verdict, number> = { 위반: 0, 판단불가: 1, 충족: 2 };
+const COUNT_KEY = { 위반: "violation", 판단불가: "unknown", 충족: "compliant" } as const;
 const humanFinalDecisionEnabled = import.meta.env.VITE_OPERATIONAL_HUMAN_DECISION === "true";
 
 function isVerdict(value: string): value is Verdict {
@@ -60,11 +60,10 @@ export function OperationalResultsPage() {
     .filter((row): row is typeof row & { verdict: Verdict } => isVerdict(row.verdict))
     .sort((left, right) => VERDICT_ORDER[left.verdict] - VERDICT_ORDER[right.verdict]), [workspace.data]);
   const counts = resultCounts(allRows);
-  const reviewCandidateRows = useMemo(() => (workspace.data?.review_candidate_rows ?? [])
-    .filter((row): row is typeof row & { verdict: Verdict } => isVerdict(row.verdict)), [workspace.data]);
   const rows = filter === "ALL" ? allRows : allRows.filter((row) => row.verdict === filter);
-  const deferred = workspace.data?.deferred_rules ?? [];
-  const mapped = useMemo(() => new Map([...allRows, ...reviewCandidateRows].map((row) => [row.row_id ?? row.item_id, resultEvidenceBoxes(row, layout.data)])), [allRows, reviewCandidateRows, layout.data]);
+  const excludedRows = workspace.data?.excluded_rows ?? [];
+  const omissions = workspace.data?.execution_omissions ?? [];
+  const mapped = useMemo(() => new Map(allRows.map((row) => [row.row_id ?? row.item_id, resultEvidenceBoxes(row, layout.data)])), [allRows, layout.data]);
   const currentBoxes = mapped.get(active) ?? [];
 
   function highlight(id: string) {
@@ -91,7 +90,7 @@ export function OperationalResultsPage() {
   function locationLabel(rowId: string, verdict: Verdict, evidence: string) {
     const boxes = mapped.get(rowId) ?? [];
     if (boxes.length) return `광고 원본 근거 위치 ${boxes.length}곳 · ${[...new Set(boxes.map((box) => box.pageNo))].join(", ")}쪽${boxes.some(box => box.precision === "REGION") ? " · 영역 단위 연결 포함(정확한 줄 미확정)" : ""}`;
-    const row = [...allRows, ...reviewCandidateRows].find(value => (value.row_id ?? value.item_id) === rowId);
+    const row = allRows.find(value => (value.row_id ?? value.item_id) === rowId);
     return row ? missingSourceLabel(row) : missingSourceLabel({item_id:rowId,title:"",question:"",criterion:"",reason:"",verdict,evidence});
   }
 
@@ -106,7 +105,7 @@ export function OperationalResultsPage() {
     return () => cancelAnimationFrame(frame);
   }, [active, pageNo, previewUrl, currentBoxes, followEvidence, zoom]);
 
-  const reviewState = counts.violation > 0 ? "위반 항목 확인 필요" : counts.unknown > 0 ? "판단불가 항목 확인 필요" : reviewCandidateRows.length || deferred.some(row => row.deferred_kind !== "OTHER_TEMPLATE") ? "사람 검토 항목 확인 필요" : "자동 검토 완료";
+  const reviewState = omissions.length || workspace.data?.output_failure_count ? "검토 미완료 · 재처리 필요" : counts.violation > 0 ? "위반 항목 확인 필요" : counts.unknown > 0 ? "판단불가 항목 확인 필요" : "자동 검토 완료";
 
   return <section className="single-review" aria-label="AI 검토 결과">
     <WorkflowSteps current={4} advertisementId={adId} reviewId={reviewId} />
@@ -126,8 +125,8 @@ export function OperationalResultsPage() {
       <article><span>위반</span><strong data-verdict="위반">{counts.violation}</strong></article>
       <article><span>판단불가</span><strong data-verdict="판단불가">{counts.unknown}</strong></article>
       <article><span>충족</span><strong data-verdict="충족">{counts.compliant}</strong></article>
-      <article><span>미해당</span><strong data-verdict="미해당">{counts.notApplicable}</strong></article>
     </div>
+    {omissions.length ? <aside className="state-message" role="alert"><strong>과거 실행 누락 {omissions.length}건 · 재처리 필요</strong><p>이 결과는 모든 대상 항목의 검토가 완료된 상태가 아닙니다. 해당 항목을 판단불가 목록에 표시했습니다.</p></aside> : null}
     {workspace.data?.output_failure_count ? <aside className="state-message" role="alert"><strong>판정 처리 실패 {workspace.data.output_failure_count}건</strong><p>{workspace.data.partial_result_warning}</p><details><summary>실패 규칙 확인</summary><ul>{workspace.data.output_failure_pairs?.map((failure) => <li key={`${failure.scope_id ?? failure.ad_id}:${failure.item_id}`}>{failure.item_id} · 모델 응답 형식 또는 원문 근거 연결 실패</li>)}</ul></details></aside> : null}
     <div className="single-review-grid">
       <aside className="single-advertisement"><div className="single-advertisement-toolbar"><strong title={original?.fileName}>광고 원본{original?.fileName ? ` · ${original.fileName}` : ""}</strong>
@@ -164,17 +163,9 @@ export function OperationalResultsPage() {
           <small>{locationLabel(rowId, row.verdict, row.evidence)}</small>
         </article>; })}
         {!rows.length && workspace.data ? <p className="panel-note">이 상태의 판정 항목이 없습니다.</p> : null}
-        {reviewCandidateRows.length ? <details className="state-message"><summary>추가 검토 후보 {reviewCandidateRows.length}건</summary>
-          <p className="panel-note">템플릿 밖 v2 검색에서 발견됐지만 적용 조건이 확정되지 않은 항목입니다. 정식 판정 집계에는 포함하지 않습니다.</p>
-          {reviewCandidateRows.map((row) => { const rowId = row.row_id ?? row.item_id; return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
-            <header><strong>{row.item_id} · {row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
-            {row.question ? <p className="regulation-question">{row.question}</p> : null}<p>{row.reason}</p><small>{locationLabel(rowId, row.verdict, row.evidence)}</small>
-          </article>; })}
-        </details> : null}
-        {deferred.length ? <details className="panel-note"><summary>판정 미실행 항목 {deferred.length}건 · 사유 구분</summary>
-          <p>다른 템플릿 범위 {deferred.filter(row => row.deferred_kind === "OTHER_TEMPLATE").length}건 · 입력·구조 확인 필요 {deferred.filter(row => row.deferred_kind === "INPUT_OR_STRUCTURE").length}건 · 추가 검색 실행 한도 {deferred.filter(row => row.deferred_kind === "EXECUTION_BUDGET").length}건</p>
-          <p>실행 한도로 보류된 항목은 미해당이나 충족으로 판정된 것이 아닙니다.</p>
-          <ul>{deferred.map((row, index) => <li key={`${row.scope_id}:${row.item_id}:${index}`}>{row.item_id} · {row.reason.startsWith("텍스트 의무는") || row.reason.startsWith("시인성은 사람 검토") ? row.reason : row.deferred_kind === "OTHER_TEMPLATE" ? "선택한 상세 상품군의 템플릿 범위 밖" : row.deferred_kind === "EXECUTION_BUDGET" ? "추가 검색 실행 한도로 미판정" : "입력 또는 원문 구조 확인 필요 · 사람 검토"}</li>)}</ul>
+        {excludedRows.length ? <details className="panel-note"><summary>적용 제외 내역 {excludedRows.length}건</summary>
+          <p>해당 광고에 적용되지 않는 것으로 판정한 항목입니다. 입력 부족이나 실행 누락은 이 목록에 포함하지 않습니다.</p>
+          <ul>{excludedRows.map((row) => <li key={row.row_id ?? row.item_id}><strong>{row.title}</strong><p>{row.reason}</p></li>)}</ul>
         </details> : null}
         </div>
       </div>

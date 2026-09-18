@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import math
+import hashlib
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "rag-pipeline"))
@@ -88,7 +90,7 @@ def resolve_locations(document, judgment, evidence):
     return locations
 
 
-def saved_workspace(raw, requests, document, advertisement_id, discovery=None, reading_audits=None):
+def saved_workspace(raw, requests, document, advertisement_id, discovery=None, reading_audits=None, rule_metadata=None):
     """Single projection shared by the active UI and JSON download."""
     ads = [ad for ad in raw.get("ads", []) if ad["ad_id"] == advertisement_id]
     scoped = {}
@@ -113,8 +115,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
         rules, evidence = scoped.get(key, ({}, {}))
         for candidates, target, kind in ((ad.get("candidates", []), rows, "finding"),
                                          (ad.get("review_candidates", []), review_rows, "review"),
-                                         ([c for c in ad.get("excluded_candidates", [])
-                                           if unresolved_applicability(c.get("judgment") or {})], rows, "scope-review")):
+                                         (ad.get("excluded_candidates", []), rows, "scope-review")):
             for number, candidate in enumerate(candidates):
                 prediction = project_reading_citations(candidate.get("judgment") or {})
                 arithmetic_result = arithmetic.get((key, candidate['item_id']))
@@ -165,7 +166,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                                for page in document.get("pages", [])):
                         location_status = "SOURCE_GEOMETRY_MISSING"
                 target.append({
-                    "row_id": f"{key}:{kind}:{item_id}:{number}", "item_id": item_id,
+                    "row_id": f"{key}:{kind}:{item_id}:{number}", "scope_id": key, "item_id": item_id,
                     "title": title, "question": rule.get("question", ""),
                     "criterion": rule.get("criterion") or rule.get("guide", ""),
                     "template_example": rule.get("example_text", "") if rule.get("source_sheet") == "HWPX_TEMPLATE" else "",
@@ -190,7 +191,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                     "model_assessment": applicability_audit or ((reading_audits or {}).get((key, item_id))
                     if prediction.get("reading_quality_review") else None),
                 })
-    deferred = [dict(row, scope_id=ad.get("scope_id")) for ad in ads
+    deferred = [dict(row, scope_id=ad.get("scope_id") or ad['ad_id']) for ad in ads
                 for row in ad.get("deferred_rules", [])]
     scopes = {ad.get("scope_id") or ad["ad_id"] for ad in ads}
     for scope in (discovery or {}).get("ads", []):
@@ -205,15 +206,120 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
     for row in deferred:
         row["deferred_kind"] = (
             "EXECUTION_BUDGET" if row.get("reason") == "execution_budget_not_inapplicability"
-            else "OTHER_TEMPLATE" if row.get("reason") == "routing did not select this rule's template section"
+            else "OTHER_TEMPLATE" if row.get("reason") in {"routing did not select this rule's template section",
+                                                           "confirmed template does not match this v2 product subtype"}
             else "INPUT_OR_STRUCTURE"
         )
     discoveries = {ad['ad_id']: ad for ad in (discovery or {}).get('ads', [])}
+    for entry in deferred:
+        metadata = (rule_metadata or {}).get(entry['item_id'], {})
+        for field in ('title', 'question', 'rule_basis'):
+            if metadata.get(field):
+                entry.setdefault(field, metadata[field])
+        source = discoveries.get(entry['scope_id'], {})
+        for field in ('template_candidates', 'presence_and_style', 'supplemental_v2_candidates', 'prohibition_candidates'):
+            match = next((item for item in source.get(field, []) if item.get('item_id') == entry['item_id']), {})
+            if match.get('title'):
+                entry.setdefault('title', match['title'])
+                break
     coverage = [ad.get('template_coverage') or discoveries.get(ad.get('scope_id') or ad['ad_id'], {}).get('template_coverage')
                 for ad in ads]
-    return {"rows": rows, "review_candidate_rows": review_rows,
+    rows, excluded, omissions = consolidate_review_rows(rows, review_rows, deferred, scoped, coverage)
+    return {"rows": rows, "review_candidate_rows": [], "excluded_rows": excluded,
+            "execution_omissions": omissions,
             "template_coverage": [value for value in coverage if value],
             "source_ads": ads,
             "output_failure_pairs": [pair for pair in raw.get("output_failure_pairs", [])
                                      if pair.get("ad_id") == advertisement_id],
-            "deferred_rules": deferred}
+            "deferred_rules": []}
+
+
+def consolidate_review_rows(rows, review_rows, deferred, scoped, coverage):
+    """One visible disposition per scope/item; source_ads retains raw history."""
+    by_pair = {(row['scope_id'], row['item_id']): row for row in rows}
+    for row in review_rows:
+        row = dict(row, verdict='판단불가')
+        by_pair.setdefault((row['scope_id'], row['item_id']), row)
+    titles = {item['item_id']: item.get('title', '') for group in coverage if group
+              for item in group.get('items', [])}
+    omissions = []
+    for entry in deferred:
+        if entry['deferred_kind'] == 'OTHER_TEMPLATE':
+            continue
+        key, item = entry['scope_id'], entry['item_id']
+        if entry['deferred_kind'] == 'EXECUTION_BUDGET':
+            if not any(v['scope_id'] == key and v['item_id'] == item for v in omissions):
+                omissions.append({'scope_id': key, 'item_id': item,
+                                 'reason': '과거 실행 한도로 판정을 실행하지 못했습니다. 재처리가 필요합니다.'})
+            reason = omissions[-1]['reason']
+        else:
+            reason = entry.get('reason') or '입력 또는 원문을 사람이 확인해야 합니다.'
+            if reason == 'template source structure requires review':
+                reason = '템플릿 원문 구조를 자동 해석할 수 없어 사람이 확인해야 합니다.'
+        pair = (key, item)
+        if pair not in by_pair:
+            rule = scoped.get(key, ({}, {}))[0].get(item, {})
+            basis = entry.get('template_basis') or {}
+            by_pair[pair] = {'row_id': f'{key}:manual:{item}', 'scope_id': key, 'item_id': item,
+                'title': entry.get('title') or titles.get(item) or rule.get('title') or '사람 확인이 필요한 점검항목',
+                'question': entry.get('question') or rule.get('question', ''),
+                'criterion': rule.get('criterion', ''), 'verdict': '판단불가', 'reason': '',
+                'evidence': '', 'evidence_ids': [], 'evidence_line_refs': [], 'evidence_locations': [],
+                'evidence_location_status': 'NO_CITATION', 'requirement_checks': [],
+                'template_section': basis.get('template_section'),
+                'template_requirement': basis.get('requirement_mode'),
+                'rule_basis': entry.get('rule_basis'), 'judgment_scope': 'RULE'}
+        row = by_pair[pair]
+        reasons = row.setdefault('manual_review_reasons', [])
+        if reason in reasons:
+            continue
+        reasons.append(reason)
+        if row['verdict'] != '판단불가' and 'automated_assessment' not in row:
+            row['automated_assessment'] = {'verdict': row['verdict'], 'reason': row['reason']}
+        # A proven violation survives an unresolved visual facet. A text-only
+        # pass is insufficient for an item whose other required facet is unknown.
+        if row['verdict'] != '위반':
+            row['verdict'] = '판단불가'
+        row['reason'] = (row['reason'] + '\n사람 확인 필요: ' + reason).strip()
+    return ([r for r in by_pair.values() if r['verdict'] != '미해당'],
+            [r for r in by_pair.values() if r['verdict'] == '미해당'], omissions)
+
+
+def frozen_rule_metadata(path, freeze):
+    """Display names only from the exact regulation version frozen by this review."""
+    path = Path(path)
+    expected = tuple(sorted(item['sha256'] for item in freeze.get('inputs', [])
+                            if str(item.get('path', '')).lower().endswith('.xlsx') and item.get('sha256')))
+    if not expected or not path.is_file():
+        return {}
+    stat = path.stat()
+    return _rule_metadata(str(path), stat.st_mtime_ns, stat.st_size, expected)
+
+
+@lru_cache(maxsize=8)
+def _rule_metadata(path, _mtime, _size, expected):
+    import openpyxl
+    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if digest not in expected:
+        return {}
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if '실행_점검항목' not in book.sheetnames:
+            return {}
+        rows = book['실행_점검항목'].iter_rows(values_only=True)
+        columns = {name: index for index, name in enumerate(next(rows))}
+        result = {}
+        for row in rows:
+            def field(name):
+                return str(row[columns[name]] or '') if name in columns else ''
+            item = field('항목ID')
+            if item:
+                basis = field('근거법령')
+                result[item] = {'title': field('약칭'), 'question': field('점검문구'),
+                    'rule_basis': {'item_id': item, 'source_type': 'REGULATION_V2',
+                        'source_ref': '실행_점검항목:' + item, 'source_sha256': digest,
+                        'legal_basis_refs': [basis] if basis else [],
+                        'basis_status': 'LEGAL_BASIS_BOUND' if basis else 'LEGAL_BASIS_NOT_PROVIDED'}}
+        return result
+    finally:
+        book.close()

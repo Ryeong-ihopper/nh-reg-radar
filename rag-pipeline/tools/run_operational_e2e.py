@@ -65,7 +65,7 @@ from rag.templates.catalog import TemplateCatalog  # noqa: E402
 from rag.templates.coverage import audit_template_coverage  # noqa: E402
 from rag.retrieval.context import expand_source_context  # noqa: E402
 from rag.retrieval.queries import build_context_queries  # noqa: E402
-from rag.retrieval.candidates import balanced_candidates  # noqa: E402
+from rag.retrieval.candidates import all_judgment_candidates, balanced_candidates  # noqa: E402
 from rag.judgment.reading_quality import needs_reading_review, uncertain_ad_readings  # noqa: E402
 
 # Existing reports/tests import this name; execution itself is provider-neutral.
@@ -977,7 +977,7 @@ def freeze_manifest(
             "batch_size": args.batch_size,
             "full_ad_max_chars": args.full_ad_max_chars,
             "evidence_per_rule": args.evidence_per_rule,
-            "prohibition_max_candidates": args.prohibition_max_candidates,
+            "prohibition_max_candidates": None,
             "reranker_candidate_pool": args.reranker_candidate_pool,
             "context_char_budget": args.context_char_budget,
             "supplemental_selection": "category_floor_then_rank_v1",
@@ -1127,7 +1127,8 @@ def main() -> None:
     parser.add_argument("--context-char-budget", type=int, default=2400,
                         help="Additional source-region context characters per rule; 0 disables expansion")
     parser.add_argument("--full-ad-max-chars", type=int, default=12000)
-    parser.add_argument("--prohibition-max-candidates", type=int, default=30)
+    parser.add_argument("--prohibition-max-candidates", type=int, default=0,
+                        help="Deprecated compatibility option; all discovered candidates are processed")
     parser.add_argument("--reranker-candidate-pool", type=int, default=80)
     parser.add_argument(
         "--enable-applicability-screen",
@@ -1497,8 +1498,7 @@ def main() -> None:
                 rule_by_id[row["item_id"]], confirmed_template_id
             )
         ]
-        supplemental_v2, candidate_budget_audit = balanced_candidates(
-            supplemental_v2, rule_by_id, args.prohibition_max_candidates)
+        supplemental_v2, candidate_budget_audit = all_judgment_candidates(supplemental_v2, rule_by_id)
         candidate_rows = [*template_candidates, *enumerated, *supplemental_v2]
         candidate_ids = list(dict.fromkeys(row["item_id"] for row in candidate_rows))
         # Even the optional model applicability screen cannot bypass the
@@ -1659,6 +1659,11 @@ def main() -> None:
                     ],
                 })
                 requested_pairs.update((ad_id, row["item_id"]) for row in batch)
+        for deferred in [*deferred_input_rules, *applicability_pending]:
+            definition = rule_by_id.get(deferred['item_id'], {})
+            deferred.setdefault('title', definition.get('title', deferred['item_id']))
+            deferred.setdefault('question', definition.get('question', ''))
+            deferred.setdefault('rule_basis', rule_basis_by_id.get(deferred['item_id']))
         discovery_ads.append({
             "ad_id": ad_id,
             "source_ad_id": (ads[ad_id].get("document") or {}).get("parent_ad_id") or ad_id,

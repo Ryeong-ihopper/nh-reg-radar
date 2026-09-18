@@ -118,6 +118,15 @@ class SearchIntegrityTests(unittest.TestCase):
         self.assertEqual(balanced_candidates(rows, rules, 0)[0], [])
         self.assertEqual(balanced_candidates(rows, rules, 100)[0], rows)
 
+    def test_judgment_candidates_have_no_thirty_or_eighty_item_cutoff(self):
+        from rag.retrieval.candidates import all_judgment_candidates
+        rules = {str(i): {'category': ['PRESENCE', 'PROHIBIT', 'STYLE'][i % 3]} for i in range(121)}
+        rows = [{'item_id': key} for key in rules]
+        selected, audit = all_judgment_candidates(rows, rules)
+        self.assertEqual(selected, rows)
+        self.assertEqual(audit['deferred_ids'], [])
+        self.assertIsNone(audit['limit'])
+
     def test_context_queries_preserve_originals_and_never_cross_source_scope(self):
         from rag.retrieval.queries import build_context_queries
         base = {"ad_id": "ad", "product_id": "p", "source_file": "f", "page_no": 1,

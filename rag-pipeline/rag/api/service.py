@@ -86,7 +86,7 @@ class ServiceConfig:
     judgment_max_tokens: int = 4096
     vector_cache_dir: Path | None = None
     evidence_per_rule: int = 3
-    prohibition_max_candidates: int = 30
+    prohibition_max_candidates: int = 0  # deprecated; the runner processes every discovered candidate
     job_timeout_seconds: int = 1800
     max_attempts: int = 3
 
@@ -124,7 +124,7 @@ def config_from_env() -> ServiceConfig:
         ),
         evidence_per_rule=int(os.environ.get("NH_RAG_EVIDENCE_PER_RULE", "3")),
         prohibition_max_candidates=int(
-            os.environ.get("NH_RAG_PROHIBITION_MAX_CANDIDATES", "30")
+            os.environ.get("NH_RAG_PROHIBITION_MAX_CANDIDATES", "0")
         ),
         job_timeout_seconds=int(os.environ.get("NH_RAG_JOB_TIMEOUT_SECONDS", "1800")),
         max_attempts=int(os.environ.get("NH_RAG_MAX_ATTEMPTS", "3")),

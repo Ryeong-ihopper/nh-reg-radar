@@ -31,7 +31,7 @@ from nh_ad_backend.reviews import Review, ReviewBundle, ReviewJob, ReviewStep
 from nh_ad_backend.services import ServiceError
 
 from local_hwp_preview import convert_hwp_to_pdf
-from operational_locations import page_asset, saved_workspace, valid_box
+from operational_locations import frozen_rule_metadata, page_asset, saved_workspace, valid_box
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
@@ -204,7 +204,7 @@ class ExecutionBridge:
             model_env=model_env,
             workers=model_workers, queue_workers=review_workers,
             vector_cache_dir=Path(cfg["vector_cache_dir"]).resolve() if cfg.get("vector_cache_dir") else None,
-            prohibition_max_candidates=int(cfg.get("prohibition_max_candidates", 30)),
+            prohibition_max_candidates=0,  # compatibility only; never truncate discovered rules
             judgment_batch_size=4, job_timeout_seconds=3600,
         ))
         template_source = cfg.get("template_source_path")
@@ -1251,6 +1251,8 @@ class ExecutionBridge:
                 "results": workspace["rows"],
                 "review_candidates": workspace["review_candidate_rows"],
                 "deferred_rules": workspace["deferred_rules"],
+                "excluded_rows": workspace["excluded_rows"],
+                "execution_omissions": workspace["execution_omissions"],
                 "source_results": [row for row in raw_result.get("ads", [])
                                    if row["ad_id"] == ad.advertisement_id],
                 "execution": {
@@ -1306,10 +1308,23 @@ class ExecutionBridge:
             bundle = self.services.reviews.status(actor(request), review_id, "result-workspace")
             link = self.links.get(review_id, {})
             raw, payloads, integrated, discovery = {}, [], {}, {}
+            rule_metadata = {}
             reading_audits = {}
             if link.get("result_file"):
                 result_path = Path(link["result_file"])
                 raw = read_json(result_path)
+                freeze_path = result_path.with_name('FREEZE_BEFORE_PREDICTION.json')
+                if freeze_path.is_file():
+                    freeze = read_json(freeze_path)
+                    rule_metadata = dict(frozen_rule_metadata(self.config['regulation_path'], freeze))
+                    catalog_path = result_path.with_name('00_template_catalog.json')
+                    if catalog_path.is_file():
+                        catalog = read_json(catalog_path)
+                        hashes = {item.get('sha256') for item in freeze.get('inputs', [])}
+                        if (catalog.get('source') or {}).get('sha256') in hashes:
+                            for entry in catalog.get('entries', []):
+                                fields = entry.get('fields') or {}
+                                rule_metadata[entry['item_id']] = {'title': (fields.get('label') or {}).get('text', '')}
                 discovery_path = result_path.with_name("01_discovery.json")
                 if discovery_path.is_file():
                     discovery = read_json(discovery_path)
@@ -1331,7 +1346,7 @@ class ExecutionBridge:
                 integrated_path = self.root / "runs" / review_id / "integrated.json"
                 if integrated_path.exists():
                     integrated = read_json(integrated_path)
-            value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery, reading_audits)
+            value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery, reading_audits, rule_metadata)
             value.pop("source_ads", None)
             return {"available": True, "source_type": "GEMMA", "is_model_output": True,
                     **value, "status": bundle.review.status,

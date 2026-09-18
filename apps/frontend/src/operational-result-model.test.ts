@@ -6,6 +6,10 @@ const layout: ParserLayout = {schema_version: "operational-parser-layout-v1", so
   counts: {pages:1, regions:1, lines:1}, pages: [{page_no:1,canvas_w:100,canvas_h:200,regions:[{region_id:"R",bbox:[0,0,100,100],layout_label:null,text:"",lines:[{line_ref:"new-ref",text:"가입 전 상품설명서를 읽어주세요",bbox:[10,20,90,30],text_source:"ocr",confidence:null}]}]}]};
 
 describe("single operational result", () => {
+  it("explains human review without implying a missing model response", () => {
+    const row = {evidence: '', manual_review_reasons: ['시각 확인']} as unknown as ResultRow;
+    expect(missingSourceLabel(row)).toBe('사람 검토 항목 · 원문 직접 확인 필요');
+  });
   it("deduplicates citation text but preserves distinct article spellings", () => {
     const refs = ["C-052", "R-1583", "은행 광고심의 기준 제16조 제1항 제4호; 은행 광고심의 기준 제16조 제1항 4",
       "은행 광고심의 기준 제16조 제1항 제4호(표시 기준)", "은행 광고심의 기준 제16조 제1항 4"];
