@@ -10,6 +10,7 @@ COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-102}"
 EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-17}"
 EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-85}"
+EXPECTED_EXCLUDED_MARKDOWN_COUNT="${EXPECTED_EXCLUDED_MARKDOWN_COUNT:-17}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 PAGE_MAP_PATH="${NOTION_PAGE_MAP_PATH:-governance/notion-page-map.json}"
 SYNC_BASE_SHA="${NOTION_SYNC_BASE_SHA:-}"
@@ -28,8 +29,33 @@ require_command() {
   fi
 }
 
-list_markdown_files() {
+list_tracked_markdown_files() {
   git ls-files -- 'docs/*.md' 'docs/**/*.md' | LC_ALL=C sort
+}
+
+list_excluded_markdown_files() {
+  # Repository-internal handoff, audit and work-log documents are Git source
+  # material, but are not part of the established 102-page Notion share set.
+  # ADR-0084/0085 likewise remain excluded until page IDs are provisioned and
+  # the publication contract is deliberately expanded.
+  printf '%s\n' \
+    docs/adr/ADR-0084-python-311-dual-gpu-runtime-profiles.md \
+    docs/adr/ADR-0085-source-structure-and-evidence-bundles.md \
+    docs/codebase-structure-current.md \
+    docs/custom-parser-audit-current.md \
+    docs/decisions.md \
+    docs/evaluation-splits-current.md \
+    docs/first-review-local-spark-guide.md \
+    docs/handoff-current.md \
+    docs/intake-routing-template-review-2026-09-09.md \
+    docs/parser-agent-handoff.md \
+    docs/parser-handoff-quickstart.md \
+    docs/parser-integration-audit-2026-09-10.md \
+    docs/parser-schema-change-request-current.md \
+    docs/pipeline-design-review-current.md \
+    docs/work-log-2026-09-14.md \
+    docs/work-log-2026-09-15.md \
+    docs/work-log-2026-09-16.md
 }
 
 list_general_files() {
@@ -55,7 +81,13 @@ list_general_files() {
 
 list_adr_files() {
   printf '%s\n' docs/adr/README.md docs/adr/decision-questions.md
-  git ls-files -- 'docs/adr/ADR-*.md' | LC_ALL=C sort
+  comm -23 \
+    <(git ls-files -- 'docs/adr/ADR-*.md' | LC_ALL=C sort) \
+    <(list_excluded_markdown_files | LC_ALL=C sort)
+}
+
+list_markdown_files() {
+  printf '%s\n' "$(list_general_files)" "$(list_adr_files)" | LC_ALL=C sort
 }
 
 count_non_markdown_files() {
@@ -147,12 +179,14 @@ validate_selection() {
   local selected_count
   local general_count
   local adr_count
+  local excluded_count
   local source_path
   local title
 
   selected_count="$(list_markdown_files | wc -l | tr -d ' ')"
   general_count="$(list_general_files | wc -l | tr -d ' ')"
   adr_count="$(list_adr_files | wc -l | tr -d ' ')"
+  excluded_count="$(list_excluded_markdown_files | wc -l | tr -d ' ')"
 
   if [ "$selected_count" -ne "$EXPECTED_MARKDOWN_COUNT" ]; then
     echo "expected $EXPECTED_MARKDOWN_COUNT Markdown files, found $selected_count" >&2
@@ -166,10 +200,20 @@ validate_selection() {
     echo "expected $EXPECTED_ADR_COUNT ADR documents, found $adr_count" >&2
     exit 1
   fi
+  if [ "$excluded_count" -ne "$EXPECTED_EXCLUDED_MARKDOWN_COUNT" ]; then
+    echo "expected $EXPECTED_EXCLUDED_MARKDOWN_COUNT excluded Markdown files, found $excluded_count" >&2
+    exit 1
+  fi
   if ! diff -u \
+    <(list_tracked_markdown_files) \
+    <(printf '%s\n' "$(list_markdown_files)" "$(list_excluded_markdown_files)" | LC_ALL=C sort) >/dev/null; then
+    echo "tracked Markdown set is not fully classified as published or excluded" >&2
+    exit 1
+  fi
+  if comm -12 \
     <(list_markdown_files) \
-    <(printf '%s\n' "$(list_general_files)" "$(list_adr_files)" | LC_ALL=C sort) >/dev/null; then
-    echo "publication manifest does not cover the tracked Markdown set" >&2
+    <(list_excluded_markdown_files | LC_ALL=C sort) | grep -q .; then
+    echo "published and excluded Markdown sets overlap" >&2
     exit 1
   fi
 
@@ -191,6 +235,7 @@ validate_selection() {
   printf 'selected_markdown_count=%s\n' "$selected_count"
   printf 'general_markdown_count=%s\n' "$general_count"
   printf 'adr_markdown_count=%s\n' "$adr_count"
+  printf 'excluded_markdown_count=%s\n' "$excluded_count"
   printf 'excluded_non_markdown_count=%s\n' "$(count_non_markdown_files)"
 }
 

@@ -57,6 +57,7 @@ dry_run_output="$(scripts/publish-notion-docs-test.sh --dry-run)"
 grep -q '^selected_markdown_count=102$' <<<"$dry_run_output"
 grep -q '^general_markdown_count=17$' <<<"$dry_run_output"
 grep -q '^adr_markdown_count=85$' <<<"$dry_run_output"
+grep -q '^excluded_markdown_count=17$' <<<"$dry_run_output"
 grep -q '^excluded_non_markdown_count=33$' <<<"$dry_run_output"
 
 manifest="$(scripts/publish-notion-docs-test.sh --manifest)"

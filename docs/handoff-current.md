@@ -8,6 +8,8 @@
 
 radar main에서 처음 실행된 Document Governance는 `governance/pyrightconfig.json`이 문서 거버넌스 모듈이 아니라 `scripts/` 전체를 strict 타입 검사해 운영·복구 스크립트에서 3,626오류를 만들며 실패했다. 워크플로의 Ruff 범위와 거버넌스 문서에 맞춰 Pyright include를 `scripts/doc_guard.py`, `scripts/doc_governance`, `tests/governance`로 한정했다. 동일 Ruff check/format과 BasedPyright1.39.9 검사가 로컬에서 통과했다.
 
+그 다음 Document Governance의 Notion 사전검사는 프로젝트 전체 병합으로 내부 인수인계·파서 감사·업무일지 문서 15개와 아직 Notion page map에 등록하지 않은 ADR-0084·0085가 추가됐지만, 기존 102개 공유 문서 계약이 모든 추적 Markdown을 곧바로 게시 대상으로 간주해 실패했다. 게시 대상 102개와 명시적 제외 17개를 분리하고, 전체 추적 Markdown이 두 집합 중 정확히 하나에 포함되는지를 검사하도록 수정했다. 따라서 새 문서를 어느 쪽에도 등록하지 않으면 CI가 계속 실패하며, 기존 Notion page map과 102개 공유 페이지는 변경하지 않는다.
+
 ## 새 세션 재개 지점 — 2026-09-18 원격 반영·CI 복구·Git 작성자 정리
 
 로컬 통합 커밋 `6332697`은 먼저 Git 작성자 이메일을 `babie0511@naver.com`에서 기존 `Ryeong-ihopper` 연결 이메일인 `babie0511@ihopper.co.kr`로 바로잡아 `c670013`으로 변경됐고, 이 해시에서 Canonical RAG CI run `35289812252`가 성공했다. 이후 승인된 이력 정리로 같은 트리의 기능 커밋은 `03825fd`가 됐다. CI 수정은 운영 코드 검사 강도를 유지한 채 `rag-pipeline/legacy`를 Ruff 대상에서 제외하고, 국소 불확실 영역을 광고 전체 미스캔으로 확대하던 과거 테스트 기대값을 현행 정책에 맞춘 내용이다.
