@@ -10,7 +10,9 @@ def judgment_call_metrics(rows):
             complete = False
             history = [dict(row, attempt=1)]
         for event in history:
-            key = (event["request_id"], event["attempt"])
+            # A focused source judgment may revisit the same split leaf. Its
+            # attempt counter starts at one, but it is a separate physical call.
+            key = (event["request_id"], event["attempt"], event.get("purpose", "judgment"))
             if key in events and events[key] != event:
                 raise ValueError(f"conflicting model call audit: {key}")
             events[key] = event

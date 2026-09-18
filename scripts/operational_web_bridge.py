@@ -17,6 +17,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -531,6 +533,43 @@ class ExecutionBridge:
             self.services.repository.get_advertisement(bundle.review.advertisement_id).review_status = "ANALYZING"
             self.persist()
 
+    def wait_for_search_backend(self, bundle):
+        """Wait visibly for search transport before consuming parser/model work."""
+        deadline = time.monotonic() + 300
+        step = next(row for row in bundle.steps if row.step_code == bundle.job.current_step)
+        original_name = step.step_name
+        waiting = False
+        try:
+            while True:
+                if bundle.job.status == "CANCELED":
+                    raise ReviewCanceled("CANCELED_BY_USER")
+                try:
+                    with urllib.request.urlopen(self.config["es_url"].rstrip("/"), timeout=5) as response:
+                        payload = json.load(response)
+                    if not isinstance(payload, dict) or "cluster_name" not in payload or "version" not in payload:
+                        raise RuntimeError("SEARCH_ENDPOINT_INVALID: 검색 서버 주소의 응답이 Elasticsearch가 아닙니다.")
+                    return
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in {429, 502, 503, 504}:
+                        raise RuntimeError(f"SEARCH_ENDPOINT_REJECTED: 검색 서버 HTTP {exc.code}") from exc
+                except (urllib.error.URLError, TimeoutError, ConnectionError):
+                    pass
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("SEARCH_CONNECTION_UNAVAILABLE: 검색 서버 연결이 5분 동안 복구되지 않았습니다. 검색 터널·서비스를 확인하세요. 기존 파싱 결과는 보존됩니다.")
+                if not waiting:
+                    with self.lock:
+                        step.step_name = original_name + " · 검색 서버 연결 복구 대기"
+                        bundle.job.updated_at = datetime.now(UTC)
+                        self.persist()
+                    waiting = True
+                if self.stopping.wait(2):
+                    raise RuntimeError("SERVER_STOPPED: 서버가 중지되었습니다.")
+        finally:
+            if waiting:
+                with self.lock:
+                    step.step_name = original_name
+                    self.persist()
+
     def cancel(self, actor, review_id, reason):
         """Stop after the current blocking parser/model call returns safely."""
         bundle = self.services.reviews.status(actor, review_id, "operational-cancel")
@@ -1017,6 +1056,7 @@ class ExecutionBridge:
             if bundle.job.status == "CANCELED":
                 raise ReviewCanceled("CANCELED_BY_USER")
             self.stage(bundle, 0)
+            self.wait_for_search_backend(bundle)
             ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
             self.stage(bundle, 1)
             document = self.parse(
@@ -1046,6 +1086,7 @@ class ExecutionBridge:
                 }
             # No automatic promotion of parser/filename template or ambiguous media metadata.
             self.stage(bundle, 3)
+            self.wait_for_search_backend(bundle)
             job = self.rag.submit({"schema_version": "operational-review-request-v1", "client_request_id": bundle.review.review_id,
                                    "review_date": registration_review_date(ad.created_at),
                                    "review_date_basis": "advertisement_registration_date",

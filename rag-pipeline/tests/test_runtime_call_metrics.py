@@ -17,6 +17,13 @@ class RuntimeCallMetricsTests(unittest.TestCase):
     def test_legacy_response_does_not_claim_complete_audit(self):
         self.assertFalse(judgment_call_metrics([{"request_id": "old", "seconds": 5}])["call_audit_complete"])
 
+    def test_focused_call_and_initial_split_leaf_have_distinct_identity(self):
+        initial = {"request_id": "R/split-a", "attempt": 1, "seconds": 2, "validation_errors": []}
+        focused = dict(initial, purpose="isolated_source_judgment", seconds=3)
+        result = judgment_call_metrics([{"call_history": [initial, focused]}, {"call_history": [initial]}])
+        self.assertEqual(result["physical_calls"], 2)
+        self.assertEqual(result["model_seconds_sum"], 5)
+
     def test_conflicting_same_call_not_silently_overwritten(self):
         event = {"request_id": "R", "attempt": 1, "seconds": 1}
         with self.assertRaises(ValueError):

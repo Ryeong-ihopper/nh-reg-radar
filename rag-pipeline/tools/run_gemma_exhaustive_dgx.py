@@ -1498,7 +1498,8 @@ def call_with_retry_and_split(
     if not result["validation_errors"]:
         return [focus_unresolved_source_checks(row, result, host, key, model, max_tokens)]
     if len(row.get("requested_item_ids") or []) < 2 or depth >= max_split_depth:
-        return [result]
+        from rag.judgment.unsupported_observations import quarantine_unsupported_observations
+        return [quarantine_unsupported_observations(row, result, validate)]
     output: list[dict[str, Any]] = []
     for child in split_request_row(row):
         output.extend(call_with_retry_and_split(
