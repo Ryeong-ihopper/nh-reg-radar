@@ -106,3 +106,37 @@ class SourceChecksTests(unittest.TestCase):
         self.assertFalse(has_arithmetic_mismatch_witness('검산: 2.5+1.5-0.5 != 4.0', '2.5 0.5 4.0'))
         self.assertFalse(has_arithmetic_mismatch_witness('값이 불분명하여 산식이 일치하지 않음', '2.5 1.5 0.5 4.0'))
         self.assertFalse(has_arithmetic_mismatch_witness('검산: 2.5*1.5 != 4.0', '2.5 1.5 4.0'))
+
+    def test_disclosure_or_combined_duration_does_not_require_numeric_mismatch(self):
+        for criterion in (
+            '비용 면제 대상과 기간을 표시한다. 계약 유지기간 합산 한도 초과 부과는 금지한다.',
+            '수수료 산식과 적용 요율을 명시한다.',
+            '합산 대상과 계산 방법을 정확히 표시한다.',
+        ):
+            payload = {'rules': [{'item_id': 'SYN', 'criterion': criterion}]}
+            for status in ('VIOLATED', 'MISSING'):
+                result = {'item_id': 'SYN', 'requirement_checks': [
+                    {'status': status, 'reason': '면제 요건에 대한 설명이 누락되었습니다.'}]}
+                self.assertEqual(source_claim_errors(payload, result), [])
+
+    def test_actual_numeric_consistency_still_requires_cited_witness(self):
+        for criterion in ('산식의 정합성 확인', '우대금리 합계가 표시 수치와 일치해야 한다.',
+                          '계산 예시의 정확성을 확인한다.'):
+            payload = {'rules': [{'item_id': 'SYN', 'criterion': criterion}],
+                       'documents': [{'line_refs': ['L'], 'line_texts': {'L': '2.5 1.5 0.5 4.0'}}]}
+            result = {'item_id': 'SYN', 'requirement_checks': [{'status': 'VIOLATED',
+                      'reason': '수치가 어긋납니다.', 'evidence_line_refs': ['L']}]}
+            self.assertTrue(source_claim_errors(payload, result))
+            result['requirement_checks'][0]['reason'] = '검산: 2.5+1.5-0.5 != 4.0'
+            self.assertEqual(source_claim_errors(payload, result), [])
+
+    def test_numeric_guard_uses_the_selected_obligation(self):
+        payload = {'rules': [{'item_id': 'SYN', 'criterion': '합계의 정확성과 면제 고지',
+            'condition_contract': {'obligation_checks': [
+                {'obligation_id': 'O1', 'text': '합계의 정확성 확인'},
+                {'obligation_id': 'O2', 'text': '합산 대상과 면제 요건을 고지한다.'}]}}]}
+        result = {'item_id': 'SYN', 'requirement_checks': [
+            {'obligation_ref': 'O2', 'status': 'MISSING', 'reason': '면제 요건 누락'}]}
+        self.assertEqual(source_claim_errors(payload, result), [])
+        result['requirement_checks'][0]['obligation_ref'] = 'O1'
+        self.assertTrue(source_claim_errors(payload, result))

@@ -42,6 +42,17 @@ def has_arithmetic_mismatch_witness(reason, cited_text):
     return False
 
 
+def requires_arithmetic_consistency(text):
+    """A mention of a formula/combined duration is not a numerical assertion.
+
+    Require an explicit numerical consistency obligation before demanding a
+    mismatch witness. Disclosure and exemption rules can mention arithmetic
+    without making every violation a calculation error.
+    """
+    return bool(re.search(r'산술|산식|합산|합계|계산', text) and re.search(
+        r'정합|일치|일관|어긋|검산|정확(?:성|한|하)|오류|잘못', text))
+
+
 def source_scope_clauses(question):
     return list(dict.fromkeys(match.group(1) for match in AD_SCOPE.finditer(question)))
 
@@ -102,7 +113,8 @@ def source_claim_errors(payload, result):
                 errors.append(f"{result.get('item_id')}: source explicitly requires the quoted term; cited text cannot establish SATISFIED for {check.get('obligation_ref')}")
         reason = str(check.get('reason') or '')
         if check.get('status') in {'VIOLATED', 'MISSING'}:
-            arithmetic_required = re.search(r'산술|산식|합산', obligation.get('text') or rule.get('criterion', ''))
+            arithmetic_required = requires_arithmetic_consistency(
+                obligation.get('text') or rule.get('criterion', ''))
             if arithmetic_required:
                 text = cited_window_text(check.get('evidence_line_refs') or [], documents)
                 if not has_arithmetic_mismatch_witness(reason, text):
