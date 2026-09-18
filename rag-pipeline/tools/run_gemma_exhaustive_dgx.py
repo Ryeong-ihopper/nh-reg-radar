@@ -31,6 +31,7 @@ from rag.judgment.manual_review import text_facet_claim_errors  # noqa: E402
 from rag.judgment.source_checks import source_claim_errors  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.output_contract import response_format, response_mode  # noqa: E402
+from dgx_openai_client import ModelTransportError, post_json  # noqa: E402
 
 
 DEFAULT_HOST = os.environ.get("DGX_HOST")
@@ -1141,8 +1142,6 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
         "max_tokens": max_tokens,
         "response_format": response_format(json.loads(model_messages[1]["content"])),
     }
-    from dgx_openai_client import post_json
-
     started = time.perf_counter()
     response = post_json(payload, host=host, key=key, timeout=900)
     seconds = time.perf_counter() - started
@@ -1372,12 +1371,26 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
     # existing recursive splitter than by asking the model to repeat the same
     # oversized JSON object a second time.
     max_attempts = contract_attempt_limit(row)
-    for attempt in range(1, max_attempts + 1):
+    contract_attempt = 0
+    transport_attempt = 0
+    while True:
+        attempt = len(call_history) + 1
         call_id = uuid4().hex
         attempt_started = time.perf_counter()
         try:
             result = call_once(current, host, key, model, max_tokens)
+        except ModelTransportError as exc:
+            transport_attempt += 1
+            result = {
+                "request_id": row["request_id"],
+                "ad_id": row["ad_id"],
+                "category": row["category"],
+                "fatal_error": str(exc),
+                "transport_error": True,
+                "validation_errors": [f"model transport failed: {exc}"],
+            }
         except Exception as exc:
+            contract_attempt += 1
             result = {
                 "request_id": row["request_id"],
                 "ad_id": row["ad_id"],
@@ -1385,6 +1398,8 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
                 "fatal_error": str(exc),
                 "validation_errors": [f"호출/JSON 파싱 실패: {exc}"],
             }
+        else:
+            contract_attempt += 1
         attempts.append(result["validation_errors"])
         event = {
             "call_id": call_id,
@@ -1402,11 +1417,20 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
                     event[field] = copy.deepcopy(result[field])
         call_history.append(event)
         result["call_history"] = call_history
-        if not result["validation_errors"]:
-            result["contract_attempts"] = attempt
+        if result.get("transport_error"):
+            if transport_attempt < 3:
+                time.sleep(transport_attempt)
+                continue
+            result["contract_attempts"] = contract_attempt
+            result["transport_attempts"] = transport_attempt
             result["attempted_validation_errors"] = attempts
             return result
-        if attempt < max_attempts:
+        if not result["validation_errors"]:
+            result["contract_attempts"] = contract_attempt
+            result["transport_attempts"] = transport_attempt
+            result["attempted_validation_errors"] = attempts
+            return result
+        if contract_attempt < max_attempts:
             current = copy.deepcopy(row)
             if isinstance(result.get("model_parsed"), dict):
                 current["messages"].append({
@@ -1417,9 +1441,11 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
                 "role": "user",
                 "content": retry_contract_instruction(row, result["validation_errors"]),
             })
-    result["contract_attempts"] = max_attempts
-    result["attempted_validation_errors"] = attempts
-    return result
+            continue
+        result["contract_attempts"] = contract_attempt
+        result["transport_attempts"] = transport_attempt
+        result["attempted_validation_errors"] = attempts
+        return result
 
 
 def split_request_row(row: dict[str, Any], *, cpu_items: set[str] | None = None) -> list[dict[str, Any]]:
@@ -1502,6 +1528,10 @@ def call_with_retry_and_split(
     result = call_with_retry(row, host, key, model, max_tokens)
     result["logical_request_id"] = row.get("logical_request_id", row["request_id"])
     result["split_depth"] = depth
+    if result.get("transport_error"):
+        # Splitting cannot repair a disconnected service and can multiply one
+        # outage into dozens of expensive physical calls.
+        return [result]
     if not result["validation_errors"]:
         return [focus_unresolved_source_checks(row, result, host, key, model, max_tokens)]
     if len(row.get("requested_item_ids") or []) < 2 or depth >= max_split_depth:
@@ -1695,6 +1725,39 @@ def load_checkpoint(
     }
 
 
+def load_checkpoint_for_run(
+    checkpoint_path: Path,
+    resume_checkpoint: Path | None,
+    *,
+    input_path: Path,
+    host: str | None,
+    model: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load the current checkpoint, or safely seed a new attempt from an old one.
+
+    Current-attempt corruption remains fatal.  A previous-attempt seed may be
+    incompatible after an input or code change; in that case it is ignored and
+    the current attempt starts clean instead of failing or accepting stale rows.
+    """
+    if checkpoint_path.exists():
+        return load_checkpoint(
+            checkpoint_path, input_path=input_path, host=host, model=model
+        )
+    if not resume_checkpoint or not resume_checkpoint.exists():
+        return {}
+    try:
+        return load_checkpoint(
+            resume_checkpoint, input_path=input_path, host=host, model=model
+        )
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+        print(
+            f"[resume-skip] incompatible previous checkpoint "
+            f"{resume_checkpoint}: {exc}",
+            flush=True,
+        )
+        return {}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     # No historical dataset is a default.  Each run must name both prediction
@@ -1718,6 +1781,11 @@ def main() -> None:
         type=Path,
         help="중간 저장 경로. 생략 시 output 파일 옆 *.checkpoint.json",
     )
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=Path,
+        help="Compatible checkpoint from a previous attempt; never overwritten",
+    )
     args = parser.parse_args()
 
     requests = read_jsonl(args.input)
@@ -1733,8 +1801,9 @@ def main() -> None:
     checkpoint_path = args.checkpoint or args.output.with_name(
         args.output.name + ".checkpoint.json"
     )
-    loaded = load_checkpoint(
+    loaded = load_checkpoint_for_run(
         checkpoint_path,
+        args.resume_checkpoint,
         input_path=args.input,
         host=args.host,
         model=args.model,

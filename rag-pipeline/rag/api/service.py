@@ -17,7 +17,11 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from rag.contracts.validation import validate_integrated_input, validate_job_status
+from rag.contracts.validation import (
+    validate_integrated_input,
+    validate_job_status,
+    validate_operational_result,
+)
 from rag.judgment.policy import require_confirmed_product_group, routing_field
 from rag.parsing.prepare_inputs import product_scoped_documents, search_docs
 
@@ -31,6 +35,10 @@ TERMINAL_STATES = {
     "FAILED",
     "INTERRUPTED",
 }
+
+
+class TransientPipelineError(RuntimeError):
+    """A dependency transport failed and the same frozen job may be retried."""
 
 
 def utc_now() -> str:
@@ -227,6 +235,20 @@ class JobStore:
                 interrupted += 1
         return interrupted
 
+    def job_ids_with_status(self, *states: str) -> list[str]:
+        wanted = set(states)
+        rows = []
+        for path in self.root.glob("*/status.json"):
+            try:
+                status = json.loads(path.read_text(encoding="utf-8"))
+                job_id = str(status.get("job_id") or "")
+                uuid.UUID(job_id)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if status.get("status") in wanted:
+                rows.append(job_id)
+        return sorted(rows)
+
 
 def apply_routing_overrides(
     document: dict[str, Any], overrides: dict[str, Any]
@@ -271,8 +293,20 @@ class OperationalReviewService:
         if not config.regulation_path.is_file():
             raise RuntimeError(f"regulation v2 not found: {config.regulation_path}")
         self.store = JobStore(config.jobs_dir)
+        stale_job_ids = self.store.job_ids_with_status("RUNNING")
         self.store.interrupt_stale_jobs()
         self.executor = ThreadPoolExecutor(max_workers=config.queue_workers)
+        for job_id in stale_job_ids:
+            status = self.store.read(job_id)
+            if int(status.get("attempt") or 0) >= self.config.max_attempts:
+                continue
+            self.store.update(
+                job_id,
+                status="QUEUED",
+                error=None,
+                progress={"stage": "queued_after_process_restart"},
+            )
+            self.executor.submit(self._run, job_id)
 
     def submit(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get("schema_version") != "operational-review-request-v1":
@@ -378,17 +412,63 @@ class OperationalReviewService:
             timeout=timeout,
             check=False,
         )
-        (directory / f"attempt-{attempt}-{label}.log").write_text(
+        log_text = (
             (completed.stdout or "")
             + "\n--- stderr ---\n"
-            + (completed.stderr or ""),
+            + (completed.stderr or "")
+        )
+        (directory / f"attempt-{attempt}-{label}.log").write_text(
+            log_text,
             encoding="utf-8",
         )
         if completed.returncode:
-            raise RuntimeError(
+            error_type = TransientPipelineError if any(
+                marker in log_text
+                for marker in (
+                    "ConnectionRefusedError",
+                    "connection refused",
+                    "GPU BGE endpoint is unavailable",
+                    "GPU Gemma endpoint is unavailable",
+                    "urllib.error.URLError",
+                    "timed out",
+                    "Temporary failure in name resolution",
+                )
+            ) else RuntimeError
+            raise error_type(
                 f"{label} exited {completed.returncode}; "
                 f"see attempt-{attempt}-{label}.log"
             )
+
+    @staticmethod
+    def _complete_saved_result(path: Path) -> dict[str, Any] | None:
+        """Return only a contract-valid result with every requested pair saved."""
+        if not path.is_file():
+            return None
+        try:
+            result = validate_operational_result(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+            counts = result["counts"]
+            if (
+                int(counts["output_failures"]) != 0
+                or int(counts["requested_pairs"]) != int(counts["predicted_pairs"])
+            ):
+                return None
+            return result
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    @staticmethod
+    def _previous_checkpoint(directory: Path, attempt: int) -> Path | None:
+        for previous in range(attempt - 1, 0, -1):
+            candidate = (
+                directory
+                / f"attempt-{previous}"
+                / "03_judgment_responses.json.checkpoint.json"
+            )
+            if candidate.is_file():
+                return candidate
+        return None
 
     def _run(self, job_id: str) -> None:
         directory = self.store.directory(job_id)
@@ -475,13 +555,26 @@ class OperationalReviewService:
                 )
             if self.config.template_hwpx_path:
                 command.extend(["--template-hwpx", str(self.config.template_hwpx_path)])
-            self._invoke(
-                directory=directory,
-                attempt=attempt,
-                label="pipeline",
-                command=command,
-                timeout=self.config.job_timeout_seconds,
-            )
+            previous_checkpoint = self._previous_checkpoint(directory, attempt)
+            if previous_checkpoint:
+                command.extend(["--resume-checkpoint", str(previous_checkpoint)])
+            pipeline_tail_recovered = False
+            try:
+                self._invoke(
+                    directory=directory,
+                    attempt=attempt,
+                    label="pipeline",
+                    command=command,
+                    timeout=self.config.job_timeout_seconds,
+                )
+            except RuntimeError:
+                final_path = output_dir / "04_operational_results.json"
+                if not request["execute_model"] or self._complete_saved_result(final_path) is None:
+                    raise
+                # Judgment output is authoritative once its contract and exact
+                # pair coverage pass.  A later telemetry/reporting failure must
+                # not erase a complete review.
+                pipeline_tail_recovered = True
             if request["execute_model"]:
                 result_name = f"attempt-{attempt}/04_operational_results.json"
                 result = json.loads((directory / result_name).read_text(encoding="utf-8"))
@@ -576,8 +669,31 @@ class OperationalReviewService:
                 status=state,
                 completed_at=utc_now(),
                 result_file=result_name,
-                progress={"stage": "complete"},
+                progress={
+                    "stage": "complete",
+                    "pipeline_tail_recovered": pipeline_tail_recovered,
+                },
             )
+        except TransientPipelineError as exc:
+            (directory / f"attempt-{attempt}-traceback.log").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
+            if attempt < self.config.max_attempts:
+                self.store.update(
+                    job_id,
+                    status="QUEUED",
+                    error={"code": "TRANSIENT_DEPENDENCY_RETRY", "message": str(exc)},
+                    progress={"stage": "retrying_transient_dependency"},
+                )
+                time.sleep(min(2 ** (attempt - 1), 4))
+                self.executor.submit(self._run, job_id)
+            else:
+                self.store.update(
+                    job_id,
+                    status="FAILED",
+                    error={"code": "TRANSIENT_DEPENDENCY_EXHAUSTED", "message": str(exc)},
+                    progress={"stage": "failed"},
+                )
         except ValueError as exc:
             self.store.update(
                 job_id,

@@ -273,6 +273,27 @@ class OutputContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "response_format"):
                     gemma.load_checkpoint(checkpoint, input_path=p, host=None, model="test")
 
+    def test_previous_attempt_checkpoint_is_reused_only_when_compatible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p = Path(directory) / "input.jsonl"
+            p.write_text(json.dumps(self.row), encoding="utf-8")
+            current = Path(directory) / "current.json"
+            previous = Path(directory) / "previous.json"
+            previous.write_text(json.dumps(gemma.checkpoint_payload(
+                input_path=p, host=None, model="test", rows_by_id={"request": []}
+            )), encoding="utf-8")
+            loaded = gemma.load_checkpoint_for_run(
+                current, previous, input_path=p, host=None, model="test"
+            )
+            self.assertEqual(loaded, {"request": []})
+            p.write_text(json.dumps({**self.row, "request_id": "changed"}), encoding="utf-8")
+            self.assertEqual(
+                gemma.load_checkpoint_for_run(
+                    current, previous, input_path=p, host=None, model="test"
+                ),
+                {},
+            )
+
     def test_unknown_mode_rejected_not_silently_downgraded(self):
         with patch.dict(os.environ, {"NH_JUDGE_RESPONSE_FORMAT": "typo"}):
             with self.assertRaises(ValueError):

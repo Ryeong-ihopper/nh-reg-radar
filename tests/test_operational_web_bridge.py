@@ -38,7 +38,10 @@ class BridgeTests(unittest.TestCase):
         for requested in (datetime(2026, 4, 12, tzinfo=UTC), datetime(2026, 5, 1, tzinfo=UTC)):
             bundle = self.request()
             bundle.review.requested_at = requested
-            with patch.object(self.bridge, "stage"), patch.object(self.bridge, "parse", return_value={}), \
+            with patch.object(self.bridge, "stage"), \
+                    patch.object(self.bridge, "wait_for_search_backend"), \
+                    patch.object(self.bridge, "wait_for_judgment_backends"), \
+                    patch.object(self.bridge, "parse", return_value={}), \
                     patch.object(self.bridge.rag, "submit", side_effect=RuntimeError("stop after capture")) as submit:
                 self.bridge.run(bundle, {})
             self.assertEqual(submit.call_args.args[0]["review_date"], "2026-04-11")
@@ -415,18 +418,51 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaises(ServiceError):
             self.bridge.validate_request(self.ad, self.options)
 
-    def test_restart_marks_interrupted_job_failed_and_preserves_upload(self):
+    def test_restart_resumes_interrupted_job_and_preserves_upload(self):
         bundle = self.request()
         self.bridge.stage(bundle, 1)
         other = build_services(self.settings)
-        restored = ExecutionBridge(other, self.root / "state", self.root / "config.json", Mock())
+        with patch.object(ExecutionBridge, "run") as run:
+            restored = ExecutionBridge(other, self.root / "state", self.root / "config.json", Mock())
+            restored.pool.shutdown(wait=True)
+        run.assert_called_once()
         self.addCleanup(restored.pool.shutdown, wait=True)
         self.addCleanup(restored.rag.executor.shutdown, wait=True)
         value = other.reviews.repository.get(bundle.review.review_id)
-        self.assertEqual(value.job.status, "FAILED")
-        self.assertEqual(value.review.status, "REVIEW_FAILED")
-        self.assertEqual(value.job.failed_reason_code, "PROCESS_RESTARTED")
+        self.assertEqual(value.job.status, "RUNNING")
+        self.assertEqual(value.review.status, "ANALYZING")
         self.assertEqual(other.repository.get_advertisement("ADV-test").files[0].checksum, "abc")
+
+    def test_process_restart_reuses_same_review_parser_output_after_validation(self):
+        template_id = "예금성상품-적립식"
+        body = b"immutable-source"
+        original = self.ad.files[0]
+        self.ad.files[0] = AdvertisementFile(
+            original.file_id,
+            original.file_type,
+            original.original_file_name,
+            original.storage_key,
+            original.mime_type,
+            original.file_size,
+            __import__("hashlib").sha256(body).hexdigest(),
+        )
+        directory = self.root / "resume-run"
+        source = directory / "source" / "FILE-test_input.pdf"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(body)
+        integrated = {"document": {"ad_id": self.ad.advertisement_id}, "saved": True}
+        (directory / "integrated.json").write_text(json.dumps(integrated), encoding="utf-8")
+        (directory / "parser-intake.json").write_text(
+            json.dumps(self.bridge.parser_intake(template_id)), encoding="utf-8"
+        )
+        with patch("operational_web_bridge.validate_integrated_input"), patch.object(
+            self.bridge, "parser_command", return_value=["parser"]
+        ), patch.object(self.bridge, "execute_parser") as execute:
+            resumed = self.bridge.parse(
+                self.ad, directory, template_id=template_id
+            )
+        self.assertEqual(resumed, integrated)
+        execute.assert_not_called()
 
     def test_routing_authenticated_scoped_and_frozen_on_request(self):
         app = create_app(self.settings, self.services)
@@ -460,7 +496,10 @@ class BridgeTests(unittest.TestCase):
     def test_parser_failure_never_becomes_success_or_verdict(self):
         bundle = self.request()
         self.bridge.parse = Mock(side_effect=RuntimeError("PARSER_FAILED"))
-        self.bridge.run(bundle, {"internal_template_id": "대출성상품-상품명 노출"})
+        with patch.object(self.bridge, "wait_for_search_backend"), patch.object(
+            self.bridge, "wait_for_judgment_backends"
+        ):
+            self.bridge.run(bundle, {"internal_template_id": "대출성상품-상품명 노출"})
         self.assertEqual(self.bridge.parse.call_args.kwargs["template_id"], "대출성상품-상품명 노출")
         self.assertEqual(bundle.job.status, "FAILED")
         self.assertEqual(self.services.results.repository.list_items(bundle.review.review_id), [])

@@ -20,6 +20,7 @@ from rag.api.service import (  # noqa: E402
     JobStore,
     OperationalReviewService,
     ServiceConfig,
+    TransientPipelineError,
     apply_routing_overrides,
 )
 from rag.contracts.validation import validate_search_collections  # noqa: E402
@@ -99,6 +100,94 @@ def integrated_input() -> dict:
 
 
 class OperationalServiceTests(unittest.TestCase):
+    def test_transport_failure_is_classified_for_automatic_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / "regulation.xlsx"
+            regulation.write_bytes(b"placeholder")
+            service = OperationalReviewService(ServiceConfig(
+                jobs_dir=root / "jobs", regulation_path=regulation,
+                es_url="http://search.invalid", es_index="rules", model="model",
+            ))
+            self.addCleanup(service.executor.shutdown, wait=True)
+            completed = SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="urllib.error.URLError: connection refused",
+            )
+            with mock.patch("rag.api.service.subprocess.run", return_value=completed):
+                with self.assertRaises(TransientPipelineError):
+                    service._invoke(
+                        directory=root,
+                        attempt=1,
+                        label="pipeline",
+                        command=["python", "pipeline.py"],
+                    )
+
+    def test_service_requeues_running_job_after_process_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / "regulation.xlsx"
+            regulation.write_bytes(b"placeholder")
+            jobs = root / "jobs"
+            store = JobStore(jobs)
+            job = store.create({"document": {}})
+            store.update(job["job_id"], status="RUNNING", attempt=1)
+            with mock.patch.object(OperationalReviewService, "_run") as run:
+                service = OperationalReviewService(ServiceConfig(
+                    jobs_dir=jobs, regulation_path=regulation,
+                    es_url="http://search.invalid", es_index="rules", model="model",
+                ))
+                service.executor.shutdown(wait=True)
+            run.assert_called_once_with(job["job_id"])
+            self.assertEqual(service.store.read(job["job_id"])["status"], "QUEUED")
+
+    def test_only_complete_contract_valid_result_can_survive_tail_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "04_operational_results.json"
+            complete = {
+                "schema_version": "operational-e2e-result-v1",
+                "audit": {
+                    "model": {},
+                    "search": {},
+                    "rule_sources": {},
+                    "guardrails": {},
+                },
+                "counts": {
+                    "ads": 0,
+                    "requested_pairs": 0,
+                    "predicted_pairs": 0,
+                    "output_failures": 0,
+                },
+                "ads": [],
+            }
+            result_path.write_text(json.dumps(complete), encoding="utf-8")
+            self.assertEqual(
+                OperationalReviewService._complete_saved_result(result_path),
+                complete,
+            )
+            complete["counts"]["output_failures"] = 1
+            result_path.write_text(json.dumps(complete), encoding="utf-8")
+            self.assertIsNone(
+                OperationalReviewService._complete_saved_result(result_path)
+            )
+
+    def test_retry_selects_latest_previous_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "attempt-1" / "03_judgment_responses.json.checkpoint.json"
+            latest = root / "attempt-2" / "03_judgment_responses.json.checkpoint.json"
+            older.parent.mkdir()
+            latest.parent.mkdir()
+            older.write_text("{}", encoding="utf-8")
+            latest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                OperationalReviewService._previous_checkpoint(root, 3), latest
+            )
+            self.assertIsNone(
+                OperationalReviewService._previous_checkpoint(root, 1)
+            )
+
     def test_explicit_review_date_is_validated_frozen_and_idempotency_bound(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

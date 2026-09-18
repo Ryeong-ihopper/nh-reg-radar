@@ -1141,6 +1141,11 @@ def main() -> None:
         help="Debug only: fail open to both product groups when product_group is not confirmed.",
     )
     parser.add_argument("--execute-judgment", action="store_true")
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=Path,
+        help="Compatible Gemma checkpoint from a previous service attempt",
+    )
     parser.add_argument("--host", default=os.environ.get("DGX_HOST"))
     parser.add_argument(
         "--key",
@@ -1798,6 +1803,8 @@ def main() -> None:
         command.extend(["--host", args.host])
     if args.key:
         command.extend(["--key", str(args.key)])
+    if args.resume_checkpoint:
+        command.extend(["--resume-checkpoint", str(args.resume_checkpoint.resolve())])
     judgment_started_at = time.perf_counter()
     subprocess.run(command, cwd=ROOT, check=True)
     judgment_wall_seconds = time.perf_counter() - judgment_started_at

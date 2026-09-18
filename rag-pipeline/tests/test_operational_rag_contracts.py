@@ -15,6 +15,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import hybrid_rule_retrieval as retrieval  # noqa: E402
 import run_gemma_exhaustive_dgx as gemma  # noqa: E402
 import run_operational_e2e as operational  # noqa: E402
+from dgx_openai_client import ModelTransportError  # noqa: E402
 from rag.parsing import prepare_inputs  # noqa: E402
 from rag.judgment.applicability import partition_operational_candidates  # noqa: E402
 from rag.judgment.evidence_projection import pack_documents, unpack_documents  # noqa: E402
@@ -565,6 +566,25 @@ class ModelContractTests(unittest.TestCase):
         self.assertEqual(gemma.contract_attempt_limit(request_row([str(i) for i in range(7)])), 1)
         self.assertEqual(gemma.contract_attempt_limit(request_row([str(i) for i in range(6)])), 2)
         self.assertEqual(gemma.contract_attempt_limit(request_row(["X-1"])), 3)
+
+    def test_transport_failure_retries_same_request_without_auto_split(self):
+        row = request_row([str(index) for index in range(8)])
+        with patch.object(
+            gemma,
+            "call_once",
+            side_effect=ModelTransportError("connection refused"),
+        ) as call, patch.object(gemma.time, "sleep") as sleep, patch.object(
+            gemma, "split_request_row"
+        ) as split:
+            results = gemma.call_with_retry_and_split(
+                row, None, None, "test", 4096
+            )
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        split.assert_not_called()
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["transport_error"])
+        self.assertEqual(results[0]["transport_attempts"], 3)
 
     def test_non_applicable_basis_is_canonicalized_with_audit_record(self):
         parsed = {"results": [dict(

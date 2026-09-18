@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -492,6 +494,7 @@ class ExecutionBridge:
             row = restore_dates(row, ["created_at"])
             row["files"] = [AdvertisementFile(**f) for f in row["files"]]
             self.services.repository.advertisements[row["advertisement_id"]] = Advertisement(**row)
+        resumable = []
         for row in data["reviews"]:
             review = restore_dates(row["review"], ["requested_at", "completed_at"])
             review["standard_effective_date"] = date.fromisoformat(review["standard_effective_date"])
@@ -504,13 +507,21 @@ class ExecutionBridge:
             bundle = ReviewBundle(Review(**review), ReviewJob(**job), steps)
             self.services.reviews.repository._items[bundle.review.review_id] = bundle
             if bundle.job.status in {"PENDING", "RUNNING", "RETRY_PENDING"}:
-                self.fail(bundle, "PROCESS_RESTARTED", "실행 중 서버가 재시작되었습니다. 재분석을 눌러 다시 실행하세요.", save=False)
+                resumable.append(bundle)
         self.services.results.repository._items = []
         for row in data["results"]:
             row["evidences"] = tuple(ResultEvidence(**e) for e in row["evidences"])
             row["annotation"] = ResultAnnotation(**row["annotation"]) if row["annotation"] else None
             self.services.results.repository.add(ResultItem(**row))
         self.persist()
+        for bundle in resumable:
+            review_id = bundle.review.review_id
+            routing = dict(
+                (self.links.get(review_id) or {}).get("routing")
+                or self.routes.get(bundle.review.advertisement_id, {})
+            )
+            self.active.add(review_id)
+            self.pool.submit(self.run, bundle, routing)
 
     def publish(self, message):
         with self.lock:
@@ -577,6 +588,139 @@ class ExecutionBridge:
                     waiting = True
                 if self.stopping.wait(2):
                     raise RuntimeError("SERVER_STOPPED: 서버가 중지되었습니다.")
+        finally:
+            if waiting:
+                with self.lock:
+                    step.step_name = original_name
+                    self.persist()
+
+    def wait_for_judgment_backends(self, bundle):
+        """Wait for directly configured BGE and Gemma HTTP services.
+
+        The search cluster can be healthy while either model endpoint is still
+        starting after a Spark reboot.  Detect that state before spending time
+        on parsing or submitting a RAG job.  SSH-fallback-only profiles have no
+        directly probeable endpoint here and retain the client-level fallback.
+        """
+        dependencies = []
+        model_env = self.config.get("model_env") or {}
+        bge_endpoint = str(model_env.get("NH_GPU_BGE_ENDPOINT") or "").rstrip("/")
+        ssh_host = self.config.get("dgx_host")
+        ssh_key = self.config.get("dgx_key")
+        probe_kind = "http"
+        if not bge_endpoint and ssh_host and ssh_key:
+            bge_endpoint = str(
+                model_env.get("NH_GPU_BGE_REMOTE_ENDPOINT")
+                or model_env.get("DGX_BGE_ENDPOINT")
+                or "http://127.0.0.1:8103"
+            ).rstrip("/")
+            probe_kind = "ssh"
+        if bge_endpoint:
+            dependencies.append((
+                "EMBEDDING",
+                "BGE",
+                [(probe_kind, bge_endpoint + "/health")],
+                lambda value: isinstance(value, dict)
+                and value.get("device") == "cuda"
+                and value.get("embedding_model") == "BAAI/bge-m3"
+                and value.get("embedding_dimension") == 1024
+                and value.get("max_seq_length") == 1024,
+            ))
+        gemma_endpoint = str(model_env.get("NH_GPU_GEMMA_ENDPOINT") or "")
+        probe_kind = "http"
+        if not gemma_endpoint and ssh_host and ssh_key:
+            gemma_endpoint = str(
+                model_env.get("NH_GPU_GEMMA_REMOTE_ENDPOINT")
+                or model_env.get("DGX_GEMMA_REMOTE_ENDPOINT")
+                or "http://127.0.0.1:8102/v1/chat/completions"
+            )
+            probe_kind = "ssh"
+        if gemma_endpoint:
+            parsed = urllib.parse.urlsplit(gemma_endpoint)
+            path = parsed.path.rstrip("/")
+            if path.endswith("/v1/chat/completions"):
+                path = path[: -len("/chat/completions")]
+            else:
+                path = path.rsplit("/", 1)[0] if "/" in path else "/v1"
+            models_url = urllib.parse.urlunsplit(
+                (parsed.scheme, parsed.netloc, path.rstrip("/") + "/models", "", "")
+            )
+            dependencies.append((
+                "MODEL",
+                "Gemma",
+                [(probe_kind, models_url)],
+                lambda value: isinstance(value, dict)
+                and any(
+                    isinstance(row, dict) and row.get("id") == self.config.get("model")
+                    for row in value.get("data", [])
+                ),
+            ))
+        for code, label, probes, validator in dependencies:
+            self._wait_for_json_dependency(bundle, code, label, probes, validator)
+
+    def _read_ssh_json(self, url):
+        remote = (
+            "import sys,urllib.request;"
+            f"sys.stdout.buffer.write(urllib.request.urlopen({url!r},timeout=10).read())"
+        )
+        completed = subprocess.run(
+            [
+                "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                "-i", str(self.config["dgx_key"]), str(self.config["dgx_host"]),
+                "python3", "-c", shlex.quote(remote),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=25,
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        if completed.returncode:
+            raise ConnectionError("remote dependency is not ready")
+        return json.loads(completed.stdout.decode("utf-8"))
+
+    def _wait_for_json_dependency(self, bundle, code, label, probes, validator):
+        deadline = time.monotonic() + 300
+        step = next(row for row in bundle.steps if row.step_code == bundle.job.current_step)
+        original_name = step.step_name
+        waiting = False
+        try:
+            while True:
+                if bundle.job.status == "CANCELED":
+                    raise ReviewCanceled("CANCELED_BY_USER")
+                rejected = []
+                for kind, url in probes:
+                    try:
+                        if kind == "ssh":
+                            payload = self._read_ssh_json(url)
+                        else:
+                            with urllib.request.urlopen(url, timeout=5) as response:
+                                payload = json.load(response)
+                        if validator(payload):
+                            return
+                        rejected.append("invalid response")
+                    except urllib.error.HTTPError as exc:
+                        if exc.code not in {429, 502, 503, 504}:
+                            rejected.append(f"HTTP {exc.code}")
+                    except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError):
+                        pass
+                if rejected and len(rejected) == len(probes):
+                    raise RuntimeError(
+                        f"{code}_ENDPOINT_INVALID: {label} service returned "
+                        + ", ".join(rejected)
+                    )
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"{code}_CONNECTION_UNAVAILABLE: {label} service did not recover within 5 minutes"
+                    )
+                if not waiting:
+                    with self.lock:
+                        step.step_name = original_name + f" · {label} 연결 복구 대기"
+                        bundle.job.updated_at = datetime.now(UTC)
+                        self.persist()
+                    waiting = True
+                if self.stopping.wait(2):
+                    raise RuntimeError("SERVER_STOPPED: server stopped while waiting for a model service")
         finally:
             if waiting:
                 with self.lock:
@@ -858,6 +1002,29 @@ class ExecutionBridge:
             raise ValueError("PARSER_TEMPLATE_REQUIRED: 사용자 선택 템플릿이 필요합니다")
         # Validate runner support before copying assets or attempting reuse.
         self.parser_command(directory / "source", directory / "parser", template_id=template_id)
+        integrated_path = directory / "integrated.json"
+        intake_path = directory / "parser-intake.json"
+        if integrated_path.is_file() and intake_path.is_file():
+            try:
+                resumed = read_json(integrated_path)
+                validate_integrated_input(resumed)
+                source_dir = directory / "source"
+                source_matches = {
+                    file.file_id: [
+                        path for path in source_dir.glob(f"{file.file_id}_*")
+                        if hashlib.sha256(path.read_bytes()).hexdigest() == file.checksum
+                    ]
+                    for file in ad.files if file.file_type == "ADVERTISEMENT"
+                }
+                if (
+                    read_json(intake_path) == self.parser_intake(template_id)
+                    and resumed.get("document", {}).get("ad_id") == ad.advertisement_id
+                    and source_matches
+                    and all(len(paths) == 1 for paths in source_matches.values())
+                ):
+                    return resumed
+            except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                pass
         write_json_atomic(directory / "parser-intake.json", self.parser_intake(template_id))
         files = [file for file in ad.files if file.file_type == "ADVERTISEMENT"]
         source_dir = directory / "source"
@@ -1070,6 +1237,7 @@ class ExecutionBridge:
                 raise ReviewCanceled("CANCELED_BY_USER")
             self.stage(bundle, 0)
             self.wait_for_search_backend(bundle)
+            self.wait_for_judgment_backends(bundle)
             ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
             self.stage(bundle, 1)
             document = self.parse(
@@ -1100,6 +1268,7 @@ class ExecutionBridge:
             # No automatic promotion of parser/filename template or ambiguous media metadata.
             self.stage(bundle, 3)
             self.wait_for_search_backend(bundle)
+            self.wait_for_judgment_backends(bundle)
             job = self.rag.submit({"schema_version": "operational-review-request-v1", "client_request_id": bundle.review.review_id,
                                    "review_date": registration_review_date(ad.created_at),
                                    "review_date_basis": "advertisement_registration_date",
