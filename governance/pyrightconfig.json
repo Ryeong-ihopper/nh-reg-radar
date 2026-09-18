@@ -1,5 +1,9 @@
 {
-  "include": ["../scripts", "../tests/governance"],
+  "include": [
+    "../scripts/doc_guard.py",
+    "../scripts/doc_governance",
+    "../tests/governance"
+  ],
   "extraPaths": [".."],
   "pythonVersion": "3.11",
   "typeCheckingMode": "all"

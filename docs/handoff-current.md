@@ -6,6 +6,8 @@
 
 별도로 기존 `nh-reg-radar/feat/es-rag-pipeline`의 `rag-pipeline/` 하위를 compliance 정본과 맞춘 동기화 커밋은 `759a719`다. 53파일 변경이며 정본 CI 332개 단위 검사와21개 기능 검사를 통과했고 수집기·실행 결과·비밀 설정은 변경하지 않았다. 로컬 `origin`은 조직 저장소의 `feat/regulation-collection-viewer`용이고, 별도 `radar` 원격은 로컬 작업 브랜치를 `nh-reg-radar/main`으로 보내도록 매핑했다. 이후에는 같은 커밋을 `git push origin`과 `git push radar`로 각각 전송한다. radar에 `feat/regulation-collection-viewer`를 다시 만들지 않는다.
 
+radar main에서 처음 실행된 Document Governance는 `governance/pyrightconfig.json`이 문서 거버넌스 모듈이 아니라 `scripts/` 전체를 strict 타입 검사해 운영·복구 스크립트에서 3,626오류를 만들며 실패했다. 워크플로의 Ruff 범위와 거버넌스 문서에 맞춰 Pyright include를 `scripts/doc_guard.py`, `scripts/doc_governance`, `tests/governance`로 한정했다. 동일 Ruff check/format과 BasedPyright1.39.9 검사가 로컬에서 통과했다.
+
 ## 새 세션 재개 지점 — 2026-09-18 원격 반영·CI 복구·Git 작성자 정리
 
 로컬 통합 커밋 `6332697`은 먼저 Git 작성자 이메일을 `babie0511@naver.com`에서 기존 `Ryeong-ihopper` 연결 이메일인 `babie0511@ihopper.co.kr`로 바로잡아 `c670013`으로 변경됐고, 이 해시에서 Canonical RAG CI run `35289812252`가 성공했다. 이후 승인된 이력 정리로 같은 트리의 기능 커밋은 `03825fd`가 됐다. CI 수정은 운영 코드 검사 강도를 유지한 채 `rag-pipeline/legacy`를 Ruff 대상에서 제외하고, 국소 불확실 영역을 광고 전체 미스캔으로 확대하던 과거 테스트 기대값을 현행 정책에 맞춘 내용이다.
