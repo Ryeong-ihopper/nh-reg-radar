@@ -127,7 +127,7 @@ export function OperationalResultsPage() {
       <article><span>충족</span><strong data-verdict="충족">{counts.compliant}</strong></article>
     </div>
     {omissions.length ? <aside className="state-message" role="alert"><strong>과거 실행 누락 {omissions.length}건 · 재처리 필요</strong><p>이 결과는 모든 대상 항목의 검토가 완료된 상태가 아닙니다. 해당 항목을 판단불가 목록에 표시했습니다.</p></aside> : null}
-    {workspace.data?.output_failure_count ? <aside className="state-message" role="alert"><strong>판정 처리 실패 {workspace.data.output_failure_count}건</strong><p>{workspace.data.partial_result_warning}</p><details><summary>실패 규칙 확인</summary><ul>{workspace.data.output_failure_pairs?.map((failure) => <li key={`${failure.scope_id ?? failure.ad_id}:${failure.item_id}`}>{failure.item_id} · 모델 응답 형식 또는 원문 근거 연결 실패</li>)}</ul></details></aside> : null}
+    {workspace.data?.output_failure_count ? <aside className="state-message" role="alert"><strong>판정 처리 실패 {workspace.data.output_failure_count}건</strong><p>{workspace.data.partial_result_warning}</p><details><summary>실패 항목 확인</summary><ul>{workspace.data.output_failure_pairs?.map((failure, index) => <li key={`${failure.scope_id ?? failure.ad_id}:${failure.item_id}`}>항목 {index + 1} · 모델 응답 형식 또는 원문 근거 연결 실패</li>)}</ul></details></aside> : null}
     <div className="single-review-grid">
       <aside className="single-advertisement"><div className="single-advertisement-toolbar"><strong title={original?.fileName}>광고 원본{original?.fileName ? ` · ${original.fileName}` : ""}</strong>
         <div className="original-navigation"><button aria-label="이전 원본 페이지" disabled={pageNo <= 1} onClick={() => setPageNo((page) => page - 1)}>이전</button>
@@ -149,7 +149,7 @@ export function OperationalResultsPage() {
         <div className="verdict-filter" aria-label="판정 상태 필터"><button type="button" aria-pressed={filter === "ALL"} onClick={() => setFilter("ALL")}>전체 {counts.total}</button>{VERDICTS.map((verdict) => <button key={verdict} type="button" data-verdict={verdict} aria-pressed={filter === verdict} onClick={() => setFilter(verdict)}>{verdict} {counts[COUNT_KEY[verdict]]}</button>)}</div>
         <div className="single-regulations-scroll" tabIndex={0} aria-label="규정별 판정 목록">
         {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const isTemplate = row.rule_basis?.source_type === "INTERNAL_TEMPLATE" || row.item_id.startsWith("TPL-"); const basisLines = legalBasisLines(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
-          <header><strong>{row.item_id} · {row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
+          <header><strong>{row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
           {row.question ? <p className="regulation-question">{row.question}</p> : null}
           {isTemplate && row.template_appropriate_judgment ? <dl className="regulation-basis"><div><dt>적정 판단</dt><dd>{row.template_appropriate_judgment}</dd></div></dl> : null}
           {row.judgment_scope === "TEXT_ONLY" ? <p className="panel-note">텍스트 의무의 판정입니다. 배치·로고·원문 구조는 별도 사람 확인이 남아 있습니다.</p> : null}
