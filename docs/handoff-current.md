@@ -1,5 +1,11 @@
 # NH 광고심의 인수인계 정본
 
+## 새 세션 재개 지점 — 2026-09-18 두 GitHub 저장소 동시 전달
+
+사용자가 두 저장소를 같은 프로젝트로 확정해 현재 `nh-ad-compliance` 전체 이력과 파일을 `Ryeong-ihopper/nh-reg-radar`에도 같은 `feat/regulation-collection-viewer` 브랜치로 푸시했다. 최초 전체 전달 해시는 `ff3e812`이며 `nh-reg-radar/main`은 변경하지 않았다. 별도로 기존 전달 브랜치 `nh-reg-radar/feat/es-rag-pipeline`의 `rag-pipeline/` 하위만 compliance 정본과 정확히 맞춘 동기화 커밋은 `759a719`다. 하위 동기화는53파일 변경이며 정본 CI 332개 단위 검사와21개 기능 검사를 통과했고, 수집기·실행 결과·비밀 설정은 변경하지 않았다.
+
+현재 로컬 `origin`의 fetch URL은 `CGINSIDE-ROOKIES/nh-ad-compliance`를 유지하고 push URL은 `CGINSIDE-ROOKIES/nh-ad-compliance`와 `Ryeong-ihopper/nh-reg-radar` 두 곳으로 설정했다. 이후 `git push origin`은 현재 브랜치를 양쪽 저장소에 함께 전송한다. 두 저장소의 기본 브랜치나 서로 다른 기존 브랜치를 자동 병합하지 않으며, 작업 브랜치는 `feat/regulation-collection-viewer`를 기준으로 한다.
+
 ## 새 세션 재개 지점 — 2026-09-18 원격 반영·CI 복구·Git 작성자 정리
 
 로컬 통합 커밋 `6332697`은 먼저 Git 작성자 이메일을 `babie0511@naver.com`에서 기존 `Ryeong-ihopper` 연결 이메일인 `babie0511@ihopper.co.kr`로 바로잡아 `c670013`으로 변경됐고, 이 해시에서 Canonical RAG CI run `35289812252`가 성공했다. 이후 승인된 이력 정리로 같은 트리의 기능 커밋은 `03825fd`가 됐다. CI 수정은 운영 코드 검사 강도를 유지한 채 `rag-pipeline/legacy`를 Ruff 대상에서 제외하고, 국소 불확실 영역을 광고 전체 미스캔으로 확대하던 과거 테스트 기대값을 현행 정책에 맞춘 내용이다.
