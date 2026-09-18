@@ -1,10 +1,10 @@
 # NH 광고심의 인수인계 정본
 
-## 새 세션 재개 지점 — 2026-09-18 두 GitHub 저장소 동시 전달
+## 새 세션 재개 지점 — 2026-09-18 nh-reg-radar main 직접 전달
 
-사용자가 두 저장소를 같은 프로젝트로 확정해 현재 `nh-ad-compliance` 전체 이력과 파일을 `Ryeong-ihopper/nh-reg-radar`에도 같은 `feat/regulation-collection-viewer` 브랜치로 푸시했다. 최초 전체 전달 해시는 `ff3e812`이며 `nh-reg-radar/main`은 변경하지 않았다. 별도로 기존 전달 브랜치 `nh-reg-radar/feat/es-rag-pipeline`의 `rag-pipeline/` 하위만 compliance 정본과 정확히 맞춘 동기화 커밋은 `759a719`다. 하위 동기화는53파일 변경이며 정본 CI 332개 단위 검사와21개 기능 검사를 통과했고, 수집기·실행 결과·비밀 설정은 변경하지 않았다.
+사용자가 두 저장소를 같은 프로젝트로 확정하고 `Ryeong-ihopper/nh-reg-radar`에는 기능 브랜치가 아니라 `main`으로 직접 전달하도록 결정했다. 현재 프로젝트 트리 `01e0833`과 기존 radar main `75964e0`을 부모로 갖는 병합 커밋 `c28f4f2`를 만들었으며 결과 트리는 현재 compliance 프로젝트와 바이트 단위로 동일하다. 이를 일반 fast-forward로 `nh-reg-radar/main`에 푸시해 기존 main 이력도 보존했다. 먼저 만들었던 `nh-reg-radar/feat/regulation-collection-viewer` 원격 브랜치는 main 반영 성공 후 삭제했고, 로컬 작업 브랜치도 `c28f4f2`까지 fast-forward해 두 원격의 공통 조상을 유지한다.
 
-현재 로컬 `origin`의 fetch URL은 `CGINSIDE-ROOKIES/nh-ad-compliance`를 유지하고 push URL은 `CGINSIDE-ROOKIES/nh-ad-compliance`와 `Ryeong-ihopper/nh-reg-radar` 두 곳으로 설정했다. 이후 `git push origin`은 현재 브랜치를 양쪽 저장소에 함께 전송한다. 두 저장소의 기본 브랜치나 서로 다른 기존 브랜치를 자동 병합하지 않으며, 작업 브랜치는 `feat/regulation-collection-viewer`를 기준으로 한다.
+별도로 기존 `nh-reg-radar/feat/es-rag-pipeline`의 `rag-pipeline/` 하위를 compliance 정본과 맞춘 동기화 커밋은 `759a719`다. 53파일 변경이며 정본 CI 332개 단위 검사와21개 기능 검사를 통과했고 수집기·실행 결과·비밀 설정은 변경하지 않았다. 로컬 `origin`은 조직 저장소의 `feat/regulation-collection-viewer`용이고, 별도 `radar` 원격은 로컬 작업 브랜치를 `nh-reg-radar/main`으로 보내도록 매핑했다. 이후에는 같은 커밋을 `git push origin`과 `git push radar`로 각각 전송한다. radar에 `feat/regulation-collection-viewer`를 다시 만들지 않는다.
 
 ## 새 세션 재개 지점 — 2026-09-18 원격 반영·CI 복구·Git 작성자 정리
 
