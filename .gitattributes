@@ -9,3 +9,5 @@ tests/e2e/test_m8_provider_free_release.py text eol=lf
 .githooks/* text eol=lf
 scripts/*.sh text eol=lf
 scripts/**/*.sh text eol=lf
+# Parser compatibility patches must retain their Git diff line endings.
+integrations/**/*.patch text eol=lf
