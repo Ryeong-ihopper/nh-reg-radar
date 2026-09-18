@@ -22,6 +22,7 @@ from rag.parsing.prepare_inputs import search_docs
 from rag.judgment.condition_contracts import compile_condition_contract
 from rag.templates.coverage import audit_template_coverage
 import numpy as np
+import openpyxl
 
 
 def p(text):
@@ -52,14 +53,51 @@ class TemplateCatalogTests(unittest.TestCase):
             for i, text in enumerate(contents):
                 z.writestr(f"Contents/section{i}.xml", '<sec>' + text + '</sec>')
 
-    def test_line_arrangement_guidance_requires_exact_layout_observation(self):
+    def test_line_arrangement_is_source_structure_not_visibility(self):
         self.assertEqual(
             required_observation_medium("한 줄에 2개 이상의 문구를 기재할 수 없음"),
-            ("광고물+원본형식+레이아웃", "LAYOUT", "레이아웃"),
+            ("광고물+원문줄구조", "LLM", "원문줄구조"),
         )
         self.assertEqual(
             required_observation_medium("상품명 기재"),
             ("광고물", "LLM", "텍스트"),
+        )
+
+    def test_investment_methodology_is_prompt_input_without_case_answers(self):
+        section = "투자성상품-개인종합자산관리계좌(ISA) 일반"
+        headers = ("구분", "예시문구", "필수여부", "기재요령")
+        values = ("수수료", "신탁형 연 0.00% / 일임형 연 0.00%", "O", "")
+        xml = '<tbl rowCnt="2" colCnt="4"><tr>'
+        xml += ''.join(cell(0, index, value) for index, value in enumerate(headers))
+        xml += '</tr><tr>'
+        xml += ''.join(cell(1, index, value) for index, value in enumerate(values))
+        xml += '</tr></tbl>'
+        self.write([p(f"[{section}]") + xml])
+        methodology = Path(self.tmp.name) / "methodology"
+        methodology.mkdir()
+        book = openpyxl.Workbook()
+        sheet = book.active
+        sheet.append([])
+        sheet.append([None, "구분", "예 시 문 구", "적정 판단", "부적정", None, "확인필요", None])
+        sheet.append([None, None, None, None, "부적정 판단", "안내문구", "확인필요 판단", "안내문구"])
+        sheet.append([None, "수수료", "신탁형 연 0.00% / 일임형 연 0.00%", "수수료율 기재 시 적정",
+                      "수수료율 또는 연 누락 시 부적정", "안내", None, None])
+        book.save(methodology / "5. 투자성상품-ISA 일반 심의방법.xlsx")
+        book.close()
+        (methodology / "5. 투자성상품-ISA 일반(심의정답).hwpx").write_bytes(b"must stay unread")
+
+        catalog = TemplateCatalog.from_hwpx(self.path, methodology_dir=methodology)
+        rule = catalog.operational_rules()[0]
+
+        self.assertEqual(rule["product_groups"], ["투자성"])
+        self.assertIn("수수료율 기재 시 적정", rule["criterion"])
+        self.assertIn("연 누락 시 부적정", rule["criterion"])
+        self.assertTrue(rule["methodology_guide"])
+        self.assertEqual(catalog.document["methodology"]["row_count"], 1)
+        self.assertFalse(catalog.document["methodology"]["case_answers_loaded"])
+        self.assertEqual(
+            [source["filename"] for source in catalog.document["methodology"]["sources"]],
+            ["5. 투자성상품-ISA 일반 심의방법.xlsx"],
         )
 
     def test_optional_law_mapping_is_source_bound_and_not_an_obligation(self):
@@ -170,19 +208,23 @@ class TemplateCatalogTests(unittest.TestCase):
         self.assertIn('내부 표', catalog.source['tables'][1]['cells'][0]['text'])
         self.assertTrue(runner.automated_input_ready(rule, integrated_input()))
 
-    def test_readable_obligation_survives_visual_deferral_and_coverage_is_exact(self):
+    def test_line_structure_guidance_stays_in_the_model_obligation(self):
         self.write([p('[예금성상품-유형]') + table().replace('조건 성립 시 표시', '한 줄에 두 문구 배치 불가')])
         catalog = TemplateCatalog.from_hwpx(self.path)
         rule = catalog.operational_rules()[0]
-        self.assertTrue(rule['template_basis']['text_facet_only'])
-        self.assertIn('예시', rule['criterion'])
-        self.assertNotIn('한 줄에 두 문구 배치 불가', rule['criterion'])
-        self.assertEqual(rule['template_basis']['manual_guidance'], '한 줄에 두 문구 배치 불가')
+        self.assertFalse(rule['template_basis']['text_facet_only'])
+        self.assertIn('한 줄에 두 문구 배치 불가', rule['criterion'])
+        self.assertNotIn('manual_guidance', rule['template_basis'])
         contract = compile_condition_contract(rule)
-        self.assertNotIn('한 줄에 두 문구 배치 불가', contract['obligation_checks'][0]['text'])
-        self.assertTrue(runner.automated_input_ready(rule, integrated_input()))
-        summary = audit_template_coverage(catalog, '예금성상품-유형', [rule], [rule['item_id']], [rule])
-        self.assertEqual((summary['source_row_count'], summary['requested_count'], summary['manual_review_count']), (1, 1, 1))
+        self.assertIn('한 줄에 두 문구 배치 불가', contract['obligation_checks'][0]['text'])
+        document = integrated_input()
+        self.assertTrue(runner.automated_input_ready(rule, document))
+        document['pages'][0]['regions'][0]['lines'][0]['bbox'] = None
+        self.assertFalse(runner.automated_input_ready(rule, document))
+        document.setdefault('diagnostics', {})['rendered_line_projection'] = {'verified': True}
+        self.assertTrue(runner.automated_input_ready(rule, document))
+        summary = audit_template_coverage(catalog, '예금성상품-유형', [rule], [rule['item_id']], [])
+        self.assertEqual((summary['source_row_count'], summary['requested_count'], summary['manual_review_count']), (1, 1, 0))
         with self.assertRaisesRegex(ValueError, 'no disposition'):
             audit_template_coverage(catalog, '예금성상품-유형', [rule], [], [])
         with self.assertRaisesRegex(ValueError, 'missing, duplicated'):

@@ -13,7 +13,7 @@
       "type": "object",
       "required": ["product_group"],
       "properties": {
-        "product_group": {"enum": ["예금성", "대출성"]},
+        "product_group": {"enum": ["예금성", "대출성", "투자성"]},
         "product_subtype": {"type": ["string", "null"]},
         "template_id": {"type": ["string", "null"]},
         "ad_type": {"type": ["string", "null"]},

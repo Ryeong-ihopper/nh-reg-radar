@@ -34,6 +34,16 @@ class OperationalPolicyTests(unittest.TestCase):
         self.assertEqual(require_confirmed_product_group(routing), "대출성")
         self.assertEqual(confirmed_template(routing), "대출성상품-상품명 노출")
 
+    def test_provided_investment_routing_can_hard_gate(self) -> None:
+        routing = {
+            "product_group": {"value": "투자성", "status": "provided"},
+            "template_id": {
+                "value": "투자성상품-개인종합자산관리계좌(ISA) 일반",
+                "status": "confirmed",
+            },
+        }
+        self.assertEqual(require_confirmed_product_group(routing), "투자성")
+
     def test_format_equivalents_are_observations(self) -> None:
         facts = deterministic_facts([
             {"text_canonical": "■ 유의사항\n준법감시인 심의필 0000-0000 (2026.09.01)"}

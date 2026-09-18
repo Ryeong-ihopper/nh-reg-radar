@@ -62,21 +62,6 @@ def test_upload_list_detail_preview_download_and_scope(
         f"/api/v1/advertisements/{advertisement_id}",
         headers={"Authorization": f"Bearer {token_a}"},
     )
-
-
-def test_upload_accepts_multiple_assets_for_one_advertisement(client: TestClient) -> None:
-    token, _ = login(client, "a@example.com")
-    response = client.post(
-        "/api/v1/advertisements",
-        headers={"Authorization": f"Bearer {token}"},
-        data={"advertisementName": "분할 광고", "productGroup": "SAVINGS", "advertisementType": "MOBILE_BANNER", "departmentId": "DPT-A"},
-        files=[
-            ("advertisementFile", ("first.png", PNG, "image/png")),
-            ("advertisementFile", ("second.png", png_with_payload(1), "image/png")),
-        ],
-    )
-    assert response.status_code == 201, response.text
-    assert len(response.json()["files"]) == 2
     assert detail.status_code == 200
 
     preview = client.get(
@@ -126,6 +111,21 @@ def test_upload_accepts_multiple_assets_for_one_advertisement(client: TestClient
         for event in repository.audit_events
         for json_value in event.metadata.values()
     )
+
+
+def test_upload_accepts_multiple_assets_for_one_advertisement(client: TestClient) -> None:
+    token, _ = login(client, "a@example.com")
+    response = client.post(
+        "/api/v1/advertisements",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"advertisementName": "분할 광고", "productGroup": "SAVINGS", "advertisementType": "MOBILE_BANNER", "departmentId": "DPT-A"},
+        files=[
+            ("advertisementFile", ("first.png", PNG, "image/png")),
+            ("advertisementFile", ("second.png", png_with_payload(1), "image/png")),
+        ],
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["files"]) == 2
 
 
 def test_system_admin_can_delete_advertisement_and_hide_its_files(
@@ -197,6 +197,7 @@ def test_loan_is_an_available_product_group_for_registration(client: TestClient)
     assert detail.json()["productGroup"] == "LOAN"
     codes = client.get("/api/v1/codes/product-groups", headers={"Authorization": f"Bearer {token}"})
     assert any(item["code"] == "LOAN" for item in codes.json())
+    assert any(item["code"] == "INVESTMENT" for item in codes.json())
 
 
 def test_preview_renders_pdf_to_the_same_raster_coordinate_basis_as_ocr(
@@ -270,6 +271,33 @@ def test_hwp_preview_is_converted_by_the_private_renderer(client: TestClient) ->
     assert content.headers["content-type"].startswith("image/svg+xml")
     assert b"<svg" in content.content
     assert "sandbox" in content.headers["content-security-policy"]
+
+
+def test_development_repeat_upload_preserves_independent_records(
+    client: TestClient, repository: InMemoryRepository,
+) -> None:
+    repository.allow_duplicate_advertisement_files = True
+    token, _ = login(client, "a@example.com")
+    first, second = upload(client, token), upload(client, token)
+    assert first.status_code == second.status_code == 201
+    a = repository.get_advertisement(first.json()["advertisementId"])
+    b = repository.get_advertisement(second.json()["advertisementId"])
+    assert a.advertisement_id != b.advertisement_id
+    assert a.files[0].file_id != b.files[0].file_id
+    assert a.files[0].storage_key != b.files[0].storage_key
+    assert a.files[0].checksum == b.files[0].checksum
+    assert a.latest_review_id is None and b.latest_review_id is None
+    # A duplicate within one registration is still an accidental attachment.
+    duplicate = client.post(
+        "/api/v1/advertisements", headers={"Authorization": f"Bearer {token}"},
+        data={"advertisementName": "comparison", "productGroup": "SAVINGS",
+              "advertisementType": "MOBILE_BANNER", "departmentId": "DPT-A"},
+        files=[("advertisementFile", ("one.png", PNG, "image/png")),
+               ("advertisementFile", ("two.png", PNG, "image/png"))],
+    )
+    assert duplicate.status_code == 409
+    assert repository.get_file(a.files[0].file_id)[1].storage_key == a.files[0].storage_key
+    assert repository.get_file(b.files[0].file_id)[1].storage_key == b.files[0].storage_key
 
 
 def test_file_error_statuses_and_duplicates(client: TestClient) -> None:

@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from rag.templates.methodology import attach_methodology, methodology_prompt
+
 SCHEMA = "review-template-catalog-v1"
 PARSER_VERSION = "hwpx-template-1"
 HEADERS = {"구분": "label", "예시문구": "example", "필수여부": "requirement", "기재요령": "guidance"}
@@ -28,6 +30,16 @@ def required_observation_medium(guidance: str) -> tuple[str, str, str]:
     presentation.
     """
     normalized = re.sub(r"\s+", "", guidance or "")
+    line_structure = bool(re.search(
+        r"(?:한줄|같은줄).{0,24}(?:2개|두(?:개)?|복수|여러).{0,24}(?:문구|사항).{0,24}"
+        r"(?:불가|불가능|금지|않|없)",
+        normalized,
+    ))
+    if line_structure:
+        # This is a source-line grouping obligation, not a font/colour/
+        # visibility judgment. It can be reviewed when the parser proves the
+        # rendered line partition and keeps exact source-line text.
+        return "광고물+원문줄구조", "LLM", "원문줄구조"
     layout_tokens = (
         "한줄", "같은줄", "줄바꿈", "줄로", "나란히", "배치", "위치",
         "글자크기", "글씨크기", "폰트", "글꼴", "서체", "로고", "색상", "시인성", "가독성",
@@ -253,14 +265,16 @@ def compile_catalog(source: dict) -> dict:
 
 
 class TemplateCatalog:
-    def __init__(self, source: dict):
+    def __init__(self, source: dict, *, methodology_dir: Path | None = None):
         self.source = source
         self.document = compile_catalog(source)
+        if methodology_dir:
+            attach_methodology(self.document, methodology_dir)
         self.by_id = {row["item_id"]: row for row in self.document["entries"]}
 
     @classmethod
-    def from_hwpx(cls, path: Path):
-        return cls(parse_hwpx(path))
+    def from_hwpx(cls, path: Path, *, methodology_dir: Path | None = None):
+        return cls(parse_hwpx(path), methodology_dir=methodology_dir)
 
     def select(self, classification: str, *, status: str) -> dict:
         """Exact confirmed classification selects a checklist, not a verdict."""
@@ -286,9 +300,7 @@ class TemplateCatalog:
             input_requirement, judgment_type, required_medium = required_observation_medium(
                 fields["guidance"]["text"]
             )
-            # Ingest all families; the current advertised PoC supports these
-            # two only. This is a product-scope boundary, not source omission.
-            groups = [g for g in ("대출성", "예금성") if section.startswith(g)]
+            groups = [g for g in ("대출성", "예금성", "투자성") if section.startswith(g)]
             if not groups:
                 continue
             basis = self.judgment_basis(row["item_id"])
@@ -329,6 +341,10 @@ class TemplateCatalog:
                     f"텍스트 예시: {fields['example']['text']}\n텍스트 기재요령: {text_guidance}"
                 )
                 input_requirement, judgment_type, required_medium = "광고물", "LLM", "텍스트"
+            methodology = row.get("methodology")
+            if methodology:
+                criterion = f"{criterion}\n{methodology_prompt(methodology)}"
+                basis["methodology"] = methodology
             rules.append({
                 "item_id": row["item_id"], "source_sheet": "HWPX_TEMPLATE",
                 "category": "PRESENCE", "category_label": "템플릿 점검",
@@ -336,6 +352,7 @@ class TemplateCatalog:
                 "template_required": fields["requirement"]["text"],
                 "title": fields["label"]["text"], "question": fields["label"]["text"],
                 "criterion": criterion, "guide": fields["guidance"]["text"],
+                "methodology_guide": methodology,
                 "example_text": fields["example"]["text"],
                 "example_policy": "의미상 예시이며 숫자·상품명·문자열 완전일치 의무가 아님",
                 "input_requirement": input_requirement,

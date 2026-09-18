@@ -1,8 +1,26 @@
 # 화면-API 매핑표
 
-## 템플릿 단독 심의 — 2026-09-17
+## 투자성 상품군 연결 — 2026-09-17
 
-capabilities.sourcePolicy는 template-only를 반환한다. workspace.source_policy는 결과 audit.rule_sources.policy를 반환하며 해당 필드가 없는 과거 결과는 template-plus-v2로 표시한다. 판정 카드와 export의 과거 결과는 보존한다.
+S-003의 투자성 선택은 제품 API `productGroup=INVESTMENT`, intake `product_group=투자성`, 사용자 선택 `product_classification_code`로 전달한다. `/operational/capabilities`는 `투자성상품-`으로 시작하는 템플릿을 `productGroup=INVESTMENT`로 반환한다. 서버는 상위 상품군과 상세 템플릿 접두어가 다르면422로 거부한다.
+
+## 원문 줄 구조 판정 연결 — 2026-09-17
+
+S-006은 workspace 행의 `line_structure_assessment`가 있으면 정확 렌더링 줄로 확인한 결과 사유를 표시한다. 동일 줄 복수 문구 규칙은 `evidence_line_refs`와 완전일치 렌더링 좌표를 사용하며, 서로 다른 줄이나 한 문장을 위반 근거로 합치지 않는다. 저장 모델 응답과 원본 좌표는 변경하지 않는다.
+
+## 심의 결과 삭제 연결 — 2026-09-17
+
+S-002 광고물 목록의 종료 상태 행에서 `상세 보기` 옆 `심의 결과 삭제`는 사용자 확인 후 `DELETE /api/v1/operational/advertisements/{advertisementId}/latest-review`를 호출한다. 취소 시 호출하지 않으며,204 성공 시 목록을 다시 조회한다. 결과 화면에는 이 action을 연결하지 않는다.403·404·409 및 서버 오류는 목록에 표시한다. 이 경로는 로컬 opt-in 전용이며 제품 OpenAPI에는 추가하지 않는다.
+
+S-003 운영 등록에서 `광고 형식·매체`로 표시하는 기존 `advertisementType`은 intake `media_codes[]`로 전달되고 통합 판정 문서의 `routing_metadata.media_type`으로 주입된다. 상세 상품군의 템플릿 선택과 별개이며, 둘 중 하나로 다른 값을 추정하거나 덮어쓰지 않는다.
+
+## 현행 결정 — 2026-09-17 템플릿 우선·규제목록 v2 보완 심의
+
+단일 HWP의 workspace/export는 저장된 integrated 원문과 parser-layout의 유일한 완전일치(공백·줄바꿈 제외)를 표시 전용으로 연결한다. evidence_locations에 원문 line_ref 기반 key, 실제 pageNo/source_page_no, asset_id, 줄 bbox와 canvas 크기를 반환한다. 선택된 근거 줄에만 연결하며 검색·모델 호출이나 저장 판정 변경은 없다. 기존 직접 좌표가 우선이고 다른 파일·중복 문구로 연결하지 않는다.
+
+새 심의 `/operational/capabilities`는 `sourcePolicy=template-plus-v2`와 `내부 심의 템플릿 + 규제목록 v2`를 반환한다. workspace의 `source_policy`는 결과 audit.rule_sources.policy를 사용한다. 과거 raw 결과·카드·법령 근거를 재작성하지 않는다. 원본 확인 S-004는 현재 심의 상태에 따라 진행 화면 또는 결과 화면을 가리키는 버튼형 다음 단계 링크를 표시한다.
+
+템플릿 `legal_basis_refs`는 실제 원문에 제공된 참조만 화면의 근거 법령·규정 접기/펼치기에 연결한다. 미제공이면 해당 블록을 표시하지 않는다. 좌표 API 값은 유지하고 테두리만1px로 변경한다. 템플릿 coverage는 상단 대신 판정 목록의 처리 내역에서 확인한다. 실패/누락 경고, export 판정 내용, 광고물 목록 및 진행 기록 접근은 유지한다.
 
 ## 판독 가드 이후 활성 근거 — 2026-09-16
 
@@ -44,7 +62,7 @@ capabilities.sourcePolicy는 template-only를 반환한다. workspace.source_pol
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.75 |
+| 현행 버전 | v1.82 |
 | 기준일 | 2026-09-17 |
 
 ## 현행 시인성·판독 불확실성 처리 범위
@@ -55,11 +73,20 @@ capabilities.sourcePolicy는 template-only를 반환한다. workspace.source_pol
 원본 확대와 독립 스크롤은 클라이언트 동작이다. 페이지 변경은 기존 파일 preview API를 자산 ID와 로컬 페이지로 호출한다.
 운영 workspace/export의 `template_example`을 참고 문구로 표시하고 `requirement_checks`로 미기재 주장과 원문 연결 실패 안내를 구분한다. 새 모델 호출은 없다.
 
+operational workspace 결과 행은 활성 판정 근거를 `evidence_locations`, 판단불가의 사람 확인 대상을 `review_locations`로 분리한다. 판정에 귀속되지 않은 지역 문제는 `LOCAL_READING_REVIEW` 내부 행 하나에 `review_locations`를 모으고 화면 제목은 `원문 판독 확인`으로 표시한다. 클라이언트는 판단불가이면서 활성 근거가 없을 때만 `review_locations`를 강조한다. 명시적 줄 참조가 없는 여러 줄 청크는 좌표로 확장하지 않으며, 단일 좌표 annotation API는 정확 `LINE` 좌표 중 가장 작은 하나를 대표로 반환한다.
+
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
-| v1.75 | 2026-09-17 | 신규 심의 템플릿 단독 정책과 실행 기준 표시 |
+| v1.82 | 2026-09-17 | S-003 투자성 상품군·상세 템플릿·확정 RAG 라우팅 연결 |
+| v1.81 | 2026-09-17 | S-006의 유의사항 동일 줄 구조 판정과 정확 렌더링 줄 감사 연결 |
+| v1.80 | 2026-09-17 | capabilities의 template-plus-v2 복원과 원본 확인의 버튼형 다음 단계 연결 |
+| v1.79 | 2026-09-17 | S-002 상세 보기 옆 최신 심의 삭제 연결과 광고 형식·매체의 media_type 전달 명시 |
+| v1.78 | 2026-09-17 | S-006의 확인 후 로컬 종료 심의 단건 삭제 연결 |
+| v1.77 | 2026-09-17 | workspace/export의 HWP 정확 문구 대응 좌표 연결 공유 |
+| v1.76 | 2026-09-17 | 템플릿 단독 심의와 원문 중심 결과 화면 적용 |
+| v1.75 | 2026-09-17 | 지역 판독 불확실성의 확인 위치 분리·다중 줄 bbox 확장 및 합집합 제거 |
 | v1.74 | 2026-09-17 | 저장 판정의 불완전 판독 누락 확정을 비파괴적으로 보류하는 공통 화면·내보내기 projection |
 | v1.73 | 2026-09-17 | 결과 제목의 내부 규칙 ID 비노출, API 및 근거 연결 계약 유지 |
 | v1.72 | 2026-09-16 | 사람 확인의 판단불가 통합·미해당 별도 내역·발견 후보 실행 제한 제거 |

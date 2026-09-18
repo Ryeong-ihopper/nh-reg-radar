@@ -2,7 +2,7 @@
 """Run advertisement -> rule discovery -> Gemma judgment as one auditable job.
 
 The runner never reads gold, researcher feedback or case-specific mappings.
-Unverified routing values may rank candidates but cannot remove either PoC
+Unverified routing values may rank candidates but cannot remove a supported
 product family or a template T rule.
 """
 from __future__ import annotations
@@ -62,6 +62,7 @@ from rag.judgment.condition_contracts import (  # noqa: E402
 from dgx_openai_client import post_json  # noqa: E402
 from dgx_bge_client import rerank as gpu_rerank  # noqa: E402
 from rag.templates.catalog import TemplateCatalog  # noqa: E402
+from rag.templates.methodology import methodology_workbooks  # noqa: E402
 from rag.templates.coverage import audit_template_coverage  # noqa: E402
 from rag.retrieval.context import expand_source_context  # noqa: E402
 from rag.retrieval.queries import build_context_queries  # noqa: E402
@@ -80,6 +81,8 @@ OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다.
 3. routing은 confirmed|verified|provided인 값만 확정 사실로 쓴다. null을 본문 부재로 간주하지 않는다.
 4. documents는 규칙별 근거 창이다. evidence_scope 밖 근거를 쓰지 말라.
 5. parser_coverage=PARTIAL 또는 complete_ad_scan=false이면 문구 부재를 확정하지 말라.
+   reading_quality의 LOCAL_REGIONS_ONLY 불확실성은 해당 규칙의 evidence_scope에 포함될 때만
+   그 규칙에 적용한다. 다른 영역의 판독·라벨 확인 필요를 광고 전체 미완료로 확대하지 말라.
 6. 표시의무의 누락은 complete_ad_scan=true일 때만 MISSING이다. 금지 표현이 실제 근거에
    관찰된 경우만 VIOLATED다. 누락 주장을 VIOLATED/OBSERVED로 우회하지 말라.
    전체 광고의 다른 위치에 있는 필수 요소도 확인하고, 일부 인용문에 없다는 이유로 누락이라 하지 말라.
@@ -247,6 +250,61 @@ def v2_explicitly_mapped_to_template(
     return target in set(v2_template_sections(rule))
 
 
+def v2_is_general_presence_obligation(rule: dict[str, Any]) -> bool:
+    """Identify product-scoped disclosure duties that cannot rely on retrieval.
+
+    If required text is absent, the advertisement has no matching query phrase.
+    Therefore checklist-style presence duties without a source-authored subtype
+    or template binding must be enumerated for every applicable product. The
+    applicability contract still decides conditional triggers; this function
+    only prevents silent candidate loss.
+    """
+    return (
+        rule.get("source_sheet") != "HWPX_TEMPLATE"
+        and rule.get("category") == "PRESENCE"
+        and rule.get("judgment_mode") == "체크리스트"
+        and not v2_declares_template_binding(rule)
+    )
+
+
+_CONFIRMED_ROUTING_STATUSES = {"provided", "confirmed", "verified"}
+_ELECTRONIC_DELIVERY_MEDIA = {"PUSH", "SMS", "MMS", "LMS", "ALIMTALK", "EMAIL"}
+
+
+def v2_applies_to_confirmed_media(
+    rule: dict[str, Any], routing: dict[str, Any]
+) -> bool:
+    """Select source-authored media obligations without relying on ad wording.
+
+    Presence rules are needed precisely when required text is absent, so hybrid
+    search over the advertisement cannot be the only way to discover them. A
+    confirmed web routing value may enumerate a v2 rule when the rule itself
+    names that medium or names electronic-delivery advertising generally.
+    No item ID, advertisement text, or case answer is used here.
+    """
+    media = routing.get("media_type") or {}
+    if not isinstance(media, dict):
+        return False
+    status = str(media.get("status") or "").strip().lower()
+    value = str(media.get("value") or "").strip().upper()
+    if status not in _CONFIRMED_ROUTING_STATUSES or value not in _ELECTRONIC_DELIVERY_MEDIA:
+        return False
+    rule_text = " ".join(
+        str(rule.get(field) or "")
+        for field in ("title", "question", "criterion", "v2_note")
+    ).upper()
+    named_media = {
+        medium
+        for medium in _ELECTRONIC_DELIVERY_MEDIA
+        if re.search(rf"(?<![A-Z]){re.escape(medium)}(?![A-Z])", rule_text)
+    }
+    if named_media:
+        return value in named_media
+    return any(token in rule_text for token in (
+        "전자적 전송매체", "영리목적 광고성 정보", "광고성 정보 전송",
+    ))
+
+
 def vector_cache_paths(
     cache_dir: Path,
     *,
@@ -379,27 +437,24 @@ def load_ads(directory: Path) -> dict[str, dict[str, Any]]:
 
 
 def parser_coverage(ad: dict[str, Any]) -> str:
-    """Return coverage of the authoritative text scan, not every OCR hint.
+    """Return document execution coverage, not local reading confidence.
 
     ``unverified_recovery_candidates`` are page-sweep hints which were not
     assigned to the canonical line partition.  Their presence must remain
     auditable, but a single unverified token must not downgrade an otherwise
-    complete advertisement and disable every absence-based text check.
-    Layout and visibility availability are evaluated independently by
-    ``automated_input_ready``.
+    complete advertisement and disable every text check.  The same boundary
+    applies to empty or uncertain regions: they stay in the reading-quality
+    audit and only affect rules whose evidence scope touches those regions.
+    ``PARTIAL`` is reserved for a failed document/page scan or an inexact
+    canonical line partition.  Layout and visibility availability are
+    evaluated independently by ``automated_input_ready``.
     """
     quality = ad.get("quality") or {}
     pages = ad.get("pages") or []
     partial = bool(
-        quality.get("unread_regions")
-        or quality.get("complete_document_read") is False
-        or quality.get("empty_region_count")
-        or (ad.get("diagnostics") or {}).get("empty_regions")
-        or not quality.get("line_partition_exact")
+        not quality.get("line_partition_exact")
         or not pages
-        or uncertain_ad_readings(ad)
         or any(page.get("parse_status") not in {None, "ok"} for page in pages)
-        or any(page.get("unread_regions") for page in pages)
     )
     return "PARTIAL" if partial else "READY"
 
@@ -839,7 +894,20 @@ def automated_input_ready(
     if "랜딩캡처" in input_requirement:
         return False
     if ad is None:
-        return required_medium != "레이아웃" and "원본형식" not in input_requirement
+        return required_medium not in {"레이아웃", "원문줄구조"} and "원본형식" not in input_requirement
+
+    if required_medium == "원문줄구조":
+        quality = ad.get("quality") or {}
+        projection = (ad.get("diagnostics") or {}).get("rendered_line_projection") or {}
+        pages = ad.get("pages") or []
+        lines = [line for page in pages for region in (page.get("regions") or [])
+                 for line in (region.get("lines") or [])]
+        direct_geometry = bool(lines) and all(line.get("bbox") is not None for line in lines)
+        return bool(
+            quality.get("line_partition_exact") is True
+            and all(page.get("parse_status") in {None, "ok"} for page in pages)
+            and (projection.get("verified") is True or direct_geometry)
+        )
 
     # Template wording about a line/placement is not a text rule.  Bounding
     # boxes establish where text is, but do not establish that two extracted
@@ -941,6 +1009,7 @@ def freeze_manifest(
         ROOT / "rag/judgment/condition_contracts.py",
         ROOT / "rag/judgment/manual_review.py",
         ROOT / "rag/templates/catalog.py",
+        ROOT / "rag/templates/methodology.py",
         ROOT / "rag/templates/coverage.py",
         ROOT / "rag/retrieval/queries.py",
         ROOT / "rag/retrieval/candidates.py",
@@ -965,6 +1034,8 @@ def freeze_manifest(
         input_paths.append(args.decision_guide)
     if getattr(args, "template_hwpx", None):
         input_paths.append(args.template_hwpx)
+    if getattr(args, "template_methodology_dir", None):
+        input_paths.extend(methodology_workbooks(args.template_methodology_dir))
     if args.routing_manifest:
         input_paths.append(args.routing_manifest)
     return {
@@ -993,6 +1064,11 @@ def freeze_manifest(
             "elasticsearch_index": args.es_index,
             "model": args.model,
             "decision_guide": str(args.decision_guide) if args.decision_guide else None,
+            "template_methodology_dir": (
+                str(args.template_methodology_dir.resolve())
+                if args.template_methodology_dir
+                else None
+            ),
             "temperature": 0,
         },
         "inputs": [
@@ -1082,6 +1158,11 @@ def main() -> None:
     parser.add_argument("--template-hwpx", type=Path,
                         help="general template source; independent checklist, no v2 ID mapping required")
     parser.add_argument(
+        "--template-methodology-dir",
+        type=Path,
+        help="directory containing general *심의방법.xlsx guides; case-answer files are ignored",
+    )
+    parser.add_argument(
         "--routing-manifest",
         type=Path,
         help=(
@@ -1142,7 +1223,7 @@ def main() -> None:
     parser.add_argument(
         "--allow-provisional-routing",
         action="store_true",
-        help="Debug only: fail open to both product groups when product_group is not confirmed.",
+        help="Debug only: fail open to all supported product groups when product_group is not confirmed.",
     )
     parser.add_argument("--execute-judgment", action="store_true")
     parser.add_argument(
@@ -1178,6 +1259,8 @@ def main() -> None:
     template_only = args.source_policy == "template-only"
     if template_only and not args.template_hwpx:
         parser.error("template-only review requires --template-hwpx")
+    if args.template_methodology_dir and not args.template_hwpx:
+        parser.error("--template-methodology-dir requires --template-hwpx")
     if template_only and args.decision_guide:
         parser.error("v2 decision guides cannot be used with template-only review")
     if not template_only and (not args.es_index or not args.regulation):
@@ -1220,7 +1303,6 @@ def main() -> None:
     items, all_items_by_id = ([], {}) if template_only else discovery.load_scope(include_layout=True)
     # Search eligibility is not observation readiness. Keep product-relevant
     # layout rules searchable; automated_input_ready defers missing observations.
-    # Investment-only source rows remain outside the current PoC product scope.
     all_source_items = (
         list(all_items_by_id.values())
         if isinstance(all_items_by_id, dict)
@@ -1240,7 +1322,14 @@ def main() -> None:
     cd_rules = [] if template_only else judgment_input.load_cd_rules(include_layout=True)
     if {item["id"] for item in items} != {rule["item_id"] for rule in cd_rules}:
         raise ValueError("search catalog and judgment rule definitions have different item IDs")
-    template_catalog = TemplateCatalog.from_hwpx(args.template_hwpx) if args.template_hwpx else None
+    template_catalog = (
+        TemplateCatalog.from_hwpx(
+            args.template_hwpx,
+            methodology_dir=args.template_methodology_dir,
+        )
+        if args.template_hwpx
+        else None
+    )
     t_rules = template_catalog.operational_rules() if template_catalog else load_template_candidate_rules()
     if template_catalog:
         write_json(args.output_dir / "00_template_catalog.json", template_catalog.document)
@@ -1402,6 +1491,19 @@ def main() -> None:
                 rule_by_id[item["id"]], confirmed_template_id
             )
         ]
+        mapped_v2_ids = {item["id"] for item in mapped_v2_items}
+        general_v2_items = [] if template_only else [
+            item for item in product_items
+            if item["id"] not in mapped_v2_ids
+            and v2_is_general_presence_obligation(rule_by_id[item["id"]])
+        ]
+        general_v2_ids = {item["id"] for item in general_v2_items}
+        media_v2_items = [] if template_only else [
+            item for item in product_items
+            if item["id"] not in mapped_v2_ids | general_v2_ids
+            and v2_applies_to_confirmed_media(rule_by_id[item["id"]], route_context)
+        ]
+        priority_v2_items = [*mapped_v2_items, *general_v2_items, *media_v2_items]
         deferred_input_rules = [
             {
                 "item_id": item["id"],
@@ -1409,7 +1511,7 @@ def main() -> None:
                 "input_requirement": item["입력요건"],
                 "reason": deferred_input_reason(rule_by_id[item["id"]]),
             }
-            for item in mapped_v2_items
+            for item in priority_v2_items
             if not automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
         ]
         enumerated = [
@@ -1420,6 +1522,32 @@ def main() -> None:
                 "discovery_method": "template_mapped_v2_enumeration",
             }
             for item in mapped_v2_items
+            if (
+                automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
+                or args.enable_applicability_screen
+            )
+        ]
+        general_enumerated = [
+            {
+                "item_id": item["id"],
+                "category": item["category"],
+                "title": item["title"],
+                "discovery_method": "general_v2_presence_enumeration",
+            }
+            for item in general_v2_items
+            if (
+                automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
+                or args.enable_applicability_screen
+            )
+        ]
+        media_enumerated = [
+            {
+                "item_id": item["id"],
+                "category": item["category"],
+                "title": item["title"],
+                "discovery_method": "confirmed_media_v2_enumeration",
+            }
+            for item in media_v2_items
             if (
                 automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
                 or args.enable_applicability_screen
@@ -1473,7 +1601,7 @@ def main() -> None:
             if t_rule_applies(rule, candidate_groups)
             and rule.get("product_subtype") != template_value
         ]
-        mapped_v2_ids = {item["id"] for item in mapped_v2_items}
+        priority_v2_ids = mapped_v2_ids | general_v2_ids | {item["id"] for item in media_v2_items}
         supplemental_v2 = [] if template_only else discovery.discover_prohibitions(
             search_queries,
             query_vectors,
@@ -1482,7 +1610,7 @@ def main() -> None:
             index=args.es_index,
             per_chunk_k=args.per_chunk_k,
             rrf_k=args.rrf_k,
-            deterministic_item_ids=mapped_v2_ids,
+            deterministic_item_ids=priority_v2_ids,
             categories=("PRESENCE", "PROHIBIT", "STYLE"),
         )
         supplemental_v2 = rerank_prohibition_candidates(
@@ -1515,7 +1643,10 @@ def main() -> None:
             )
         ]
         supplemental_v2, candidate_budget_audit = all_judgment_candidates(supplemental_v2, rule_by_id)
-        candidate_rows = [*template_candidates, *enumerated, *supplemental_v2]
+        candidate_rows = [
+            *template_candidates, *enumerated, *general_enumerated,
+            *media_enumerated, *supplemental_v2,
+        ]
         candidate_ids = list(dict.fromkeys(row["item_id"] for row in candidate_rows))
         # Even the optional model applicability screen cannot bypass the
         # user's coordinate-only / human visibility review boundary.
@@ -1524,6 +1655,8 @@ def main() -> None:
         discovery_tier_by_item = {
             **{row["item_id"]: "TEMPLATE_PRIMARY" for row in template_candidates},
             **{row["item_id"]: "MAPPED_V2" for row in enumerated},
+            **{row["item_id"]: "GENERAL_V2_PRESENCE" for row in general_enumerated},
+            **{row["item_id"]: "MEDIA_CONDITIONED_V2" for row in media_enumerated},
             **{row["item_id"]: "SUPPLEMENTAL_V2" for row in supplemental_v2},
         }
         assert_candidate_product_scope(
@@ -1643,8 +1776,12 @@ def main() -> None:
                                        "date_basis": args.review_date_basis},
                     "routing": model_routing_view(route_context),
                     "parser_coverage": parser_coverage(ads[ad_id]),
-                    "reading_quality": {"requires_review": bool(uncertain_ad_readings(ads[ad_id])),
-                        "uncertain_region_count": len(uncertain_ad_readings(ads[ad_id]))},
+                    "reading_quality": {
+                        "scope": "LOCAL_REGIONS_ONLY",
+                        "requires_review": bool(uncertain_ad_readings(ads[ad_id])),
+                        "uncertain_region_count": len(uncertain_ad_readings(ads[ad_id])),
+                        "global_scan_incomplete": parser_coverage(ads[ad_id]) == "PARTIAL",
+                    },
                     "full_ad_text": full_ad_text if use_full_ad else None,
                     "documents": docs,
                     "evidence_scope": {
@@ -1695,12 +1832,16 @@ def main() -> None:
             "counts": {
                 "coarse": len(coarse_by_ad[ad_id]),
                 "fine": len(fine_by_ad[ad_id]),
-                "presence_and_style": len(enumerated),
+                "presence_and_style": (
+                    len(enumerated) + len(general_enumerated) + len(media_enumerated)
+                ),
                 "template_candidates": len(template_candidates),
                 "template_scope_deferred": len(template_scope_deferred),
                 "deferred_template_rules": len(deferred_template_rules),
                 "deferred_input_rules": len(deferred_input_rules),
                 "mapped_v2_candidates": len(enumerated),
+                "general_v2_presence_candidates": len(general_enumerated),
+                "media_conditioned_v2_candidates": len(media_enumerated),
                 "supplemental_v2_candidates": len(supplemental_v2),
                 "prohibition_candidates": sum(
                     rule_by_id[row["item_id"]]["category"] == "PROHIBIT"
@@ -1708,7 +1849,9 @@ def main() -> None:
                 ),
                 "judgment_candidates": len(candidate_ids),
             },
-            "presence_and_style": enumerated,
+            "presence_and_style": [*enumerated, *general_enumerated, *media_enumerated],
+            "general_v2_presence_candidates": general_enumerated,
+            "media_conditioned_v2_candidates": media_enumerated,
             "template_candidates": template_candidates,
             "template_scope_deferred": template_scope_deferred,
             "deferred_template_rule_ids": deferred_template_rules,
@@ -1738,6 +1881,7 @@ def main() -> None:
             ),
             "template_primary": "enumerate every structured rule in the confirmed detailed-product template",
             "mapped_v2_priority": "disabled" if template_only else "enumerate source-mapped v2 rows",
+            "confirmed_media_v2": "disabled" if template_only else "enumerate source-authored rules for confirmed delivery media",
             "supplemental_v2": "disabled" if template_only else "retrieve remaining product-scoped v2 rules",
             "supplemental_recall_guard": "no candidate truncation",
             "evidence": "rule-to-ad BGE-M3 plus full context for short advertisements",
@@ -1763,6 +1907,17 @@ def main() -> None:
     freeze_path = args.output_dir / "FREEZE_BEFORE_PREDICTION.json"
     if template_catalog and sha256(args.template_hwpx) != template_catalog.document["source"]["sha256"]:
         raise RuntimeError("template source changed during request preparation")
+    if template_catalog and args.template_methodology_dir:
+        loaded_hashes = {
+            source["filename"]: source["sha256"]
+            for source in template_catalog.document["methodology"]["sources"]
+        }
+        current_hashes = {
+            path.name: sha256(path)
+            for path in methodology_workbooks(args.template_methodology_dir)
+        }
+        if current_hashes != loaded_hashes:
+            raise RuntimeError("template methodology source changed during request preparation")
     write_json(freeze_path, freeze_manifest(
         args,
         request_path=request_path,

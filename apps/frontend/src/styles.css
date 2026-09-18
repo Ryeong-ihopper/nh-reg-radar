@@ -1209,6 +1209,9 @@ button.annotation-box[aria-pressed="true"]:hover:not(:disabled), button.annotati
 .table-primary small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.7rem; }
 .table-row-link { display: inline-flex; min-height: 2rem; align-items: center; padding: 0.25rem 0.55rem; border: 1px solid #d5dbe6; border-radius: 0.45rem; color: #445065; background: #fff; font-size: 0.78rem; font-weight: 750; text-decoration: none; }
 .table-row-link:hover { border-color: #9abaaa; color: var(--primary-strong); background: var(--primary-soft); }
+.advertisement-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.35rem; white-space: nowrap; }
+.table-row-delete { border-color: #d7a3aa; color: #9f2938; background: #fff; cursor: pointer; }
+.table-row-delete:hover:not(:disabled) { border-color: #9f2938; color: #fff; background: #9f2938; }
 .advertisement-table th:last-child, .advertisement-table td:last-child { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -0.5rem 0 0.75rem -0.75rem rgb(23 32 51 / 35%); }
 .advertisement-table th:last-child { z-index: 2; background: #f8fafc; }
 .advertisement-table tbody tr:hover td:last-child { background: #f8fafc; }
@@ -1269,6 +1272,7 @@ button.annotation-box[aria-pressed="true"]:hover:not(:disabled), button.annotati
 .review-history li > div { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .review-history li small { color: var(--muted); font-size: 0.72rem; }
 .review-history li > a { width: fit-content; font-size: 0.78rem; font-weight: 750; }
+.review-history .review-history-action { min-height: 2.15rem; padding: 0.35rem 0.65rem; }
 
 .review-navigation { display: flex; gap: 0.25rem; margin: 1rem 0 1.25rem; padding: 0.3rem; overflow-x: auto; border: 1px solid var(--line); border-radius: 0.75rem; background: var(--surface-subtle); }
 .review-navigation a { flex: 0 0 auto; padding: 0.55rem 0.8rem; border-radius: 0.5rem; color: #596579; font-size: 0.82rem; font-weight: 750; text-decoration: none; }
@@ -1363,7 +1367,12 @@ main {
 }
 
 .app-workspace[data-operational="true"] {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 4.75rem minmax(0, 1fr);
+}
+.app-workspace[data-operational="true"] > main { grid-column: 2; }
+@media (max-width:900px) {
+  .app-workspace[data-operational="true"] { grid-template-columns: minmax(0, 1fr); }
+  .app-workspace[data-operational="true"] > main { grid-column: 1; }
 }
 
 .app-sidebar {
@@ -1623,9 +1632,22 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .validation-exclusion input[type="checkbox"] { width: 1rem; min-width: 1rem; height: 1rem; min-height: 1rem; margin: 0; padding: 0; accent-color: var(--primary); }
 .validation-exclusion p { margin: 0; color: var(--muted); font-size: 0.78rem; font-weight: 400; }
 /* Operational result workspace: one actual execution result with literal parser-evidence links. */
-.single-review-header { display:flex; justify-content:space-between; align-items:center; gap:24px; margin-bottom:16px; }
-.single-review-header h2 { margin:4px 0 8px; font-size:25px; }
-.single-review-grid { display:grid; grid-template-columns:minmax(0, 1.1fr) minmax(370px, 1fr); gap:20px; align-items:stretch; height:78vh; min-height:480px; }
+.single-review-header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.single-review-header h2 { margin:0 0 4px; font-size:20px; }
+.single-review-header .form-actions { margin:0; gap:8px; }
+.single-review-header .button-danger { border-color:var(--danger); background:var(--danger); }
+.single-review-header .button-danger:hover:not(:disabled) { border-color:#9f2938; background:#9f2938; }
+.result-progress { display:flex; gap:12px; font-size:13px; align-items:center; }
+.result-progress a { padding:6px; }
+.single-review-grid { display:grid; grid-template-columns:minmax(0, 1.1fr) minmax(370px, 1fr); gap:20px; align-items:stretch; height:calc(100dvh - 210px); min-height:360px; }
+.single-review :is(button, select, summary, .button-link) { min-height:36px; }
+.single-review summary { cursor:pointer; align-content:center; }
+@media (min-width:1001px) {
+  .single-review { display:flex; flex-direction:column; height:calc(100dvh - 124px); min-height:400px; padding:20px; }
+  .single-review-header { flex-shrink:0; }
+  .single-review-grid { flex:1; height:auto; min-height:0; }
+}
+.template-coverage-details { margin-bottom:10px; font-size:13px; color:var(--muted); }
 .operational-summary { display:grid; grid-template-columns:minmax(16rem, 1.6fr) repeat(3, minmax(6rem, 0.7fr)); gap:0.75rem; margin:0 0 1.25rem; }
 .operational-summary article { display:grid; align-content:start; gap:0.35rem; min-height:6.1rem; padding:1rem; border:1px solid #dce4ec; border-radius:0.75rem; background:#fff; }
 .operational-summary span, .operational-summary small { color:#66768a; font-size:0.78rem; }
@@ -1648,7 +1670,7 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .single-advertisement-canvas { position:relative; width:100%; }
 .single-advertisement-canvas img { display:block; width:100%; height:auto; }
 .review-region-outline { position:absolute; pointer-events:none; border:1px solid #3b82f640; box-sizing:border-box; }
-.review-evidence-highlight { position:absolute; pointer-events:none; border:2px solid #ea8300; background:#ffc23445; box-shadow:0 0 0 1px #fff8; box-sizing:border-box; }
+.review-evidence-highlight { position:absolute; pointer-events:none; border:1px solid #ce7200; background:#ffc23420; box-sizing:border-box; }
 .single-regulations { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .single-regulations-scroll { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:0 6px 12px 0; scrollbar-gutter:stable; }
 .single-regulations > .verdict-filter, .single-regulations-heading { flex-shrink:0; }

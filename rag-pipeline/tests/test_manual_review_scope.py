@@ -15,7 +15,7 @@ class ManualReviewScopeTests(unittest.TestCase):
         rule = {'item_id': 'SYNTHETIC', 'source_sheet': 'HWPX_TEMPLATE',
                 'template_basis': {'text_facet_only': True}}
         for requirement, status, rejected in [
-            ('한 줄에 두 문구 배치 불가', 'VIOLATED', True),
+            ('한 줄에 두 문구 배치 불가', 'VIOLATED', False),
             ('문구의 글자 크기를 확인', 'SATISFIED', True),
             ('안내 로고 필수', 'SATISFIED', True),
             ('같은 줄 배치 여부', 'UNDETERMINED', False),

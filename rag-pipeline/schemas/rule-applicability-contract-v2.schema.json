@@ -158,6 +158,13 @@
           },
           "source": {
             "const": "authoritative_rule_or_bound_guide"
+          },
+          "condition_role": {
+            "enum": [
+              "TRIGGER",
+              "EXEMPTION",
+              "REVIEW"
+            ]
           }
         },
         "additionalProperties": false

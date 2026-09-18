@@ -4,6 +4,7 @@ const PRODUCT_GROUP_LABELS: Record<string, string> = {
   DEMAND_DEPOSIT: "입출금",
   EVENT: "이벤트",
   LOAN: "대출",
+  INVESTMENT: "투자",
 };
 
 const ADVERTISEMENT_TYPE_LABELS: Record<string, string> = {

@@ -33,6 +33,12 @@ class AdIntakeContractTests(unittest.TestCase):
     def test_accepts_product_and_shared_assets(self):
         self.assertEqual(validate_ad_intake(ad_intake())["advertisement_name"], "복수 파일 광고")
 
+    def test_accepts_investment_product(self):
+        value = ad_intake()
+        value["products"][0]["product_group"] = "투자성"
+        value["products"][0]["product_classification_code"] = "투자성상품-ISA 일반"
+        self.assertEqual(validate_ad_intake(value)["products"][0]["product_group"], "투자성")
+
     def test_rejects_unassigned_asset(self):
         value = ad_intake()
         value["shared_asset_scopes"] = []

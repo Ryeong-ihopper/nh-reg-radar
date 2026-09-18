@@ -110,16 +110,16 @@ def _ungrounded_values(reason: str, window_text: str) -> list[str]:
 
 
 _ADDITION = re.compile(
-    r"(?<![\d.])(\d+(?:\.\d+)?(?:\s*\+\s*\d+(?:\.\d+)?)+)"
+    r"(?<![\d.])(\d+(?:\.\d+)?(?:\s*[+-]\s*\d+(?:\.\d+)?)+)"
     r"\s*(?:=|합계(?:는|은|가)?|총합(?:는|은)?)\s*(\d+(?:\.\d+)?)"
 )
 
 
 def _explicit_sum_matches(reason: str, value: str, window_values: set[Decimal]) -> bool:
     for expression, result in _ADDITION.findall(reason):
-        terms = [Decimal(term.strip()) for term in expression.split("+")]
+        terms = [Decimal(term) for term in re.findall(r'[+-]?\d+(?:\.\d+)?', re.sub(r'\s+', '', expression))]
         if (Decimal(result) == Decimal(value) == sum(terms)
-                and all(term in window_values for term in terms)):
+                and all(abs(term) in window_values for term in terms)):
             return True
     return False
 
@@ -148,8 +148,9 @@ def grounding_errors(
             f"({', '.join(ungrounded)})"
         )
     for expression, result in _ADDITION.findall(reason):
-        if sum(Decimal(term.strip()) for term in expression.split("+")) != Decimal(result):
-            errors.append(f"{item_id}: {location} 이유문의 덧셈 계산이 일치하지 않음")
+        terms = [Decimal(term) for term in re.findall(r'[+-]?\d+(?:\.\d+)?', re.sub(r'\s+', '', expression))]
+        if sum(terms) != Decimal(result):
+            errors.append(f"{item_id}: {location} 이유문의 합·차 계산이 일치하지 않음")
     products = {
         str(doc["product_id"]) for doc in documents
         if doc.get("product_id") and set(refs).intersection(doc.get("line_refs") or [])

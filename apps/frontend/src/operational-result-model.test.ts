@@ -67,4 +67,9 @@ describe("single operational result", () => {
     const region = {key:"R",pageNo:2,bbox:[0,0,100,100],width:100,height:200,precision:"REGION" as const};
     expect(resultEvidenceBoxes({...row,evidence_locations:[region]}, layout)).toEqual([region]);
   });
+  it("shows an uncertain region as a review target without calling it judgment evidence", () => {
+    const review = {key:"review",pageNo:1,bbox:[1,2,3,4],width:100,height:200,precision:"LINE" as const};
+    const row = {verdict:"판단불가", evidence:"", evidence_locations:[], review_locations:[review]} as unknown as ResultRow;
+    expect(resultEvidenceBoxes(row, layout)).toEqual([review]);
+  });
 });

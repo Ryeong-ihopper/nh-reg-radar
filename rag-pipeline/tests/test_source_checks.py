@@ -90,6 +90,28 @@ class SourceChecksTests(unittest.TestCase):
         result['requirement_checks'][0]['reason'] = '의무 문구가 원문과 다름'
         self.assertEqual(text_facet_claim_errors(payload, result), [])
 
+    def test_same_line_notice_violation_requires_two_notices_on_one_cited_line(self):
+        rule = {'item_id': 'SYN', 'guide': '한 줄에 2개 이상의 유의사항 문구 기재 불가능'}
+        result = {'item_id': 'SYN', 'requirement_checks': [{
+            'status': 'VIOLATED', 'finding_basis': 'OBSERVED',
+            'evidence_line_refs': ['L1'], 'reason': '한 줄에 복수 문구가 있습니다.',
+        }]}
+        payload = {'rules': [rule], 'documents': [{
+            'line_refs': ['L1', 'L2'], 'line_texts': {
+                'L1': '※ 금융소비자는 설명을 받을 권리가 있습니다.',
+                'L2': '※ 계약 전 상품설명서를 읽어보시기 바랍니다.',
+            },
+        }]}
+        self.assertTrue(source_claim_errors(payload, result))
+        result['requirement_checks'][0]['evidence_line_refs'] = ['L1', 'L2']
+        self.assertTrue(source_claim_errors(payload, result))
+        result['requirement_checks'][0]['evidence_line_refs'] = ['L3']
+        payload['documents'][0]['line_refs'].append('L3')
+        payload['documents'][0]['line_texts']['L3'] = (
+            '※ 설명을 받을 권리가 있습니다. ※ 계약 전 약관을 읽어야 합니다.'
+        )
+        self.assertEqual(source_claim_errors(payload, result), [])
+
     def test_arithmetic_contradiction_is_rejected_without_deciding_the_correct_verdict(self):
         payload = {'rules': [{'item_id': 'SYN', 'criterion': '산식의 정합성 확인'}]}
         result = {'item_id': 'SYN', 'reason': '합산 결과가 표기와 일치합니다.',

@@ -999,7 +999,7 @@ export interface components {
             password: string;
         };
         /** @enum {string} */
-        ProductGroup: "DEPOSIT" | "SAVINGS" | "DEMAND_DEPOSIT" | "EVENT" | "LOAN";
+        ProductGroup: "DEPOSIT" | "SAVINGS" | "DEMAND_DEPOSIT" | "EVENT" | "LOAN" | "INVESTMENT";
         ReindexStandardRequest: {
             chunkingPolicyVersion: string;
             /** @description Reproducibility label; M3 makes no provider network call. */

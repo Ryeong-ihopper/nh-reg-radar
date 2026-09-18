@@ -5,7 +5,7 @@ import urllib.error
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from operational_web_bridge import ExecutionBridge, ReviewCanceled
+from operational_web_bridge import ExecutionBridge, ReviewCanceled, ReviewPaused
 
 
 class SearchReadinessTests(unittest.TestCase):
@@ -39,13 +39,16 @@ class SearchReadinessTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "SEARCH_ENDPOINT_INVALID"):
                 self.bridge.wait_for_search_backend(self.bundle)
 
-    def test_wait_is_bounded_and_cancellable(self):
-        with patch("operational_web_bridge.time.monotonic", side_effect=[0, 301]), patch(
-            "operational_web_bridge.urllib.request.urlopen", side_effect=urllib.error.URLError("offline")
+    def test_offline_search_waits_until_shutdown_and_is_cancellable(self):
+        self.bridge.stopping.wait.side_effect = [False, True]
+        with patch(
+            "operational_web_bridge.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("offline"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "SEARCH_CONNECTION_UNAVAILABLE"):
+            with self.assertRaises(ReviewPaused):
                 self.bridge.wait_for_search_backend(self.bundle)
         self.bundle.job.status = "CANCELED"
+        self.bridge.stopping.wait.side_effect = None
         with patch("operational_web_bridge.urllib.request.urlopen") as request:
             with self.assertRaises(ReviewCanceled):
                 self.bridge.wait_for_search_backend(self.bundle)
@@ -72,17 +75,16 @@ class SearchReadinessTests(unittest.TestCase):
             ["http://bge.invalid/health", "http://gemma.invalid/v1/models"],
         )
 
-    def test_model_wait_is_bounded_without_running_inference(self):
+    def test_offline_model_waits_until_shutdown_without_running_inference(self):
         self.bridge.config["model_env"] = {
             "NH_GPU_BGE_ENDPOINT": "http://bge.invalid",
         }
+        self.bridge.stopping.wait.side_effect = [False, True]
         with patch(
-            "operational_web_bridge.time.monotonic", side_effect=[0, 301]
-        ), patch(
             "operational_web_bridge.urllib.request.urlopen",
             side_effect=urllib.error.URLError("offline"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "EMBEDDING_CONNECTION_UNAVAILABLE"):
+            with self.assertRaises(ReviewPaused):
                 self.bridge.wait_for_judgment_backends(self.bundle)
 
     def test_ssh_fallback_profile_checks_remote_services(self):

@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 
-VERSION = "reading-quality-gate-v3"
+VERSION = "reading-quality-gate-v4"
 
 
 def claims_disclosure_absence(check: dict[str, Any], result_reason: str = "") -> bool:
@@ -114,8 +114,6 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
     scope = (payload.get("evidence_scope") or {}).get(result.get("item_id")) or {}
     incomplete = (
         payload.get("parser_coverage") == "PARTIAL"
-        or bool(payload.get("reading_quality", {}).get("requires_review"))
-        or bool(unsafe)
         or scope.get("complete_ad_scan") is False
     )
     issues = []
@@ -144,7 +142,8 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
         absence = check.get("finding_basis") == "ABSENCE" or claims_disclosure_absence(
             check, str(result.get("reason") or "") if len(checks) == 1 else "")
         if absence and incomplete:
-            issues.append({"location": location, "code": "INCOMPLETE_READING_ABSENCE"})
+            issues.append({"location": location, "code": "INCOMPLETE_READING_ABSENCE",
+                "evidence_ids": [], "line_refs": []})
         elif check.get("finding_basis") == "OBSERVED":
             check_refs(check, location)
     return issues

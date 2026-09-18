@@ -138,13 +138,19 @@ def project_results(
         annotation = None
         locations = resolve_locations(integrated, judgment, evidence)
         if locations:
-            first = locations[0]
-            selected = [loc for loc in locations if loc["pageNo"] == first["pageNo"]]
-            boxes = [loc["bbox"] for loc in selected]
-            x, y = min(b[0] for b in boxes), min(b[1] for b in boxes)
-            w, h = max(b[2] for b in boxes) - x, max(b[3] for b in boxes) - y
+            # The result API has one coordinate slot.  Do not union disjoint
+            # cited lines into a page-sized rectangle; use the most focused
+            # exact location and leave all locations available in the
+            # operational workspace.
+            first = min(locations, key=lambda loc: (
+                loc["precision"] != "LINE",
+                (loc["bbox"][2] - loc["bbox"][0]) * (loc["bbox"][3] - loc["bbox"][1]),
+                loc["pageNo"], loc["bbox"][1], loc["bbox"][0],
+            ))
+            x, y = first["bbox"][0], first["bbox"][1]
+            w, h = first["bbox"][2] - x, first["bbox"][3] - y
             cw, ch = first["width"], first["height"]
-            approximate = any(loc["precision"] == "REGION" for loc in selected)
+            approximate = first["precision"] == "REGION"
             coordinate = dict(sourceWidth=cw, sourceHeight=ch, sourceUnit="px", x=x, y=y, width=w, height=h,
                               normalizedX=x/cw, normalizedY=y/ch, normalizedWidth=w/cw, normalizedHeight=h/ch,
                               rotation=0, coordinateConfidence=None)
@@ -192,6 +198,10 @@ def build_operational_server(args):
     )
     services = build_services(settings)
     # This loopback-only PoC viewer deliberately uses one fixed local account.
+    # Separate registrations support development comparisons; IDs and storage
+    # objects remain independent. Server deployment retains duplicate checks.
+    if server is None:
+        services.repository.allow_duplicate_advertisement_files = True
     # It is not a production authentication configuration.
     login_id = server.login_id if server else LOCAL_VIEWER_LOGIN
     password = server.password if server else LOCAL_VIEWER_PASSWORD
@@ -206,6 +216,7 @@ def build_operational_server(args):
     backend = create_app(settings, services)
     bridge.install(backend)
     app = FastAPI(docs_url=None, redoc_url=None)
+    app.add_event_handler("shutdown", bridge.pause_for_shutdown)
     entry_token = secrets.token_urlsafe(32)
 
     @app.get("/open/{token}")
@@ -282,7 +293,12 @@ def build_viewer(args):
         or _routing_value(result_routing, "product_subtype")
         or _routing_value(result_routing, "template_id")
     )
-    product_group = "LOAN" if product == "대출성" else "SAVINGS" if "적립식" in template else "DEPOSIT"
+    product_group = (
+        "LOAN" if product == "대출성"
+        else "INVESTMENT" if product == "투자성"
+        else "SAVINGS" if "적립식" in template
+        else "DEPOSIT"
+    )
     services.repository.add_advertisement(Advertisement(
         advertisement_id, args.original.stem, product_group, "NOTICE", None,
         user.department_id, user.user_id, "REVIEW_COMPLETED",
@@ -353,6 +369,8 @@ def build_viewer(args):
         return await call_next(request)
 
     app = FastAPI(docs_url=None, redoc_url=None)
+    if bridge:
+        app.add_event_handler("shutdown", bridge.pause_for_shutdown)
     entry_token = secrets.token_urlsafe(32)
     latest_id = services.repository.get_advertisement(advertisement_id).latest_review_id or review_id
     latest_bundle = services.reviews.repository.get(latest_id)

@@ -106,7 +106,7 @@ def validate_ad_intake(value: Any) -> dict[str, Any]:
 
     for index, raw in enumerate(products):
         product = _mapping(raw, f"products[{index}]")
-        if product.get("product_group") not in {"예금성", "대출성"}:
+        if product.get("product_group") not in {"예금성", "대출성", "투자성"}:
             raise ContractError(f"products[{index}].product_group is unsupported")
         _text(product.get("product_classification_code"), f"products[{index}].product_classification_code")
         collect(product.get("asset_scopes"), f"products[{index}]")

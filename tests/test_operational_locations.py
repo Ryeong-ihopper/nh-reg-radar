@@ -5,7 +5,99 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from operational_locations import (load_template_appropriate_judgments, resolve_locations,
-                                   saved_workspace, valid_box)
+                                   local_reading_review, resolve_review_locations,
+                                   saved_workspace, valid_box, with_rendered_line_locations,
+                                   verified_separate_notice_lines)
+
+
+def rendered_fixture():
+    doc = source()
+    doc['pages'][0]['regions'][0]['lines'][0].update(text='alpha beta', bbox=None)
+    layout = {'source': 'HWP 200-DPI render + parser visual projection', 'pages': [
+        {'page_no': 3, 'source_page_no': 3, 'canvas_w': 100, 'canvas_h': 200,
+         'regions': [{'lines': [{'text': 'alpha', 'bbox': [1, 2, 80, 20]},
+                               {'text': 'beta', 'bbox': [1, 22, 80, 40]}]}]}]}
+    return doc, layout
+
+
+def test_rendered_wrapped_line_preserves_source_and_uses_actual_page():
+    doc, layout = rendered_fixture()
+    original = copy.deepcopy((doc, layout))
+    linked = with_rendered_line_locations(doc, layout, 'FILE-b')
+    locations = resolve_locations(linked, {'evidence_line_refs': ['FILE-b::L1']}, {})
+    assert len(locations) == 2
+    assert all(x['pageNo'] == x['source_page_no'] == 3 for x in locations)
+    assert all(x['asset_id'] == 'FILE-b' for x in locations)
+    assert locations[0]['bbox'] == [1, 2, 80, 20]
+    assert (doc, layout) == original
+    assert linked['pages'] == doc['pages']
+
+
+def test_rendered_repeated_text_different_text_and_cross_asset_fail_closed():
+    doc, layout = rendered_fixture()
+    page = layout['pages'][0]
+    page['regions'].append(copy.deepcopy(page['regions'][0]))
+    assert not with_rendered_line_locations(doc, layout, 'FILE-b')['display_line_locations']
+    page['regions'].pop()
+    page['regions'][0]['lines'][1]['text'] = 'betA'
+    assert not with_rendered_line_locations(doc, layout, 'FILE-b')['display_line_locations']
+    page['regions'][0]['lines'][1]['text'] = 'beta'
+    page['asset_id'] = 'FILE-other'
+    assert not with_rendered_line_locations(doc, layout, 'FILE-b')['display_line_locations']
+    assert with_rendered_line_locations(doc, layout, 'FILE-other') == doc
+
+
+def test_rendered_semantic_duplicates_invalid_boxes_and_existing_geometry():
+    doc, layout = rendered_fixture()
+    line = doc['pages'][0]['regions'][0]['lines'][0]
+    duplicate = {**line, 'line_ref': 'duplicate'}
+    doc['pages'][0]['unassigned_lines'].append(duplicate)
+    assert not with_rendered_line_locations(doc, layout, 'FILE-b')['display_line_locations']
+    doc['pages'][0]['unassigned_lines'].pop()
+    layout['pages'][0]['regions'][0]['lines'][1]['bbox'] = [0, 0, 101, 200]
+    assert not with_rendered_line_locations(doc, layout, 'FILE-b')['display_line_locations']
+    line['bbox'] = [1, 2, 80, 20]
+    linked = with_rendered_line_locations(doc, layout, 'FILE-b')
+    assert resolve_locations(linked, {'evidence_line_refs': ['FILE-b::L1']}, {})[0]['pageNo'] == 2
+
+
+def test_same_line_notice_guidance_uses_exact_rendered_lines_without_visual_guessing():
+    document = source()
+    region = document['pages'][0]['regions'][0]
+    region['lines'] = [
+        {'line_ref': 'FILE-b::N1', 'text': '※ 금융소비자는 설명을 받을 권리가 있습니다.', 'bbox': None},
+        {'line_ref': 'FILE-b::N2', 'text': '※ 계약 전 상품설명서를 읽어보시기 바랍니다.', 'bbox': None},
+    ]
+    region['line_refs'] = ['FILE-b::N1', 'FILE-b::N2']
+    document['pages'][0]['unassigned_lines'] = []
+    document['display_line_locations'] = {
+        'FILE-b::N1': [{'pageNo': 2, 'bbox': [1, 10, 90, 20]}],
+        'FILE-b::N2': [{'pageNo': 2, 'bbox': [1, 30, 90, 40]}],
+    }
+    entry = {'template_basis': {
+        'manual_guidance': '한 줄에 2개 이상의 유의사항 문구 기재 불가능(은행연합회 지도사항)'
+    }}
+    assessment = verified_separate_notice_lines(document, entry)
+    assert assessment['notice_line_count'] == 2
+
+    raw = {'ads': [{'ad_id': 'ADV', 'candidates': [{'item_id': 'TPL-NOTICE', 'judgment': {
+        'verdict': 'COMPLIANT', 'reason': '유의사항 문구가 있습니다.', 'evidence_ids': [],
+        'evidence_line_refs': ['FILE-b::N1'], 'requirement_checks': []}}],
+        'deferred_rules': [{'item_id': 'TPL-NOTICE', 'title': '유의사항',
+            'facet': 'VISUAL_OR_STRUCTURE',
+            'reason': '텍스트 의무는 별도 판정하며 배치·로고·중첩 원문 구조는 사람 확인 필요',
+            **entry}]}]}
+    requests = [{'ad_id': 'ADV', 'rules': [{'item_id': 'TPL-NOTICE',
+        'source_sheet': 'HWPX_TEMPLATE', 'title': '유의사항', 'question': '유의사항'}],
+        'documents': []}]
+    row = saved_workspace(raw, requests, document, 'ADV')['rows'][0]
+    assert row['verdict'] == '충족'
+    assert row['judgment_scope'] == 'RULE'
+    assert '각 유의사항이 서로 다른 줄' in row['reason']
+
+    document['display_line_locations']['FILE-b::N2'][0]['bbox'] = [1, 12, 90, 22]
+    assert verified_separate_notice_lines(document, entry) is None
+    assert saved_workspace(raw, requests, document, 'ADV')['rows'][0]['verdict'] == '판단불가'
 
 
 def source():
@@ -125,6 +217,26 @@ def test_unassigned_and_asset_local_page_are_preserved():
     assert value[0]["precision"] == "LINE"
 
 
+def test_conditional_template_title_exposes_the_actual_condition():
+    raw = {"ads": [{"ad_id": "ADV", "product_name": "예금성05", "candidates": [{
+        "item_id": "TPL-CONDITIONAL",
+        "template_basis": {
+            "requirement_mode": "CONDITIONAL",
+            "fields": {"guidance": {"text": "생성형 AI 활용 시 필수\n추가 설명"}},
+        },
+        "judgment": {"verdict": "UNDETERMINED", "reason": "외부 조건 확인 필요",
+                     "evidence_ids": [], "evidence_line_refs": []},
+    }]}]}
+    requests = [{"ad_id": "ADV", "rules": [{
+        "item_id": "TPL-CONDITIONAL", "source_sheet": "HWPX_TEMPLATE",
+        "title": "유의사항", "question": "유의사항",
+    }], "documents": []}]
+
+    row = saved_workspace(raw, requests, source(), "ADV")["rows"][0]
+
+    assert row["title"] == "예금성05 · 유의사항 (생성형 AI 활용 시 필수)"
+
+
 def test_revoked_gate_does_not_expand_old_chunk_or_explicit_line_citations():
     for refs in ([], ["FILE-b::L1"]):
         judgment = {"verdict": "UNDETERMINED", "evidence_ids": ["E"], "evidence_line_refs": refs,
@@ -190,6 +302,45 @@ def test_region_selected_text_never_becomes_exact_line_fallback():
     assert resolve_locations(source(), {"evidence_ids": ["E"]}, {"E": doc})[0]["precision"] == "LINE"
     doc.pop("span_status")
     assert resolve_locations(source(), {"evidence_ids": ["E"]}, {"E": doc}) == []
+
+
+def test_multi_line_chunk_without_explicit_ref_is_not_drawn_as_a_wide_range():
+    document = source()
+    document['pages'][0]['regions'][0]['lines'].append(
+        {'line_ref': 'FILE-b::L2', 'text': 'second', 'bbox': [1, 22, 80, 28]})
+    doc = {'span_status': 'parser_line_exact', 'line_refs': ['FILE-b::L1', 'FILE-b::L2']}
+    assert resolve_locations(document, {'evidence_ids': ['E']}, {'E': doc}) == []
+    exact = resolve_locations(document, {'evidence_line_refs': ['FILE-b::L2']}, {})
+    assert [value['bbox'] for value in exact] == [[1, 22, 80, 28]]
+
+
+def test_uncertain_refs_are_exposed_as_review_locations_not_judgment_evidence():
+    judgment = {'verdict': 'UNDETERMINED', 'evidence_ids': [], 'evidence_line_refs': [],
+                'reading_quality_review': {'issues': [{
+                    'code': 'INCOMPLETE_READING_ABSENCE', 'location': 'requirement_checks:0',
+                    'evidence_ids': ['E'], 'line_refs': ['FILE-b::L1']} ]}}
+    evidence = {'E': {'span_status': 'parser_line_exact', 'line_refs': ['FILE-b::L1']}}
+    assert resolve_locations(source(), judgment, evidence) == []
+    review = resolve_review_locations(source(), judgment, evidence)
+    assert len(review) == 1 and review[0]['bbox'] == [1, 2, 80, 20]
+
+
+def test_local_uncertain_and_empty_regions_are_one_scoped_review_row():
+    document = source()
+    region = document['pages'][0]['regions'][0]
+    region.update(final_text='', text_selection={'needs_review': True})
+    line = document['pages'][0]['unassigned_lines'][0]
+    line['text_selection'] = {'selection_status': 'unassigned_parser_text'}
+    locations, issues = local_reading_review(document)
+    assert len(locations) == 2
+    assert {value['precision'] for value in locations} == {'LINE', 'REGION'}
+    assert {value['code'] for value in issues} == {'UNCERTAIN_LOCAL_READING', 'EMPTY_LOCAL_REGION'}
+
+    workspace = saved_workspace({'ads': [{'ad_id': 'ADV'}]}, [], document, 'ADV')
+    rows = [row for row in workspace['rows'] if row['item_id'] == 'LOCAL_READING_REVIEW']
+    assert len(rows) == 1 and rows[0]['verdict'] == '판단불가'
+    assert rows[0]['evidence_locations'] == []
+    assert len(rows[0]['review_locations']) == 2
 
 
 def test_invalid_geometry_and_unknown_refs_fail_closed():

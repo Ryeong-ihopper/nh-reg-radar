@@ -32,6 +32,7 @@ nh-ad-worker = { workspace = true }
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = ["rag-pipeline/legacy"]
 
 [tool.mypy]
 python_version = "3.11"

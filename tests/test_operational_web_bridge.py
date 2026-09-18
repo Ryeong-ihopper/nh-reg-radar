@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from operational_web_bridge import (  # noqa: E402
     ExecutionBridge, FULL_REVIEW, PARSER_REUSE_PARENT_STATUSES,
-    parser_layout, parser_runner_layout, registration_review_date,
+    ReviewPaused, parser_layout, parser_runner_layout, registration_review_date,
 )
 from nh_ad_backend.domain import Advertisement, AdvertisementFile, User  # noqa: E402
 from nh_ad_backend.main import build_services, create_app  # noqa: E402
@@ -184,7 +184,11 @@ class BridgeTests(unittest.TestCase):
             return (f'<tc><subList><p><run><t>{text}</t></run></p></subList>'
                     f'<cellAddr rowAddr="{y}" colAddr="{x}"/><cellSpan rowSpan="1" colSpan="1"/></tc>')
         template_xml = '<sec>'
-        for title in ("예금성상품-적립식", "대출성상품-상품명 노출"):
+        for title in (
+            "예금성상품-적립식",
+            "대출성상품-상품명 노출",
+            "투자성상품-개인종합자산관리계좌(ISA) 일반",
+        ):
             template_xml += f'<p><run><t>[{title}]</t></run></p><tbl rowCnt="2" colCnt="4">'
             for y, values in enumerate((("구분", "예시문구", "필수여부", "기재요령"),
                                         ("상품명", "일반상품", "O", "상품명 표시"))):
@@ -214,6 +218,19 @@ class BridgeTests(unittest.TestCase):
 
     def request(self):
         return self.services.reviews.request(self.actor, self.ad.advertisement_id, **self.options)
+
+    def test_process_shutdown_persists_review_for_same_id_resume(self):
+        bundle = self.request()
+        with patch.object(self.bridge, "stage", side_effect=ReviewPaused("SERVER_STOPPED")):
+            self.bridge.run(bundle, {})
+        self.assertEqual(bundle.review.status, "ANALYSIS_REQUESTED")
+        self.assertEqual(bundle.job.status, "RETRY_PENDING")
+        self.assertIsNone(bundle.job.failed_reason_code)
+        self.assertEqual(self.ad.review_status, "ANALYSIS_REQUESTED")
+        self.assertEqual(
+            self.bridge.links[bundle.review.review_id]["pause_reason"],
+            "SERVER_STOPPED",
+        )
 
     def test_parser_runner_layouts_are_explicit(self):
         legacy = parser_runner_layout({})
@@ -353,6 +370,85 @@ class BridgeTests(unittest.TestCase):
             self.request()
         self.assertEqual(ctx.exception.code, "REVIEW_ALREADY_RUNNING")
 
+    def test_delete_terminal_review_preserves_ad_and_restores_previous_round(self):
+        first = self.request()
+        first.job.status = "COMPLETED"
+        first.review.status = "REVIEW_COMPLETED"
+        self.bridge.active.discard(first.review.review_id)
+        second = self.request()
+        second.job.status = "FAILED"
+        second.review.status = "REVIEW_FAILED"
+        self.bridge.active.discard(second.review.review_id)
+        run_dir = self.bridge.root / "runs" / second.review.review_id
+        rag_dir = self.bridge.root / "rag-jobs" / "rag-delete"
+        run_dir.mkdir(parents=True)
+        rag_dir.mkdir(parents=True)
+        self.bridge.links[second.review.review_id] = {"rag_job_id": "rag-delete"}
+        self.bridge.decisions[second.review.review_id] = {"decision": "REJECTED"}
+        self.bridge.persist()
+
+        advertisement_id = self.bridge.delete_review(self.actor, second.review.review_id)
+
+        self.assertEqual(advertisement_id, self.ad.advertisement_id)
+        self.assertIsNone(self.services.reviews.repository.get(second.review.review_id))
+        self.assertIsNotNone(self.services.reviews.repository.get(first.review.review_id))
+        self.assertEqual(self.ad.latest_review_id, first.review.review_id)
+        self.assertEqual(self.ad.review_status, "REVIEW_COMPLETED")
+        self.assertNotIn(second.review.review_id, self.bridge.links)
+        self.assertNotIn(second.review.review_id, self.bridge.decisions)
+        self.assertFalse(run_dir.exists())
+        self.assertFalse(rag_dir.exists())
+
+    def test_delete_review_rejects_active_job_and_unprivileged_actor(self):
+        bundle = self.request()
+        with self.assertRaises(ServiceError) as active:
+            self.bridge.delete_review(self.actor, bundle.review.review_id)
+        self.assertEqual(active.exception.code, "REVIEW_IN_PROGRESS")
+        bundle.job.status = "FAILED"
+        self.bridge.active.discard(bundle.review.review_id)
+        user = User("product", "product", "product@localhost", hash_password("test-password"),
+                    "DPT-T", "Test", ("PRODUCT_DEPARTMENT_USER",))
+        self.services.repository.users[user.user_id] = user
+        with self.assertRaises(ServiceError) as denied:
+            self.bridge.delete_review(current_user(user), bundle.review.review_id)
+        self.assertEqual(denied.exception.code, "FORBIDDEN")
+        self.assertIsNotNone(self.services.reviews.repository.get(bundle.review.review_id))
+
+    def test_delete_latest_review_uses_newest_round_for_advertisement_list(self):
+        first = self.request()
+        first.job.status = "COMPLETED"
+        first.review.status = "REVIEW_COMPLETED"
+        self.bridge.active.discard(first.review.review_id)
+        second = self.request()
+        second.job.status = "FAILED"
+        second.review.status = "REVIEW_FAILED"
+        self.bridge.active.discard(second.review.review_id)
+
+        advertisement_id = self.bridge.delete_latest_review(self.actor, self.ad.advertisement_id)
+
+        self.assertEqual(advertisement_id, self.ad.advertisement_id)
+        self.assertIsNone(self.services.reviews.repository.get(second.review.review_id))
+        self.assertIsNotNone(self.services.reviews.repository.get(first.review.review_id))
+
+    def test_delete_latest_review_http_route_passes_scoped_write_guard(self):
+        app = create_app(self.settings, self.services)
+        self.bridge.install(app)
+        bundle = self.request()
+        bundle.job.status = "FAILED"
+        bundle.review.status = "REVIEW_FAILED"
+        self.bridge.active.discard(bundle.review.review_id)
+        with TestClient(app) as client:
+            path = f"/operational/advertisements/{self.ad.advertisement_id}/latest-review"
+            self.assertEqual(client.delete(path).status_code, 401)
+            token, _, _ = self.services.auth.login(
+                self.user.email, "test-password", "local", "test", "test"
+            )
+            response = client.delete(path, headers={"Authorization": f"Bearer {token}"})
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(self.services.reviews.repository.get(bundle.review.review_id))
+        self.assertEqual(self.ad.review_status, "UPLOADED")
+
     def test_unsupported_options_do_not_silently_run(self):
         for key, value in [("include_suggestion", True), ("include_opinion_draft", True),
                            ("review_types", ("REQUIRED_PHRASE",)), ("standard_effective_date", date(2000, 1, 1))]:
@@ -435,6 +531,10 @@ class BridgeTests(unittest.TestCase):
     def test_restart_resumes_interrupted_job_and_preserves_upload(self):
         bundle = self.request()
         self.bridge.stage(bundle, 1)
+        state = json.loads((self.root / "state" / "execution" / "web-state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["version"], 3)
+        self.assertNotIn("results", state)
+        self.assertTrue((self.root / "state" / "execution" / "web-results.json").is_file())
         other = build_services(self.settings)
         with patch.object(ExecutionBridge, "run") as run:
             restored = ExecutionBridge(other, self.root / "state", self.root / "config.json", Mock())
@@ -446,6 +546,33 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(value.job.status, "RUNNING")
         self.assertEqual(value.review.status, "ANALYZING")
         self.assertEqual(other.repository.get_advertisement("ADV-test").files[0].checksum, "abc")
+
+    def test_restart_recovers_review_failed_by_legacy_connection_timeout(self):
+        bundle = self.request()
+        self.bridge.stage(bundle, 0)
+        self.bridge.fail(
+            bundle,
+            "OPERATIONAL_EXECUTION_FAILED",
+            "SEARCH_CONNECTION_UNAVAILABLE: search tunnel was offline",
+        )
+        other = build_services(self.settings)
+        with patch.object(ExecutionBridge, "run") as run:
+            restored = ExecutionBridge(
+                other, self.root / "state", self.root / "config.json", Mock()
+            )
+            restored.pool.shutdown(wait=True)
+        run.assert_called_once()
+        self.addCleanup(restored.pool.shutdown, wait=True)
+        self.addCleanup(restored.rag.executor.shutdown, wait=True)
+        value = other.reviews.repository.get(bundle.review.review_id)
+        self.assertEqual(value.job.status, "RETRY_PENDING")
+        self.assertEqual(value.review.status, "ANALYSIS_REQUESTED")
+        self.assertIsNone(value.job.failed_reason_code)
+        self.assertTrue(
+            restored.links[bundle.review.review_id][
+                "recovered_transient_connection_failure"
+            ]
+        )
 
     def test_process_restart_reuses_same_review_parser_output_after_validation(self):
         template_id = "예금성상품-적립식"
@@ -488,10 +615,21 @@ class BridgeTests(unittest.TestCase):
             headers = {"Authorization": f"Bearer {token}"}
             capabilities = client.get("/operational/capabilities", headers=headers).json()
             self.assertNotIn("templates", capabilities)
+            self.assertEqual(capabilities["sourcePolicy"], "template-plus-v2")
+            self.assertEqual(capabilities["regulation"], "내부 심의 템플릿 + 규제목록 v2")
             self.assertEqual(
                 {row["label"] for row in capabilities["productClassifications"]},
-                {"예금성상품-적립식", "대출성상품-상품명 노출"},
+                {
+                    "예금성상품-적립식",
+                    "대출성상품-상품명 노출",
+                    "투자성상품-개인종합자산관리계좌(ISA) 일반",
+                },
             )
+            investment = next(
+                row for row in capabilities["productClassifications"]
+                if row["label"].startswith("투자성상품-")
+            )
+            self.assertEqual(investment["productGroup"], "INVESTMENT")
             self.assertEqual(client.put(url, headers=headers, json={"product_classification_code": "대출성상품-상품명 노출"}).status_code, 422)
             self.assertEqual(client.put(url, headers=headers, json={"product_classification_code": "예금성상품-적립식"}).status_code, 200)
             intake = {
@@ -588,6 +726,30 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(value["counts"], {"pages": 1, "regions": 1, "lines": 1})
         self.assertEqual(value["pages"][0]["regions"][0]["region_id"], "p1_r001")
         self.assertEqual(value["pages"][0]["regions"][0]["lines"][0]["line_ref"], "p1/p1_r001/L00")
+
+    def test_complete_rendered_line_projection_becomes_a_structural_observation(self):
+        document = {
+            "diagnostics": {"asset_pages": {"FILE-one": {"start": 1, "end": 1}}},
+            "pages": [{"page_no": 1, "regions": [{"lines": [
+                {"line_ref": "FILE-one::L1", "text": "첫 유의사항", "bbox": None},
+                {"line_ref": "FILE-one::L2", "text": "둘째 유의사항", "bbox": None},
+            ]}], "unassigned_lines": []}],
+        }
+        layout = {
+            "source": "HWP 200-DPI render + parser visual projection",
+            "pages": [{"page_no": 1, "canvas_w": 100, "canvas_h": 100,
+                "regions": [{"lines": [
+                    {"text": "첫 유의사항", "bbox": [1, 1, 80, 10]},
+                    {"text": "둘째 유의사항", "bbox": [1, 20, 80, 30]},
+                ]}]}],
+        }
+
+        self.bridge.attach_rendered_line_observation(document, layout)
+
+        self.assertEqual(document["diagnostics"]["rendered_line_projection"], {
+            "verified": True, "method": "EXACT_RENDERED_TEXT",
+            "semantic_line_count": 2, "rendered_line_count": 2,
+        })
 
     def test_workspace_and_download_share_saved_rows_including_partial_failures(self):
         bundle = self.request()

@@ -115,11 +115,25 @@ each rule, check every cited alias against that rule's allowlist. If the supplie
 citable evidence cannot support the assertion, report UNDETERMINED rather than
 substituting a different line or fabricating applicability support.
 
+An applicability condition can declare condition_role=EXEMPTION. If SCOPE is
+MATCHED, no review condition is triggered, and only EXEMPTION conditions remain
+UNDETERMINED, still evaluate every obligation. When every obligation is
+SATISFIED by direct cited advertisement text, return COMPLIANT even though the
+exemption itself is unknown: the advertisement is compliant whether the
+exemption applies or not. Do not use this rule for condition_role=TRIGGER. If
+the disclosure is missing, violated, or uncertain while its exemption is
+unknown, return UNDETERMINED rather than VIOLATION.
+
 사용자에게 보이는 reason·requirement 설명은 한국어로 작성한다. 규칙·근거 ID와
 enum 값은 지정된 영문을 그대로 유지하고, 원문 고유명사·수치는 번역하거나 바꾸지 않는다.
 
 Document lines maps L aliases to exact source text; line_bboxes maps the same
 aliases to coordinates. These are source lines, not new or independent evidence.
+For a source-line grouping obligation such as prohibiting two or more caution
+notices on one line, treat each supplied L alias as one verified source line.
+One caution sentence on one L line does not violate that rule. Return VIOLATED
+only when the same cited L line contains at least two distinct caution notices;
+name both notices in the reason. Separate L lines and a single notice are compliant.
 For every SATISFIED/VIOLATED OBSERVED check, cite the specific supporting L aliases
 when exact lines are supplied. An E region alone is insufficient: select the
 actual source sentence, not all lines in the region. Uncertain source readings
@@ -141,6 +155,10 @@ in its Korean reason: "검산: a+b-c != d", replacing variables with actual cite
 numbers. The sum/difference must really differ from the advertised result.
 Equal values are not violations. Complex or unresolved formulas need human
 review; do not invent a mismatch or sum alternative benefit conditions together.
+For a displayed range, test the full same-condition formula for membership,
+not equality to an arbitrary endpoint. Use "범위 검산: a+b-c not in [low,high]"
+only when the cited calculation is outside the cited interval. An ordinary
+notice that rates vary does not invalidate a fully specified example.
 Verify the arithmetic relationships actually asserted in the source. Separate
 the stated base example from conditional adjustments. An adjustment without a
 separately advertised total creates no extra equality to verify: do not demand
@@ -152,6 +170,10 @@ OCR/VLM reading uncertainty, not legal review. A shared Q entry does not mean
 the documents are independent readings or share a source location.
 If needs_review is true, do not establish a definitive observed fact from that
 document alone; use independently readable evidence or UNDETERMINED.
+uncertain_context is local. Its affected_rule_refs identifies the only rules
+whose source window touches that uncertain region. Do not turn a local reading
+or label review into parser_coverage=PARTIAL or an incomplete scan for other
+rules whose complete_ad_scan remains true.
 span_status=region_level_selected_text means the refs cover a source region,
 not an exact alignment of selected text. Cite an individual line only when its
 provided text directly supports the claim. Unknown precision is not line-exact.
@@ -347,7 +369,7 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
                 if value in evidence_to_ref and value not in line_citable_ids
             ] + allowed_lines,
             "line_refs": allowed_lines,
-            "complete_ad_scan": scope.get("complete_ad_scan") is True and not uncertain_documents,
+            "complete_ad_scan": scope.get("complete_ad_scan") is True,
         }
 
     rules = []
@@ -419,6 +441,9 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
                                "page_no": doc.get("page_no"),
                                "span_status": doc.get("span_status") or "unknown",
                                "text_selection": doc.get("text_selection") or {},
+                               "affected_rule_refs": [item_to_ref[item_id] for item_id in item_ids
+                                   if str(doc.get("evidence_id")) in set(map(str,
+                                       (evidence_scope.get(item_id) or {}).get("evidence_ids") or []))],
                                "citable": False} for doc in uncertain_documents],
         "documents": compact_documents,
         "reading_contexts": reading_contexts,
@@ -490,6 +515,12 @@ def _expand_model_response(
                     evidence_ids.append(value)
         return evidence_ids, line_refs
 
+    payload = json.loads(row["messages"][1]["content"])
+    rules_by_id = {
+        str(rule.get("item_id")): rule
+        for rule in payload.get("rules") or []
+        if isinstance(rule, dict) and rule.get("item_id")
+    }
     expanded = []
     expected_item_ids = list(row.get("requested_item_ids") or [])
     for result_index, model_result in enumerate(results):
@@ -602,6 +633,14 @@ def _expand_model_response(
         gate_lines = list(dict.fromkeys(gate_lines))
         gate_metadata = list(dict.fromkeys(gate_metadata))
 
+        rule = rules_by_id.get(str(item_id), {})
+        invariant_compliance = _obligations_satisfy_unknown_exemptions(
+            rule=rule,
+            scope_status=scope_status,
+            condition_checks=condition_checks,
+            review_statuses=review_statuses,
+            requirement_checks=checks,
+        )
         if applicability == "NOT_APPLICABLE":
             applicability_basis = "NOT_APPLICABLE"
             verdict = "NOT_APPLICABLE"
@@ -609,8 +648,9 @@ def _expand_model_response(
             app_ids, app_lines, metadata_fields = [], [], []
         elif applicability == "UNDETERMINED":
             applicability_basis = "UNDETERMINED"
-            verdict = "UNDETERMINED"
-            checks = []
+            verdict = "COMPLIANT" if invariant_compliance else "UNDETERMINED"
+            if not invariant_compliance:
+                checks = []
             app_ids, app_lines, metadata_fields = [], [], gate_metadata
         else:
             app_ids, app_lines, metadata_fields = gate_ids, gate_lines, gate_metadata
@@ -652,6 +692,59 @@ def _expand_model_response(
             "needs_researcher_review": verdict in {"VIOLATION", "UNDETERMINED"},
         })
     return {"ad_id": row["ad_id"], "results": expanded}
+
+
+def _obligations_satisfy_unknown_exemptions(
+    *,
+    rule: dict[str, Any],
+    scope_status: str | None,
+    condition_checks: Any,
+    review_statuses: list[Any],
+    requirement_checks: Any,
+) -> bool:
+    """Return true only when an unknown exemption cannot change compliance."""
+    contract = rule.get("condition_contract") or {}
+    conditions = {
+        str(value.get("condition_id")): value
+        for value in contract.get("applicability_conditions") or []
+        if isinstance(value, dict)
+    }
+    if scope_status != "MATCHED" or not isinstance(condition_checks, list):
+        return False
+    unknown_refs = [
+        str(value.get("condition_ref"))
+        for value in condition_checks
+        if isinstance(value, dict) and value.get("status") == "UNDETERMINED"
+    ]
+    if not unknown_refs or any(
+        (conditions.get(ref) or {}).get("condition_role") != "EXEMPTION"
+        for ref in unknown_refs
+    ):
+        return False
+    if any(
+        not isinstance(value, dict)
+        or value.get("status") not in {"SATISFIED", "UNDETERMINED"}
+        for value in condition_checks
+    ) or any(status != "NOT_TRIGGERED" for status in review_statuses):
+        return False
+    expected = [
+        str(value.get("obligation_id"))
+        for value in contract.get("obligation_checks") or []
+        if isinstance(value, dict)
+    ]
+    if not expected or not isinstance(requirement_checks, list):
+        return False
+    actual = [
+        str(value.get("obligation_ref")) if isinstance(value, dict) else ""
+        for value in requirement_checks
+    ]
+    return actual == expected and all(
+        value.get("status") == "SATISFIED"
+        and value.get("finding_basis") == "OBSERVED"
+        and bool(value.get("evidence_ids") or value.get("evidence_line_refs"))
+        for value in requirement_checks
+        if isinstance(value, dict)
+    )
 
 
 def validate_condition_contract_result(
@@ -735,7 +828,14 @@ def validate_condition_contract_result(
 
     applicability = result.get("applicability")
     obligations = contract.get("obligation_checks")
-    if applicability == "APPLICABLE" and isinstance(obligations, list):
+    invariant_compliance = _obligations_satisfy_unknown_exemptions(
+        rule=rule,
+        scope_status=scope_status,
+        condition_checks=checks,
+        review_statuses=review_statuses,
+        requirement_checks=result.get("requirement_checks"),
+    )
+    if (applicability == "APPLICABLE" or invariant_compliance) and isinstance(obligations, list):
         expected_obligations = [value["obligation_id"] for value in obligations]
         requirement_checks = result.get("requirement_checks")
         actual_obligations = [value.get("obligation_ref") if isinstance(value, dict) else None
@@ -817,7 +917,19 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             errors.append(f"{item_id}: NOT_APPLICABLE 정합성")
         if applicability == "APPLICABLE" and verdict == "NOT_APPLICABLE":
             errors.append(f"{item_id}: APPLICABLE 정합성")
-        if applicability == "UNDETERMINED" and verdict != "UNDETERMINED":
+        invariant_compliance = _obligations_satisfy_unknown_exemptions(
+            rule=rules_by_id.get(str(item_id), {}),
+            scope_status=(row.get("scope_check") or {}).get("status"),
+            condition_checks=row.get("condition_checks"),
+            review_statuses=[
+                value.get("status") for value in row.get("review_condition_checks") or []
+                if isinstance(value, dict)
+            ],
+            requirement_checks=row.get("requirement_checks"),
+        )
+        if applicability == "UNDETERMINED" and verdict != "UNDETERMINED" and not (
+            verdict == "COMPLIANT" and invariant_compliance
+        ):
             errors.append(f"{item_id}: applicability UNDETERMINED 정합성")
         if applicability_basis not in {
             "ADVERTISEMENT_EVIDENCE", "CONFIRMED_METADATA", "NOT_APPLICABLE", "UNDETERMINED",

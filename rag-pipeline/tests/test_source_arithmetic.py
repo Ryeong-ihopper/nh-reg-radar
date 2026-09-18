@@ -54,15 +54,91 @@ def test_decimal_sum_alternative_tier_and_exact_source_refs():
     assert validate(request(payload), {'ad_id': 'SYN', 'results': [result]}) == []
 
 
-@pytest.mark.parametrize(('before', 'after'), [('5.9%', '5.8%'), ('6.5%', '6.6%'),
+@pytest.mark.parametrize(('before', 'after'), [('5.9%', '6.0%'), ('연 4.1%', '연 5.1%'),
     ('급여이체 0.1%p', '급여이체 0.15%p'), ('최대 0.6%p', '최대 0.7%p')])
 def test_actual_mismatch_is_violation_with_a_source_witness(before, after):
     payload, rule = fixture()
     edit(payload, before, after)
     result = calculate_loan_rates(payload, rule)
     assert result['verdict'] == 'VIOLATION'
-    assert '!=' in result['reason']
+    assert '!=' in result['reason'] or 'not in' in result['reason']
     assert validate(request(payload), {'ad_id': 'SYN', 'results': [result]}) == []
+
+
+@pytest.mark.parametrize('note', [
+    '최저금리 및 최고금리는 신용등급, 대출조건 등에 따라 달리 적용될 수 있음',
+    '대출 금리는 신용등급, 대출금액에 따라 변동가능',
+    '최고금리는 고객별로 상이함',
+])
+@pytest.mark.parametrize('upper', ['6.5%', '6.6%'])
+def test_variable_range_endpoints_do_not_assert_example_equality(note, upper):
+    payload, rule = fixture()
+    edit(payload, '6.5%', upper)
+    edit(payload, '적용시)', '적용시) ※ ' + note)
+    result = calculate_loan_rates(payload, rule)
+    assert result['verdict'] == 'COMPLIANT'
+    assert 'in [' in result['reason']
+    assert validate(request(payload), {'ad_id': 'SYN', 'results': [result]}) == []
+
+
+@pytest.mark.parametrize('verdict', ['COMPLIANT', 'VIOLATION'])
+def test_saved_unsupported_cpu_decision_is_withheld_without_rewriting_raw(verdict):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+    from operational_locations import saved_workspace
+    payload, _ = fixture()
+    edit(payload, '적용시)', '적용시) ※ 다른 조건으로 최저금리 3.7% 적용')
+    candidate = {'item_id': 'SYN-MATH', 'source': 'saved#' + METHOD,
+                 'decision_trace': {'decision_source': METHOD},
+                 'judgment': {'verdict': verdict, 'reason': 'old calculation',
+                              'evidence_ids': ['E'], 'evidence_line_refs': list(payload['documents'][0]['line_texts'])}}
+    raw = {'ads': [{'ad_id': 'SYN', 'candidates': [candidate]}]}
+    before = copy.deepcopy(raw)
+    row = saved_workspace(raw, [payload], {'pages': []}, 'SYN')['rows'][0]
+    assert row['verdict'] == '판단불가'
+    assert row['evidence_line_refs'] == []
+    assert row['decision_trace']['decision_source'] == 'WITHHELD_BY_ARITHMETIC_GUARD'
+    assert raw == before
+
+
+@pytest.mark.parametrize(('base', 'verdict'), [
+    ('4.1', 'COMPLIANT'), ('4.4', 'COMPLIANT'), ('4.7', 'COMPLIANT'),
+    ('4.09', 'VIOLATION'), ('4.71', 'VIOLATION'),
+])
+def test_full_discounted_formula_range_interior_endpoints_and_outside(base, verdict):
+    payload, rule = fixture()
+    edit(payload, '연 4.1%', '연 ' + base + '%')
+    edit(payload, '적용시)', '적용시) ※ 대출 금리는 신용등급에 따라 변동가능')
+    result = calculate_loan_rates(payload, rule)
+    assert result['verdict'] == verdict
+    assert base + '+2.4-0.6' in result['reason']
+    assert validate(request(payload), {'ad_id': 'SYN', 'results': [result]}) == []
+
+
+@pytest.mark.parametrize(('expression', 'interval', 'valid'), [
+    ('4.09+2.4-0.6', '5.9,6.5', True),
+    ('4.7+2.4-0.6', '5.9,6.5', False),
+    ('4.4+2.4-0.6', '5.9,6.5', False),
+    ('4.09+2.4-0.6', '5.9,7.5', False),
+    ('4.09+2.4-0.6', '6.5,5.9', False),
+    ('4.0+2.4-0.6', '5.9,6.5', False),
+])
+def test_range_mismatch_witness_recomputes_and_requires_cited_interval(expression, interval, valid):
+    from rag.judgment.source_checks import has_arithmetic_mismatch_witness
+    text = '최저 연 5.9% ~ 최대 연 6.5%; 수치 4.09, 4.7, 4.4, 2.4, 0.6, 별도값 7.5'
+    assert has_arithmetic_mismatch_witness('범위 검산: ' + expression + ' not in [' + interval + ']', text) is valid
+
+
+@pytest.mark.parametrize(('expression', 'valid'), [
+    ('4.4+2.4-0.6 = 6.2', True),
+    ('4.4+2.4-0.6 = 6.3', False),
+    ('4.5+2.4-0.6 = 6.3', False),
+])
+def test_computed_rate_is_grounded_only_by_correct_cited_full_formula(expression, valid):
+    from rag.judgment.grounding import grounding_errors
+    docs = [{'product_id': 'P', 'line_refs': ['L'], 'line_texts': {'L': '금리 4.4%, 2.4%, 0.6%p'}}]
+    errors = grounding_errors(item_id='SYN', location='check', reason='계산: ' + expression + '%',
+                              line_refs=['L'], documents=docs)
+    assert (not errors) is valid
 
 
 @pytest.mark.parametrize(('before', 'after'), [

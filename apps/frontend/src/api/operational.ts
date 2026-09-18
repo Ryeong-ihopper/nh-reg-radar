@@ -6,13 +6,14 @@ export const operationalMode = import.meta.env.VITE_OPERATIONAL_REVIEW === "true
 export interface ProductClassificationOption {
   code: string;
   label: string;
-  productGroup: "DEPOSIT" | "LOAN";
+  productGroup: "DEPOSIT" | "LOAN" | "INVESTMENT";
 }
 
 export interface OperationalCapabilities {
   enabled: boolean;
   productClassifications: ProductClassificationOption[];
   regulation: string;
+  sourcePolicy: "template-only" | "template-plus-v2";
   progressMeaning: string;
 }
 
@@ -67,5 +68,16 @@ export async function cancelOperationalReview(token: string, reviewId: string): 
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(body.message ?? "검토 중단 요청에 실패했습니다.");
+  }
+}
+
+export async function deleteLatestOperationalReview(token: string, advertisementId: string): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/operational/advertisements/${encodeURIComponent(advertisementId)}/latest-review`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { message?: string };
+    throw new Error(body.message ?? "심의 결과 삭제에 실패했습니다.");
   }
 }

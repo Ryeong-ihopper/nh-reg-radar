@@ -57,7 +57,9 @@ class SearchIntegrityTests(unittest.TestCase):
         ]
         with patch.object(retrieval.v2_source, "build", return_value=(rows, [])):
             selected, catalog = retrieval.load_scope(include_layout=True)
-        self.assertEqual([row["id"] for row in selected], ["common", "loan"])
+        self.assertEqual(
+            [row["id"] for row in selected], ["common", "loan", "investment"]
+        )
         self.assertEqual(len(catalog), 3)
         rule = {"required_medium": "레이아웃", "title": "글자 크기"}
         self.assertFalse(runner.automated_input_ready(rule, {"pages": []}))

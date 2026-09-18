@@ -12,7 +12,7 @@ from .reading_quality import needs_reading_review
 
 
 CONFIRMED_STATUSES = {"confirmed", "verified", "provided"}
-SUPPORTED_PRODUCT_GROUPS = {"예금성", "대출성"}
+SUPPORTED_PRODUCT_GROUPS = {"예금성", "대출성", "투자성"}
 
 REVIEW_NUMBER = re.compile(
     r"(?:(?:준법감시인\s*)?(?:심의필|심사필)(?:번호)?\s*[:：]?\s*"
@@ -75,7 +75,7 @@ def require_confirmed_product_group(routing: dict[str, Any]) -> str:
         value = confirmed_value(raw)
     if value not in SUPPORTED_PRODUCT_GROUPS:
         raise ValueError(
-            "product_group must be 예금성 or 대출성 with status "
+            "product_group must be 예금성, 대출성, or 투자성 with status "
             "confirmed, verified, or provided"
         )
     return str(value)

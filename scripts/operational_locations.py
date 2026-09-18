@@ -1,4 +1,4 @@
-"""Saved evidence -> display geometry. Never infer source links from text similarity."""
+"""Saved evidence -> display geometry. Never use fuzzy text similarity."""
 from __future__ import annotations
 
 import math
@@ -10,10 +10,12 @@ from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "rag-pipeline"))
-from rag.judgment.reading_quality import apply_reading_guard, project_reading_citations  # noqa: E402
+from rag.judgment.reading_quality import (VERSION as READING_QUALITY_VERSION, apply_reading_guard,
+                                          needs_reading_review, project_reading_citations)  # noqa: E402
 from rag.judgment.source_checks import unresolved_applicability, template_heading_only_citation  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.grounding import cited_window_text, ungrounded_source_quotes  # noqa: E402
+from rag.templates.catalog import required_observation_medium  # noqa: E402
 
 
 def load_template_appropriate_judgments(path):
@@ -87,6 +89,66 @@ def page_asset(document, page):
     return None, number
 
 
+def with_rendered_line_locations(document, layout, asset_id):
+    """Display-only exact alignment for a single HWP asset's saved render.
+
+    Keep semantic refs/pages immutable. Only whitespace may differ; a wrapped
+    sentence must match a unique contiguous run within one visual region.
+    Repeated semantic text or repeated visual matches remain unlinked.
+    """
+    if layout.get("source") != "HWP 200-DPI render + parser visual projection":
+        return document
+    assets = (document.get("diagnostics") or {}).get("asset_pages") or {}
+    if len(assets) != 1 or asset_id not in assets:
+        return document
+    def normalize(text):
+        return re.sub(r"\s+", "", str(text or ""))
+    semantic = [(page, line) for page in document.get("pages", [])
+                for line in page_lines(page) if line.get("line_ref")]
+    counts = {}
+    for _, line in semantic:
+        text = normalize(line.get("text") or line.get("parser_text"))
+        counts[text] = counts.get(text, 0) + 1
+    mappings = {}
+    for page, line in semantic:
+        text = normalize(line.get("text") or line.get("parser_text"))
+        if not text or counts[text] != 1 or valid_box(
+                line.get("bbox"), page.get("canvas_w"), page.get("canvas_h")):
+            continue
+        matches = []
+        for visual_page in layout.get("pages", []):
+            if visual_page.get("asset_id") not in (None, asset_id):
+                continue
+            for region in visual_page.get("regions", []):
+                lines = region.get("lines", [])
+                for start in range(len(lines)):
+                    joined, run = "", []
+                    for visual_line in lines[start:]:
+                        part = normalize(visual_line.get("text"))
+                        if not part or not valid_box(visual_line.get("bbox"),
+                                visual_page.get("canvas_w"), visual_page.get("canvas_h")):
+                            break
+                        joined += part
+                        run.append(visual_line)
+                        if not text.startswith(joined):
+                            break
+                        if joined == text:
+                            matches.append((visual_page, run))
+                            break
+        if len(matches) != 1:
+            continue
+        visual_page, run = matches[0]
+        ref = line["line_ref"]
+        mappings[ref] = [{
+            "key": f"{ref}:render:{index}", "pageNo": visual_page["page_no"],
+            "bbox": list(item["bbox"]), "width": visual_page["canvas_w"],
+            "height": visual_page["canvas_h"], "asset_id": asset_id,
+            "source_page_no": visual_page.get("source_page_no") or visual_page["page_no"],
+            "precision": "LINE", "mapping_method": "EXACT_RENDERED_TEXT",
+        } for index, item in enumerate(run)]
+    return {**document, "display_line_locations": mappings}
+
+
 def resolve_locations(document, judgment, evidence):
     """Exact parser refs or explicitly approximate source regions, never guessed lines."""
     judgment = project_reading_citations(judgment)
@@ -96,8 +158,13 @@ def resolve_locations(document, judgment, evidence):
     cited = [evidence[eid] for eid in judgment.get("evidence_ids", []) if eid in evidence]
     refs = list(dict.fromkeys(judgment.get("evidence_line_refs") or []))
     if not refs:
+        # An evidence chunk containing several lines does not identify which
+        # line supports the judgment.  Showing the whole chunk as one apparent
+        # source range made unrelated text look like the cited sentence.  A
+        # line fallback is safe only when the cited document has one exact line.
         refs = list(dict.fromkeys(ref for doc in cited
                     if doc.get("span_status") in {"parser_line_exact", "selected_text_line_aligned"}
+                    and len(doc.get("line_refs") or []) == 1
                     for ref in doc.get("line_refs", [])))
     locations = []
 
@@ -114,6 +181,8 @@ def resolve_locations(document, judgment, evidence):
         if ref in index:
             page, line = index[ref]
             append(page, line.get("bbox"), ref, "LINE")
+            if not valid_box(line.get("bbox"), page.get("canvas_w"), page.get("canvas_h")):
+                locations.extend(copy.deepcopy(document.get("display_line_locations", {}).get(ref, [])))
     # A selected VLM passage with no proven line alignment can identify its
     # source region, but must not be presented as an exact parser-line quote.
     seen_regions = set()
@@ -131,6 +200,62 @@ def resolve_locations(document, judgment, evidence):
                 if region.get("region_id") == key[1]:
                     append(page, region.get("bbox"), f"region:{key[0]}:{key[1]}", "REGION")
     return locations
+
+
+def resolve_review_locations(document, judgment, evidence):
+    """Map uncertain source regions as review targets, never as judgment proof."""
+    issues = (judgment.get("reading_quality_review") or {}).get("issues") or []
+    ids = list(dict.fromkeys(str(value) for issue in issues
+                            for value in issue.get("evidence_ids") or []))
+    refs = list(dict.fromkeys(str(value) for issue in issues
+                             for value in issue.get("line_refs") or []))
+    if not ids and not refs:
+        return []
+    return resolve_locations(document, {"evidence_ids": ids, "evidence_line_refs": refs}, evidence)
+
+
+def local_reading_review(document):
+    """Return exact local parser-review targets without changing ad coverage."""
+    locations, issues, seen = [], [], set()
+
+    def append(page, value, key, precision, codes):
+        width, height, box = page.get("canvas_w"), page.get("canvas_h"), value.get("bbox")
+        if not valid_box(box, width, height) or key in seen:
+            return
+        seen.add(key)
+        asset, source_page = page_asset(document, page)
+        locations.append({"key": key, "pageNo": page["page_no"], "bbox": box,
+                          "width": width, "height": height, "asset_id": asset,
+                          "source_page_no": source_page, "precision": precision})
+        issues.extend({"location": key, "code": code} for code in codes)
+
+    for page in document.get("pages") or []:
+        for number, region in enumerate(page.get("regions") or []):
+            uncertain = needs_reading_review(region)
+            # Missing final_text in legacy data is not evidence of an empty
+            # region.  Current parser output explicitly writes the field.
+            empty = "final_text" in region and not str(region.get("final_text") or "").strip()
+            region_id = region.get("region_id") or number
+            if empty:
+                codes = ["EMPTY_LOCAL_REGION"]
+                if uncertain:
+                    codes.append("UNCERTAIN_LOCAL_READING")
+                append(page, region, f"reading-region:{page['page_no']}:{region_id}", "REGION", codes)
+            elif uncertain:
+                before = len(locations)
+                for line_number, line in enumerate(region.get("lines") or []):
+                    line_ref = line.get("line_ref") or line_number
+                    append(page, line, f"reading-line:{page['page_no']}:{line_ref}", "LINE",
+                           ["UNCERTAIN_LOCAL_READING"])
+                if len(locations) == before:
+                    append(page, region, f"reading-region:{page['page_no']}:{region_id}", "REGION",
+                           ["UNCERTAIN_LOCAL_READING"])
+        for number, line in enumerate(page.get("unassigned_lines") or []):
+            if needs_reading_review(line):
+                line_ref = line.get("line_ref") or number
+                append(page, line, f"reading-line:{page['page_no']}:{line_ref}", "LINE",
+                       ["UNCERTAIN_LOCAL_READING"])
+    return locations, issues
 
 
 def saved_workspace(raw, requests, document, advertisement_id, discovery=None, reading_audits=None, rule_metadata=None):
@@ -165,6 +290,16 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 candidate_rule = rules.get(candidate['item_id'], {})
                 prediction = project_reading_citations(candidate.get("judgment") or {})
                 arithmetic_result = arithmetic.get((key, candidate['item_id']))
+                arithmetic_withheld = False
+                arithmetic_review_locations = []
+                previous_arithmetic = (candidate.get('decision_trace') or {}).get('decision_source') == ARITHMETIC_METHOD or str(candidate.get('source') or '').endswith('#' + ARITHMETIC_METHOD)
+                if (previous_arithmetic and (key, candidate['item_id']) in reading_payloads
+                        and arithmetic_result is None and prediction.get('verdict') in {'COMPLIANT', 'VIOLATION'}):
+                    arithmetic_withheld = True
+                    arithmetic_review_locations = resolve_locations(document, prediction, evidence)
+                    prediction = {**prediction, 'verdict': 'UNDETERMINED',
+                                  'evidence_ids': [], 'evidence_line_refs': [], 'requirement_checks': [],
+                                  'reason': '기존 자동 검산의 확정 판정을 보류했습니다. 원문의 금리 범위·적용 조건과 계산값의 대응이 현재 검산 요건을 충족하지 않습니다. 범위의 끝값을 계산 결과와 임의로 같다고 가정하거나, 범위 안에 있다는 이유만으로 전체 수치를 적정 처리할 수 없습니다.'}
                 if arithmetic_result and not prediction.get('reading_quality_review'):
                     prediction = arithmetic_result
                 applicability_audit = None
@@ -213,9 +348,18 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 if not text:
                     text = "\n\n".join(doc.get("text", "") for doc in cited)
                 title = rule.get("title") or item_id
+                template_basis = candidate.get("template_basis") or {}
+                if template_basis.get("requirement_mode") == "CONDITIONAL":
+                    guidance = str(
+                        ((template_basis.get("fields") or {}).get("guidance") or {}).get("text")
+                        or ""
+                    ).strip().splitlines()
+                    if guidance:
+                        title = f"{title} ({guidance[0]})"
                 if ad.get("product_name"):
                     title = f"{ad['product_name']} · {title}"
                 locations = resolve_locations(document, prediction, evidence)
+                review_locations = arithmetic_review_locations or resolve_review_locations(document, prediction, evidence)
                 location_status = "MAPPED" if locations else "NO_CITATION"
                 if not locations and text:
                     location_status = "UNRESOLVED_REFERENCE"
@@ -240,6 +384,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                     "evidence_ids": prediction.get("evidence_ids", []),
                     "evidence_line_refs": prediction.get("evidence_line_refs", []),
                     "evidence_locations": locations,
+                    "review_locations": review_locations,
                     "evidence_location_status": location_status,
                     "reading_quality_review": prediction.get("reading_quality_review"),
                     "rule_basis": candidate.get("rule_basis"),
@@ -247,7 +392,10 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                         'model_result_source': candidate.get('source'),
                         'evidence_ids': prediction['evidence_ids'],
                         'evidence_line_refs': prediction['evidence_line_refs']}
-                        if arithmetic_result and prediction is arithmetic_result else candidate.get("decision_trace")),
+                        if arithmetic_result and prediction is arithmetic_result else
+                        {'decision_source': 'WITHHELD_BY_ARITHMETIC_GUARD',
+                         'original_decision_source': ARITHMETIC_METHOD}
+                        if arithmetic_withheld else candidate.get("decision_trace")),
                     "judgment_scope": "TEXT_ONLY" if (candidate.get("template_basis") or {}).get("text_facet_only") else "RULE",
                     "model_assessment": applicability_audit or ((reading_audits or {}).get((key, item_id))
                     if prediction.get("reading_quality_review") else None),
@@ -285,7 +433,32 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 break
     coverage = [ad.get('template_coverage') or discoveries.get(ad.get('scope_id') or ad['ad_id'], {}).get('template_coverage')
                 for ad in ads]
-    rows, excluded, omissions = consolidate_review_rows(rows, review_rows, deferred, scoped, coverage)
+    rows, excluded, omissions = consolidate_review_rows(
+        rows, review_rows, deferred, scoped, coverage, document=document
+    )
+    reading_locations, reading_issues = local_reading_review(document)
+    if reading_locations:
+        rows.append({
+            "row_id": f"{advertisement_id}:local-reading-review",
+            "scope_id": advertisement_id,
+            "item_id": "LOCAL_READING_REVIEW",
+            "title": "원문 판독 확인",
+            "question": "판독이 확정되지 않은 영역을 원본에서 확인했는가?",
+            "criterion": "",
+            "verdict": "판단불가",
+            "reason": (f"광고 파일과 페이지 스캔은 완료됐지만 텍스트 판독이 확정되지 않은 "
+                       f"위치 {len(reading_locations)}곳이 있습니다. 표시된 위치만 원본에서 확인해야 합니다."),
+            "evidence": "",
+            "evidence_ids": [],
+            "evidence_line_refs": [],
+            "evidence_locations": [],
+            "review_locations": reading_locations,
+            "evidence_location_status": "NO_CITATION",
+            "reading_quality_review": {"policy": READING_QUALITY_VERSION, "issues": reading_issues},
+            "rule_basis": None,
+            "judgment_scope": "TEXT_ONLY",
+            "model_assessment": None,
+        })
     return {"rows": rows, "review_candidate_rows": [], "excluded_rows": excluded,
             "execution_omissions": omissions,
             "template_coverage": [value for value in coverage if value],
@@ -295,7 +468,63 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
             "deferred_rules": []}
 
 
-def consolidate_review_rows(rows, review_rows, deferred, scoped, coverage):
+def verified_separate_notice_lines(document, entry):
+    """Resolve the narrow same-line prohibition from exact rendered line groups.
+
+    This never estimates font, colour or visibility. It only accepts a complete
+    exact-text mapping and verifies that separately marked notice paragraphs do
+    not occupy the same rendered line. Ambiguous or unmarked structures remain
+    manual.
+    """
+    basis = entry.get("template_basis") or {}
+    fields = basis.get("fields") or {}
+    guidance = str(
+        basis.get("manual_guidance")
+        or (fields.get("guidance") or {}).get("text")
+        or entry.get("reason")
+        or ""
+    )
+    if required_observation_medium(guidance)[2] != "원문줄구조":
+        return None
+    mappings = document.get("display_line_locations") or {}
+    source_lines = {
+        line["line_ref"]: str(line.get("text") or line.get("parser_text") or "").strip()
+        for page in document.get("pages", [])
+        for line in page_lines(page)
+        if line.get("line_ref") and str(line.get("text") or line.get("parser_text") or "").strip()
+    }
+    if not source_lines or any(ref not in mappings for ref in source_lines):
+        return None
+    notices = {
+        ref: text for ref, text in source_lines.items()
+        if re.match(r"^\s*(?:※|\*|•|●)\s*\S", text)
+    }
+    if not notices:
+        return None
+    # Two independently marked notices inside one canonical line are already
+    # ambiguous even before considering rendered coordinates.
+    if any(len(re.findall(r"(?:^|\s)(?:※|\*|•|●)\s*\S", text)) > 1
+           for text in notices.values()):
+        return None
+    occupied = []
+    for ref in notices:
+        for location in mappings[ref]:
+            box = location.get("bbox") or []
+            if len(box) != 4:
+                return None
+            occupied.append((ref, location.get("pageNo"), box))
+    for index, (left_ref, left_page, left_box) in enumerate(occupied):
+        for right_ref, right_page, right_box in occupied[index + 1:]:
+            if left_ref == right_ref or left_page != right_page:
+                continue
+            overlap = min(left_box[3], right_box[3]) - max(left_box[1], right_box[1])
+            if overlap > 0.5 * min(left_box[3] - left_box[1], right_box[3] - right_box[1]):
+                return None
+    return {"guidance": guidance, "notice_line_refs": list(notices),
+            "notice_line_count": len(notices), "method": "EXACT_RENDERED_TEXT_LINES"}
+
+
+def consolidate_review_rows(rows, review_rows, deferred, scoped, coverage, *, document=None):
     """One visible disposition per scope/item; source_ads retains raw history."""
     by_pair = {(row['scope_id'], row['item_id']): row for row in rows}
     for row in review_rows:
@@ -331,6 +560,14 @@ def consolidate_review_rows(rows, review_rows, deferred, scoped, coverage):
                 'template_requirement': basis.get('requirement_mode'),
                 'rule_basis': entry.get('rule_basis'), 'judgment_scope': 'RULE'}
         row = by_pair[pair]
+        line_observation = verified_separate_notice_lines(document or {}, entry)
+        if line_observation and row.get("verdict") == "충족":
+            row["judgment_scope"] = "RULE"
+            row["line_structure_assessment"] = line_observation
+            detail = "줄 단위 원본 확인: 각 유의사항이 서로 다른 줄에 있어 한 줄의 복수 유의사항 문구가 확인되지 않았습니다."
+            if detail not in row.get("reason", ""):
+                row["reason"] = (row.get("reason", "") + "\n" + detail).strip()
+            continue
         reasons = row.setdefault('manual_review_reasons', [])
         if reason in reasons:
             continue

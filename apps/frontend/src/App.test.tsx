@@ -403,8 +403,29 @@ test("shows the current workflow step and links completed review history back to
   expect(screen.getByRole("navigation", { name: "광고 심의 업무 단계" }).querySelector('[aria-current="step"]')).toHaveTextContent("원본 확인");
   expect(screen.getByText("예금")).toBeInTheDocument();
   expect(screen.getByText("영업점 전단")).toBeInTheDocument();
-  expect(await screen.findByRole("link", { name: "결과 확인" })).toHaveAttribute("href", "/reviews/REV-DONE/results");
+  expect(await screen.findByRole("link", { name: "다음 단계: 결과 확인" })).toHaveAttribute("href", "/reviews/REV-DONE/results");
+  expect(screen.getByRole("link", { name: "결과 확인" })).toHaveClass("button-link", "button-secondary");
   expect(screen.queryByText("REVIEW_COMPLETED")).not.toBeInTheDocument();
+});
+
+test("shows an action-shaped link from the original preview to a running review", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/advertisements/ADV-RUNNING/reviews")) {
+      return response([{ reviewId: "REV-RUNNING", reviewRound: 1, reviewStatus: "ANALYZING", overallRiskLevel: null, requestedAt: "2026-09-17T01:00:00Z", completedAt: null }]);
+    }
+    if (url.endsWith("/advertisements/ADV-RUNNING")) {
+      return response({ advertisementId: "ADV-RUNNING", advertisementName: "진행 광고", productGroup: "DEPOSIT", advertisementType: "SMS", departmentId: "DPT-001", registeredBy: "user001", registeredAt: "2026-09-17T00:00:00Z", reviewStatus: "ANALYZING", files: [] });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-RUNNING"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  const next = await screen.findByRole("link", { name: "검토 진행 화면으로 이동" });
+  expect(next).toHaveClass("button-link");
+  expect(next).toHaveAttribute("href", "/reviews/REV-RUNNING/status");
+  expect(screen.getByRole("link", { name: "진행 화면으로 이동" })).toHaveClass("button-link", "button-secondary");
 });
 
 test("rejects an untrusted preview path without requesting storage or foreign URLs", async () => {

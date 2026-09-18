@@ -86,6 +86,7 @@ class ServiceConfig:
     source_policy: str = "template-only"
     decision_guide_path: Path | None = None
     template_hwpx_path: Path | None = None
+    template_methodology_dir: Path | None = None
     dgx_host: str | None = None
     dgx_key: Path | None = None
     model_env: dict[str, str] = dataclass_field(default_factory=dict)
@@ -117,6 +118,11 @@ def config_from_env() -> ServiceConfig:
             os.environ.get("DGX_GEMMA_MODEL", "gemma-4-26b-NVFP4-MTP"),
         ),
         template_hwpx_path=Path(os.environ["NH_TEMPLATE_HWPX_PATH"]) if os.environ.get("NH_TEMPLATE_HWPX_PATH") else None,
+        template_methodology_dir=(
+            Path(os.environ["NH_TEMPLATE_METHODOLOGY_DIR"])
+            if os.environ.get("NH_TEMPLATE_METHODOLOGY_DIR")
+            else None
+        ),
         decision_guide_path=(
             Path(os.environ["NH_DECISION_GUIDE_PATH"])
             if os.environ.get("NH_DECISION_GUIDE_PATH")
@@ -301,6 +307,10 @@ class OperationalReviewService:
             raise RuntimeError("template-only review requires a general template HWPX")
         if config.source_policy == "template-plus-v2" and not config.regulation_path.is_file():
             raise RuntimeError(f"regulation v2 not found: {config.regulation_path}")
+        if config.template_methodology_dir and not config.template_methodology_dir.is_dir():
+            raise RuntimeError(
+                f"template methodology directory not found: {config.template_methodology_dir}"
+            )
         self.store = JobStore(config.jobs_dir)
         stale_job_ids = self.store.job_ids_with_status("RUNNING")
         self.store.interrupt_stale_jobs()
@@ -568,6 +578,11 @@ class OperationalReviewService:
                 )
             if self.config.template_hwpx_path:
                 command.extend(["--template-hwpx", str(self.config.template_hwpx_path)])
+            if self.config.template_methodology_dir:
+                command.extend([
+                    "--template-methodology-dir",
+                    str(self.config.template_methodology_dir),
+                ])
             previous_checkpoint = self._previous_checkpoint(directory, attempt)
             if previous_checkpoint:
                 command.extend(["--resume-checkpoint", str(previous_checkpoint)])

@@ -46,7 +46,11 @@ REFERENCE_SCHEMA: dict[str, object] = {
         "title": {"type": "string", "minLength": 1},
         "content": {"type": "string", "minLength": 1},
         "evidence_type": {"type": "string", "enum": ["LAW", "REGULATION"]},
-        "product_group": {"enum": ["DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", None]},
+        "product_group": {
+            "enum": [
+                "DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", "INVESTMENT", None
+            ]
+        },
         "advertisement_type": {
             "enum": [
                 "BRANCH_FLYER",
@@ -261,7 +265,9 @@ def _validated_reference(payload: object) -> ExtractedReference:
         content=_required_string(payload, "content"),
         evidence_type=_enum_string(payload, "evidence_type", {"LAW", "REGULATION"}),
         product_group=_optional_enum(
-            payload, "product_group", {"DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN"}
+            payload,
+            "product_group",
+            {"DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", "INVESTMENT"},
         ),
         advertisement_type=_optional_enum(
             payload,

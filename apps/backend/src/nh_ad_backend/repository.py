@@ -52,6 +52,7 @@ class InMemoryRepository:
 
     def __init__(self, users: Iterable[User] = ()) -> None:
         self._lock = RLock()
+        self.allow_duplicate_advertisement_files = False
         self.users = {user.user_id: user for user in users}
         self.refresh_sessions: dict[str, RefreshSession] = {}
         self.advertisements: dict[str, Advertisement] = {}
@@ -123,7 +124,9 @@ class InMemoryRepository:
             checksums = {
                 file.checksum for current in self.advertisements.values() for file in current.files
             }
-            if any(file.checksum in checksums for file in advertisement.files):
+            if not self.allow_duplicate_advertisement_files and any(
+                file.checksum in checksums for file in advertisement.files
+            ):
                 raise ValueError("DUPLICATE_FILE")
             self.advertisements[advertisement.advertisement_id] = advertisement
 
@@ -195,7 +198,9 @@ class InMemoryRepository:
 
     def list_common_codes(self, code_group: str) -> list[dict[str, object]]:
         values = {
-            "product-groups": ("DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN"),
+            "product-groups": (
+                "DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", "INVESTMENT"
+            ),
             "advertisement-types": (
                 "BRANCH_FLYER",
                 "NOTICE",

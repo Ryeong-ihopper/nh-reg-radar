@@ -101,7 +101,7 @@ class ReadingQualityTests(unittest.TestCase):
         legacy.pop('reading_quality_review')
         self.assertEqual(project_reading_citations(legacy)['evidence_ids'], ['E-1'])
 
-    def test_explicit_partial_reading_survives_parser_adapter_and_combine(self):
+    def test_local_unread_region_survives_without_downgrading_whole_document(self):
         from test_parser_contract_adapter import external_pair
         from rag.parsing.prepare_inputs import combine
         p1, p3 = external_pair()
@@ -117,7 +117,7 @@ class ReadingQualityTests(unittest.TestCase):
             ad = combine(a, b)
         self.assertFalse(ad['quality']['complete_document_read'])
         self.assertEqual(ad['pages'][0]['unread_regions'], [{'reason': 'cropped text'}])
-        self.assertEqual(operational.parser_coverage(ad), 'PARTIAL')
+        self.assertEqual(operational.parser_coverage(ad), 'READY')
         from rag.parsing.prepare_inputs import search_docs
         coarse, fine = search_docs(ad)
         self.assertEqual(coarse[0]['source_relations'], [relation])
@@ -212,14 +212,29 @@ class ReadingQualityTests(unittest.TestCase):
         self.assertEqual(apply_reading_guard(payload, parsed), [])
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
-    def test_uncertainty_elsewhere_prevents_absence_but_not_observation(self):
+    def test_global_reading_summary_does_not_block_an_unaffected_rule(self):
         row, payload, parsed = self.setup_case(uncertain=False)
         payload['reading_quality'] = {'requires_review': True}
         self.assertEqual(apply_reading_guard(payload, parsed), [])
         check = parsed['results'][0]['requirement_checks'][0]
         check.update(status='MISSING', finding_basis='ABSENCE')
         parsed['results'][0]['verdict'] = 'VIOLATION'
-        self.assertTrue(apply_reading_guard(payload, parsed))
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+
+    def test_uncertain_region_only_blocks_a_claim_that_cites_it(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer['evidence_ids'], answer['evidence_line_refs'] = ['E-2'], ['L-2']
+        check = answer['requirement_checks'][0]
+        check.update(evidence_ids=['E-2'], evidence_line_refs=['L-2'])
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+        answer['evidence_ids'], answer['evidence_line_refs'] = ['E-1'], ['L-1']
+        check.update(evidence_ids=['E-1'], evidence_line_refs=['L-1'])
+        audit = apply_reading_guard(payload, parsed)
+        self.assertTrue(audit)
+        issue = parsed['results'][0]['reading_quality_review']['issues'][0]
+        self.assertEqual(issue['evidence_ids'], ['E-1'])
+        self.assertEqual(issue['line_refs'], ['L-1'])
 
     def test_partial_scan_allows_clean_presence_but_not_absence(self):
         row, payload, parsed = self.setup_case(uncertain=False, complete=False)
@@ -262,14 +277,14 @@ class ReadingQualityTests(unittest.TestCase):
         self.assertEqual(answer['verdict'], 'VIOLATION')
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
-    def test_partial_quality_is_applied_for_regions_and_unassigned_lines(self):
+    def test_local_quality_is_not_promoted_to_whole_document_partial(self):
         for slot in ('regions', 'unassigned_lines'):
             ad = {'quality': {'line_partition_exact': True}, 'pages': [{'parse_status': 'ok',
                 slot: [{'text_selection': {'needs_review': True}}]}]}
-            self.assertEqual(operational.parser_coverage(ad), 'PARTIAL')
+            self.assertEqual(operational.parser_coverage(ad), 'READY')
         for extra in ({'unread_regions': [{'reason': 'unread'}]},):
             ad = {'quality': {'line_partition_exact': True}, 'pages': [{'parse_status': 'ok', **extra}]}
-            self.assertEqual(operational.parser_coverage(ad), 'PARTIAL')
+            self.assertEqual(operational.parser_coverage(ad), 'READY')
 
     def test_malformed_flag_and_unresolved_status_never_promote_trust(self):
         for selection in ({'needs_review': 'false'}, {'needs_review': None},

@@ -3,6 +3,7 @@ import re
 from decimal import Decimal
 
 from rag.judgment.grounding import cited_window_text
+from rag.templates.catalog import required_observation_medium
 
 QUOTED_REQUIRED = re.compile(r"[‘'\"]([^’'\"\n]{1,60})[’'\"]\s*(?:기재|표시)\s*필수")
 AD_SCOPE = re.compile(r"[（(]([^()（）\n]*(?:없는|있는)\s*광고)\s*[)）]")
@@ -25,6 +26,9 @@ def unresolved_applicability(result):
 
 ARITHMETIC_WITNESS = re.compile(
     r'검산\s*[:：]\s*([+-]?\d+(?:\.\d+)?(?:\s*[+-]\s*\d+(?:\.\d+)?)+)\s*!=\s*(\d+(?:\.\d+)?)')
+RANGE_WITNESS = re.compile(
+    r'범위\s*검산\s*[:：]\s*([+-]?\d+(?:\.\d+)?(?:\s*[+-]\s*\d+(?:\.\d+)?)+)'
+    r'\s*not in\s*\[(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\]')
 
 
 def has_arithmetic_mismatch_witness(reason, cited_text):
@@ -35,6 +39,16 @@ def has_arithmetic_mismatch_witness(reason, cited_text):
     be cited, and the exact decimal calculation must actually disagree.
     """
     source_values = {Decimal(v) for v in re.findall(r'(?<![\d.])\d+(?:\.\d+)?(?![\d.])', cited_text)}
+    source_ranges = {(Decimal(low), Decimal(high)) for low, high in re.findall(
+        r'최저\s*(?:연\s*)?(\d+(?:\.\d+)?)\s*%\s*[~～∼–-]\s*'
+        r'(?:최고|최대)\s*(?:연\s*)?(\d+(?:\.\d+)?)\s*%', cited_text)}
+    for expression, low_text, high_text in RANGE_WITNESS.findall(reason):
+        terms = [Decimal(v) for v in re.findall(r'[+-]?\d+(?:\.\d+)?', re.sub(r'\s+', '', expression))]
+        low, high = Decimal(low_text), Decimal(high_text)
+        if ((low, high) in source_ranges and low <= high
+                and all(abs(v) in source_values for v in terms)
+                and not low <= sum(terms) <= high):
+            return True
     for expression, displayed in ARITHMETIC_WITNESS.findall(reason):
         terms = [Decimal(v) for v in re.findall(r'[+-]?\d+(?:\.\d+)?', re.sub(r'\s+', '', expression))]
         if (all(abs(v) in source_values for v in terms) and Decimal(displayed) in source_values
@@ -114,12 +128,26 @@ def source_claim_errors(payload, result):
                 errors.append(f"{result.get('item_id')}: source explicitly requires the quoted term; cited text cannot establish SATISFIED for {check.get('obligation_ref')}")
         reason = str(check.get('reason') or '')
         if check.get('status') in {'VIOLATED', 'MISSING'}:
+            if required_observation_medium(str(rule.get('guide') or rule.get('criterion') or ''))[2] == '원문줄구조':
+                refs = list(dict.fromkeys(check.get('evidence_line_refs') or []))
+                text = cited_window_text(refs, documents)
+                marker_count = len(re.findall(r'(?:^|\s)(?:※|\*|•|●)\s*\S', text))
+                sentence_count = len(re.findall(
+                    r'(?:습니다|합니다|됩니다|있습니다|없습니다|바랍니다|않습니다|입니다)\s*[.!?]',
+                    text,
+                ))
+                if len(refs) != 1 or max(marker_count, sentence_count) < 2:
+                    errors.append(
+                        f"{result.get('item_id')}: same-line notice violation needs one cited source line "
+                        "containing at least two distinct notice statements; separate lines or one statement "
+                        "cannot establish a violation"
+                    )
             arithmetic_required = requires_arithmetic_consistency(
                 obligation.get('text') or rule.get('criterion', ''))
             if arithmetic_required:
                 text = cited_window_text(check.get('evidence_line_refs') or [], documents)
                 if not has_arithmetic_mismatch_witness(reason, text):
-                    errors.append(f"{result.get('item_id')}: arithmetic violation needs a reproducible cited mismatch: write '검산: a+b-c != d' using actual source values. Equal results are not violations; unresolved formulas require UNDETERMINED. Do not invent an inequality or combine alternative conditions.")
+                    errors.append(f"{result.get('item_id')}: arithmetic violation needs a reproducible cited mismatch: write '검산: a+b-c != d' for an asserted equality or '범위 검산: a+b-c not in [low,high]' for an advertised range, using actual source values. Equal results and values inside the range are not violations; unresolved formulas require UNDETERMINED. Do not invent an inequality or combine alternative conditions.")
             if re.search(r'(?:수정|재검토)\s*[:：][\s\S]*(?:COMPLIANT|SATISFIED)', reason):
                 errors.append(f"{result.get('item_id')}: explanation corrects the conclusion to compliant but status still indicates a violation")
             if (arithmetic_required

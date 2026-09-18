@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { api } from "../api/client";
+import { deleteLatestOperationalReview, operationalMode } from "../api/operational";
 import { useAuth } from "../auth/useAuth";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { PageHeader } from "../components/PageHeader";
@@ -12,6 +13,8 @@ import { advertisementTypeLabel, productGroupLabel } from "../components/display
 
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
 const SYSTEM_ADMIN_ROLE = "SYSTEM_ADMIN";
+const REVIEW_DELETE_ROLES = new Set(["COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
+const DELETABLE_REVIEW_STATUSES = new Set(["CHECK_REQUIRED", "REVIEW_COMPLETED", "REVIEW_FAILED"]);
 
 export function AdvertisementListPage() {
   const { session } = useAuth();
@@ -24,9 +27,12 @@ export function AdvertisementListPage() {
   const token = session?.accessToken ?? "";
   const canCreate = session?.user.roles.some((role) => CREATE_ROLES.has(role)) ?? false;
   const isSystemAdmin = session?.user.roles.includes(SYSTEM_ADMIN_ROLE) ?? false;
+  const canDeleteReview = operationalMode && (session?.user.roles.some((role) => REVIEW_DELETE_ROLES.has(role)) ?? false);
   const query = useQuery({
     queryKey: ["advertisements", keyword, page],
     queryFn: () => api.listAdvertisements(token, { keyword, page, size: 20 }),
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
   });
   const visibleIds = useMemo(
     () => query.data?.contents.map((item) => item.advertisementId) ?? [],
@@ -45,6 +51,16 @@ export function AdvertisementListPage() {
     }
   }, [allVisibleSelected, selectedVisibleCount]);
 
+  useEffect(() => {
+    if (query.data && page < query.data.totalPages) {
+      void queryClient.prefetchQuery({
+        queryKey: ["advertisements", keyword, page + 1],
+        queryFn: () => api.listAdvertisements(token, { keyword, page: page + 1, size: 20 }),
+        staleTime: 15_000,
+      });
+    }
+  }, [keyword, page, query.data, queryClient, token]);
+
   const deleteSelected = useMutation({
     mutationFn: async (advertisementIds: string[]) => {
       const results = await Promise.allSettled(
@@ -54,6 +70,10 @@ export function AdvertisementListPage() {
       if (failed?.status === "rejected") throw failed.reason;
     },
     onSuccess: () => setSelectedIds(new Set()),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["advertisements"] }),
+  });
+  const deleteLatestReview = useMutation({
+    mutationFn: (advertisementId: string) => deleteLatestOperationalReview(token, advertisementId),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["advertisements"] }),
   });
 
@@ -109,9 +129,10 @@ export function AdvertisementListPage() {
             </button>
           </div> : null}
           {deleteSelected.isError ? <ErrorState error={deleteSelected.error} onRetry={() => deleteSelected.mutate(visibleIds.filter((id) => selectedIds.has(id)))} /> : null}
+          {deleteLatestReview.isError ? <ErrorState error={deleteLatestReview.error} /> : null}
           <div className="table-scroll">
           <table className="advertisement-table">
-            <thead><tr>{isSystemAdmin ? <th className="selection-column"><input ref={selectAllRef} type="checkbox" aria-label="현재 페이지 전체 선택" checked={allVisibleSelected} onChange={(event) => toggleAllVisible(event.target.checked)} /></th> : null}<th>광고물</th><th>상품군</th><th>광고유형</th><th>등록자</th><th>등록일시</th><th>검토 상태</th><th><span className="visually-hidden">상세</span></th></tr></thead>
+            <thead><tr>{isSystemAdmin ? <th className="selection-column"><input ref={selectAllRef} type="checkbox" aria-label="현재 페이지 전체 선택" checked={allVisibleSelected} onChange={(event) => toggleAllVisible(event.target.checked)} /></th> : null}<th>광고물</th><th>상품군</th><th>형식·매체</th><th>등록자</th><th>등록일시</th><th>검토 상태</th><th><span className="visually-hidden">상세</span></th></tr></thead>
             <tbody>{query.data.contents.map((item) => (
               <tr key={item.advertisementId}>
                 {isSystemAdmin ? <td className="selection-column"><input type="checkbox" aria-label={`${item.advertisementName} 선택`} checked={selectedIds.has(item.advertisementId)} onChange={(event) => toggleAdvertisement(item.advertisementId, event.target.checked)} /></td> : null}
@@ -119,7 +140,9 @@ export function AdvertisementListPage() {
                 <td>{productGroupLabel(item.productGroup)}</td><td>{advertisementTypeLabel(item.advertisementType)}</td>
                 <td>{item.registeredBy}</td><td>{new Date(item.registeredAt).toLocaleString("ko-KR")}</td>
                 <td><StatusBadge status={item.reviewStatus} /></td>
-                <td><Link className="table-row-link" to={`/advertisements/${encodeURIComponent(item.advertisementId)}`}>상세 보기</Link></td>
+                <td><div className="advertisement-row-actions"><Link className="table-row-link" to={`/advertisements/${encodeURIComponent(item.advertisementId)}`}>상세 보기</Link>{canDeleteReview && DELETABLE_REVIEW_STATUSES.has(item.reviewStatus) ? <button type="button" className="table-row-link table-row-delete" disabled={deleteLatestReview.isPending} onClick={() => {
+                  if (window.confirm("이 광고의 최신 심의 결과를 삭제하시겠습니까? 삭제 후 되돌릴 수 없습니다.")) deleteLatestReview.mutate(item.advertisementId);
+                }}>{deleteLatestReview.isPending ? "삭제 중..." : "심의 결과 삭제"}</button> : null}</div></td>
               </tr>
             ))}</tbody>
           </table>

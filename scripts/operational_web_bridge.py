@@ -36,7 +36,7 @@ from nh_ad_backend.services import ServiceError
 
 from local_hwp_preview import convert_hwp_to_pdf
 from operational_locations import (frozen_rule_metadata, load_template_appropriate_judgments,
-                                   page_asset, saved_workspace, valid_box)
+                                   page_asset, saved_workspace, valid_box, with_rendered_line_locations)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
@@ -52,7 +52,13 @@ FULL_REVIEW = {"REQUIRED_PHRASE", "INTEREST_RATE", "MISLEADING_EXPRESSION", "PRO
 PARSER_REUSE_PARENT_STATUSES = {
     "FAILED", "FAILED_FINAL", "COMPLETED", "COMPLETED_WITH_WARNINGS",
 }
-PRODUCTS = {"LOAN": "대출성", "DEPOSIT": "예금성", "SAVINGS": "예금성", "DEMAND_DEPOSIT": "예금성"}
+PRODUCTS = {
+    "LOAN": "대출성",
+    "DEPOSIT": "예금성",
+    "SAVINGS": "예금성",
+    "DEMAND_DEPOSIT": "예금성",
+    "INVESTMENT": "투자성",
+}
 STEP_NAMES = ["입력 파일 확인", "OCR/VLM 파싱 (영역·라벨)", "파싱 결과 통합·검증 및 청킹 준비",
               "템플릿 전체 항목 판정 요청", "원문 근거 검색·Gemma 판정", "실제 결과 저장"]
 
@@ -68,7 +74,7 @@ def template_sections_from_hwpx(path: Path) -> list[str]:
     """Use the same first-class template catalog as the judgment runner."""
     catalog = TemplateCatalog.from_hwpx(path)
     sections = [row["template_section"] for row in catalog.document["entries"]]
-    values = {value for value in sections if value.startswith(("예금성", "대출성"))}
+    values = {value for value in sections if value.startswith(("예금성", "대출성", "투자성"))}
     if not values:
         raise ValueError("template HWPX contains no supported detailed product classifications")
     return sorted(values)
@@ -164,6 +170,17 @@ class ReviewCanceled(RuntimeError):
     """Expected user cancellation; never turn it into an execution failure."""
 
 
+class ReviewPaused(RuntimeError):
+    """Expected process shutdown; persist the review for restart instead of failing it."""
+
+
+TRANSIENT_CONNECTION_FAILURE_PREFIXES = (
+    "SEARCH_CONNECTION_UNAVAILABLE:",
+    "EMBEDDING_CONNECTION_UNAVAILABLE:",
+    "MODEL_CONNECTION_UNAVAILABLE:",
+)
+
+
 class ExecutionBridge:
     def __init__(self, services, state_dir, config_path, projector):
         self.services, self.projector = services, projector
@@ -190,6 +207,9 @@ class ExecutionBridge:
         # or transport errors. Match the canonical RAG service default so one
         # advertisement does not leave model capacity idle.
         model_workers = int(cfg.get("model_workers", os.environ.get("NH_RAG_MODEL_WORKERS", "4")))
+        source_policy = str(cfg.get("source_policy") or "template-plus-v2")
+        if source_policy not in {"template-only", "template-plus-v2"}:
+            raise ValueError("source_policy must be template-only or template-plus-v2")
         if review_workers < 1 or model_workers < 1 or parser_workers < 1:
             raise ValueError("review_workers, model_workers and parser_workers must be positive")
         self.pool = ThreadPoolExecutor(max_workers=review_workers, thread_name_prefix="nh-web-review")
@@ -203,9 +223,14 @@ class ExecutionBridge:
         self.rag = OperationalReviewService(ServiceConfig(
             jobs_dir=self.root / "rag-jobs", regulation_path=Path(cfg.get("regulation_path") or "."),
             es_url=cfg.get("es_url", ""), es_index=cfg.get("es_index", ""), model=cfg["model"],
-            source_policy="template-only",
+            source_policy=source_policy,
             decision_guide_path=Path(cfg["decision_guide_path"]) if cfg.get("decision_guide_path") else None,
             template_hwpx_path=Path(cfg["template_source_path"]) if cfg.get("template_source_path") else None,
+            template_methodology_dir=(
+                Path(cfg["template_methodology_dir"])
+                if cfg.get("template_methodology_dir")
+                else None
+            ),
             dgx_host=cfg.get("dgx_host"), dgx_key=Path(cfg["dgx_key"]) if cfg.get("dgx_key") else None,
             model_env=model_env,
             workers=model_workers, queue_workers=review_workers,
@@ -232,7 +257,7 @@ class ExecutionBridge:
                 header = list(next(rows))
                 column = header.index("섹션")
                 self.templates = sorted({str(row[column]) for row in rows if row[column] and
-                                         str(row[column]).startswith(("예금성", "대출성"))})
+                                         str(row[column]).startswith(("예금성", "대출성", "투자성"))})
             finally:
                 book.close()
             self.template_source = {"kind": "v2_section_compatibility_fallback"}
@@ -248,7 +273,11 @@ class ExecutionBridge:
             {
                 "code": value,
                 "label": value,
-                "productGroup": "LOAN" if value.startswith("대출성") else "DEPOSIT",
+                "productGroup": (
+                    "LOAN" if value.startswith("대출성")
+                    else "INVESTMENT" if value.startswith("투자성")
+                    else "DEPOSIT"
+                ),
             }
             for value in self.templates
         ]
@@ -456,7 +485,11 @@ class ExecutionBridge:
 
     def validate_request(self, ad, options):
         if ad.product_group not in PRODUCTS:
-            raise ServiceError(422, "PRODUCT_GROUP_REQUIRED", "예금 또는 대출 상품군을 확인해 주세요. 이벤트만으로는 상품군을 확정할 수 없습니다.")
+            raise ServiceError(
+                422,
+                "PRODUCT_GROUP_REQUIRED",
+                "예금·대출·투자 상품군을 확인해 주세요. 이벤트만으로는 상품군을 확정할 수 없습니다.",
+            )
         if options.get("include_suggestion") or options.get("include_opinion_draft"):
             raise ServiceError(422, "UNSUPPORTED_OUTPUT", "현재 실행기는 문구 추천·심의 의견 초안을 생성하지 않습니다. 해당 옵션을 꺼 주세요.")
         selected = set(options.get("review_types") or FULL_REVIEW) - {"OCR_QUALITY"}
@@ -474,15 +507,67 @@ class ExecutionBridge:
             if Path(file.original_file_name).suffix.lower() not in {".pdf", ".png", ".jpg", ".jpeg", ".hwp", ".hwpx"}:
                 raise ServiceError(422, "FILE_NOT_SUPPORTED", "파서가 지원하지 않는 파일 형식입니다.")
 
-    def persist(self):
+    def persist(self, *, results_changed=False):
         with self.lock:
-            value = {"version": 2, "routing": self.routes, "links": self.links,
-                     "decisions": self.decisions,
-                     "advertisements": [asdict(ad) for ad in list(self.services.repository.advertisements.values())],
-                     "reviews": [asdict(b) for b in list(self.services.reviews.repository._items.values())],
-                     "results": [asdict(r) for r in self.services.results.repository._items]}
+            results_path = self.root / "web-results.json"
+            if results_changed or not results_path.is_file():
+                write_json_atomic(
+                    results_path,
+                    [asdict(row) for row in self.services.results.repository._items],
+                )
+            value = {"version": 3, "routing": self.routes, "links": self.links,
+                      "decisions": self.decisions,
+                      "advertisements": [asdict(ad) for ad in list(self.services.repository.advertisements.values())],
+                      "reviews": [asdict(b) for b in list(self.services.reviews.repository._items.values())],
+                      "results_file": results_path.name}
             # Only local typed dataclasses are serialized; no executable pickle.
             write_json_atomic(self.root / "web-state.json", json.loads(json.dumps(value, default=str)))
+
+    def delete_review(self, current, review_id):
+        """Delete one terminal local review without touching its advertisement."""
+        if not set(current.roles).intersection({"COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"}):
+            raise ServiceError(403, "FORBIDDEN", "준법 검토자 또는 시스템 관리자만 심의 결과를 삭제할 수 있습니다.")
+        bundle = self.services.reviews.status(current, review_id, "delete-review")
+        if bundle.job.status in {"PENDING", "RUNNING", "RETRY_PENDING", "STALE"}:
+            raise ServiceError(409, "REVIEW_IN_PROGRESS", "진행 중인 심의는 중단이 완료된 뒤 삭제할 수 있습니다.")
+        ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+        with self.lock:
+            if review_id in self.active:
+                raise ServiceError(409, "REVIEW_IN_PROGRESS", "진행 중인 심의는 중단이 완료된 뒤 삭제할 수 있습니다.")
+            link = self.links.get(review_id, {})
+            targets = [self.root / "runs" / review_id]
+            rag_job_id = str(link.get("rag_job_id") or "")
+            if rag_job_id:
+                targets.append(self.root / "rag-jobs" / rag_job_id)
+            for target in targets:
+                resolved = target.resolve()
+                if target.is_dir() and (self.root.resolve() in resolved.parents):
+                    shutil.rmtree(resolved)
+            self.links.pop(review_id, None)
+            self.decisions.pop(review_id, None)
+            self.services.reviews.repository._items.pop(review_id, None)
+            self.services.results.repository._items = [
+                item for item in self.services.results.repository._items
+                if item.review_id != review_id
+            ]
+            remaining = sorted(
+                (item for item in self.services.reviews.repository._items.values()
+                 if item.review.advertisement_id == ad.advertisement_id),
+                key=lambda item: item.review.review_round,
+                reverse=True,
+            )
+            latest = remaining[0] if remaining else None
+            ad.latest_review_id = latest.review.review_id if latest else None
+            ad.review_status = latest.review.status if latest else "UPLOADED"
+            self.persist(results_changed=True)
+        return ad.advertisement_id
+
+    def delete_latest_review(self, current, advertisement_id):
+        """Delete the newest review shown by one advertisement list row."""
+        reviews = self.services.reviews.list(current, advertisement_id, "delete-latest-review")
+        if not reviews:
+            raise ServiceError(404, "NOT_FOUND", "삭제할 심의 결과가 없습니다.")
+        return self.delete_review(current, reviews[0].review_id)
 
     def restore(self):
         path = self.root / "web-state.json"
@@ -507,14 +592,44 @@ class ExecutionBridge:
                 steps.append(ReviewStep(**step))
             bundle = ReviewBundle(Review(**review), ReviewJob(**job), steps)
             self.services.reviews.repository._items[bundle.review.review_id] = bundle
+            failure = str(bundle.job.failed_reason or "")
+            if (
+                bundle.job.status == "FAILED"
+                and bundle.job.failed_reason_code == "OPERATIONAL_EXECUTION_FAILED"
+                and failure.startswith(TRANSIENT_CONNECTION_FAILURE_PREFIXES)
+            ):
+                # Migrate reviews failed by the former five-minute dependency
+                # timeout. These were transport waits, not review failures.
+                bundle.review.status = "ANALYSIS_REQUESTED"
+                bundle.review.completed_at = None
+                bundle.job.status = "RETRY_PENDING"
+                bundle.job.failed_reason_code = None
+                bundle.job.failed_reason = None
+                bundle.job.is_retryable = True
+                for step in bundle.steps:
+                    if step.status == "FAILED":
+                        step.status = "RETRY_PENDING"
+                        step.failed_reason_code = None
+                self.services.repository.get_advertisement(
+                    bundle.review.advertisement_id
+                ).review_status = "ANALYSIS_REQUESTED"
+                self.links.setdefault(bundle.review.review_id, {}).update(
+                    recovered_transient_connection_failure=True,
+                )
             if bundle.job.status in {"PENDING", "RUNNING", "RETRY_PENDING"}:
                 resumable.append(bundle)
+        embedded_results = data.get("results")
+        if embedded_results is None:
+            results_path = self.root / str(data.get("results_file") or "web-results.json")
+            stored_results = read_json(results_path) if results_path.is_file() else []
+        else:
+            stored_results = embedded_results
         self.services.results.repository._items = []
-        for row in data["results"]:
+        for row in stored_results:
             row["evidences"] = tuple(ResultEvidence(**e) for e in row["evidences"])
             row["annotation"] = ResultAnnotation(**row["annotation"]) if row["annotation"] else None
             self.services.results.repository.add(ResultItem(**row))
-        self.persist()
+        self.persist(results_changed=embedded_results is not None)
         for bundle in resumable:
             review_id = bundle.review.review_id
             routing = dict(
@@ -523,6 +638,14 @@ class ExecutionBridge:
             )
             self.active.add(review_id)
             self.pool.submit(self.run, bundle, routing)
+
+    def pause_for_shutdown(self):
+        """Ask bridge workers to save resumable state during a normal web shutdown."""
+        self.stopping.set()
+        # Workers observe ``stopping`` at each bridge boundary and persist
+        # RETRY_PENDING. Do not make the ASGI shutdown wait on a parser/model
+        # call that is already in progress.
+        self.pool.shutdown(wait=False)
 
     def publish(self, message):
         with self.lock:
@@ -549,6 +672,8 @@ class ExecutionBridge:
         with self.lock:
             if bundle.job.status == "CANCELED":
                 raise ReviewCanceled("CANCELED_BY_USER")
+            if self.stopping.is_set():
+                raise ReviewPaused("SERVER_STOPPED")
             bundle.review.status, bundle.job.status = "ANALYZING", "RUNNING"
             bundle.job.current_step = bundle.steps[index].step_code
             bundle.job.progress_rate = round(index / len(bundle.steps) * 100, 1)
@@ -562,7 +687,6 @@ class ExecutionBridge:
         """Wait visibly for search transport before consuming parser/model work."""
         if self.rag.config.source_policy == "template-only":
             return  # Template enumeration and ad evidence retrieval do not use the v2 ES index.
-        deadline = time.monotonic() + 300
         step = next(row for row in bundle.steps if row.step_code == bundle.job.current_step)
         original_name = step.step_name
         waiting = False
@@ -581,7 +705,7 @@ class ExecutionBridge:
                         raise RuntimeError(f"SEARCH_ENDPOINT_REJECTED: 검색 서버 HTTP {exc.code}") from exc
                 except (urllib.error.URLError, TimeoutError, ConnectionError):
                     pass
-                if time.monotonic() >= deadline:
+                if False:  # Connection loss is a wait state, not a review failure.
                     raise RuntimeError("SEARCH_CONNECTION_UNAVAILABLE: 검색 서버 연결이 5분 동안 복구되지 않았습니다. 검색 터널·서비스를 확인하세요. 기존 파싱 결과는 보존됩니다.")
                 if not waiting:
                     with self.lock:
@@ -590,7 +714,7 @@ class ExecutionBridge:
                         self.persist()
                     waiting = True
                 if self.stopping.wait(2):
-                    raise RuntimeError("SERVER_STOPPED: 서버가 중지되었습니다.")
+                    raise ReviewPaused("SERVER_STOPPED")
         finally:
             if waiting:
                 with self.lock:
@@ -683,7 +807,6 @@ class ExecutionBridge:
         return json.loads(completed.stdout.decode("utf-8"))
 
     def _wait_for_json_dependency(self, bundle, code, label, probes, validator):
-        deadline = time.monotonic() + 300
         step = next(row for row in bundle.steps if row.step_code == bundle.job.current_step)
         original_name = step.step_name
         waiting = False
@@ -712,7 +835,7 @@ class ExecutionBridge:
                         f"{code}_ENDPOINT_INVALID: {label} service returned "
                         + ", ".join(rejected)
                     )
-                if time.monotonic() >= deadline:
+                if False:  # Dependency startup may outlive the web request process.
                     raise RuntimeError(
                         f"{code}_CONNECTION_UNAVAILABLE: {label} service did not recover within 5 minutes"
                     )
@@ -723,7 +846,7 @@ class ExecutionBridge:
                         self.persist()
                     waiting = True
                 if self.stopping.wait(2):
-                    raise RuntimeError("SERVER_STOPPED: server stopped while waiting for a model service")
+                    raise ReviewPaused("SERVER_STOPPED")
         finally:
             if waiting:
                 with self.lock:
@@ -792,7 +915,7 @@ class ExecutionBridge:
                 review_id.removeprefix("REV-"), model=self.config["model"],
                 product_id=ad_result.get("product_id"), product_name=ad_result.get("product_name"),
             )
-        self.persist()
+        self.persist(results_changed=True)
         return sum(
             item.review_id == review_id and item.annotation is not None
             for item in self.services.results.repository._items
@@ -1025,6 +1148,9 @@ class ExecutionBridge:
                     and source_matches
                     and all(len(paths) == 1 for paths in source_matches.values())
                 ):
+                    layout_path = directory / "parser-layout.json"
+                    if layout_path.is_file():
+                        self.attach_rendered_line_observation(resumed, read_json(layout_path))
                     return resumed
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 pass
@@ -1049,7 +1175,9 @@ class ExecutionBridge:
             template_id=template_id,
         )
         if reused is not None:
-            self.prepare_optional_parser_layout(source_by_file[files[0].file_id], directory, reused)
+            layout = self.prepare_optional_parser_layout(source_by_file[files[0].file_id], directory, reused)
+            if layout:
+                self.attach_rendered_line_observation(reused, layout)
             return reused
         output = directory / "parser"
         if len(files) > 1:
@@ -1083,7 +1211,9 @@ class ExecutionBridge:
         integrated = self.merge_asset_documents(ad, assets)
         # Parser-layout is a presentation artifact. A temporary rendering or
         # visual-parser failure must not discard an otherwise valid review.
-        self.prepare_optional_parser_layout(source_by_file[files[0].file_id], directory, integrated)
+        layout = self.prepare_optional_parser_layout(source_by_file[files[0].file_id], directory, integrated)
+        if layout:
+            self.attach_rendered_line_observation(integrated, layout)
         return integrated
 
     def apply_intake_scopes(self, ad, document, intake):
@@ -1146,6 +1276,32 @@ class ExecutionBridge:
             write_json_atomic(directory / "parser-layout-error.json",
                               {"code": "PARSER_LAYOUT_UNAVAILABLE", "detail": str(exc)})
             return None
+
+    @staticmethod
+    def attach_rendered_line_observation(integrated, layout):
+        """Record only a complete, exact semantic-line to rendered-line projection."""
+        assets = (integrated.get("diagnostics") or {}).get("asset_pages") or {}
+        if len(assets) != 1:
+            return integrated
+        asset_id = next(iter(assets))
+        projected = with_rendered_line_locations(integrated, layout, asset_id)
+        mappings = projected.get("display_line_locations") or {}
+        refs = [
+            line.get("line_ref")
+            for page in integrated.get("pages", [])
+            for region in page.get("regions", [])
+            for line in region.get("lines", [])
+            if line.get("line_ref") and str(line.get("text") or "").strip()
+        ]
+        if not refs or any(ref not in mappings for ref in refs):
+            return integrated
+        integrated.setdefault("diagnostics", {})["rendered_line_projection"] = {
+            "verified": True,
+            "method": "EXACT_RENDERED_TEXT",
+            "semantic_line_count": len(refs),
+            "rendered_line_count": sum(len(mappings[ref]) for ref in refs),
+        }
+        return integrated
 
     def prepare_parser_layout(self, source, directory, integrated):
         """Build the visual parser projection used by the bbox demonstration."""
@@ -1238,6 +1394,8 @@ class ExecutionBridge:
         try:
             if bundle.job.status == "CANCELED":
                 raise ReviewCanceled("CANCELED_BY_USER")
+            if self.stopping.is_set():
+                raise ReviewPaused("SERVER_STOPPED")
             self.stage(bundle, 0)
             self.wait_for_search_backend(bundle)
             self.wait_for_judgment_backends(bundle)
@@ -1283,7 +1441,7 @@ class ExecutionBridge:
                 if bundle.job.status == "CANCELED":
                     raise ReviewCanceled("CANCELED_BY_USER")
                 if self.stopping.wait(2):
-                    raise RuntimeError("SERVER_STOPPED: 서버가 중지되었습니다.")
+                    raise ReviewPaused("SERVER_STOPPED")
                 job = self.rag.store.read(job["job_id"])
                 checkpoint = self.rag.store.directory(job["job_id"]) / f"attempt-{job['attempt']}" / "03_judgment_responses.json.checkpoint.json"
                 if checkpoint.is_file():
@@ -1378,6 +1536,29 @@ class ExecutionBridge:
         except ReviewCanceled:
             # Cancellation is persisted before this worker observes it.
             pass
+        except ReviewPaused:
+            # A web-process shutdown or tunnel maintenance is not a review
+            # failure. Keep the same review ID and let restore() resume it.
+            with self.lock:
+                now = datetime.now(UTC)
+                bundle.review.status = "ANALYSIS_REQUESTED"
+                bundle.review.completed_at = None
+                bundle.job.status = "RETRY_PENDING"
+                bundle.job.updated_at = now
+                bundle.job.failed_reason_code = None
+                bundle.job.failed_reason = None
+                bundle.job.is_retryable = True
+                for step in bundle.steps:
+                    if step.status == "RUNNING":
+                        step.status = "RETRY_PENDING"
+                        step.failed_reason_code = None
+                ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+                ad.review_status = "ANALYSIS_REQUESTED"
+                self.links.setdefault(bundle.review.review_id, {}).update(
+                    paused_at=now.isoformat(),
+                    pause_reason="SERVER_STOPPED",
+                )
+                self.persist()
         except Exception as exc:
             import traceback
             (directory / "failure.log").write_text(traceback.format_exc(), encoding="utf-8")
@@ -1400,8 +1581,10 @@ class ExecutionBridge:
                     "productClassificationSource": {
                         key: value for key, value in self.template_source.items() if key != "path"
                     },
-                    "regulation": "내부 심의 템플릿",
-                    "sourcePolicy": "template-only",
+                    "regulation": ("내부 심의 템플릿 + 규제목록 v2" if
+                                   self.rag.config.source_policy == "template-plus-v2" else
+                                   "내부 심의 템플릿"),
+                    "sourcePolicy": self.rag.config.source_policy,
                     "progressMeaning": "완료한 단계 비율이며 남은 시간의 비율이 아닙니다."}
 
         @backend.put("/operational/advertisements/{advertisement_id}/routing")
@@ -1519,6 +1702,16 @@ class ExecutionBridge:
             return {"review_id": bundle.review.review_id, "job_status": bundle.job.status,
                     "review_status": bundle.review.status, "message": bundle.job.failed_reason}
 
+        @backend.delete("/operational/reviews/{review_id}", status_code=204)
+        async def delete_review(review_id: str, request: Request):
+            self.delete_review(actor(request), review_id)
+            return None
+
+        @backend.delete("/operational/advertisements/{advertisement_id}/latest-review", status_code=204)
+        async def delete_latest_review(advertisement_id: str, request: Request):
+            self.delete_latest_review(actor(request), advertisement_id)
+            return None
+
         @backend.get("/operational/reviews/{review_id}/parser-layout")
         async def review_parser_layout(review_id: str, request: Request):
             actor(request)
@@ -1559,7 +1752,10 @@ class ExecutionBridge:
                                 fields = entry.get('fields') or {}
                                 label = (fields.get('label') or {}).get('text', '')
                                 metadata = {'title': label}
-                                if guide_matches_review:
+                                methodology = entry.get('methodology') or {}
+                                if methodology.get('appropriate_judgment'):
+                                    metadata['appropriate_judgment'] = methodology['appropriate_judgment']
+                                elif guide_matches_review:
                                     key = (entry.get('template_section', ''), label)
                                     if key in self.template_appropriate_judgments:
                                         metadata['appropriate_judgment'] = self.template_appropriate_judgments[key]
@@ -1585,6 +1781,13 @@ class ExecutionBridge:
                 integrated_path = self.root / "runs" / review_id / "integrated.json"
                 if integrated_path.exists():
                     integrated = read_json(integrated_path)
+                    layout_path = integrated_path.with_name("parser-layout.json")
+                    ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+                    files = [file for file in ad.files if file.file_type == "ADVERTISEMENT"]
+                    if (len(files) == 1 and layout_path.is_file()
+                            and Path(files[0].original_file_name).suffix.lower() in {".hwp", ".hwpx"}):
+                        integrated = with_rendered_line_locations(
+                            integrated, read_json(layout_path), files[0].file_id)
             value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery, reading_audits, rule_metadata)
             value.pop("source_ads", None)
             return {"available": True, "source_type": "GEMMA", "is_model_output": True,
@@ -1638,7 +1841,10 @@ class ExecutionBridge:
                     re.fullmatch(r"/operational/reviews/REV-[\w-]+/rebuild-annotations", path)) or
                 request.method == "POST" and re.fullmatch(r"/operational/reviews/REV-[\w-]+/cancel", path) or
                 request.method == "PUT" and (re.fullmatch(r"/operational/advertisements/ADV-[\w-]+/(routing|intake)", path) or
-                    re.fullmatch(r"/operational/reviews/REV-[\w-]+/decision", path)))
+                    re.fullmatch(r"/operational/reviews/REV-[\w-]+/decision", path)) or
+                request.method == "DELETE" and (
+                    re.fullmatch(r"/operational/reviews/REV-[\w-]+", path) or
+                    re.fullmatch(r"/operational/advertisements/ADV-[\w-]+/latest-review", path)))
             if request.method not in {"GET", "HEAD", "OPTIONS"} and not allowed:
                 return JSONResponse({"code": "NOT_CONNECTED", "message": "현재 로컬 실행은 광고 등록·자동심의·재분석만 연결되어 있습니다."}, status_code=409)
             response = await call_next(request)

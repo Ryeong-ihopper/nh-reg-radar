@@ -151,7 +151,9 @@ class OutputContractTests(unittest.TestCase):
         wire = json.loads(messages[1]['content'])
         self.assertEqual(aliases['ref_to_evidence'], {'E1': 'E-1'})
         self.assertEqual(aliases['ref_to_line'], {'L1': 'L-1'})
-        self.assertFalse(wire['evidence_scope']['R1']['complete_ad_scan'])
+        # A local uncertain selection stays non-citable without falsely
+        # downgrading the completed scan of the rest of the advertisement.
+        self.assertTrue(wire['evidence_scope']['R1']['complete_ad_scan'])
         self.assertEqual(wire['evidence_scope']['R1']['line_refs'], ['L1'])
         self.assertEqual(wire['evidence_scope']['R1']['evidence_refs'], ['L1'])
         schema = response_format(wire)['json_schema']['schema']

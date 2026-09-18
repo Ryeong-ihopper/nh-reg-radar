@@ -7,7 +7,6 @@ import { operationalRequest, type ParserLayout } from "../api/operational";
 import { useAuth } from "../auth/useAuth";
 import { legalBasisLines, missingSourceLabel, resultEvidenceBoxes, resultCounts, type ResultWorkspace } from "../components/operationalResultModel";
 import { ErrorState, LoadingState } from "../components/RequestState";
-import { WorkflowSteps } from "../components/WorkflowSteps";
 
 type Verdict = "위반" | "판단불가" | "충족";
 type VerdictFilter = "ALL" | Verdict;
@@ -19,6 +18,11 @@ const humanFinalDecisionEnabled = import.meta.env.VITE_OPERATIONAL_HUMAN_DECISIO
 
 function isVerdict(value: string): value is Verdict {
   return VERDICTS.includes(value as Verdict);
+}
+
+function lawSearchHref(reference: string): string | undefined {
+  const name = reference.match(/^(.+?(?:법률|법|시행령|시행규칙))(?=\s*제\s*\d|$)/)?.[1];
+  return name ? `https://www.law.go.kr/lsSc.do?query=${encodeURIComponent(name.trim())}` : undefined;
 }
 
 export function OperationalResultsPage() {
@@ -89,8 +93,11 @@ export function OperationalResultsPage() {
 
   function locationLabel(rowId: string, verdict: Verdict, evidence: string) {
     const boxes = mapped.get(rowId) ?? [];
-    if (boxes.length) return `광고 원본 근거 위치 ${boxes.length}곳 · ${[...new Set(boxes.map((box) => box.pageNo))].join(", ")}쪽${boxes.some(box => box.precision === "REGION") ? " · 영역 단위 연결 포함(정확한 줄 미확정)" : ""}`;
     const row = allRows.find(value => (value.row_id ?? value.item_id) === rowId);
+    if (boxes.length) {
+      const kind = row?.verdict === "판단불가" && !row.evidence_locations?.length ? "원본 확인 필요 위치" : "광고 원본 근거 위치";
+      return `${kind} ${boxes.length}곳 · ${[...new Set(boxes.map((box) => box.pageNo))].join(", ")}쪽${boxes.some(box => box.precision === "REGION") ? " · 영역 단위 연결 포함(정확한 줄 미확정)" : ""}`;
+    }
     return row ? missingSourceLabel(row) : missingSourceLabel({item_id:rowId,title:"",question:"",criterion:"",reason:"",verdict,evidence});
   }
 
@@ -105,28 +112,13 @@ export function OperationalResultsPage() {
     return () => cancelAnimationFrame(frame);
   }, [active, pageNo, previewUrl, currentBoxes, followEvidence, zoom]);
 
-  const reviewState = omissions.length || workspace.data?.output_failure_count ? "검토 미완료 · 재처리 필요" : counts.violation > 0 ? "위반 항목 확인 필요" : counts.unknown > 0 ? "판단불가 항목 확인 필요" : "자동 검토 완료";
-
   return <section className="single-review" aria-label="AI 검토 결과">
-    <WorkflowSteps current={4} advertisementId={adId} reviewId={reviewId} />
-    <header className="single-review-header"><div><p className="eyebrow">4단계 · 결과 확인</p><h2>{advertisement.data?.advertisementName ?? "광고 검토"}</h2>
-      <p className="panel-note">실제 파서·검색·판정 실행 결과입니다. 규정 카드를 선택하면 광고 원본에서 연결된 근거 문구를 강조합니다.</p></div>
+    <header className="single-review-header"><div><h2>{advertisement.data?.advertisementName ?? "광고 검토"}</h2>
+      <nav aria-label="검토 진행 상황" className="result-progress"><span>결과 확인{workspace.data?.source_policy ? (workspace.data.source_policy === "template-only" ? " · 템플릿 심의" : " · 템플릿+규제목록 v2 심의") : ""}</span><Link to={`/reviews/${encodeURIComponent(reviewId)}/status`}>진행 기록</Link></nav></div>
       <div className="form-actions"><button type="button" onClick={() => void downloadJson()} disabled={!reviewId}>결과 JSON 다운로드</button><button type="button" className="button-secondary" onClick={printResult}>PDF 저장·인쇄</button><Link className="button-link button-secondary" to="/advertisements">광고물 목록</Link></div></header>
-    {workspace.data?.source_policy ? <p className="panel-note">{workspace.data.source_policy === "template-only" ? "템플릿 심의" : "과거 템플릿+v2 심의"}</p> : null}
     {status.isError ? <ErrorState error={status.error} onRetry={() => void status.refetch()} /> : null}
     {workspace.isPending ? <LoadingState label="검토 결과를 불러오는 중입니다." /> : null}
     {workspace.isError ? <ErrorState error={workspace.error} onRetry={() => void workspace.refetch()} /> : null}
-    {workspace.data?.template_coverage?.map((coverage, index) => <aside className="state-message" key={`${coverage.template_section}:${index}`}>
-      <strong>선택 템플릿 전체 항목 확인 · {coverage.template_section}</strong>
-      <p>원문 {coverage.source_row_count}행 → 택일 항목 통합 후 {coverage.rule_count}항목 · 자동 판정 요청 {coverage.requested_count}항목 · 사람 확인 포함 {coverage.manual_review_count}항목 · 처리 기록 누락 {coverage.missing_count}항목</p>
-      <small>텍스트 판정과 시각·구조 확인은 같은 항목에 함께 있을 수 있습니다. 판정 요청 건수는 충족 건수가 아닙니다.</small>
-    </aside>)}
-    <div className="operational-summary" aria-label="판정 상태 요약">
-      <article className="operational-summary-state"><span>검토 상태</span><strong>{reviewState}</strong><small>높음·중간·낮음은 광고의 판정값이 아닙니다. 위반·판단불가 항목을 먼저 확인하는 데만 쓰는 보조 우선순위입니다.</small></article>
-      <article><span>위반</span><strong data-verdict="위반">{counts.violation}</strong></article>
-      <article><span>판단불가</span><strong data-verdict="판단불가">{counts.unknown}</strong></article>
-      <article><span>충족</span><strong data-verdict="충족">{counts.compliant}</strong></article>
-    </div>
     {omissions.length ? <aside className="state-message" role="alert"><strong>과거 실행 누락 {omissions.length}건 · 재처리 필요</strong><p>이 결과는 모든 대상 항목의 검토가 완료된 상태가 아닙니다. 해당 항목을 판단불가 목록에 표시했습니다.</p></aside> : null}
     {workspace.data?.output_failure_count ? <aside className="state-message" role="alert"><strong>판정 처리 실패 {workspace.data.output_failure_count}건</strong><p>{workspace.data.partial_result_warning}</p><details><summary>실패 항목 확인</summary><ul>{workspace.data.output_failure_pairs?.map((failure, index) => <li key={`${failure.scope_id ?? failure.ad_id}:${failure.item_id}`}>항목 {index + 1} · 모델 응답 형식 또는 원문 근거 연결 실패</li>)}</ul></details></aside> : null}
     <div className="single-review-grid">
@@ -144,11 +136,12 @@ export function OperationalResultsPage() {
           {previewUrl && !preview.isPending ? <div className="single-advertisement-canvas" style={{width:zoom && naturalWidth ? `${naturalWidth * zoom}px` : "100%"}}><img src={previewUrl} alt="심의 광고 원본" onLoad={event => setNaturalWidth(event.currentTarget.naturalWidth)} />
             {currentBoxes.filter((box) => box.pageNo === pageNo).map((box) => <span data-testid="active-evidence-box" key={box.key} className="review-evidence-highlight" style={{ left: `${box.bbox[0] / box.width * 100}%`, top: `${box.bbox[1] / box.height * 100}%`, width: `${(box.bbox[2] - box.bbox[0]) / box.width * 100}%`, height: `${(box.bbox[3] - box.bbox[1]) / box.height * 100}%` }} />)}
           </div> : null}
-        </div><p className="panel-note">작은 글씨는 원본 크기 또는 새 탭에서 확인하세요. 양쪽 목록은 독립적으로 스크롤됩니다. 영역 연결은 정확 줄이 아닌 근사 위치입니다.</p>
+        </div>
       </aside>
-      <div className="single-regulations"><header className="single-regulations-heading"><div><h3>규정별 판정 <small>{rows.length}건</small></h3><p>위험도 대신 판정 상태를 기준으로 확인합니다.</p></div></header>
+      <div className="single-regulations"><header className="single-regulations-heading"><h3>규정별 판정 <small>{rows.length}건</small></h3></header>
         <div className="verdict-filter" aria-label="판정 상태 필터"><button type="button" aria-pressed={filter === "ALL"} onClick={() => setFilter("ALL")}>전체 {counts.total}</button>{VERDICTS.map((verdict) => <button key={verdict} type="button" data-verdict={verdict} aria-pressed={filter === verdict} onClick={() => setFilter(verdict)}>{verdict} {counts[COUNT_KEY[verdict]]}</button>)}</div>
         <div className="single-regulations-scroll" tabIndex={0} aria-label="규정별 판정 목록">
+        {workspace.data?.template_coverage?.length ? <details className="template-coverage-details"><summary>템플릿 전체 항목 처리 내역</summary>{workspace.data.template_coverage.map((coverage, index) => <p key={index}>{coverage.template_section} · 전체 {coverage.rule_count}항목 · 자동 판정 요청 {coverage.requested_count} · 사람 확인 포함 {coverage.manual_review_count} · 처리 기록 누락 {coverage.missing_count}</p>)}</details> : null}
         {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const isTemplate = row.rule_basis?.source_type === "INTERNAL_TEMPLATE" || row.item_id.startsWith("TPL-"); const basisLines = legalBasisLines(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
           <header><strong>{row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
           {row.question ? <p className="regulation-question">{row.question}</p> : null}
@@ -156,9 +149,10 @@ export function OperationalResultsPage() {
           {row.judgment_scope === "TEXT_ONLY" ? <p className="panel-note">텍스트 의무의 판정입니다. 배치·로고·원문 구조는 별도 사람 확인이 남아 있습니다.</p> : null}
           <p>{row.reading_quality_review?.issues.length || row.model_assessment ? <strong>시스템의 자동 확정 보류 사유: </strong> : null}{row.reason}</p>
           {row.model_assessment ? <details className="panel-note"><summary>보류 전 모델 판단 보기 · 최종 판정으로 채택되지 않음</summary><p><strong>{({VIOLATION:"위반",COMPLIANT:"충족",UNDETERMINED:"판단불가",NOT_APPLICABLE:"미해당"} as Record<string,string>)[row.model_assessment.verdict] ?? row.model_assessment.verdict}</strong> · {row.model_assessment.reason}</p></details> : null}
-          {row.rule_basis && !isTemplate ? <dl className="regulation-basis">
-            <div><dt>판정 기준</dt><dd>{basisLines.length ? <ul className="legal-basis-list">{basisLines.map(ref => <li key={ref}>{ref}</li>)}</ul> : "이 항목에는 개별 법 조문을 연결하지 않았습니다."}</dd></div>
-          </dl> : null}
+          {basisLines.length ? <details className="regulation-basis"><summary>근거 법령·규정</summary>
+            <ul className="legal-basis-list">{basisLines.map(ref => <li key={ref}>{ref}{lawSearchHref(ref) ? <> · <a href={lawSearchHref(ref)} target="_blank" rel="noreferrer">현행 검색 ↗</a></> : null}</li>)}</ul>
+            <a href="https://www.law.go.kr/lsSc.do" target="_blank" rel="noreferrer">현행 법령 검색 ↗</a>
+          </details> : null}
           <small>{locationLabel(rowId, row.verdict, row.evidence)}</small>
         </article>; })}
         {!rows.length && workspace.data ? <p className="panel-note">이 상태의 판정 항목이 없습니다.</p> : null}

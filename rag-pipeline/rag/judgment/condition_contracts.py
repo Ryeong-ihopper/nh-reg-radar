@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Iterable
 from rag.judgment.temporal import date_window_clauses
 from rag.judgment.source_checks import source_scope_clauses, quoted_required_clauses
@@ -27,12 +28,28 @@ def _texts(values: Iterable[Any]) -> list[str]:
     return output
 
 
+def _condition_role(text: str) -> str:
+    """Classify an authored condition without using advertisement content.
+
+    An unknown trigger can make an obligation inapplicable (for example,
+    whether generative AI was used).  An unknown exemption is different: when
+    the disclosure is already present, either possible answer is compliant.
+    The wrapper sentence mentions exemptions for every conditional template,
+    so classification must use only the original guidance after the marker.
+    """
+    source_text = text.rsplit("기재요령 원문:", 1)[-1]
+    if re.search(r"(?:생략\s*가능|생략할\s*수|면제|제외\s*가능)", source_text):
+        return "EXEMPTION"
+    return "TRIGGER"
+
+
 def _condition_rows(values: Iterable[str], prefix: str) -> list[dict[str, str]]:
     return [
         {
             "condition_id": f"{prefix}{index}",
             "text": text,
             "source": "authoritative_rule_or_bound_guide",
+            "condition_role": _condition_role(text) if prefix == "A" else "REVIEW",
         }
         for index, text in enumerate(_texts(values), 1)
     ]

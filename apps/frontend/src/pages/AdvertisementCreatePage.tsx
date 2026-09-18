@@ -15,7 +15,9 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_OPERATIONAL_ADS = 20;
 const MAX_FILES_PER_AD = 20;
 const FULL_REVIEW_TYPES: ReviewType[] = ["REQUIRED_PHRASE", "INTEREST_RATE", "MISLEADING_EXPRESSION", "PRODUCT_CONSISTENCY", "VISIBILITY"];
-const PRODUCT_GROUPS = new Set<ProductGroup>(["DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN"]);
+const PRODUCT_GROUPS = new Set<ProductGroup>([
+  "DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", "INVESTMENT",
+]);
 const ADVERTISEMENT_TYPES = new Set<AdvertisementType>(["BRANCH_FLYER", "NOTICE", "MOBILE_BANNER", "WEB_BANNER", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "SOCIAL_MEDIA", "VIDEO", "EMAIL", "OUTDOOR", "PRINT_AD", "PUSH", "SMS", "ALIMTALK", "OTHER"]);
 
 type OperationalAdvertisementDraft = {
@@ -32,6 +34,12 @@ let draftSequence = 0;
 function createOperationalDraft(): OperationalAdvertisementDraft {
   draftSequence += 1;
   return { key: `advertisement-draft-${draftSequence}`, advertisementName: "", productGroup: "", advertisementType: "", productClassificationCode: "", files: [] };
+}
+
+function operationalProductGroup(productGroup: ProductGroup): "예금성" | "대출성" | "투자성" {
+  if (productGroup === "LOAN") return "대출성";
+  if (productGroup === "INVESTMENT") return "투자성";
+  return "예금성";
 }
 
 function fileErrors(files: Array<{ label: string; file: File }>): string[] {
@@ -75,14 +83,14 @@ export function AdvertisementCreatePage() {
       });
     if (!draft.created) updateDraft(draft.key, "created", created);
     await operationalRequest(token, `advertisements/${created.advertisementId}/routing`, { product_classification_code: draft.productClassificationCode });
-    const normalizedProductGroup = productGroup === "LOAN" ? "대출성" : "예금성";
+    const normalizedProductGroup = operationalProductGroup(productGroup);
     const advertisementAssets = created.files.filter((file) => file.fileType === "ADVERTISEMENT");
     await operationalRequest(token, `advertisements/${created.advertisementId}/intake`, {
       schema_version: "operational-ad-intake-v1", advertisement_name: created.advertisementName,
       media_codes: [advertisementType],
       assets: advertisementAssets.map((file) => ({ asset_id: file.fileId, file_name: file.fileName })),
       products: [{ product_id: "P-1", product_name: draft.advertisementName.trim(),
-        product_group: draft.productClassificationCode.startsWith("대출성") ? "대출성" : normalizedProductGroup,
+        product_group: normalizedProductGroup,
         product_classification_code: draft.productClassificationCode,
         asset_scopes: advertisementAssets.map((file) => ({ asset_id: file.fileId, page_ranges: null })) }],
       shared_asset_scopes: [], follow_up: null,
@@ -102,7 +110,7 @@ export function AdvertisementCreatePage() {
       if (!draft.advertisementName.trim()) errors.push(`${prefix}: 광고명을 입력해 주세요.`);
       if (!PRODUCT_GROUPS.has(draft.productGroup as ProductGroup)) errors.push(`${prefix}: 상품군을 선택해 주세요.`);
       if (!draft.productClassificationCode) errors.push(`${prefix}: 상세 상품군을 선택해 주세요.`);
-      if (!ADVERTISEMENT_TYPES.has(draft.advertisementType as AdvertisementType)) errors.push(`${prefix}: 광고유형을 선택해 주세요.`);
+      if (!ADVERTISEMENT_TYPES.has(draft.advertisementType as AdvertisementType)) errors.push(`${prefix}: 광고 형식·매체를 선택해 주세요.`);
       if (draft.files.length === 0) errors.push(`${prefix}: 광고 원본을 선택해 주세요.`);
       if (draft.files.length > MAX_FILES_PER_AD) errors.push(`${prefix}: 동일 광고 파일은 최대 ${MAX_FILES_PER_AD}개까지 첨부할 수 있습니다.`);
       errors.push(...fileErrors(draft.files.map((file, fileIndex) => ({ label: `${prefix} 파일 ${fileIndex + 1}`, file }))));
@@ -171,9 +179,9 @@ export function AdvertisementCreatePage() {
           <header><div><strong>광고 {index + 1}</strong><small>{draft.created ? "광고 등록 완료 · 후속 단계만 재요청" : "독립 파싱·검색·판정 작업"}</small></div>{operationalDrafts.length > 1 ? <button type="button" className="button-secondary compact-button" disabled={submitting} onClick={() => setOperationalDrafts((current) => current.filter((item) => item.key !== draft.key))}>삭제</button> : null}</header>
           <div className="form-field-grid">
             <label htmlFor={`${draft.key}-name`}><span>광고명 *</span><input id={`${draft.key}-name`} disabled={Boolean(draft.created)} value={draft.advertisementName} onChange={(event) => updateDraft(draft.key, "advertisementName", event.target.value)} /></label>
-            <label htmlFor={`${draft.key}-type`}><span>광고유형 *</span><select id={`${draft.key}-type`} disabled={Boolean(draft.created)} value={draft.advertisementType} onChange={(event) => updateDraft(draft.key, "advertisementType", event.target.value as AdvertisementType)}><option value="" disabled>선택</option>{advertisementTypes.data?.filter((item) => item.enabled).map((item) => <option key={item.code} value={item.code}>{advertisementTypeLabel(item.code)}</option>)}</select></label>
-            <label htmlFor={`${draft.key}-group`}><span>상품군 *</span><select id={`${draft.key}-group`} disabled={Boolean(draft.created)} value={draft.productGroup} onChange={(event) => { updateDraft(draft.key, "productGroup", event.target.value as ProductGroup); updateDraft(draft.key, "productClassificationCode", ""); }}><option value="" disabled>선택</option>{productGroups.data?.filter((item) => item.enabled && ["DEPOSIT", "LOAN"].includes(item.code)).map((item) => <option key={item.code} value={item.code}>{item.code === "DEPOSIT" ? "예금성상품" : "대출성상품"}</option>)}</select><small>예금·적금·입출금 구분은 아래 상세 상품군에서 선택합니다.</small></label>
-            <label htmlFor={`${draft.key}-classification`}><span>상세 상품군 *</span><select id={`${draft.key}-classification`} disabled={Boolean(draft.created)} value={draft.productClassificationCode} onChange={(event) => updateDraft(draft.key, "productClassificationCode", event.target.value)}><option value="" disabled>선택</option>{capabilities.data?.productClassifications.filter((item) => draft.productGroup && item.productGroup === (draft.productGroup === "LOAN" ? "LOAN" : "DEPOSIT")).map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</select><small>선택값은 이 카드에 첨부한 모든 파일에 공통 적용됩니다.</small></label>
+            <label htmlFor={`${draft.key}-type`}><span>광고 형식·매체 *</span><select id={`${draft.key}-type`} disabled={Boolean(draft.created)} value={draft.advertisementType} onChange={(event) => updateDraft(draft.key, "advertisementType", event.target.value as AdvertisementType)}><option value="" disabled>선택</option>{advertisementTypes.data?.filter((item) => item.enabled).map((item) => <option key={item.code} value={item.code}>{advertisementTypeLabel(item.code)}</option>)}</select><small>문자·앱 푸시 등 매체별 심의 기준을 고르는 데 사용합니다.</small></label>
+            <label htmlFor={`${draft.key}-group`}><span>상품군 *</span><select id={`${draft.key}-group`} disabled={Boolean(draft.created)} value={draft.productGroup} onChange={(event) => { updateDraft(draft.key, "productGroup", event.target.value as ProductGroup); updateDraft(draft.key, "productClassificationCode", ""); }}><option value="" disabled>선택</option>{productGroups.data?.filter((item) => item.enabled && ["DEPOSIT", "LOAN", "INVESTMENT"].includes(item.code)).map((item) => <option key={item.code} value={item.code}>{item.code === "DEPOSIT" ? "예금성상품" : item.code === "LOAN" ? "대출성상품" : "투자성상품"}</option>)}</select><small>세부 상품군은 아래에서 선택합니다.</small></label>
+            <label htmlFor={`${draft.key}-classification`}><span>상세 상품군 *</span><select id={`${draft.key}-classification`} disabled={Boolean(draft.created)} value={draft.productClassificationCode} onChange={(event) => updateDraft(draft.key, "productClassificationCode", event.target.value)}><option value="" disabled>선택</option>{capabilities.data?.productClassifications.filter((item) => draft.productGroup && item.productGroup === (draft.productGroup === "LOAN" ? "LOAN" : draft.productGroup === "INVESTMENT" ? "INVESTMENT" : "DEPOSIT")).map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</select><small>선택값은 이 카드에 첨부한 모든 파일에 공통 적용됩니다.</small></label>
           </div>
           <label className="file-input-card" data-required="true" htmlFor={`${draft.key}-files`}><span>동일 광고 원본 *</span><small>한 광고를 구성하는 파일을 함께 선택 · 파일당 50MB</small><input id={`${draft.key}-files`} type="file" multiple disabled={Boolean(draft.created)} aria-label={`광고 ${index + 1} 원본 파일`} accept=".jpg,.jpeg,.png,.pdf,.hwp,.hwpx" onChange={(event) => updateDraft(draft.key, "files", Array.from(event.target.files ?? []))} /></label>
           {draft.files.length > 0 ? <p className="operational-file-summary">{draft.files.length}개 파일을 하나의 광고로 처리: {draft.files.map((file) => file.name).join(" · ")}</p> : null}

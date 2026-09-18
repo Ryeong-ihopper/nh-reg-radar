@@ -184,21 +184,33 @@ def calculate_loan_rates(payload, rule):
         return None
     low, high, base, spread, discount = values
     maximum, components = benefit
+    if low > high:
+        return None
     # A conditional surcharge with no displayed final total is not itself an
     # arithmetic claim. Additional stated totals/formulas are unsupported.
     for note in rate_text.split('※')[1:]:
         if PERCENT.search(note) and not re.fullmatch(
                 r'\s*한도대출의\s*경우\s*' + NUMBER + r'\s*%[pP]\s*가산됨\s*', note):
             return None
-    checks = [(f'{base}+{spread}', base + spread, high),
-              (f'{high}-{discount}', high - discount, low),
-              ('+'.join(map(str, components)), sum(components, Decimal(0)), maximum)]
+    # The quoted example specifies the discount to apply.  Its full formula
+    # must lie inside the displayed interval, but need not equal either end.
+    # A conditional surcharge describes a different loan variant and is not
+    # added to this example.  Never derive an undisclosed endpoint equality.
+    rate_result = base + spread - discount
+    outside = not low <= rate_result <= high
+    range_formula = (f'범위 검산: {base}+{spread}-{discount} '
+                     f'{"not in" if outside else "in"} [{low},{high}]')
+    rate_detail = f'계산: {base}+{spread}-{discount} = {rate_result}; ' + (f'계산 금리 {rate_result}%가 표시 범위 {low}~{high}%보다 '
+                   f'{"낮습니다" if rate_result < low else "높습니다"}.' if outside else
+                   f'계산 금리 {rate_result}%는 표시 범위 {low}~{high}% 안에 있습니다.')
+    checks = [('+'.join(map(str, components)), sum(components, Decimal(0)), maximum)]
     if discount != maximum:
         checks.append(('+'.join(map(str, components)), sum(components, Decimal(0)), discount))
-    mismatch = any(actual != advertised for _, actual, advertised in checks)
+    mismatch = outside or any(actual != advertised for _, actual, advertised in checks)
     formulas = '; '.join(f'검산: {expr} {"!=" if actual != advertised else "="} {advertised}'
                          for expr, actual, advertised in checks)
-    reason = '원문 수치의 규칙 기반 검산: ' + formulas + ('. 불일치가 확인됩니다.' if mismatch else '. 표시된 금리 산식과 우대 합계가 일치합니다.')
+    reason = ('원문 수치의 규칙 기반 검산: ' + range_formula + '; ' + rate_detail + ' ' + formulas
+              + ('. 불일치가 확인됩니다.' if mismatch else '. 표시 범위와 우대 합계 검산을 통과했습니다.'))
     refs = [rate_ref, benefit_ref]
     ids = list(dict.fromkeys(sources[ref] for ref in refs))
     return {'item_id': rule['item_id'], 'scope_check': {'scope_ref': 'SCOPE', 'status': 'MATCHED'},
