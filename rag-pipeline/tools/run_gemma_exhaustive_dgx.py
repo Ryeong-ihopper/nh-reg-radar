@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,8 +25,13 @@ if str(ROOT) not in sys.path:
 from rag.judgment.grounding import grounding_errors  # noqa: E402
 from rag.judgment.evidence_projection import pack_documents  # noqa: E402
 from rag.parsing.source_structure import compact_source_structure  # noqa: E402
-from rag.judgment.reading_quality import apply_reading_guard, reading_issues  # noqa: E402
+from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review, reading_issues  # noqa: E402
+from rag.judgment.temporal import basis_date_observations, temporal_claim_errors  # noqa: E402
+from rag.judgment.manual_review import text_facet_claim_errors  # noqa: E402
+from rag.judgment.source_checks import source_claim_errors  # noqa: E402
+from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.output_contract import response_format, response_mode  # noqa: E402
+from dgx_openai_client import ModelTransportError, post_json  # noqa: E402
 
 
 DEFAULT_HOST = os.environ.get("DGX_HOST")
@@ -89,6 +95,10 @@ For v2 contracts, requirement_checks must return every listed obligation_ref
 exactly once, in source order, after gates pass. Do not merge multiple O checks
 into a generic "all mandatory disclosures present" check. Each O check needs its
 own supporting references or an explicit MISSING/UNDETERMINED outcome. Source
+section headings alone never prove the disclosures required in their body.
+Check every required meaning, benefit and restriction against its own cited
+body text; a different disclosed restriction does not establish this one.
+Source
 notes narrow the criterion; an umbrella rule is not a substitute for all other
 rules. Preserve source exceptions and ANY_OF choices. Never split examples into
 mandatory items. If the applicable set of elements cannot be established, use
@@ -105,11 +115,32 @@ each rule, check every cited alias against that rule's allowlist. If the supplie
 citable evidence cannot support the assertion, report UNDETERMINED rather than
 substituting a different line or fabricating applicability support.
 
+An applicability condition can declare condition_role=EXEMPTION. If SCOPE is
+MATCHED, no review condition is triggered, and only EXEMPTION conditions remain
+UNDETERMINED, still evaluate every obligation. When every obligation is
+SATISFIED by direct cited advertisement text, return COMPLIANT even though the
+exemption itself is unknown: the advertisement is compliant whether the
+exemption applies or not. Do not use this rule for condition_role=TRIGGER. If
+the disclosure is missing, violated, or uncertain while its exemption is
+unknown, return UNDETERMINED rather than VIOLATION.
+
 사용자에게 보이는 reason·requirement 설명은 한국어로 작성한다. 규칙·근거 ID와
 enum 값은 지정된 영문을 그대로 유지하고, 원문 고유명사·수치는 번역하거나 바꾸지 않는다.
 
 Document lines maps L aliases to exact source text; line_bboxes maps the same
 aliases to coordinates. These are source lines, not new or independent evidence.
+For a source-line grouping obligation such as prohibiting two or more caution
+notices on one line, treat each supplied L alias as one verified source line.
+One caution sentence on one L line does not violate that rule. Return VIOLATED
+only when the same cited L line contains at least two distinct caution notices;
+name both notices in the reason. Separate L lines and a single notice are compliant.
+For every SATISFIED/VIOLATED OBSERVED check, cite the specific supporting L aliases
+when exact lines are supplied. An E region alone is insufficient: select the
+actual source sentence, not all lines in the region. Uncertain source readings
+are retained as context but have no citable aliases; use readable evidence.
+When claiming a name or phrase is present, quote the observed wording in the
+reason and cite the L line that actually contains it. The first line of a
+region cannot stand in for a different sentence elsewhere in that region.
 source_relations and table cells describe parser structure between canonical L
 lines. They do not prove legal applicability. Missing structure is not a missing
 disclosure. A table cell with status other than observed is navigation context,
@@ -119,11 +150,30 @@ products, variants, dates or conditions into one arithmetic comparison. First
 establish the same scope from readable source evidence. Cell text outside the
 canonical lines is not supplied as evidence. Unknown unit, date, rate basis or
 visual measurement requires UNDETERMINED for the dependent obligation.
+An arithmetic VIOLATED check must include a reproducible source-based witness
+in its Korean reason: "검산: a+b-c != d", replacing variables with actual cited
+numbers. The sum/difference must really differ from the advertised result.
+Equal values are not violations. Complex or unresolved formulas need human
+review; do not invent a mismatch or sum alternative benefit conditions together.
+For a displayed range, test the full same-condition formula for membership,
+not equality to an arbitrary endpoint. Use "범위 검산: a+b-c not in [low,high]"
+only when the cited calculation is outside the cited interval. An ordinary
+notice that rates vary does not invalidate a fully specified example.
+Verify the arithmetic relationships actually asserted in the source. Separate
+the stated base example from conditional adjustments. An adjustment without a
+separately advertised total creates no extra equality to verify: do not demand
+an unstated variant total or treat the adjustment as part of a different base
+example. Explain each computable base sum/difference and benefit alternative
+before identifying any genuinely unresolved advertised calculation.
 Resolve each document's text_selection_ref in reading_contexts: it describes
 OCR/VLM reading uncertainty, not legal review. A shared Q entry does not mean
 the documents are independent readings or share a source location.
 If needs_review is true, do not establish a definitive observed fact from that
 document alone; use independently readable evidence or UNDETERMINED.
+uncertain_context is local. Its affected_rule_refs identifies the only rules
+whose source window touches that uncertain region. Do not turn a local reading
+or label review into parser_coverage=PARTIAL or an incomplete scan for other
+rules whose complete_ad_scan remains true.
 span_status=region_level_selected_text means the refs cover a source region,
 not an exact alignment of selected text. Cite an individual line only when its
 provided text directly supports the claim. Unknown precision is not line-exact.
@@ -233,7 +283,16 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         for rule in (payload.get("rules") or [])
         if isinstance(rule, dict)
     )
-    for evidence_index, document in enumerate(payload.get("documents") or [], 1):
+    # Preserve the frozen candidates, including uncertain readings, but never
+    # offer revoked observations as citable aliases. This uses existing parser
+    # uncertainty; it neither reclassifies labels nor repairs source text.
+    source_documents = [document for document in payload.get("documents") or []
+                        if not needs_reading_review(document)]
+    line_citable_ids = {str(doc['evidence_id']) for doc in source_documents
+                        if doc.get('line_texts') and doc.get('span_status') != 'region_level_selected_text'}
+    uncertain_documents = [document for document in payload.get("documents") or []
+                           if needs_reading_review(document)]
+    for evidence_index, document in enumerate(source_documents, 1):
         evidence_id = str(document["evidence_id"])
         evidence_ref = f"E{evidence_index}"
         evidence_to_ref[evidence_id] = evidence_ref
@@ -290,7 +349,6 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
     # alias. Asset aliases preserve variant boundaries without treating names
     # as classification evidence. Table OCR cannot become extra citable text.
     asset_aliases = {}
-    source_documents = payload.get("documents") or []
     for source, target in zip(source_documents, compact_documents):
         asset = source.get("asset_id") or source.get("source_file")
         if asset:
@@ -300,18 +358,17 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
 
     def compact_scope(scope: dict[str, Any]) -> dict[str, Any]:
         allowed_evidence = set(map(str, scope.get("evidence_ids") or []))
+        allowed_lines = list(dict.fromkeys(
+            line_to_ref[str(ref)] for document in source_documents
+            if str(document['evidence_id']) in allowed_evidence
+            for ref in document.get('line_refs') or []))
         return {
             "evidence_refs": [
                 evidence_to_ref[value]
                 for value in map(str, scope.get("evidence_ids") or [])
-                if value in evidence_to_ref
-            ],
-            "line_refs": list(dict.fromkeys(
-                line_to_ref[str(ref)]
-                for document in payload.get("documents") or []
-                if str(document["evidence_id"]) in allowed_evidence
-                for ref in document.get("line_refs") or []
-            )),
+                if value in evidence_to_ref and value not in line_citable_ids
+            ] + allowed_lines,
+            "line_refs": allowed_lines,
             "complete_ad_scan": scope.get("complete_ad_scan") is True,
         }
 
@@ -321,6 +378,15 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         compact_rule = {key: value for key, value in rule.items() if key != "item_id"}
         contract = compact_rule.get("condition_contract")
         if isinstance(contract, dict):
+            # The compiled contract retains authoritative conditions and
+            # explicit bound guide obligations. Raw auxiliary guidance is
+            # retained in the frozen request, not a second competing rule.
+            for field in ('standard_guidance', 'standard_examples', 'guide', 'rule_summaries'):
+                compact_rule.pop(field, None)
+            basis = compact_rule.get('template_basis')
+            if isinstance(basis, dict):
+                compact_rule['template_basis'] = {key: value for key, value in basis.items()
+                    if key not in {'fields', 'manual_guidance', 'alternative_members'}}
             contract = copy.deepcopy(contract)
             compact_rule["condition_contract"] = contract
             compact_rule["output_check_refs"] = {
@@ -350,7 +416,7 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
         for region in page.get("regions") or []:
             parent_id = str(region.pop("evidence_id", ""))
             region["evidence_refs"] = [evidence_to_ref[str(doc["evidence_id"])]
-                for doc in payload.get("documents") or []
+                for doc in source_documents
                 if str(doc.get("parent_evidence_id") or doc["evidence_id"]) == parent_id]
             region["measurement_scope"] = "source_region_not_individual_chunk"
             region["line_styles"] = [
@@ -359,10 +425,26 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
                 if str(line.get("line_ref")) in line_to_ref]
     compact_documents, reading_contexts = pack_documents(compact_documents)
     compact_payload = {
+        "basis_date_observations": [
+            {"basis_date": value['basis_date'], "review_date": value['review_date'],
+             "elapsed_days": value['elapsed_days'], "evidence_ref": evidence_to_ref[value['evidence_id']],
+             "line_refs": [line_to_ref[ref] for ref in value['line_refs'] if ref in line_to_ref]}
+            for value in basis_date_observations(source_documents,
+                (payload.get('review_context') or {}).get('review_date'))
+        ],
+        "review_context": payload.get("review_context"),
         "routing": payload.get("routing") or {},
         "parser_coverage": payload.get("parser_coverage"),
         "reading_quality": payload.get("reading_quality") or {},
         "observed_ad_text": payload.get("full_ad_text"),
+        "uncertain_context": [{"text": doc.get("text") or "",
+                               "page_no": doc.get("page_no"),
+                               "span_status": doc.get("span_status") or "unknown",
+                               "text_selection": doc.get("text_selection") or {},
+                               "affected_rule_refs": [item_to_ref[item_id] for item_id in item_ids
+                                   if str(doc.get("evidence_id")) in set(map(str,
+                                       (evidence_scope.get(item_id) or {}).get("evidence_ids") or []))],
+                               "citable": False} for doc in uncertain_documents],
         "documents": compact_documents,
         "reading_contexts": reading_contexts,
         "evidence_scope": {
@@ -433,6 +515,12 @@ def _expand_model_response(
                     evidence_ids.append(value)
         return evidence_ids, line_refs
 
+    payload = json.loads(row["messages"][1]["content"])
+    rules_by_id = {
+        str(rule.get("item_id")): rule
+        for rule in payload.get("rules") or []
+        if isinstance(rule, dict) and rule.get("item_id")
+    }
     expanded = []
     expected_item_ids = list(row.get("requested_item_ids") or [])
     for result_index, model_result in enumerate(results):
@@ -545,6 +633,14 @@ def _expand_model_response(
         gate_lines = list(dict.fromkeys(gate_lines))
         gate_metadata = list(dict.fromkeys(gate_metadata))
 
+        rule = rules_by_id.get(str(item_id), {})
+        invariant_compliance = _obligations_satisfy_unknown_exemptions(
+            rule=rule,
+            scope_status=scope_status,
+            condition_checks=condition_checks,
+            review_statuses=review_statuses,
+            requirement_checks=checks,
+        )
         if applicability == "NOT_APPLICABLE":
             applicability_basis = "NOT_APPLICABLE"
             verdict = "NOT_APPLICABLE"
@@ -552,8 +648,9 @@ def _expand_model_response(
             app_ids, app_lines, metadata_fields = [], [], []
         elif applicability == "UNDETERMINED":
             applicability_basis = "UNDETERMINED"
-            verdict = "UNDETERMINED"
-            checks = []
+            verdict = "COMPLIANT" if invariant_compliance else "UNDETERMINED"
+            if not invariant_compliance:
+                checks = []
             app_ids, app_lines, metadata_fields = [], [], gate_metadata
         else:
             app_ids, app_lines, metadata_fields = gate_ids, gate_lines, gate_metadata
@@ -595,6 +692,59 @@ def _expand_model_response(
             "needs_researcher_review": verdict in {"VIOLATION", "UNDETERMINED"},
         })
     return {"ad_id": row["ad_id"], "results": expanded}
+
+
+def _obligations_satisfy_unknown_exemptions(
+    *,
+    rule: dict[str, Any],
+    scope_status: str | None,
+    condition_checks: Any,
+    review_statuses: list[Any],
+    requirement_checks: Any,
+) -> bool:
+    """Return true only when an unknown exemption cannot change compliance."""
+    contract = rule.get("condition_contract") or {}
+    conditions = {
+        str(value.get("condition_id")): value
+        for value in contract.get("applicability_conditions") or []
+        if isinstance(value, dict)
+    }
+    if scope_status != "MATCHED" or not isinstance(condition_checks, list):
+        return False
+    unknown_refs = [
+        str(value.get("condition_ref"))
+        for value in condition_checks
+        if isinstance(value, dict) and value.get("status") == "UNDETERMINED"
+    ]
+    if not unknown_refs or any(
+        (conditions.get(ref) or {}).get("condition_role") != "EXEMPTION"
+        for ref in unknown_refs
+    ):
+        return False
+    if any(
+        not isinstance(value, dict)
+        or value.get("status") not in {"SATISFIED", "UNDETERMINED"}
+        for value in condition_checks
+    ) or any(status != "NOT_TRIGGERED" for status in review_statuses):
+        return False
+    expected = [
+        str(value.get("obligation_id"))
+        for value in contract.get("obligation_checks") or []
+        if isinstance(value, dict)
+    ]
+    if not expected or not isinstance(requirement_checks, list):
+        return False
+    actual = [
+        str(value.get("obligation_ref")) if isinstance(value, dict) else ""
+        for value in requirement_checks
+    ]
+    return actual == expected and all(
+        value.get("status") == "SATISFIED"
+        and value.get("finding_basis") == "OBSERVED"
+        and bool(value.get("evidence_ids") or value.get("evidence_line_refs"))
+        for value in requirement_checks
+        if isinstance(value, dict)
+    )
 
 
 def validate_condition_contract_result(
@@ -678,7 +828,14 @@ def validate_condition_contract_result(
 
     applicability = result.get("applicability")
     obligations = contract.get("obligation_checks")
-    if applicability == "APPLICABLE" and isinstance(obligations, list):
+    invariant_compliance = _obligations_satisfy_unknown_exemptions(
+        rule=rule,
+        scope_status=scope_status,
+        condition_checks=checks,
+        review_statuses=review_statuses,
+        requirement_checks=result.get("requirement_checks"),
+    )
+    if (applicability == "APPLICABLE" or invariant_compliance) and isinstance(obligations, list):
         expected_obligations = [value["obligation_id"] for value in obligations]
         requirement_checks = result.get("requirement_checks")
         actual_obligations = [value.get("obligation_ref") if isinstance(value, dict) else None
@@ -740,6 +897,9 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             errors.append(f"results[{result_index}]가 객체가 아님: {type(row).__name__}")
             continue
         item_id = row.get("item_id")
+        errors.extend(temporal_claim_errors(payload, row))
+        errors.extend(text_facet_claim_errors(payload, row))
+        errors.extend(source_claim_errors(payload, row))
         if check_reading:
             errors.extend(f"{item_id}: reading_quality:{issue['code']}:{issue['location']}"
                           for issue in reading_issues(payload, row))
@@ -757,7 +917,19 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             errors.append(f"{item_id}: NOT_APPLICABLE 정합성")
         if applicability == "APPLICABLE" and verdict == "NOT_APPLICABLE":
             errors.append(f"{item_id}: APPLICABLE 정합성")
-        if applicability == "UNDETERMINED" and verdict != "UNDETERMINED":
+        invariant_compliance = _obligations_satisfy_unknown_exemptions(
+            rule=rules_by_id.get(str(item_id), {}),
+            scope_status=(row.get("scope_check") or {}).get("status"),
+            condition_checks=row.get("condition_checks"),
+            review_statuses=[
+                value.get("status") for value in row.get("review_condition_checks") or []
+                if isinstance(value, dict)
+            ],
+            requirement_checks=row.get("requirement_checks"),
+        )
+        if applicability == "UNDETERMINED" and verdict != "UNDETERMINED" and not (
+            verdict == "COMPLIANT" and invariant_compliance
+        ):
             errors.append(f"{item_id}: applicability UNDETERMINED 정합성")
         if applicability_basis not in {
             "ADVERTISEMENT_EVIDENCE", "CONFIRMED_METADATA", "NOT_APPLICABLE", "UNDETERMINED",
@@ -962,6 +1134,12 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                 errors.append(
                     f"{item_id}: OBSERVED에는 직접 광고 근거가 필요"
                 )
+            if (finding_basis == "OBSERVED" and check_status in {"SATISFIED", "VIOLATED"}
+                    and not check_refs and isinstance(check_ids, list)
+                    and any(document_by_id.get(str(ref), {}).get("line_texts")
+                            and document_by_id[str(ref)].get("span_status") != "region_level_selected_text"
+                            for ref in check_ids)):
+                errors.append(f"{item_id}: OBSERVED 확정에는 제공된 원본 줄을 직접 인용해야 함")
             if (
                 check_reading and finding_basis == "ABSENCE"
                 and isinstance(item_scope, dict)
@@ -1076,8 +1254,6 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
         "max_tokens": max_tokens,
         "response_format": response_format(json.loads(model_messages[1]["content"])),
     }
-    from dgx_openai_client import post_json
-
     started = time.perf_counter()
     response = post_json(payload, host=host, key=key, timeout=900)
     seconds = time.perf_counter() - started
@@ -1090,7 +1266,7 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
     structural_errors = validate(row, parsed, check_reading=False)
     reading_quality_guards = [] if structural_errors else apply_reading_guard(
         json.loads(row["messages"][1]["content"]), parsed)
-    return {
+    result = {
         "request_id": row["request_id"],
         "ad_id": row["ad_id"],
         "category": row["category"],
@@ -1106,6 +1282,8 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
         "reading_quality_guards": reading_quality_guards,
         "validation_errors": validate(row, parsed),
     }
+    from rag.judgment.unsupported_observations import abstain_unresolved_applicability
+    return abstain_unresolved_applicability(row, result, validate)
 
 
 def normalize_contract_sentinels(
@@ -1250,6 +1428,52 @@ def contract_attempt_limit(row: dict[str, Any]) -> int:
     return 3
 
 
+def select_request_items(row: dict[str, Any], item_ids: list[str], suffix: str) -> dict[str, Any]:
+    """Keep frozen evidence and scope; narrow only the requested obligations."""
+    child = copy.deepcopy(row)
+    payload = json.loads(child['messages'][1]['content'])
+    child['request_id'] = f"{row['request_id']}~{suffix}"
+    child['logical_request_id'] = row.get('logical_request_id', row['request_id'])
+    child['requested_item_ids'] = item_ids
+    payload['request_id'] = child['request_id']
+    payload['rules'] = [rule for rule in payload['rules'] if rule['item_id'] in item_ids]
+    if isinstance(payload.get('evidence_scope'), dict):
+        payload['evidence_scope'] = {key: value for key, value in payload['evidence_scope'].items()
+                                     if key in item_ids}
+        if len(payload['evidence_scope']) == len(item_ids):
+            allowed = {str(eid) for scope in payload['evidence_scope'].values()
+                       for eid in scope.get('evidence_ids') or []}
+            payload['documents'] = [doc for doc in payload.get('documents') or []
+                                    if str(doc.get('evidence_id')) in allowed]
+    child['messages'][1]['content'] = json.dumps(payload, ensure_ascii=False)
+    return child
+
+
+def validated_batch_items(row: dict[str, Any], response: dict[str, Any]) -> list[str]:
+    """Salvage only complete, uniquely identified, fully validated item results.
+
+    Unknown IDs, reordered/duplicate/missing items or a wrong advertisement
+    cannot be hidden by item selection. Do not relax any citation or semantic
+    check to save a call. The original failed response stays in call_history.
+    """
+    expected = row.get('requested_item_ids') or []
+    parsed = response.get('parsed')
+    if len(expected) < 2 or not isinstance(parsed, dict) or parsed.get('ad_id') != row['ad_id']:
+        return []
+    results = parsed.get('results')
+    if (not isinstance(results, list) or any(not isinstance(value, dict) for value in results)
+            or [value.get('item_id') for value in results] != expected or len(set(expected)) != len(expected)):
+        return []
+    valid = []
+    for value in results:
+        item = value['item_id']
+        child = select_request_items(row, [item], 'validate')
+        if not validate(child, {'ad_id': parsed['ad_id'], 'results': [value]}):
+            valid.append(item)
+    # All-items-valid + batch-invalid indicates a global error we must retain.
+    return valid if len(valid) < len(expected) else []
+
+
 def retry_contract_instruction(
     row: dict[str, Any], validation_errors: list[str]
 ) -> str:
@@ -1307,11 +1531,26 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
     # existing recursive splitter than by asking the model to repeat the same
     # oversized JSON object a second time.
     max_attempts = contract_attempt_limit(row)
-    for attempt in range(1, max_attempts + 1):
+    contract_attempt = 0
+    transport_attempt = 0
+    while True:
+        attempt = len(call_history) + 1
+        call_id = uuid4().hex
         attempt_started = time.perf_counter()
         try:
             result = call_once(current, host, key, model, max_tokens)
+        except ModelTransportError as exc:
+            transport_attempt += 1
+            result = {
+                "request_id": row["request_id"],
+                "ad_id": row["ad_id"],
+                "category": row["category"],
+                "fatal_error": str(exc),
+                "transport_error": True,
+                "validation_errors": [f"model transport failed: {exc}"],
+            }
         except Exception as exc:
+            contract_attempt += 1
             result = {
                 "request_id": row["request_id"],
                 "ad_id": row["ad_id"],
@@ -1319,8 +1558,11 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
                 "fatal_error": str(exc),
                 "validation_errors": [f"호출/JSON 파싱 실패: {exc}"],
             }
+        else:
+            contract_attempt += 1
         attempts.append(result["validation_errors"])
         event = {
+            "call_id": call_id,
             "request_id": row["request_id"], "attempt": attempt,
             "seconds": round(time.perf_counter() - attempt_started, 3),
             "validation_errors": copy.deepcopy(result["validation_errors"]),
@@ -1335,11 +1577,27 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
                     event[field] = copy.deepcopy(result[field])
         call_history.append(event)
         result["call_history"] = call_history
-        if not result["validation_errors"]:
-            result["contract_attempts"] = attempt
+        if result.get("transport_error"):
+            if transport_attempt < 3:
+                time.sleep(transport_attempt)
+                continue
+            result["contract_attempts"] = contract_attempt
+            result["transport_attempts"] = transport_attempt
             result["attempted_validation_errors"] = attempts
             return result
-        if attempt < max_attempts:
+        if not result["validation_errors"]:
+            result["contract_attempts"] = contract_attempt
+            result["transport_attempts"] = transport_attempt
+            result["attempted_validation_errors"] = attempts
+            return result
+        valid_items = validated_batch_items(row, result)
+        if valid_items:
+            result['validated_item_ids'] = valid_items
+            result['contract_attempts'] = contract_attempt
+            result['transport_attempts'] = transport_attempt
+            result['attempted_validation_errors'] = attempts
+            return result
+        if contract_attempt < max_attempts:
             current = copy.deepcopy(row)
             if isinstance(result.get("model_parsed"), dict):
                 current["messages"].append({
@@ -1350,12 +1608,14 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
                 "role": "user",
                 "content": retry_contract_instruction(row, result["validation_errors"]),
             })
-    result["contract_attempts"] = max_attempts
-    result["attempted_validation_errors"] = attempts
-    return result
+            continue
+        result["contract_attempts"] = contract_attempt
+        result["transport_attempts"] = transport_attempt
+        result["attempted_validation_errors"] = attempts
+        return result
 
 
-def split_request_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+def split_request_row(row: dict[str, Any], *, cpu_items: set[str] | None = None) -> list[dict[str, Any]]:
     """Split a failed request and isolate every child to its rule evidence."""
     expected = list(row.get("requested_item_ids") or [])
     if len(expected) < 2:
@@ -1365,8 +1625,11 @@ def split_request_row(row: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(rules, list) or [rule.get("item_id") for rule in rules] != expected:
         raise ValueError("요청 rules와 requested_item_ids 순서가 다름")
     midpoint = len(rules) // 2
+    groups = (("a", rules[:midpoint]), ("b", rules[midpoint:])) if cpu_items is None else (
+        ("cpu", [rule for rule in rules if rule['item_id'] in cpu_items]),
+        ("model", [rule for rule in rules if rule['item_id'] not in cpu_items]))
     children = []
-    for label, child_rules in (("a", rules[:midpoint]), ("b", rules[midpoint:])):
+    for label, child_rules in groups:
         child = copy.deepcopy(row)
         child_id = f"{row['request_id']}~split-{label}"
         child_payload = copy.deepcopy(payload)
@@ -1400,6 +1663,26 @@ def split_request_row(row: dict[str, Any]) -> list[dict[str, Any]]:
     return children
 
 
+def order_response_items(row: dict[str, Any], responses: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Restore original item order after CPU/retained/pending partitions."""
+    ordered = []
+    for response in responses:
+        if response.get('validation_errors'):
+            ordered.append(response)
+            continue
+        for index, value in enumerate(response['parsed']['results']):
+            fragment = dict(response)
+            fragment['request_id'] = f"{response['request_id']}~item-{index}"
+            fragment['parsed'] = {**response['parsed'], 'results': [value]}
+            fragment['call_history'] = response.get('call_history', []) if index == 0 else []
+            ordered.append(fragment)
+    positions = {item: index for index, item in enumerate(row['requested_item_ids'])}
+    return sorted(ordered, key=lambda response: min(
+        [positions.get(value.get('item_id'), len(positions))
+         for value in (response.get('parsed') or {}).get('results') or [] if isinstance(value, dict)]
+        or [len(positions)]))
+
+
 def call_with_retry_and_split(
     row: dict[str, Any],
     host: str | None,
@@ -1411,13 +1694,56 @@ def call_with_retry_and_split(
     max_split_depth: int = 8,
 ) -> list[dict[str, Any]]:
     """Retry contract failures and recursively isolate oversized bad batches."""
+    payload = json.loads(row['messages'][1]['content'])
+    computed = [calculate_loan_rates(payload, rule) for rule in payload.get('rules', [])]
+    if computed and all(computed):
+        parsed = {'ad_id': row['ad_id'], 'results': computed}
+        errors = validate(row, parsed)
+        if not errors:
+            return [{'request_id': row['request_id'], 'ad_id': row['ad_id'],
+                     'category': row['category'], 'parsed': parsed, 'validation_errors': [],
+                     'decision_source': ARITHMETIC_METHOD, 'model_returned': None,
+                     'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                     'seconds': 0, 'call_history': [], 'attempts': 0,
+                     'logical_request_id': row.get('logical_request_id', row['request_id']),
+                     'split_depth': depth}]
+    elif any(computed) and len(row.get('requested_item_ids', [])) > 1:
+        # Separate CPU-certifiable items before sending any request to the GPU.
+        return order_response_items(row, [response for child in split_request_row(row, cpu_items={r['item_id'] for r in computed if r})
+                for response in call_with_retry_and_split(child, host, key, model, max_tokens,
+                    depth=depth + 1, max_split_depth=max_split_depth)])
     result = call_with_retry(row, host, key, model, max_tokens)
     result["logical_request_id"] = row.get("logical_request_id", row["request_id"])
     result["split_depth"] = depth
+    if result.get("transport_error"):
+        # Splitting cannot repair a disconnected service and can multiply one
+        # outage into dozens of expensive physical calls.
+        return [result]
     if not result["validation_errors"]:
-        return [result]
+        return [focus_unresolved_source_checks(row, result, host, key, model, max_tokens)]
+    valid_items = result.get('validated_item_ids') or validated_batch_items(row, result)
+    if valid_items and depth < max_split_depth:
+        retained = copy.deepcopy(result)
+        retained.update(request_id=f"{row['request_id']}~retained", validation_errors=[],
+                        decision_source='validated_partial_batch', validated_item_ids=valid_items)
+        retained['parsed']['results'] = [value for value in result['parsed']['results']
+                                         if value['item_id'] in valid_items]
+        retained['retained_from_request_id'] = row['request_id']
+        pending = select_request_items(row,
+            [item for item in row['requested_item_ids'] if item not in valid_items], 'pending')
+        # Keep the existing source-focus policy for eligible unresolved items;
+        # reducing retries must not skip an existing evidence check. Settled
+        # neighbors remain byte-for-byte unchanged by that policy.
+        retained = focus_unresolved_source_checks(
+            select_request_items(row, valid_items, 'retained'), retained,
+            host, key, model, max_tokens)
+        # The parent audit belongs to the retained row exactly once.
+        responses = [retained, *call_with_retry_and_split(pending, host, key, model, max_tokens,
+            depth=depth + 1, max_split_depth=max_split_depth)]
+        return order_response_items(row, responses)
     if len(row.get("requested_item_ids") or []) < 2 or depth >= max_split_depth:
-        return [result]
+        from rag.judgment.unsupported_observations import quarantine_unsupported_observations
+        return [quarantine_unsupported_observations(row, result, validate)]
     output: list[dict[str, Any]] = []
     for child in split_request_row(row):
         output.extend(call_with_retry_and_split(
@@ -1428,6 +1754,99 @@ def call_with_retry_and_split(
         # Retain each discarded ancestor exactly once, not once per leaf.
         output[0]["call_history"] = result.get("call_history", []) + output[0].get("call_history", [])
     return output
+
+
+def focus_unresolved_source_checks(
+    row: dict[str, Any], result: dict[str, Any], host: str | None,
+    key: Path | None, model: str, max_tokens: int,
+) -> dict[str, Any]:
+    """One isolated source check for a presence/arithmetic abstention.
+
+    Never re-read parser labels, waive uncertainty, supply a target verdict or
+    retry a reading guard. Valid neighboring judgments stay byte-for-byte equal.
+    If the isolated answer is invalid or still unknown, the original survives.
+    """
+    if not row.get('requested_item_ids'):
+        return result
+    payload = json.loads(row['messages'][1]['content'])
+    rules = {r['item_id']: r for r in payload.get('rules') or []}
+    documents = {d['evidence_id']: d for d in payload.get('documents') or []}
+    targets = []
+    for judgment in (result.get('parsed') or {}).get('results') or []:
+        item = judgment.get('item_id')
+        contract = (rules.get(item) or {}).get('condition_contract') or {}
+        arithmetic = bool(re.search(r'산술|산식|합산', ' '.join(
+            str(check.get('text') or '') for check in contract.get('obligation_checks') or [])))
+        assessment = (payload.get('external_input_assessment') or {}).get(item) or {}
+        scoped = (payload.get('evidence_scope') or {}).get(item) or {}
+        if ((row.get('category') == 'PRESENCE' or arithmetic)
+                and judgment.get('verdict') == 'UNDETERMINED'
+                and judgment.get('applicability') == 'APPLICABLE'
+                and not judgment.get('reading_quality_review')
+                and contract.get('applicability_mode') in {'UNCONDITIONAL', 'SOURCE_SCOPED'}
+                and not contract.get('applicability_conditions') and not contract.get('review_conditions')
+                and assessment.get('input_mode') not in {'PARTIAL', 'EXTERNAL'}
+                and any(not needs_reading_review(documents[eid]) and documents[eid].get('line_texts')
+                        for eid in scoped.get('evidence_ids') or [] if eid in documents)):
+            targets.append(item)
+    if not targets:
+        return result
+    focused = copy.deepcopy(result)
+    focused['source_focus_attempts'] = []
+    focused['source_focus_applied'] = []
+    for item in targets:
+        isolated = copy.deepcopy(row)
+        while len(isolated['requested_item_ids']) > 1:
+            isolated = next(child for child in split_request_row(isolated)
+                            if item in child['requested_item_ids'])
+        isolated_payload = json.loads(isolated['messages'][1]['content'])
+        isolated_payload.pop('full_ad_text', None)
+        for document in isolated_payload.get('documents') or []:
+            document.pop('labels', None)
+        isolated['messages'][1]['content'] = json.dumps(isolated_payload, ensure_ascii=False)
+        isolated['messages'].append({'role': 'user', 'content': (
+            '이 단일 항목의 허용 documents.lines를 줄마다 확인하십시오. 긍정 존재 판정은 '
+            '읽을 수 있는 해당 문구와 그 줄 ID를 함께 찾아야 합니다. PARTIAL은 전체 부재 '
+            '확정을 제한하지만 읽힌 문구의 존재 확인까지 금지하지 않습니다. 예시 답안의 '
+            '첫 줄 ID를 복사하지 마십시오. 충족 여부는 원문과 규칙으로 판단하고 근거가 '
+            '부족하면 판단불가를 유지하십시오. 완전히 읽힌 범위에서는 원문이 명시적으로 '
+            '요구하는 필수 문구의 부재도 확인하십시오. 산술 요건이면 원문이 같은 조건으로 '
+            '주장한 합·차를 직접 검산하고 수치와 설명을 제시하십시오. 별도 최종 결과값이 '
+            '없는 조건부 가산에 새 합계 기재 의무를 만들지 마십시오.'
+        )})
+        # No parent answer, expected status, or parser relabeling is sent.
+        started = time.perf_counter()
+        try:
+            retry = call_with_retry(isolated, host, key, model, max_tokens)
+        except Exception as exc:
+            retry = {'validation_errors': [str(exc)]}
+        original = next(j for j in focused['parsed']['results'] if j['item_id'] == item)
+        focused['source_focus_attempts'].append({'item_id': item, 'request': copy.deepcopy(isolated),
+                                                'original_result': copy.deepcopy(original),
+                                                'response': retry})
+        history = retry.get('call_history') or [{
+            'request_id': isolated['request_id'], 'attempt': 1,
+            'purpose': 'isolated_source_judgment',
+            'seconds': round(time.perf_counter() - started, 3),
+            'validation_errors': copy.deepcopy(retry.get('validation_errors', [])),
+            'finish_reason': retry.get('finish_reason'), 'usage': retry.get('usage'),
+            'response_format': retry.get('response_format'),
+        }]
+        focused.setdefault('call_history', []).extend([
+            {**event, 'purpose': 'isolated_source_judgment'} for event in history
+        ])
+        replacements = (retry.get('parsed') or {}).get('results') or []
+        if not retry.get('validation_errors') and len(replacements) == 1:
+            replacement = replacements[0]
+            if replacement.get('item_id') == item and replacement.get('verdict') in {'COMPLIANT', 'VIOLATION'}:
+                candidate = copy.deepcopy(focused['parsed'])
+                candidate['results'] = [replacement if j['item_id'] == item else j for j in candidate['results']]
+                if not validate(row, candidate):
+                    focused['parsed'] = candidate
+                    focused['source_focus_applied'].append(item)
+    if focused['source_focus_applied']:
+        focused['contract_projection'] = 'gate-derived-v1+isolated-source-v1'
+    return focused
 
 
 def completed_item_ids(result_rows: list[dict[str, Any]]) -> list[str]:
@@ -1513,6 +1932,39 @@ def load_checkpoint(
     }
 
 
+def load_checkpoint_for_run(
+    checkpoint_path: Path,
+    resume_checkpoint: Path | None,
+    *,
+    input_path: Path,
+    host: str | None,
+    model: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load the current checkpoint, or safely seed a new attempt from an old one.
+
+    Current-attempt corruption remains fatal.  A previous-attempt seed may be
+    incompatible after an input or code change; in that case it is ignored and
+    the current attempt starts clean instead of failing or accepting stale rows.
+    """
+    if checkpoint_path.exists():
+        return load_checkpoint(
+            checkpoint_path, input_path=input_path, host=host, model=model
+        )
+    if not resume_checkpoint or not resume_checkpoint.exists():
+        return {}
+    try:
+        return load_checkpoint(
+            resume_checkpoint, input_path=input_path, host=host, model=model
+        )
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+        print(
+            f"[resume-skip] incompatible previous checkpoint "
+            f"{resume_checkpoint}: {exc}",
+            flush=True,
+        )
+        return {}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     # No historical dataset is a default.  Each run must name both prediction
@@ -1536,6 +1988,11 @@ def main() -> None:
         type=Path,
         help="중간 저장 경로. 생략 시 output 파일 옆 *.checkpoint.json",
     )
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=Path,
+        help="Compatible checkpoint from a previous attempt; never overwritten",
+    )
     args = parser.parse_args()
 
     requests = read_jsonl(args.input)
@@ -1551,8 +2008,9 @@ def main() -> None:
     checkpoint_path = args.checkpoint or args.output.with_name(
         args.output.name + ".checkpoint.json"
     )
-    loaded = load_checkpoint(
+    loaded = load_checkpoint_for_run(
         checkpoint_path,
+        args.resume_checkpoint,
         input_path=args.input,
         host=args.host,
         model=args.model,

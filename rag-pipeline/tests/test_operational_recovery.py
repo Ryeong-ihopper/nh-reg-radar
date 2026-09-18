@@ -55,7 +55,9 @@ class OperationalRecoveryTests(unittest.TestCase):
             recovery.write_json(answers, {"rows": [response]})
             discovery = work / "discovery.json"
             recovery.write_json(discovery, {"ads": [
-                {"ad_id": "AD-1", "routing": {}, "parser_coverage": "READY"},
+                {"ad_id": "AD-1", "routing": {}, "parser_coverage": "READY",
+                 "template_coverage": {"missing_count": 0, "requested_count": 1},
+                 "template_scope_deferred": [{"item_id": "OTHER", "reason": "other template"}]},
                 {"ad_id": "AD-2", "routing": {}, "parser_coverage": "READY",
                  "applicability_pending": [{"item_id": "X-2", "reason": "unknown medium"}]},
             ]})
@@ -67,6 +69,8 @@ class OperationalRecoveryTests(unittest.TestCase):
             self.assertEqual(result["counts"]["predicted_pairs"], 1)
             self.assertEqual(result["ads"][0]["candidates"], [])
             self.assertEqual(len(result["ads"][0]["excluded_candidates"]), 1)
+            self.assertEqual(result['ads'][0]['template_coverage'], {'missing_count': 0, 'requested_count': 1})
+            self.assertEqual(result['ads'][0]['deferred_rules'][0]['item_id'], 'OTHER')
             self.assertEqual(result["ads"][1]["deferred_rules"][0]["item_id"], "X-2")
 
     def test_missing_pair_is_retried_and_multiple_responses_finalize(self) -> None:

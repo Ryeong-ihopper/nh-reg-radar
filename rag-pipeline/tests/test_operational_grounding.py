@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 
-from rag.judgment.grounding import grounding_errors, ratio_values  # noqa: E402
+from rag.judgment.grounding import grounding_errors, ratio_values, ungrounded_source_quotes  # noqa: E402
 
 
 ASSET_A = "FILE-AAAA"
@@ -46,6 +46,35 @@ class RatioValueTests(unittest.TestCase):
 
 class NumericGroundingTests(unittest.TestCase):
     """인용한 줄에 없는 수치로 위반을 만들 수 없다."""
+
+    def test_positive_source_quote_must_be_on_the_cited_line_not_its_neighbor(self):
+        docs = [{'evidence_id': 'region', 'line_refs': ['first', 'second'],
+                 'text': '이벤트 안내\n가상은행 영업점 문의',
+                 'line_texts': {'first': '이벤트 안내', 'second': '가상은행 영업점 문의'}}]
+        reason = "광고물에 '가상은행'이라는 금융회사 명칭이 표시되어 있습니다."
+        self.assertTrue(grounding_errors(item_id='SYNTHETIC', location='O1', reason=reason,
+                                        line_refs=['first'], documents=docs))
+        self.assertEqual(grounding_errors(item_id='SYNTHETIC', location='O1', reason=reason,
+                                         line_refs=['second'], documents=docs), [])
+
+    def test_rule_quote_absence_and_whitespace_are_not_false_source_claims(self):
+        for reason, source in [("광고에 '가상 은행'이 기재되어 있습니다.", '가상은행'),
+                               ("광고에 '필수 문구'가 기재되어 있지 않습니다.", '다른 문장'),
+                               ("규정은 '필수 문구' 표시를 요구합니다.", '다른 문장')]:
+            self.assertEqual(ungrounded_source_quotes(reason, source), [])
+
+    def test_observed_quote_does_not_need_an_advertisement_prefix(self):
+        for reason in ["'가상은행' 문구가 확인됩니다.", "회사명 '가상은행'이 명시되어 있습니다.",
+                       "'표본상품'이라는 이름이 기재되어 있습니다."]:
+            self.assertEqual(len(ungrounded_source_quotes(reason, '심의필번호 안내')), 1)
+        self.assertEqual(ungrounded_source_quotes("예시에 '가상은행'이 기재되어 있습니다.", '다른 문장'), [])
+
+    def test_explicit_ellipsis_preserves_only_source_ordered_fragments(self):
+        source = '상품 가입 전에 설명서와 약관을 읽고 문의하시기 바랍니다.'
+        for quote in ['상품 가입 전에...', '상품 가입 전에…문의하시기 바랍니다.', '…약관을 읽고']:
+            self.assertEqual(ungrounded_source_quotes(f"예시와 동등한 '{quote}' 문구가 확인됩니다.", source), [])
+        for quote in ['다른은행...', '문의하시기...상품 가입', '가입..문구']:
+            self.assertEqual(ungrounded_source_quotes(f"'{quote}' 문구가 확인됩니다.", source), [quote])
 
     def setUp(self):
         self.documents = [

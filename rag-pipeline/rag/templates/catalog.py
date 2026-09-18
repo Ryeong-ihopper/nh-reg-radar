@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from rag.templates.methodology import attach_methodology, methodology_prompt
+
 SCHEMA = "review-template-catalog-v1"
 PARSER_VERSION = "hwpx-template-1"
 HEADERS = {"구분": "label", "예시문구": "example", "필수여부": "requirement", "기재요령": "guidance"}
@@ -28,12 +30,27 @@ def required_observation_medium(guidance: str) -> tuple[str, str, str]:
     presentation.
     """
     normalized = re.sub(r"\s+", "", guidance or "")
+    line_structure = bool(re.search(
+        r"(?:한줄|같은줄).{0,24}(?:2개|두(?:개)?|복수|여러).{0,24}(?:문구|사항).{0,24}"
+        r"(?:불가|불가능|금지|않|없)",
+        normalized,
+    ))
+    if line_structure:
+        # This is a source-line grouping obligation, not a font/colour/
+        # visibility judgment. It can be reviewed when the parser proves the
+        # rendered line partition and keeps exact source-line text.
+        return "광고물+원문줄구조", "LLM", "원문줄구조"
     layout_tokens = (
         "한줄", "같은줄", "줄바꿈", "줄로", "나란히", "배치", "위치",
-        "글자크기", "글씨크기", "폰트", "색상", "대비", "시인성", "가독성",
+        "글자크기", "글씨크기", "폰트", "글꼴", "서체", "로고", "색상", "시인성", "가독성",
         "인식하기", "분리하여",
     )
-    if any(token in normalized for token in layout_tokens):
+    # Contrast requires visual context: the syllables also occur in costs
+    # (부대비용) and ordinary numerical comparisons (전년 대비).
+    visual_contrast = "대비" in normalized and any(
+        token in normalized for token in ("배경", "명암", "명도", "전경", "색채")
+    )
+    if visual_contrast or any(token in normalized for token in layout_tokens):
         return "광고물+원본형식+레이아웃", "LAYOUT", "레이아웃"
     return "광고물", "LLM", "텍스트"
 
@@ -203,6 +220,7 @@ def compile_catalog(source: dict) -> dict:
                     row_issues.append("MISSING_PHYSICAL_CELL")
                 if any(cells[r]["images"] or cells[r]["nested_table"] for r in refs):
                     row_issues.append("VISUAL_OR_NESTED_CONTENT")
+                    fields[field]["requires_structure_review"] = True
             if not any(f["text"].strip() for f in fields.values()) and not row_issues:
                 continue
             if all(key(fields[field]["text"]) == name for name, field in HEADERS.items()):
@@ -222,12 +240,20 @@ def compile_catalog(source: dict) -> dict:
                 row_issues.append("CONDITIONAL_GUIDANCE_MISSING")
             ref = f"{table['ref']}/row{y}"
             digest = hashlib.sha256(f"{source_hash}:{ref}".encode()).hexdigest()[:24]
+            # Optional researcher-authored law references are display metadata.
+            # They neither add obligations nor borrow references from v2.
+            legal_refs = list(dict.fromkeys(
+                line.strip()
+                for i, heading in enumerate(header) if heading in {"근거법령", "근거법령/규정"}
+                if row[i]
+                for line in cells[row[i]]["text"].splitlines() if line.strip()
+            ))
             entries.append({"item_id": f"TPL-{digest}", "source_ref": ref,
                             "template_section": table["title"], "fields": fields,
                             "raw_row_cell_refs": list(dict.fromkeys(r for r in row if r)),
                             "requirement_mode": mode, "issues": sorted(set(row_issues)),
                             "status": "REVIEW_REQUIRED" if row_issues else "STRUCTURED",
-                            "legal_basis_refs": []})
+                            "legal_basis_refs": legal_refs})
     if not entries:
         raise ValueError("no general template checklist found")
     return {"schema_version": SCHEMA, "parser_version": PARSER_VERSION,
@@ -239,14 +265,16 @@ def compile_catalog(source: dict) -> dict:
 
 
 class TemplateCatalog:
-    def __init__(self, source: dict):
+    def __init__(self, source: dict, *, methodology_dir: Path | None = None):
         self.source = source
         self.document = compile_catalog(source)
+        if methodology_dir:
+            attach_methodology(self.document, methodology_dir)
         self.by_id = {row["item_id"]: row for row in self.document["entries"]}
 
     @classmethod
-    def from_hwpx(cls, path: Path):
-        return cls(parse_hwpx(path))
+    def from_hwpx(cls, path: Path, *, methodology_dir: Path | None = None):
+        return cls(parse_hwpx(path), methodology_dir=methodology_dir)
 
     def select(self, classification: str, *, status: str) -> dict:
         """Exact confirmed classification selects a checklist, not a verdict."""
@@ -272,23 +300,64 @@ class TemplateCatalog:
             input_requirement, judgment_type, required_medium = required_observation_medium(
                 fields["guidance"]["text"]
             )
-            # Ingest all families; the current advertised PoC supports these
-            # two only. This is a product-scope boundary, not source omission.
-            groups = [g for g in ("대출성", "예금성") if section.startswith(g)]
+            groups = [g for g in ("대출성", "예금성", "투자성") if section.startswith(g)]
             if not groups:
                 continue
+            basis = self.judgment_basis(row["item_id"])
+            # Keep the original structure status. Readable obligations remain
+            # independently checkable when only an example contains an image or
+            # nested table; unknown headers/marks/merged fields never qualify.
+            text_ready = (
+                not (set(row["issues"]) - {"VISUAL_OR_NESTED_CONTENT"})
+                and not any(fields[name].get("requires_structure_review")
+                            for name in ("label", "requirement", "guidance"))
+                and row["requirement_mode"] in {"REQUIRED", "CONDITIONAL"}
+                and bool(fields["example"]["text"].strip() or
+                         (required_medium == "텍스트" and fields["guidance"]["text"].strip()))
+            )
+            partial = text_ready and (
+                required_medium == "레이아웃" or "VISUAL_OR_NESTED_CONTENT" in row["issues"]
+            )
+            basis["text_review_ready"] = text_ready
+            basis["text_facet_only"] = partial
+            basis["manual_review_required"] = partial
+            criterion = fields["guidance"]["text"]
+            if not partial:
+                criterion = (f"{fields['label']['text']}의 필수 의미요소를 확인한다. "
+                             "예시의 숫자·상품명·문구 완전일치는 의무가 아니다.\n"
+                             f"예시: {fields['example']['text']}\n기재요령 원문: {criterion}")
+            if partial:
+                # Keep visual source paragraphs in the source-bound manual
+                # facet, not as obligations in the text-only model contract.
+                # Mixed paragraphs are conservatively deferred in full.
+                text_guidance = "\n".join(
+                    line for line in criterion.splitlines()
+                    if required_observation_medium(line)[2] == "텍스트"
+                )
+                basis["manual_guidance"] = criterion
+                criterion = (
+                    "원문의 텍스트 기재 의무만 판정한다. 예시의 필수 의미를 확인하되 "
+                    "예시 숫자·상품명·문자열의 완전일치를 요구하지 않는다.\n"
+                    f"텍스트 예시: {fields['example']['text']}\n텍스트 기재요령: {text_guidance}"
+                )
+                input_requirement, judgment_type, required_medium = "광고물", "LLM", "텍스트"
+            methodology = row.get("methodology")
+            if methodology:
+                criterion = f"{criterion}\n{methodology_prompt(methodology)}"
+                basis["methodology"] = methodology
             rules.append({
                 "item_id": row["item_id"], "source_sheet": "HWPX_TEMPLATE",
                 "category": "PRESENCE", "category_label": "템플릿 점검",
                 "product_groups": groups, "product_subtype": section,
                 "template_required": fields["requirement"]["text"],
                 "title": fields["label"]["text"], "question": fields["label"]["text"],
-                "criterion": fields["guidance"]["text"], "guide": fields["guidance"]["text"],
+                "criterion": criterion, "guide": fields["guidance"]["text"],
+                "methodology_guide": methodology,
                 "example_text": fields["example"]["text"],
                 "example_policy": "의미상 예시이며 숫자·상품명·문자열 완전일치 의무가 아님",
                 "input_requirement": input_requirement,
                 "judgment_type": judgment_type, "required_medium": required_medium,
-                "template_basis": self.judgment_basis(row["item_id"]),
+                "template_basis": basis,
             })
         return group_explicit_alternatives(rules)
 
@@ -345,13 +414,28 @@ def group_explicit_alternatives(rules: list[dict]) -> list[dict]:
             "criterion": (
                 "아래 표시 방식 중 광고가 선택한 한 방식의 필수 의미요소를 "
                 "모두 확인한다. 예시 숫자·상품명·문구의 완전일치는 요구하지 않는다.\n"
-                + "\n".join(f"[방식 {value['method']}] {value['example_text']}" for value in alternatives)
+                + "\n".join(
+                    f"[방식 {value['method']}] {value['example_text']}"
+                    + (f"\n기재요령: {value['guide']}" if value["guide"] else "")
+                    for value in alternatives
+                )
             ),
             "guide": "템플릿 원문의 [방식 N] 항목 중 하나를 택일",
             "example_text": "\n".join(value["example_text"] for value in alternatives),
         })
         basis = dict(composite["template_basis"])
+        member_bases = [member["template_basis"] for _, member in members]
+        if any("structure_status" in value for value in member_bases):
+            basis["structure_status"] = "STRUCTURED" if all(
+                value.get("structure_status") == "STRUCTURED" for value in member_bases
+            ) else "REVIEW_REQUIRED"
+            basis["text_review_ready"] = all(value.get("text_review_ready") for value in member_bases)
+            basis["manual_review_required"] = any(value.get("manual_review_required") for value in member_bases)
+            basis["text_facet_only"] = basis["manual_review_required"] and basis["text_review_ready"]
         basis.update({
+            "legal_basis_refs": list(dict.fromkeys(
+                ref for value in member_bases for ref in value.get("legal_basis_refs", [])
+            )),
             "item_id": composite["item_id"],
             "source_ref": ";".join(value["source_ref"] for value in alternatives),
             "alternative_policy": "ANY_OF",

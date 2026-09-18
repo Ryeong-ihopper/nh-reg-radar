@@ -48,5 +48,6 @@ def load_results(
                     continue
                 pair = (ad_id, str(result["item_id"]))
                 results[pair] = result
-                sources[pair] = path.name
+                sources[pair] = path.name + ('#DETERMINISTIC_SOURCE_ARITHMETIC'
+                    if batch.get('decision_source') == 'DETERMINISTIC_SOURCE_ARITHMETIC' else '')
     return results, sources

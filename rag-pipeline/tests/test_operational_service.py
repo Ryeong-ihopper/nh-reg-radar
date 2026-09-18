@@ -20,6 +20,7 @@ from rag.api.service import (  # noqa: E402
     JobStore,
     OperationalReviewService,
     ServiceConfig,
+    TransientPipelineError,
     apply_routing_overrides,
 )
 from rag.contracts.validation import validate_search_collections  # noqa: E402
@@ -99,13 +100,148 @@ def integrated_input() -> dict:
 
 
 class OperationalServiceTests(unittest.TestCase):
+    def test_template_only_requires_template_but_not_v2_and_freezes_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template.hwpx"
+            template.write_bytes(b"source existence fixture; ingestion tested separately")
+            config = ServiceConfig(jobs_dir=root / "jobs", regulation_path=root / "missing.xlsx",
+                                   es_url="", es_index="", model="model", template_hwpx_path=template)
+            service = OperationalReviewService(config)
+            self.addCleanup(service.executor.shutdown, wait=True)
+            with mock.patch.object(service.executor, "submit"):
+                job = service.submit({"schema_version": "operational-review-request-v1",
+                                      "document": integrated_input(), "execute_model": False,
+                                      "routing_overrides": {"product_group": "예금성"}})
+            self.assertEqual(service.store.request(job["job_id"])["source_policy"], "template-only")
+            template.unlink()
+            with self.assertRaisesRegex(RuntimeError, "requires a general template"):
+                OperationalReviewService(config)
+
+    def test_transport_failure_is_classified_for_automatic_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / "regulation.xlsx"
+            regulation.write_bytes(b"placeholder")
+            service = OperationalReviewService(ServiceConfig(
+                jobs_dir=root / "jobs", regulation_path=regulation, source_policy="template-plus-v2",
+                es_url="http://search.invalid", es_index="rules", model="model",
+            ))
+            self.addCleanup(service.executor.shutdown, wait=True)
+            completed = SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="urllib.error.URLError: connection refused",
+            )
+            with mock.patch("rag.api.service.subprocess.run", return_value=completed):
+                with self.assertRaises(TransientPipelineError):
+                    service._invoke(
+                        directory=root,
+                        attempt=1,
+                        label="pipeline",
+                        command=["python", "pipeline.py"],
+                    )
+
+    def test_service_requeues_running_job_after_process_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / "regulation.xlsx"
+            regulation.write_bytes(b"placeholder")
+            jobs = root / "jobs"
+            store = JobStore(jobs)
+            job = store.create({"document": {}})
+            store.update(job["job_id"], status="RUNNING", attempt=1)
+            with mock.patch.object(OperationalReviewService, "_run") as run:
+                service = OperationalReviewService(ServiceConfig(source_policy="template-plus-v2",
+                    jobs_dir=jobs, regulation_path=regulation,
+                    es_url="http://search.invalid", es_index="rules", model="model",
+                ))
+                service.executor.shutdown(wait=True)
+            run.assert_called_once_with(job["job_id"])
+            self.assertEqual(service.store.read(job["job_id"])["status"], "QUEUED")
+
+    def test_only_complete_contract_valid_result_can_survive_tail_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "04_operational_results.json"
+            complete = {
+                "schema_version": "operational-e2e-result-v1",
+                "audit": {
+                    "model": {},
+                    "search": {},
+                    "rule_sources": {},
+                    "guardrails": {},
+                },
+                "counts": {
+                    "ads": 0,
+                    "requested_pairs": 0,
+                    "predicted_pairs": 0,
+                    "output_failures": 0,
+                },
+                "ads": [],
+            }
+            result_path.write_text(json.dumps(complete), encoding="utf-8")
+            self.assertEqual(
+                OperationalReviewService._complete_saved_result(result_path),
+                complete,
+            )
+            complete["counts"]["output_failures"] = 1
+            result_path.write_text(json.dumps(complete), encoding="utf-8")
+            self.assertIsNone(
+                OperationalReviewService._complete_saved_result(result_path)
+            )
+
+    def test_retry_selects_latest_previous_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            older = root / "attempt-1" / "03_judgment_responses.json.checkpoint.json"
+            latest = root / "attempt-2" / "03_judgment_responses.json.checkpoint.json"
+            older.parent.mkdir()
+            latest.parent.mkdir()
+            older.write_text("{}", encoding="utf-8")
+            latest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                OperationalReviewService._previous_checkpoint(root, 3), latest
+            )
+            self.assertIsNone(
+                OperationalReviewService._previous_checkpoint(root, 1)
+            )
+
+    def test_explicit_review_date_is_validated_frozen_and_idempotency_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regulation = root / 'rules.xlsx'
+            regulation.write_bytes(b'synthetic')
+            service = OperationalReviewService(ServiceConfig(jobs_dir=root/'jobs', regulation_path=regulation, source_policy="template-plus-v2",
+                es_url='http://search.invalid', es_index='synthetic', model='synthetic'))
+            self.addCleanup(service.executor.shutdown)
+            request = {'schema_version':'operational-review-request-v1', 'client_request_id':'DATE-TEST',
+                       'document': integrated_input(), 'routing_overrides': {'product_group':'예금성'},
+                       'review_date':'2026-04-12', 'execute_model':False}
+            with mock.patch.object(service.executor, 'submit'):
+                first = service.submit(request)
+                saved = json.loads((service.store.directory(first['job_id'])/'request.json').read_text(encoding='utf8'))
+                self.assertEqual(saved['review_date'], '2026-04-12')
+                self.assertTrue(service.submit(request)['idempotent_replay'])
+                registered = service.submit({**request, 'client_request_id': 'REGISTERED',
+                                             'review_date_basis': 'advertisement_registration_date'})
+                stored = json.loads((service.store.directory(registered['job_id'])/'request.json').read_text(encoding='utf8'))
+                self.assertEqual(stored['review_date_basis'], 'advertisement_registration_date')
+                with self.assertRaisesRegex(ValueError, 'different input'):
+                    service.submit({**request, 'client_request_id': 'REGISTERED',
+                                    'review_date_basis': 'explicit_review_date'})
+                with self.assertRaisesRegex(ValueError, 'different input'):
+                    service.submit({**request,'review_date':'2026-04-13'})
+                for value in ('2026-02-30','20260412',12):
+                    with self.subTest(value=value), self.assertRaises(ValueError):
+                        service.submit({**request,'review_date':value})
+
     def test_model_environment_is_passed_to_pipeline_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             regulation = root / "regulation.xlsx"
             regulation.write_bytes(b"placeholder")
             service = OperationalReviewService(
-                ServiceConfig(
+                ServiceConfig(source_policy="template-plus-v2",
                     jobs_dir=root / "jobs",
                     regulation_path=regulation,
                     es_url="http://search.invalid",

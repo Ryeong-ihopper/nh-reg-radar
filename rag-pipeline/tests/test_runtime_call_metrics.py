@@ -1,6 +1,9 @@
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
-from rag.judgment.runtime_metrics import judgment_call_metrics
+from rag.judgment.runtime_metrics import judgment_call_metrics, save_completed_runtime_metrics
 
 
 class RuntimeCallMetricsTests(unittest.TestCase):
@@ -17,7 +20,37 @@ class RuntimeCallMetricsTests(unittest.TestCase):
     def test_legacy_response_does_not_claim_complete_audit(self):
         self.assertFalse(judgment_call_metrics([{"request_id": "old", "seconds": 5}])["call_audit_complete"])
 
+    def test_focused_call_and_initial_split_leaf_have_distinct_identity(self):
+        initial = {"request_id": "R/split-a", "attempt": 1, "seconds": 2, "validation_errors": []}
+        focused = dict(initial, purpose="isolated_source_judgment", seconds=3)
+        result = judgment_call_metrics([{"call_history": [initial, focused]}, {"call_history": [initial]}])
+        self.assertEqual(result["physical_calls"], 2)
+        self.assertEqual(result["model_seconds_sum"], 5)
+
     def test_conflicting_same_call_not_silently_overwritten(self):
         event = {"request_id": "R", "attempt": 1, "seconds": 1}
-        with self.assertRaises(ValueError):
-            judgment_call_metrics([{"call_history": [event, dict(event, seconds=2)]}])
+        result = judgment_call_metrics([{"call_history": [event, dict(event, seconds=2), event]}])
+        self.assertFalse(result['call_audit_complete'])
+        self.assertIsNone(result['physical_calls'])
+        self.assertIsNone(result['model_seconds_sum'])
+        self.assertEqual(result['distinct_audit_records'], 2)
+        self.assertEqual(len(result['call_audit_conflicts']), 1)
+
+    def test_same_logical_attempt_can_have_two_distinct_physical_calls(self):
+        first = {'call_id': 'one', 'request_id': 'R/split-a/split-b', 'attempt': 1, 'seconds': 2}
+        second = dict(first, call_id='two')
+        result = judgment_call_metrics([{'call_history': [first, second, dict(first)]}])
+        self.assertEqual(result['physical_calls'], 2)
+        self.assertTrue(result['call_audit_complete'])
+
+    def test_metrics_failure_does_not_undo_saved_judgments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / 'result.json'
+            result_path.write_bytes(b'{"saved":true}')
+            with self.assertWarns(UserWarning):
+                report = save_completed_runtime_metrics(Path(directory) / 'metrics.json', {},
+                    [{'call_history': [{'bad_record': True}]}], 1)
+            self.assertFalse(report['judgment']['call_audit_complete'])
+            with patch.object(Path, 'write_text', side_effect=PermissionError), self.assertWarns(UserWarning):
+                save_completed_runtime_metrics(Path(directory) / 'metrics.json', {}, [], 0)
+            self.assertEqual(result_path.read_bytes(), b'{"saved":true}')

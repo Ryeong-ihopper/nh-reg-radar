@@ -125,6 +125,7 @@ def load_cd_rules(*, include_layout: bool = False) -> list[dict[str, Any]]:
         poc_product = (
             product_applies(groups, "대출성")
             or product_applies(groups, "예금성")
+            or product_applies(groups, "투자성")
         )
         # Historical silver defaults stay reproducible. Operational discovery
         # includes layout; readiness is checked downstream from observations.
@@ -156,8 +157,8 @@ def load_cd_rules(*, include_layout: bool = False) -> list[dict[str, Any]]:
             "example_policy": "허용 표현 보조자료이며 독립 의무조건이나 적용성 필터가 아님",
             "source_sheet": "실행_점검항목",
         })
-    if not include_layout and len(rows) != 104:
-        raise RuntimeError(f"v2 C/D 실행범위가 104개가 아님: {len(rows)}")
+    if not include_layout and len(rows) != 227:
+        raise RuntimeError(f"v2 C/D 실행범위가 227개가 아님: {len(rows)}")
     return rows
 
 
@@ -283,7 +284,7 @@ def main() -> None:
         },
         "coverage_policy": {
             "fixed_rules_per_ad": False,
-            "cd_rules": "상품군 라우팅을 통과한 v2 PoC 104개 항목을 전부 검사",
+            "cd_rules": "상품군 라우팅을 통과한 v2 비시인성 227개 항목을 전부 검사",
             "t_rules": "사용 확정된 v2 T 규칙을 상품군으로 전개; 템플릿 및 O/△ 조건은 적용성 판단 자료",
             "search_top_k_used_as_gold_gate": False,
             "parser_labels_used_as_exclusion_gate": False,

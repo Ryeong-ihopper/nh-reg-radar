@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Iterable
+from rag.judgment.temporal import date_window_clauses
+from rag.judgment.source_checks import source_scope_clauses, quoted_required_clauses
 
 
 VERSION = "rule-applicability-contract-v2"
@@ -25,12 +28,28 @@ def _texts(values: Iterable[Any]) -> list[str]:
     return output
 
 
+def _condition_role(text: str) -> str:
+    """Classify an authored condition without using advertisement content.
+
+    An unknown trigger can make an obligation inapplicable (for example,
+    whether generative AI was used).  An unknown exemption is different: when
+    the disclosure is already present, either possible answer is compliant.
+    The wrapper sentence mentions exemptions for every conditional template,
+    so classification must use only the original guidance after the marker.
+    """
+    source_text = text.rsplit("기재요령 원문:", 1)[-1]
+    if re.search(r"(?:생략\s*가능|생략할\s*수|면제|제외\s*가능)", source_text):
+        return "EXEMPTION"
+    return "TRIGGER"
+
+
 def _condition_rows(values: Iterable[str], prefix: str) -> list[dict[str, str]]:
     return [
         {
             "condition_id": f"{prefix}{index}",
             "text": text,
             "source": "authoritative_rule_or_bound_guide",
+            "condition_role": _condition_role(text) if prefix == "A" else "REVIEW",
         }
         for index, text in enumerate(_texts(values), 1)
     ]
@@ -64,13 +83,21 @@ def compile_condition_contract(rule: dict[str, Any]) -> dict[str, Any]:
         if isinstance(guide, dict)
         for condition in (guide.get("applicability_conditions") or [])
     )
+    guide_conditions.extend(source_scope_clauses(question))
     template_required = str(rule.get("template_required") or "").strip()
     if template_required in {"△", "CONDITIONAL"}:
         # The template's own guidance is the authoritative condition source.
         # If it is blank, retain the full criterion rather than inventing one.
-        guide_conditions.extend(
-            _texts([rule.get("guide"), rule.get("standard_guidance"), criterion])
-        )
+        template_conditions = _texts([rule.get("guide"), rule.get("standard_guidance")]) or [criterion]
+        if rule.get("source_sheet") == "HWPX_TEMPLATE":
+            template_conditions = [
+                "다음 기재요령에 따라 이 광고에 기재 의무가 적용되는가? "
+                "필수 조건과 생략·면제 조건의 방향을 구분한다. "
+                "생략·면제가 확인되면 NOT_SATISFIED, 의무 적용이 확인되면 SATISFIED, "
+                "어느 쪽인지 확인할 수 없으면 UNDETERMINED. 기재요령 원문: " + text
+                for text in template_conditions
+            ]
+        guide_conditions.extend(template_conditions)
 
     review_conditions = _texts(
         condition
@@ -83,6 +110,10 @@ def compile_condition_contract(rule: dict[str, Any]) -> dict[str, Any]:
     source_note = str(rule.get("v2_note") or "").strip()
     obligations = [{"obligation_id": "O1", "text": criterion, "source": "criterion"}]
     seen_requirements = {criterion}
+    for text in date_window_clauses(criterion) + quoted_required_clauses(criterion):
+        if text not in seen_requirements:
+            seen_requirements.add(text)
+            obligations.append({'obligation_id':f'O{len(obligations)+1}', 'text':text, 'source':'criterion'})
     for guide in rule.get("decision_guides") or []:
         if not isinstance(guide, dict):
             continue

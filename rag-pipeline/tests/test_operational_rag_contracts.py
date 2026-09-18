@@ -15,6 +15,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import hybrid_rule_retrieval as retrieval  # noqa: E402
 import run_gemma_exhaustive_dgx as gemma  # noqa: E402
 import run_operational_e2e as operational  # noqa: E402
+from dgx_openai_client import ModelTransportError  # noqa: E402
 from rag.parsing import prepare_inputs  # noqa: E402
 from rag.judgment.applicability import partition_operational_candidates  # noqa: E402
 from rag.judgment.evidence_projection import pack_documents, unpack_documents  # noqa: E402
@@ -81,6 +82,92 @@ def result(item_id):
 
 
 class WireEvidenceTests(unittest.TestCase):
+    def test_unknown_exemption_does_not_hide_observed_compliance(self):
+        row = request_row(["C-1"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload["documents"][0]["line_texts"] = {"L-1": "예상 수취 이자 10,000원"}
+        payload["evidence_scope"] = {
+            "C-1": {"evidence_ids": ["E-1"], "complete_ad_scan": True}
+        }
+        payload["rules"][0]["condition_contract"] = {
+            "scope_ref": "SCOPE",
+            "applicability_conditions": [{
+                "condition_id": "A1",
+                "text": "계산기 기능이 있는 경우 생략 가능",
+                "condition_role": "EXEMPTION",
+            }],
+            "review_conditions": [],
+            "obligation_checks": [{"obligation_id": "O1", "text": "예상수취이자 표시"}],
+        }
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        _, aliases = gemma._compact_model_request(row)
+        parsed = gemma._expand_model_response(row, {"results": [{
+            "rule_ref": "R1",
+            "scope_check": {"scope_ref": "SCOPE", "status": "MATCHED", "evidence_refs": ["L1"]},
+            "condition_checks": [{"condition_ref": "A1", "status": "UNDETERMINED"}],
+            "review_condition_checks": [],
+            "verdict": "COMPLIANT",
+            "requirement_checks": [{
+                "obligation_ref": "O1",
+                "requirement": "예상수취이자 표시",
+                "status": "SATISFIED",
+                "finding_basis": "OBSERVED",
+                "evidence_refs": ["L1"],
+                "reason": "예상 수취 이자 문구가 확인됩니다.",
+            }],
+            "reason": "면제 여부와 관계없이 의무 문구가 확인됩니다.",
+            "confidence": "HIGH",
+        }]}, aliases)
+
+        judgment = parsed["results"][0]
+        self.assertEqual(judgment["applicability"], "UNDETERMINED")
+        self.assertEqual(judgment["verdict"], "COMPLIANT")
+        self.assertEqual(judgment["evidence_line_refs"], ["L-1"])
+        self.assertEqual(gemma.validate(row, parsed), [])
+
+    def test_unknown_trigger_still_requires_human_confirmation(self):
+        row = request_row(["C-1"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload["documents"][0]["line_texts"] = {"L-1": "일반 광고 문구"}
+        payload["evidence_scope"] = {
+            "C-1": {"evidence_ids": ["E-1"], "complete_ad_scan": True}
+        }
+        payload["rules"][0]["condition_contract"] = {
+            "scope_ref": "SCOPE",
+            "applicability_conditions": [{
+                "condition_id": "A1",
+                "text": "생성형 AI 활용 시 필수",
+                "condition_role": "TRIGGER",
+            }],
+            "review_conditions": [],
+            "obligation_checks": [{"obligation_id": "O1", "text": "AI 제작 고지"}],
+        }
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        _, aliases = gemma._compact_model_request(row)
+        parsed = gemma._expand_model_response(row, {"results": [{
+            "rule_ref": "R1",
+            "scope_check": {"scope_ref": "SCOPE", "status": "MATCHED", "evidence_refs": ["L1"]},
+            "condition_checks": [{"condition_ref": "A1", "status": "UNDETERMINED"}],
+            "review_condition_checks": [],
+            "verdict": "COMPLIANT",
+            "requirement_checks": [{
+                "obligation_ref": "O1",
+                "requirement": "AI 제작 고지",
+                "status": "SATISFIED",
+                "finding_basis": "OBSERVED",
+                "evidence_refs": ["L1"],
+                "reason": "고지 문구라고 가정",
+            }],
+            "reason": "AI 사용 여부는 확인되지 않습니다.",
+            "confidence": "LOW",
+        }]}, aliases)
+
+        judgment = parsed["results"][0]
+        self.assertEqual(judgment["verdict"], "UNDETERMINED")
+        self.assertEqual(judgment["requirement_checks"], [])
+        self.assertEqual(judgment["evidence_line_refs"], [])
+        self.assertEqual(gemma.validate(row, parsed), [])
+
     def test_fine_visibility_uses_parent_and_only_selected_lines(self):
         facts = {"parser_visibility": {"pages": [{"page_no": 1, "canvas_w": 100,
             "regions": [{"evidence_id": "parent", "line_styles": [
@@ -120,6 +207,26 @@ class WireEvidenceTests(unittest.TestCase):
         self.assertEqual(wire["rules"][1]["output_check_refs"]["condition_checks"], ["A2"])
         self.assertEqual(wire["evidence_scope"]["R1"]["line_refs"], ["L1"])
         self.assertEqual(wire["evidence_scope"]["R2"]["line_refs"], [])
+
+    def test_local_uncertainty_does_not_downgrade_any_rule_whole_scan(self):
+        row = request_row(["C-1", "C-2"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload["documents"] = [
+            {"evidence_id": "E-1", "line_refs": ["L-1"], "text": "불확실 문구",
+             "text_selection": {"needs_review": True, "reason": "local"}},
+            {"evidence_id": "E-2", "line_refs": ["L-2"], "text": "정상 문구",
+             "text_selection": {"needs_review": False}},
+        ]
+        payload["evidence_scope"] = {
+            "C-1": {"evidence_ids": ["E-1"], "complete_ad_scan": True},
+            "C-2": {"evidence_ids": ["E-2"], "complete_ad_scan": True},
+        }
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        messages, _ = gemma._compact_model_request(row)
+        wire = json.loads(messages[1]["content"])
+        self.assertTrue(wire["evidence_scope"]["R1"]["complete_ad_scan"])
+        self.assertTrue(wire["evidence_scope"]["R2"]["complete_ad_scan"])
+        self.assertEqual(wire["uncertain_context"][0]["affected_rule_refs"], ["R1"])
 
     def test_checkpoint_rejects_changed_evidence_projection(self):
         source = Path(__file__)
@@ -213,7 +320,10 @@ class FailOpenRoutingTests(unittest.TestCase):
     def test_inferred_never_removes_other_product_family(self):
         route = retrieval.routing_scope([routing_row("예금성", "inferred")])
         self.assertTrue(route["routing_provisional"])
-        self.assertEqual(route["candidate_product_groups"], ["예금성", "대출성"])
+        self.assertEqual(
+            route["candidate_product_groups"],
+            ["예금성", "대출성", "투자성"],
+        )
 
     def test_conflict_is_union(self):
         route = retrieval.routing_scope([
@@ -221,19 +331,24 @@ class FailOpenRoutingTests(unittest.TestCase):
             routing_row("대출성", "inferred"),
         ])
         self.assertTrue(route["routing_provisional"])
-        self.assertEqual(route["candidate_product_groups"], ["예금성", "대출성"])
+        self.assertEqual(
+            route["candidate_product_groups"],
+            ["예금성", "대출성", "투자성"],
+        )
 
     def test_single_confirmed_value_can_narrow(self):
         route = retrieval.routing_scope([routing_row("대출성", "confirmed")])
         self.assertFalse(route["routing_provisional"])
         self.assertEqual(route["candidate_product_groups"], ["대출성"])
 
-    def test_applicable_union_keeps_both_product_rules(self):
+    def test_applicable_union_keeps_all_product_rules(self):
         deposit = {"적용상품": ["예금성"]}
         loan = {"적용상품": ["대출성"]}
-        scope = ["예금성", "대출성"]
+        investment = {"적용상품": ["투자성"]}
+        scope = ["예금성", "대출성", "투자성"]
         self.assertTrue(retrieval.applicable_to_any(deposit, scope))
         self.assertTrue(retrieval.applicable_to_any(loan, scope))
+        self.assertTrue(retrieval.applicable_to_any(investment, scope))
 
 
 class SearchTextVariantTests(unittest.TestCase):
@@ -264,6 +379,25 @@ class SearchTextVariantTests(unittest.TestCase):
 
 
 class TemplateFirstRoutingTests(unittest.TestCase):
+    def test_confirmed_media_enumerates_general_and_specific_v2_obligations(self):
+        lms = {"media_type": {"value": "LMS", "status": "provided"}}
+        push = {"media_type": {"value": "PUSH", "status": "confirmed"}}
+        web = {"media_type": {"value": "WEB_BANNER", "status": "provided"}}
+        general = {
+            "question": "전자적 전송매체 광고에 무료 수신거부 방법을 표시하였는가?",
+        }
+        lms_only = {"question": "[LMS] 고객명 가변영역을 설정하였는가?"}
+        lms_push = {"question": "[LMS·PUSH] 수신거부 방법을 마지막에 표시하였는가?"}
+
+        self.assertTrue(operational.v2_applies_to_confirmed_media(general, lms))
+        self.assertTrue(operational.v2_applies_to_confirmed_media(lms_only, lms))
+        self.assertFalse(operational.v2_applies_to_confirmed_media(lms_only, push))
+        self.assertTrue(operational.v2_applies_to_confirmed_media(lms_push, push))
+        self.assertFalse(operational.v2_applies_to_confirmed_media(general, web))
+        self.assertFalse(operational.v2_applies_to_confirmed_media(
+            general, {"media_type": {"value": "LMS", "status": "inferred"}},
+        ))
+
     def test_v2_priority_mapping_uses_only_explicit_source_fields(self):
         template_id = "예금성상품-적립식"
         self.assertTrue(operational.v2_explicitly_mapped_to_template({
@@ -306,6 +440,25 @@ class TemplateFirstRoutingTests(unittest.TestCase):
         self.assertTrue(operational.v2_declares_template_binding({
             "source_sheet": "실행_점검항목",
             "product_subtype": "예금성상품-적립식",
+        }))
+
+    def test_general_presence_checklist_is_enumerated_without_ad_wording(self):
+        general = {
+            "source_sheet": "실행_점검항목",
+            "category": "PRESENCE",
+            "judgment_mode": "체크리스트",
+            "product_subtype": None,
+            "template_sections": "",
+        }
+        self.assertTrue(operational.v2_is_general_presence_obligation(general))
+        self.assertFalse(operational.v2_is_general_presence_obligation({
+            **general, "category": "PROHIBIT", "judgment_mode": "자유탐지",
+        }))
+        self.assertFalse(operational.v2_is_general_presence_obligation({
+            **general, "template_sections": "[T-108] 예금성상품-적립식",
+        }))
+        self.assertFalse(operational.v2_is_general_presence_obligation({
+            **general, "product_subtype": "예금성상품-적립식",
         }))
 
     def test_template_sections_drop_code_prefix_only(self):
@@ -565,6 +718,25 @@ class ModelContractTests(unittest.TestCase):
         self.assertEqual(gemma.contract_attempt_limit(request_row([str(i) for i in range(7)])), 1)
         self.assertEqual(gemma.contract_attempt_limit(request_row([str(i) for i in range(6)])), 2)
         self.assertEqual(gemma.contract_attempt_limit(request_row(["X-1"])), 3)
+
+    def test_transport_failure_retries_same_request_without_auto_split(self):
+        row = request_row([str(index) for index in range(8)])
+        with patch.object(
+            gemma,
+            "call_once",
+            side_effect=ModelTransportError("connection refused"),
+        ) as call, patch.object(gemma.time, "sleep") as sleep, patch.object(
+            gemma, "split_request_row"
+        ) as split:
+            results = gemma.call_with_retry_and_split(
+                row, None, None, "test", 4096
+            )
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        split.assert_not_called()
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["transport_error"])
+        self.assertEqual(results[0]["transport_attempts"], 3)
 
     def test_non_applicable_basis_is_canonicalized_with_audit_record(self):
         parsed = {"results": [dict(
@@ -1239,6 +1411,13 @@ class OperationalSelectionTests(unittest.TestCase):
             )
         )
         structured["pages"][0]["regions"][0]["bbox"] = [0, 0, 10, 10]
+        line_rule = {
+            "source_sheet": "HWPX_TEMPLATE", "required_medium": "원문줄구조",
+            "input_requirement": "광고물+원문줄구조",
+        }
+        self.assertFalse(operational.automated_input_ready(line_rule, structured))
+        structured.setdefault("diagnostics", {})["rendered_line_projection"] = {"verified": True}
+        self.assertTrue(operational.automated_input_ready(line_rule, structured))
         self.assertFalse(
             operational.automated_input_ready(
                 {"source_sheet": "HWPX_TEMPLATE", "required_medium": "레이아웃",
@@ -1305,12 +1484,20 @@ class OperationalSelectionTests(unittest.TestCase):
         }
         for mutation in (
             {"quality": {"line_partition_exact": False, "empty_region_count": 0}},
-            {"quality": {"line_partition_exact": True, "empty_region_count": 1}},
             {"pages": [{"parse_status": "failed", "regions": []}]},
-            {"diagnostics": {"empty_regions": [{"page_no": 1}]}},
         ):
             ad = {**base, **mutation}
             self.assertEqual(operational.parser_coverage(ad), "PARTIAL")
+
+    def test_empty_regions_are_local_reading_issues_not_global_partial(self):
+        for mutation in (
+            {"quality": {"line_partition_exact": True, "empty_region_count": 1}},
+            {"diagnostics": {"empty_regions": [{"page_no": 1}]}},
+        ):
+            ad = {"quality": {"line_partition_exact": True, "empty_region_count": 0},
+                  "pages": [{"parse_status": "ok", "regions": []}],
+                  "diagnostics": {"empty_regions": []}, **mutation}
+            self.assertEqual(operational.parser_coverage(ad), "READY")
 
 
 if __name__ == "__main__":

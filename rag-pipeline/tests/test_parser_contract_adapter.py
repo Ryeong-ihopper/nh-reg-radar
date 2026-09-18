@@ -148,8 +148,14 @@ class ParserContractAdapterTests(unittest.TestCase):
                     "messages": [{"role": "system", "content": "test"},
                                  {"role": "user", "content": json.dumps(payload)}]})
                 wire_payload = json.loads(messages[1]["content"])
-                wire = wire_payload["documents"][0]
-                self.assertEqual(wire_payload["reading_contexts"][wire["text_selection_ref"]], selection)
+                if needs_review:
+                    self.assertEqual(wire_payload["documents"], [])
+                    wire = wire_payload["uncertain_context"][0]
+                    self.assertFalse(wire["citable"])
+                    self.assertEqual(wire["text_selection"], selection)
+                else:
+                    wire = wire_payload["documents"][0]
+                    self.assertEqual(wire_payload["reading_contexts"][wire["text_selection_ref"]], selection)
                 self.assertEqual(wire["span_status"], "parser_line_exact")
 
     def test_external_pair_adapts_without_creating_visibility_measurements(self):
@@ -177,11 +183,14 @@ class ParserContractAdapterTests(unittest.TestCase):
         messages, aliases = _compact_model_request({"requested_item_ids": ["generic"],
             "messages": [{"role": "system", "content": "test"}, {"role": "user", "content":
                          json.dumps({"documents": docs, "rules": [{"item_id": "generic"}]})}]})
-        wire = json.loads(messages[1]["content"])["documents"][0]
+        payload = json.loads(messages[1]["content"])
+        self.assertEqual(payload["documents"], [])
+        wire = payload["uncertain_context"][0]
         self.assertEqual(wire["span_status"], "region_level_selected_text")
         self.assertEqual(wire["text"], "교정된 새로운 문구")
-        self.assertEqual(list(wire["lines"].values()), ["표시 문구"])
-        self.assertEqual(aliases["ref_to_line"][next(iter(wire["lines"]))], "p1/R-1/L000")
+        self.assertFalse(wire["citable"])
+        self.assertEqual(docs[0]["line_texts"], {"p1/R-1/L000": "표시 문구"})
+        self.assertEqual(aliases["ref_to_line"], {})
 
     def test_combine_accepts_external_pair_and_records_adapter_provenance(self):
         p1, p3 = external_pair()

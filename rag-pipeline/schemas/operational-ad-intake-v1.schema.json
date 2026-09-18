@@ -8,7 +8,7 @@
     "advertisement_name": {"type": "string", "minLength": 1},
     "media_codes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "assets": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["asset_id", "file_name"], "properties": {"asset_id": {"type": "string", "minLength": 1}, "file_name": {"type": "string", "minLength": 1}}, "additionalProperties": false}},
-    "products": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["product_id", "product_group", "product_classification_code", "asset_scopes"], "properties": {"product_id": {"type": "string", "minLength": 1}, "product_name": {"type": ["string", "null"]}, "product_group": {"enum": ["예금성", "대출성"]}, "product_classification_code": {"type": "string", "minLength": 1}, "asset_scopes": {"type": "array", "items": {"$ref": "#/$defs/asset_scope"}}}, "additionalProperties": false}},
+    "products": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["product_id", "product_group", "product_classification_code", "asset_scopes"], "properties": {"product_id": {"type": "string", "minLength": 1}, "product_name": {"type": ["string", "null"]}, "product_group": {"enum": ["예금성", "대출성", "투자성"]}, "product_classification_code": {"type": "string", "minLength": 1}, "asset_scopes": {"type": "array", "items": {"$ref": "#/$defs/asset_scope"}}}, "additionalProperties": false}},
     "shared_asset_scopes": {"type": "array", "items": {"$ref": "#/$defs/asset_scope"}},
     "follow_up": {"type": ["object", "null"], "properties": {"is_follow_up": {"type": "boolean"}, "predecessor_ad_id": {"type": ["string", "null"]}}, "required": ["is_follow_up", "predecessor_ad_id"], "additionalProperties": false}
   },

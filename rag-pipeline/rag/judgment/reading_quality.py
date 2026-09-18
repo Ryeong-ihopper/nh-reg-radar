@@ -7,10 +7,70 @@ retained by the caller; guard records explain each conservative abstention.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any
 
 
-VERSION = "reading-quality-gate-v1"
+VERSION = "reading-quality-gate-v4"
+
+
+def claims_disclosure_absence(check: dict[str, Any], result_reason: str = "") -> bool:
+    """An explicit missing-disclosure explanation cannot become an observation.
+
+    This only abstains when reading is incomplete; it never supplies a missing
+    obligation, infers a violation, or treats an observed numerical error as
+    absence. The aggregate reason is supplied only for a single obligation.
+    """
+    if check.get("status") == "MISSING":
+        return True
+    if check.get("status") != "VIOLATED":
+        return False
+    reason = str(check.get("reason") or "") + "\n" + result_reason
+    # Negated absence claims and quoted source phrases are not missing facts.
+    reason = re.sub(r"[‘'\"“][^’'\"”\n]*[’'\"”]", "", reason)
+    reason = re.sub(r"누락(?:된\s*(?:문구|항목))?\s*(?:없이|없음|없다|없습니다)|누락되지\s*않\S*", "", reason)
+    return bool(re.search(
+        r"누락(?:되|됐|된|으로|이라고|입니다|[.!]?(?:\n|$))|미(?:기재|표시|표기|고지)"
+        r"|(?:문구|안내|설명|고지|기재|표시|표기)(?:가|는|이|도)?\s*(?:없|존재하지)"
+        r"|(?:문구|안내|설명|고지|기재|표시|표기|내용|조건|항목)(?:가|는|이|도)?\s*(?:확인|발견|관찰)되지\s*않"
+        r"|(?:기재|표시|표기|명시|고지|안내)(?:되어)?\s*(?:있지|되지|하지)\s*않",
+        reason))
+
+
+def project_reading_citations(result: dict[str, Any]) -> dict[str, Any]:
+    """Exclude revoked claims from active citations, including saved v1 results.
+
+    This is a projection, not a new judgment or a semantic relevance check.
+    The caller's saved result and the guard's original_result remain untouched.
+    An unrelated UNDETERMINED result is not grounds to suppress its citations.
+    """
+    issues = (result.get("reading_quality_review") or {}).get("issues") or []
+    if not issues:
+        return result
+    projected = copy.deepcopy(result)
+    gate_issue = any(not issue["location"].startswith("requirement_checks:") for issue in issues)
+    if gate_issue:
+        projected["applicability_evidence_ids"] = []
+        projected["applicability_evidence_line_refs"] = []
+        checks = [projected.get("scope_check"),
+                  *(projected.get("condition_checks") or []),
+                  *(projected.get("review_condition_checks") or []),
+                  *(projected.get("requirement_checks") or [])]
+    else:
+        affected = {int(issue["location"].split(":")[1]) for issue in issues}
+        checks = [check for index, check in enumerate(projected.get("requirement_checks") or [])
+                  if index in affected]
+    for check in checks:
+        if isinstance(check, dict):
+            check["evidence_ids"], check["evidence_line_refs"] = [], []
+    retained = [] if gate_issue else [
+        check for index, check in enumerate(projected.get("requirement_checks") or [])
+        if index not in affected and check.get("finding_basis") == "OBSERVED"
+        and check.get("status") in {"SATISFIED", "VIOLATED"}
+    ]
+    for field in ("evidence_ids", "evidence_line_refs"):
+        projected[field] = list(dict.fromkeys(ref for check in retained for ref in check.get(field, [])))
+    return projected
 
 
 def needs_reading_review(value: dict[str, Any]) -> bool:
@@ -54,8 +114,6 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
     scope = (payload.get("evidence_scope") or {}).get(result.get("item_id")) or {}
     incomplete = (
         payload.get("parser_coverage") == "PARTIAL"
-        or bool(payload.get("reading_quality", {}).get("requires_review"))
-        or bool(unsafe)
         or scope.get("complete_ad_scan") is False
     )
     issues = []
@@ -76,12 +134,16 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
         for index, value in enumerate(values if isinstance(values, list) else []):
             if isinstance(value, dict) and value.get("status") != "UNDETERMINED":
                 check_refs(value, f"{name}:{index}")
-    for index, check in enumerate(result.get("requirement_checks") or []):
+    checks = result.get("requirement_checks") or []
+    for index, check in enumerate(checks):
         if not isinstance(check, dict) or check.get("status") not in {"SATISFIED", "MISSING", "VIOLATED"}:
             continue
         location = f"requirement_checks:{index}"
-        if check.get("finding_basis") == "ABSENCE" and incomplete:
-            issues.append({"location": location, "code": "INCOMPLETE_READING_ABSENCE"})
+        absence = check.get("finding_basis") == "ABSENCE" or claims_disclosure_absence(
+            check, str(result.get("reason") or "") if len(checks) == 1 else "")
+        if absence and incomplete:
+            issues.append({"location": location, "code": "INCOMPLETE_READING_ABSENCE",
+                "evidence_ids": [], "line_refs": []})
         elif check.get("finding_basis") == "OBSERVED":
             check_refs(check, location)
     return issues
@@ -130,6 +192,7 @@ def apply_reading_guard(payload: dict[str, Any], parsed: dict[str, Any]) -> list
             if check.get("status") in {"VIOLATED", "MISSING"}) + " / " + reason
             if has_independent_violation else reason)
         result["reading_quality_review"] = {"policy": VERSION, "issues": issues}
+        result.update(project_reading_citations(result))
         audit.append({"item_id": result.get("item_id"), "policy": VERSION,
             "issues": issues, "original_result": before, "final_verdict": result["verdict"]})
     return audit

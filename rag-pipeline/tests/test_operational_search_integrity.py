@@ -57,7 +57,9 @@ class SearchIntegrityTests(unittest.TestCase):
         ]
         with patch.object(retrieval.v2_source, "build", return_value=(rows, [])):
             selected, catalog = retrieval.load_scope(include_layout=True)
-        self.assertEqual([row["id"] for row in selected], ["common", "loan"])
+        self.assertEqual(
+            [row["id"] for row in selected], ["common", "loan", "investment"]
+        )
         self.assertEqual(len(catalog), 3)
         rule = {"required_medium": "레이아웃", "title": "글자 크기"}
         self.assertFalse(runner.automated_input_ready(rule, {"pages": []}))
@@ -117,6 +119,15 @@ class SearchIntegrityTests(unittest.TestCase):
         self.assertEqual(len(audit["deferred_ids"]), 17)
         self.assertEqual(balanced_candidates(rows, rules, 0)[0], [])
         self.assertEqual(balanced_candidates(rows, rules, 100)[0], rows)
+
+    def test_judgment_candidates_have_no_thirty_or_eighty_item_cutoff(self):
+        from rag.retrieval.candidates import all_judgment_candidates
+        rules = {str(i): {'category': ['PRESENCE', 'PROHIBIT', 'STYLE'][i % 3]} for i in range(121)}
+        rows = [{'item_id': key} for key in rules]
+        selected, audit = all_judgment_candidates(rows, rules)
+        self.assertEqual(selected, rows)
+        self.assertEqual(audit['deferred_ids'], [])
+        self.assertIsNone(audit['limit'])
 
     def test_context_queries_preserve_originals_and_never_cross_source_scope(self):
         from rag.retrieval.queries import build_context_queries

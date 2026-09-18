@@ -23,6 +23,10 @@ REMOTE_ENDPOINT = os.environ.get(
 )
 
 
+class ModelTransportError(RuntimeError):
+    """The configured model service could not be reached or timed out."""
+
+
 def post_json(
     payload: dict,
     *,
@@ -43,7 +47,7 @@ def post_json(
         pass
 
     if not host or key is None:
-        raise RuntimeError(
+        raise ModelTransportError(
             "GPU Gemma endpoint is unavailable; set NH_GPU_GEMMA_ENDPOINT or configure "
             "DGX_HOST and DGX_SSH_KEY for the interim SSH fallback"
         )
@@ -58,14 +62,19 @@ def post_json(
         "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
         "-i", str(key), host, "python3", "-c", shlex.quote(remote),
     ]
-    process = subprocess.run(
-        command,
-        input=data,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout + 60,
-        check=False,
-    )
+    try:
+        process = subprocess.run(
+            command,
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout + 60,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ModelTransportError("GPU Gemma SSH fallback timed out") from exc
     if process.returncode:
-        raise RuntimeError(process.stderr.decode("utf-8", errors="replace"))
+        raise ModelTransportError(
+            process.stderr.decode("utf-8", errors="replace")
+        )
     return json.loads(process.stdout.decode("utf-8"))

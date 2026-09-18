@@ -2,6 +2,13 @@
 from __future__ import annotations
 
 
+def all_judgment_candidates(candidates, rules):
+    """Scheduling may batch candidates; it must never drop a discovered rule."""
+    selected, audit = balanced_candidates(candidates, rules, len(candidates))
+    audit.update(method="all_discovered_candidates_v1", limit=None, deferred_reason=None)
+    return selected, audit
+
+
 def balanced_candidates(candidates, rules, limit):
     """Reserve equal floors per present category, then redistribute by rank.
 

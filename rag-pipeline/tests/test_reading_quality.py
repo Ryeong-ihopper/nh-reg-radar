@@ -9,16 +9,99 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tools')]
-from test_operational_rag_contracts import request_row, result
-import run_gemma_exhaustive_dgx as gemma
-import run_operational_e2e as operational
-from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review
-from rag.judgment.policy import deterministic_facts
-from rag.judgment.grounding import cited_window_text
+from test_operational_rag_contracts import request_row, result  # noqa: E402
+import run_gemma_exhaustive_dgx as gemma  # noqa: E402
+import run_operational_e2e as operational  # noqa: E402
+from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review, project_reading_citations  # noqa: E402
+from rag.judgment.policy import deterministic_facts  # noqa: E402
+from rag.judgment.grounding import cited_window_text  # noqa: E402
 
 
 class ReadingQualityTests(unittest.TestCase):
-    def test_explicit_partial_reading_survives_parser_adapter_and_combine(self):
+    def test_missing_disclosure_cannot_hide_as_observed_on_partial_reading(self):
+        for reason in ('가입 제한 조건이 누락되었습니다.', '필수 안내 문구가 없습니다.',
+                       '해지 방법이 명시되어 있지 않습니다.', '제한 안내의 누락으로 판단됩니다.',
+                       '연회비 문구가 확인되지 않습니다.'):
+            with self.subTest(reason=reason):
+                row, payload, parsed = self.setup_case(uncertain=False, complete=False)
+                answer = parsed['results'][0]
+                answer.update(verdict='VIOLATION', reason=reason)
+                answer['requirement_checks'][0].update(status='VIOLATED', reason=reason)
+                before = copy.deepcopy(answer)
+                audit = apply_reading_guard(payload, parsed)
+                self.assertEqual(answer['verdict'], 'UNDETERMINED')
+                self.assertEqual(audit[0]['original_result'], before)
+                self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+    def test_single_obligation_summary_exposes_disguised_absence(self):
+        _, payload, parsed = self.setup_case(uncertain=False, complete=False)
+        answer = parsed['results'][0]
+        answer.update(verdict='VIOLATION', reason='필수 안내가 누락되었습니다.')
+        answer['requirement_checks'][0].update(status='VIOLATED', reason='다른 안내만 존재합니다.')
+        self.assertTrue(apply_reading_guard(payload, parsed))
+        self.assertEqual(answer['verdict'], 'UNDETERMINED')
+
+    def test_observed_violations_and_complete_reading_are_not_absence_gated(self):
+        for reason, complete in [
+            ('검산: 2+3 != 6. 수치가 불일치합니다.', False),
+            ("광고가 '수수료 없음'이라고 표시했으나 별도 요금을 부과합니다.", False),
+            ('안내는 누락되지 않았으나 금액이 서로 다릅니다.', False),
+            ('안내가 누락되었습니다.', True),
+        ]:
+            with self.subTest(reason=reason):
+                _, payload, parsed = self.setup_case(uncertain=False, complete=complete)
+                answer = parsed['results'][0]
+                answer.update(verdict='VIOLATION', reason=reason)
+                answer['requirement_checks'][0].update(status='VIOLATED', reason=reason)
+                self.assertEqual(apply_reading_guard(payload, parsed), [])
+
+    def test_missing_status_and_multiple_independent_obligations(self):
+        _, payload, parsed = self.setup_case(uncertain=False, complete=False)
+        answer = parsed['results'][0]
+        answer.update(verdict='VIOLATION', reason='필수 사항 누락 및 별도 수치 오류')
+        answer['requirement_checks'][0].update(status='MISSING', reason='미기재')
+        answer['requirement_checks'].append({'status': 'VIOLATED', 'finding_basis': 'OBSERVED',
+            'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'], 'reason': '수치가 서로 다릅니다.'})
+        self.assertTrue(apply_reading_guard(payload, parsed))
+        self.assertEqual(answer['verdict'], 'VIOLATION')
+        self.assertEqual(answer['requirement_checks'][1]['status'], 'VIOLATED')
+
+    def test_gate_revokes_active_citations_and_preserves_original_audit(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer.update(applicability_basis='ADVERTISEMENT_EVIDENCE',
+                      applicability_evidence_ids=['E-1'], applicability_evidence_line_refs=['L-1'])
+        original = copy.deepcopy(answer)
+        audit = apply_reading_guard(payload, parsed)
+        self.assertEqual(audit[0]['original_result'], original)
+        for field in ('evidence_ids', 'evidence_line_refs', 'applicability_evidence_ids', 'applicability_evidence_line_refs'):
+            self.assertEqual(answer[field], [])
+        self.assertEqual(answer['requirement_checks'], [])
+        self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+    def test_mixed_guard_keeps_only_independent_observed_citations(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer['requirement_checks'].append({'requirement': 'independent', 'status': 'VIOLATED',
+            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'], 'reason': 'observed'})
+        apply_reading_guard(payload, parsed)
+        self.assertEqual(answer['verdict'], 'VIOLATION')
+        self.assertEqual(answer['evidence_ids'], ['E-2'])
+        self.assertEqual(answer['evidence_line_refs'], ['L-2'])
+        self.assertEqual(answer['requirement_checks'][0]['evidence_ids'], [])
+        self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+    def test_legacy_projection_is_non_mutating_and_not_a_blanket_unknown_filter(self):
+        legacy = {'verdict': 'UNDETERMINED', 'evidence_ids': ['E-1'], 'evidence_line_refs': ['L-1'],
+            'requirement_checks': [], 'reading_quality_review': {'policy': 'reading-quality-gate-v1',
+                'issues': [{'location': 'applicability', 'code': 'UNCERTAIN_READING_EVIDENCE'}]}}
+        before = copy.deepcopy(legacy)
+        self.assertEqual(project_reading_citations(legacy)['evidence_ids'], [])
+        self.assertEqual(legacy, before)
+        legacy.pop('reading_quality_review')
+        self.assertEqual(project_reading_citations(legacy)['evidence_ids'], ['E-1'])
+
+    def test_local_unread_region_survives_without_downgrading_whole_document(self):
         from test_parser_contract_adapter import external_pair
         from rag.parsing.prepare_inputs import combine
         p1, p3 = external_pair()
@@ -34,7 +117,7 @@ class ReadingQualityTests(unittest.TestCase):
             ad = combine(a, b)
         self.assertFalse(ad['quality']['complete_document_read'])
         self.assertEqual(ad['pages'][0]['unread_regions'], [{'reason': 'cropped text'}])
-        self.assertEqual(operational.parser_coverage(ad), 'PARTIAL')
+        self.assertEqual(operational.parser_coverage(ad), 'READY')
         from rag.parsing.prepare_inputs import search_docs
         coarse, fine = search_docs(ad)
         self.assertEqual(coarse[0]['source_relations'], [relation])
@@ -63,7 +146,7 @@ class ReadingQualityTests(unittest.TestCase):
         parsed['results'][0]['requirement_checks'][0]['evidence_ids'].append('GHOST')
         row['messages'][1]['content'] = json.dumps(payload)
         response = {'choices': [{'message': {'content': '{}'}, 'finish_reason': 'stop'}]}
-        with patch('dgx_openai_client.post_json', return_value=response), \
+        with patch.object(gemma, 'post_json', return_value=response), \
              patch.object(gemma, '_expand_model_response', return_value=parsed):
             batch = gemma.call_once(row, None, None, 'mock', 1000)
         self.assertTrue(batch['validation_errors'])
@@ -129,14 +212,29 @@ class ReadingQualityTests(unittest.TestCase):
         self.assertEqual(apply_reading_guard(payload, parsed), [])
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
-    def test_uncertainty_elsewhere_prevents_absence_but_not_observation(self):
+    def test_global_reading_summary_does_not_block_an_unaffected_rule(self):
         row, payload, parsed = self.setup_case(uncertain=False)
         payload['reading_quality'] = {'requires_review': True}
         self.assertEqual(apply_reading_guard(payload, parsed), [])
         check = parsed['results'][0]['requirement_checks'][0]
         check.update(status='MISSING', finding_basis='ABSENCE')
         parsed['results'][0]['verdict'] = 'VIOLATION'
-        self.assertTrue(apply_reading_guard(payload, parsed))
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+
+    def test_uncertain_region_only_blocks_a_claim_that_cites_it(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer['evidence_ids'], answer['evidence_line_refs'] = ['E-2'], ['L-2']
+        check = answer['requirement_checks'][0]
+        check.update(evidence_ids=['E-2'], evidence_line_refs=['L-2'])
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+        answer['evidence_ids'], answer['evidence_line_refs'] = ['E-1'], ['L-1']
+        check.update(evidence_ids=['E-1'], evidence_line_refs=['L-1'])
+        audit = apply_reading_guard(payload, parsed)
+        self.assertTrue(audit)
+        issue = parsed['results'][0]['reading_quality_review']['issues'][0]
+        self.assertEqual(issue['evidence_ids'], ['E-1'])
+        self.assertEqual(issue['line_refs'], ['L-1'])
 
     def test_partial_scan_allows_clean_presence_but_not_absence(self):
         row, payload, parsed = self.setup_case(uncertain=False, complete=False)
@@ -179,14 +277,14 @@ class ReadingQualityTests(unittest.TestCase):
         self.assertEqual(answer['verdict'], 'VIOLATION')
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
-    def test_partial_quality_is_applied_for_regions_and_unassigned_lines(self):
+    def test_local_quality_is_not_promoted_to_whole_document_partial(self):
         for slot in ('regions', 'unassigned_lines'):
             ad = {'quality': {'line_partition_exact': True}, 'pages': [{'parse_status': 'ok',
                 slot: [{'text_selection': {'needs_review': True}}]}]}
-            self.assertEqual(operational.parser_coverage(ad), 'PARTIAL')
+            self.assertEqual(operational.parser_coverage(ad), 'READY')
         for extra in ({'unread_regions': [{'reason': 'unread'}]},):
             ad = {'quality': {'line_partition_exact': True}, 'pages': [{'parse_status': 'ok', **extra}]}
-            self.assertEqual(operational.parser_coverage(ad), 'PARTIAL')
+            self.assertEqual(operational.parser_coverage(ad), 'READY')
 
     def test_malformed_flag_and_unresolved_status_never_promote_trust(self):
         for selection in ({'needs_review': 'false'}, {'needs_review': None},
@@ -207,7 +305,7 @@ class ReadingQualityTests(unittest.TestCase):
         answer['requirement_checks'][0].update(status='MISSING', finding_basis='ABSENCE', evidence_ids=[], evidence_line_refs=[])
         row['messages'][1]['content'] = json.dumps(payload)
         response = {'choices': [{'message': {'content': '{}'}, 'finish_reason': 'stop'}]}
-        with patch('dgx_openai_client.post_json', return_value=response) as post, \
+        with patch.object(gemma, 'post_json', return_value=response) as post, \
              patch.object(gemma, '_expand_model_response', return_value=parsed):
             batch = gemma.call_with_retry(row, None, None, 'mock', 1000)
         self.assertEqual(post.call_count, 1)

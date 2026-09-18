@@ -183,6 +183,21 @@ class ConditionContractCompilationTests(unittest.TestCase):
         self.assertEqual(contract["applicability_mode"], "CONDITIONAL")
         self.assertEqual(contract["applicability_conditions"][0]["text"], "금리를 표시한 경우에만 기재")
 
+    def test_template_exemption_is_distinguished_from_trigger(self):
+        exemption = rule(template_required="△", guide="앱/웹 계산기 기능이 있는 경우 생략 가능")
+        exemption["source_sheet"] = "HWPX_TEMPLATE"
+        trigger = rule(template_required="△", guide="생성형 AI 활용 시 필수")
+        trigger["source_sheet"] = "HWPX_TEMPLATE"
+
+        self.assertEqual(
+            compile_condition_contract(exemption)["applicability_conditions"][0]["condition_role"],
+            "EXEMPTION",
+        )
+        self.assertEqual(
+            compile_condition_contract(trigger)["applicability_conditions"][0]["condition_role"],
+            "TRIGGER",
+        )
+
 
 class ConditionContractValidationTests(unittest.TestCase):
     def multiple_contract(self):

@@ -18,6 +18,24 @@ def row(key, text, product='P'):
 
 
 class EvidenceBundleTests(unittest.TestCase):
+    def test_template_field_hint_recovers_readable_line_without_excluding_unlabeled_hits(self):
+        rows = [row('readable', '가상저축'), row('uncertain', '흐린 이름'),
+                row('dense', '상품 설명 안내'), row('lexical', '상품명 안내')]
+        for doc in rows[:2]:
+            doc['labels'] = [{'label': '상품명'}]
+        rows[1]['text_selection'] = {'needs_review': True}
+        vectors = {key: np.array([score, 0.]) for key, score in
+                   [('readable', .1), ('uncertain', .8), ('dense', 1.), ('lexical', .4)]}
+        args = dict(rule_vector_by_id={'R': np.array([1., 0.])}, ad_fine_rows=rows,
+                    fine_vector_by_id=vectors, trigger_ids=[], rule_text='상품명', rule_label='상품명')
+        frozen = copy.deepcopy(rows)
+        self.assertEqual(operational.top_rule_evidence('R', k=1, **args), ['readable'])
+        selected = operational.top_rule_evidence('R', k=3, **args)
+        self.assertEqual(set(selected), {'readable', 'dense', 'lexical'})
+        self.assertEqual(rows, frozen)
+        self.assertEqual(operational.top_rule_evidence('R', k=0, **args), [])
+        self.assertEqual(operational.top_rule_evidence('R', k=1, **{**args, 'rule_label': '다른구분'}), ['lexical'])
+
     def test_table_header_and_note_links_require_observation(self):
         table = {'status': 'observed', 'cells': [
             {'cell_id': 'h', 'line_ids': ['header']},

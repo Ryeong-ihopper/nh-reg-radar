@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """규제항목 ID 없이 적용 규칙을 발견하는 공통 하이브리드 검색 함수.
 
-운영 검색은 예금·대출·전체 범위의 시인성 항목까지 포함한다. 104개 비시인성
+운영 검색은 예금·대출·투자·전체 범위의 시인성 항목까지 포함한다. 227개 비시인성
 범위는 과거 비교용 기본값으로만 유지한다. 표시의무·양식/절차 항목은
 상품군 적용성으로 전개하고, 금지 항목은 광고 fine 청크에서 Elasticsearch의
 Nori BM25와 BGE-M3 벡터검색으로 찾는다. 규칙을 유발한 광고 청크는 후속
@@ -55,7 +55,7 @@ OUT = SERVICE_DIR / "service_discovery19_results.json"
 
 DEFAULT_URL = "http://127.0.0.1:19201"
 DEFAULT_INDEX = "regulation_v2_0903_v1"
-SUPPORTED_POC_PRODUCT_GROUPS = ("예금성", "대출성")
+SUPPORTED_POC_PRODUCT_GROUPS = ("예금성", "대출성", "투자성")
 CONFIRMED_ROUTING_STATUSES = {"confirmed", "verified", "provided"}
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [
@@ -131,13 +131,14 @@ def load_scope(*, include_layout: bool = False) -> tuple[list[dict[str, Any]], d
             "전체" in row["적용상품"]
             or "예금성" in row["적용상품"]
             or "대출성" in row["적용상품"]
+            or "투자성" in row["적용상품"]
         )
         and (include_layout or row["판정유형"] != "레이아웃필요")
     ]
     if len(by_id) != len(items):
         raise ValueError("duplicate source rule ID")
-    if not include_layout and len(scoped) != 104:
-        raise RuntimeError("v2 PoC 실행범위가 104개가 아님")
+    if not include_layout and len(scoped) != 227:
+        raise RuntimeError("v2 운영 실행범위가 227개가 아님")
     return scoped, by_id
 
 
@@ -657,7 +658,7 @@ def routing_scope(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "reason": reason,
         "policy": (
             "confirmed 단일값만 하드 필터; inferred/review/unknown/충돌은 "
-            "예금성·대출성 합집합 전개"
+            "예금성·대출성·투자성 합집합 전개"
         ),
     }
 
@@ -1104,7 +1105,7 @@ def main() -> None:
             "regulation": {
                 "file": str(v2_source.AGENT),
                 "sha256": sha256(Path(v2_source.AGENT)),
-                "scope": "v2 PoC 실행경로 104개",
+                "scope": "v2 운영 비시인성 실행경로 227개",
             },
             "advertisement": {
                 "coarse": str(COARSE),

@@ -213,7 +213,9 @@ def finalize(args: argparse.Namespace) -> None:
                 "product_name": discovered.get("product_name"),
                 "routing": discovered["routing"],
                 "parser_coverage": discovered["parser_coverage"],
+                "template_coverage": copy.deepcopy(discovered.get("template_coverage")),
                 "deferred_rules": [
+                    *discovered.get("template_scope_deferred", []),
                     *discovered.get("deferred_input_rules", []),
                     *discovered.get("applicability_pending", []),
                     *(

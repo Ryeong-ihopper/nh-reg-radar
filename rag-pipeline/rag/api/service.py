@@ -13,11 +13,15 @@ import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field as dataclass_field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from rag.contracts.validation import validate_integrated_input, validate_job_status
+from rag.contracts.validation import (
+    validate_integrated_input,
+    validate_job_status,
+    validate_operational_result,
+)
 from rag.judgment.policy import require_confirmed_product_group, routing_field
 from rag.parsing.prepare_inputs import product_scoped_documents, search_docs
 
@@ -31,6 +35,10 @@ TERMINAL_STATES = {
     "FAILED",
     "INTERRUPTED",
 }
+
+
+class TransientPipelineError(RuntimeError):
+    """A dependency transport failed and the same frozen job may be retried."""
 
 
 def utc_now() -> str:
@@ -75,8 +83,10 @@ class ServiceConfig:
     es_url: str
     es_index: str
     model: str
+    source_policy: str = "template-only"
     decision_guide_path: Path | None = None
     template_hwpx_path: Path | None = None
+    template_methodology_dir: Path | None = None
     dgx_host: str | None = None
     dgx_key: Path | None = None
     model_env: dict[str, str] = dataclass_field(default_factory=dict)
@@ -86,19 +96,21 @@ class ServiceConfig:
     judgment_max_tokens: int = 4096
     vector_cache_dir: Path | None = None
     evidence_per_rule: int = 3
-    prohibition_max_candidates: int = 30
+    prohibition_max_candidates: int = 0  # deprecated; the runner processes every discovered candidate
     job_timeout_seconds: int = 1800
     max_attempts: int = 3
 
 
 def config_from_env() -> ServiceConfig:
-    regulation = os.environ.get("NH_REGULATION_V2_PATH")
-    es_index = os.environ.get("NH_RAG_ES_INDEX")
-    if not regulation or not es_index:
+    policy = os.environ.get("NH_REVIEW_SOURCE_POLICY", "template-only")
+    regulation = os.environ.get("NH_REGULATION_V2_PATH", "")
+    es_index = os.environ.get("NH_RAG_ES_INDEX", "")
+    if policy == "template-plus-v2" and (not regulation or not es_index):
         raise RuntimeError("NH_REGULATION_V2_PATH and NH_RAG_ES_INDEX are required")
     return ServiceConfig(
         jobs_dir=Path(os.environ.get("NH_RAG_JOBS_DIR", "runtime/rag-jobs")),
         regulation_path=Path(regulation),
+        source_policy=policy,
         es_url=os.environ.get("NH_RAG_ES_URL", "http://127.0.0.1:19201"),
         es_index=es_index,
         model=os.environ.get(
@@ -106,6 +118,11 @@ def config_from_env() -> ServiceConfig:
             os.environ.get("DGX_GEMMA_MODEL", "gemma-4-26b-NVFP4-MTP"),
         ),
         template_hwpx_path=Path(os.environ["NH_TEMPLATE_HWPX_PATH"]) if os.environ.get("NH_TEMPLATE_HWPX_PATH") else None,
+        template_methodology_dir=(
+            Path(os.environ["NH_TEMPLATE_METHODOLOGY_DIR"])
+            if os.environ.get("NH_TEMPLATE_METHODOLOGY_DIR")
+            else None
+        ),
         decision_guide_path=(
             Path(os.environ["NH_DECISION_GUIDE_PATH"])
             if os.environ.get("NH_DECISION_GUIDE_PATH")
@@ -124,7 +141,7 @@ def config_from_env() -> ServiceConfig:
         ),
         evidence_per_rule=int(os.environ.get("NH_RAG_EVIDENCE_PER_RULE", "3")),
         prohibition_max_candidates=int(
-            os.environ.get("NH_RAG_PROHIBITION_MAX_CANDIDATES", "30")
+            os.environ.get("NH_RAG_PROHIBITION_MAX_CANDIDATES", "0")
         ),
         job_timeout_seconds=int(os.environ.get("NH_RAG_JOB_TIMEOUT_SECONDS", "1800")),
         max_attempts=int(os.environ.get("NH_RAG_MAX_ATTEMPTS", "3")),
@@ -227,6 +244,20 @@ class JobStore:
                 interrupted += 1
         return interrupted
 
+    def job_ids_with_status(self, *states: str) -> list[str]:
+        wanted = set(states)
+        rows = []
+        for path in self.root.glob("*/status.json"):
+            try:
+                status = json.loads(path.read_text(encoding="utf-8"))
+                job_id = str(status.get("job_id") or "")
+                uuid.UUID(job_id)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if status.get("status") in wanted:
+                rows.append(job_id)
+        return sorted(rows)
+
 
 def apply_routing_overrides(
     document: dict[str, Any], overrides: dict[str, Any]
@@ -268,11 +299,33 @@ def apply_routing_overrides(
 class OperationalReviewService:
     def __init__(self, config: ServiceConfig):
         self.config = config
-        if not config.regulation_path.is_file():
+        if config.source_policy not in {"template-only", "template-plus-v2"}:
+            raise ValueError("unknown review source policy")
+        if config.source_policy == "template-only" and (
+            not config.template_hwpx_path or not config.template_hwpx_path.is_file()
+        ):
+            raise RuntimeError("template-only review requires a general template HWPX")
+        if config.source_policy == "template-plus-v2" and not config.regulation_path.is_file():
             raise RuntimeError(f"regulation v2 not found: {config.regulation_path}")
+        if config.template_methodology_dir and not config.template_methodology_dir.is_dir():
+            raise RuntimeError(
+                f"template methodology directory not found: {config.template_methodology_dir}"
+            )
         self.store = JobStore(config.jobs_dir)
+        stale_job_ids = self.store.job_ids_with_status("RUNNING")
         self.store.interrupt_stale_jobs()
         self.executor = ThreadPoolExecutor(max_workers=config.queue_workers)
+        for job_id in stale_job_ids:
+            status = self.store.read(job_id)
+            if int(status.get("attempt") or 0) >= self.config.max_attempts:
+                continue
+            self.store.update(
+                job_id,
+                status="QUEUED",
+                error=None,
+                progress={"stage": "queued_after_process_restart"},
+            )
+            self.executor.submit(self._run, job_id)
 
     def submit(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get("schema_version") != "operational-review-request-v1":
@@ -283,12 +336,23 @@ class OperationalReviewService:
             "document",
             "routing_overrides",
             "execute_model",
+            "review_date",
+            "review_date_basis",
         }
         if set(request) - allowed:
             raise ValueError(f"unsupported request fields: {sorted(set(request) - allowed)}")
         if "execute_model" in request and not isinstance(request["execute_model"], bool):
             raise ValueError("execute_model must be boolean")
         client_request_id = request.get("client_request_id")
+        review_date = request.get("review_date")
+        review_date_basis = request.get("review_date_basis", "explicit_review_date")
+        if review_date_basis not in {"explicit_review_date", "advertisement_registration_date"}:
+            raise ValueError("unsupported review_date_basis")
+        if request.get("review_date_basis") and not review_date:
+            raise ValueError("review_date_basis requires review_date")
+        if review_date is not None:
+            if not isinstance(review_date, str) or date.fromisoformat(review_date).isoformat() != review_date:
+                raise ValueError("review_date must be YYYY-MM-DD")
         if client_request_id is not None and (
             not isinstance(client_request_id, str) or not client_request_id.strip()
         ):
@@ -300,12 +364,18 @@ class OperationalReviewService:
         overrides = request.get("routing_overrides") or {}
         prepared = apply_routing_overrides(document, overrides)
         stored = {
+            "source_policy": self.config.source_policy,
             "schema_version": "operational-review-request-v1",
             "document": prepared,
             "execute_model": request.get("execute_model", True) is not False,
             "client_request_id": request.get("client_request_id"),
+            "review_date": review_date,
+            "review_date_basis": review_date_basis,
             "input_sha256": hashlib.sha256(
-                json.dumps(prepared, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                json.dumps({"source_policy": self.config.source_policy, "input": prepared if review_date is None else
+                           {"document": prepared, "review_date": review_date,
+                            **({"review_date_basis": review_date_basis} if "review_date_basis" in request else {})}},
+                           ensure_ascii=False, sort_keys=True).encode("utf-8")
             ).hexdigest(),
         }
         job = self.store.create(stored)
@@ -362,21 +432,68 @@ class OperationalReviewService:
             timeout=timeout,
             check=False,
         )
-        (directory / f"attempt-{attempt}-{label}.log").write_text(
+        log_text = (
             (completed.stdout or "")
             + "\n--- stderr ---\n"
-            + (completed.stderr or ""),
+            + (completed.stderr or "")
+        )
+        (directory / f"attempt-{attempt}-{label}.log").write_text(
+            log_text,
             encoding="utf-8",
         )
         if completed.returncode:
-            raise RuntimeError(
+            error_type = TransientPipelineError if any(
+                marker in log_text
+                for marker in (
+                    "ConnectionRefusedError",
+                    "connection refused",
+                    "GPU BGE endpoint is unavailable",
+                    "GPU Gemma endpoint is unavailable",
+                    "urllib.error.URLError",
+                    "timed out",
+                    "Temporary failure in name resolution",
+                )
+            ) else RuntimeError
+            raise error_type(
                 f"{label} exited {completed.returncode}; "
                 f"see attempt-{attempt}-{label}.log"
             )
 
+    @staticmethod
+    def _complete_saved_result(path: Path) -> dict[str, Any] | None:
+        """Return only a contract-valid result with every requested pair saved."""
+        if not path.is_file():
+            return None
+        try:
+            result = validate_operational_result(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+            counts = result["counts"]
+            if (
+                int(counts["output_failures"]) != 0
+                or int(counts["requested_pairs"]) != int(counts["predicted_pairs"])
+            ):
+                return None
+            return result
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    @staticmethod
+    def _previous_checkpoint(directory: Path, attempt: int) -> Path | None:
+        for previous in range(attempt - 1, 0, -1):
+            candidate = (
+                directory
+                / f"attempt-{previous}"
+                / "03_judgment_responses.json.checkpoint.json"
+            )
+            if candidate.is_file():
+                return candidate
+        return None
+
     def _run(self, job_id: str) -> None:
         directory = self.store.directory(job_id)
         request = self.store.request(job_id)
+        source_policy = request.get("source_policy", "template-plus-v2")
         attempt = int(self.store.read(job_id).get("attempt") or 0) + 1
         self.store.update(
             job_id,
@@ -421,8 +538,8 @@ class OperationalReviewService:
                 str(coarse_path),
                 "--fine",
                 str(fine_path),
-                "--regulation",
-                str(self.config.regulation_path),
+                "--source-policy",
+                source_policy,
                 "--output-dir",
                 str(output_dir),
                 "--es-url",
@@ -444,25 +561,48 @@ class OperationalReviewService:
             ]
             if self.config.vector_cache_dir:
                 command.extend(["--vector-cache-dir", str(self.config.vector_cache_dir)])
+            if request.get("review_date"):
+                command.extend(["--review-date", request["review_date"]])
+                command.extend(["--review-date-basis", request.get("review_date_basis", "explicit_review_date")])
             if request["execute_model"]:
                 command.append("--execute-judgment")
             if self.config.dgx_host:
                 command.extend(["--host", self.config.dgx_host])
             if self.config.dgx_key:
                 command.extend(["--key", str(self.config.dgx_key)])
-            if self.config.decision_guide_path:
+            if source_policy == "template-plus-v2":
+                command.extend(["--regulation", str(self.config.regulation_path)])
+            if self.config.decision_guide_path and source_policy == "template-plus-v2":
                 command.extend(
                     ["--decision-guide", str(self.config.decision_guide_path)]
                 )
             if self.config.template_hwpx_path:
                 command.extend(["--template-hwpx", str(self.config.template_hwpx_path)])
-            self._invoke(
-                directory=directory,
-                attempt=attempt,
-                label="pipeline",
-                command=command,
-                timeout=self.config.job_timeout_seconds,
-            )
+            if self.config.template_methodology_dir:
+                command.extend([
+                    "--template-methodology-dir",
+                    str(self.config.template_methodology_dir),
+                ])
+            previous_checkpoint = self._previous_checkpoint(directory, attempt)
+            if previous_checkpoint:
+                command.extend(["--resume-checkpoint", str(previous_checkpoint)])
+            pipeline_tail_recovered = False
+            try:
+                self._invoke(
+                    directory=directory,
+                    attempt=attempt,
+                    label="pipeline",
+                    command=command,
+                    timeout=self.config.job_timeout_seconds,
+                )
+            except RuntimeError:
+                final_path = output_dir / "04_operational_results.json"
+                if not request["execute_model"] or self._complete_saved_result(final_path) is None:
+                    raise
+                # Judgment output is authoritative once its contract and exact
+                # pair coverage pass.  A later telemetry/reporting failure must
+                # not erase a complete review.
+                pipeline_tail_recovered = True
             if request["execute_model"]:
                 result_name = f"attempt-{attempt}/04_operational_results.json"
                 result = json.loads((directory / result_name).read_text(encoding="utf-8"))
@@ -557,8 +697,31 @@ class OperationalReviewService:
                 status=state,
                 completed_at=utc_now(),
                 result_file=result_name,
-                progress={"stage": "complete"},
+                progress={
+                    "stage": "complete",
+                    "pipeline_tail_recovered": pipeline_tail_recovered,
+                },
             )
+        except TransientPipelineError as exc:
+            (directory / f"attempt-{attempt}-traceback.log").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
+            if attempt < self.config.max_attempts:
+                self.store.update(
+                    job_id,
+                    status="QUEUED",
+                    error={"code": "TRANSIENT_DEPENDENCY_RETRY", "message": str(exc)},
+                    progress={"stage": "retrying_transient_dependency"},
+                )
+                time.sleep(min(2 ** (attempt - 1), 4))
+                self.executor.submit(self._run, job_id)
+            else:
+                self.store.update(
+                    job_id,
+                    status="FAILED",
+                    error={"code": "TRANSIENT_DEPENDENCY_EXHAUSTED", "message": str(exc)},
+                    progress={"stage": "failed"},
+                )
         except ValueError as exc:
             self.store.update(
                 job_id,

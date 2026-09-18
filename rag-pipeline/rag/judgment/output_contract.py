@@ -44,10 +44,14 @@ def response_format(compact: dict[str, Any]) -> dict[str, Any]:
     def gate_checks(field: str, statuses: list[str]) -> dict[str, Any]:
         allowed = list(dict.fromkeys(ref for rule in rules
             for ref in (rule.get("output_check_refs") or {}).get(field, [])))
+        lengths = [len((rule.get("output_check_refs") or {}).get(field, [])) for rule in rules]
+        # Every source gate needs a check even when scope is unmatched. Keep
+        # mixed batches permissive enough for each rule; the validator checks
+        # the exact per-rule IDs and order after decoding.
         return {"type": "array", "items": obj({
             "condition_ref": enum(allowed) if allowed else {"type": "string"},
             "status": enum(statuses), "evidence_refs": evidence, "metadata_fields": metadata}),
-            **({"maxItems": 0} if not allowed else {})}
+            "minItems": min(lengths, default=0), "maxItems": max(lengths, default=0)}
 
     obligation_refs = list(dict.fromkeys(ref for rule in rules
         for ref in (rule.get("output_check_refs") or {}).get("requirement_checks", [])))
