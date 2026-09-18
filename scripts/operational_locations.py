@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "rag-pipeline"))
 from rag.judgment.reading_quality import project_reading_citations  # noqa: E402
-from rag.judgment.source_checks import unresolved_applicability  # noqa: E402
+from rag.judgment.source_checks import unresolved_applicability, template_heading_only_citation  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.grounding import cited_window_text, ungrounded_source_quotes  # noqa: E402
 
@@ -159,6 +159,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                                          (ad.get("review_candidates", []), review_rows, "review"),
                                          (ad.get("excluded_candidates", []), rows, "scope-review")):
             for number, candidate in enumerate(candidates):
+                candidate_rule = rules.get(candidate['item_id'], {})
                 prediction = project_reading_citations(candidate.get("judgment") or {})
                 arithmetic_result = arithmetic.get((key, candidate['item_id']))
                 if arithmetic_result and not prediction.get('reading_quality_review'):
@@ -177,12 +178,14 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                             doc.get('text', '') for doc in docs)
                         if (refs or docs) and ungrounded_source_quotes(check.get('reason', ''), window):
                             inconsistent = True
+                        if template_heading_only_citation(candidate_rule, check, list(evidence.values())):
+                            inconsistent = True
                     if inconsistent:
                         applicability_audit = {'verdict': prediction['verdict'], 'reason': prediction.get('reason', ''),
                                                'status': 'WITHHELD_BY_GROUNDING_GUARD'}
                         prediction = {**prediction, 'verdict': 'UNDETERMINED',
                                       'evidence_ids': [], 'evidence_line_refs': [], 'requirement_checks': [],
-                                      'reason': '판정 설명의 인용 문구와 선택된 원문 줄이 일치하지 않아 자동 확정을 보류했습니다. 실제 원문 근거를 다시 확인해야 합니다.'}
+                                      'reason': '인용한 원문이 판정 내용의 근거가 되지 않아 자동 확정을 보류했습니다. 제목만 인용했거나 실제 문구와 맞지 않는지 원본 본문을 확인해야 합니다.'}
                 if unresolved_applicability(prediction):
                     applicability_audit = {'verdict': prediction['verdict'], 'reason': prediction.get('reason', ''),
                                            'status': 'WITHHELD_BY_APPLICABILITY_GUARD'}

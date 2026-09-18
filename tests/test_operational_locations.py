@@ -148,6 +148,20 @@ def test_coordinate_free_source_is_not_presented_as_whole_ad_judgment():
     assert row["evidence_location_status"] == "UNRESOLVED_REFERENCE"
 
 
+def test_heading_only_saved_compliance_is_withheld_without_rewriting_prediction():
+    judgment = {'verdict':'COMPLIANT','reason':'본문 기재 확인','requirement_checks':[
+        {'status':'SATISFIED','finding_basis':'OBSERVED','evidence_line_refs':['L'],'reason':'본문 기재 확인'}]}
+    raw = {'ads':[{'ad_id':'ADV','candidates':[{'item_id':'TPL-synthetic','judgment':judgment}]}]}
+    requests = [{'ad_id':'ADV','rules':[{'item_id':'TPL-synthetic','source_sheet':'HWPX_TEMPLATE',
+        'title':'해약 안내','example_text':'해약 후에는 혜택이 더 이상 제공되지 않습니다.'}],
+        'documents':[{'line_refs':['L'],'evidence_id':'E','line_texts':{'L':'상품 해약 안내'}}]}]
+    before = copy.deepcopy(raw)
+    row = saved_workspace(raw, requests, source(), 'ADV')['rows'][0]
+    assert row['verdict'] == '판단불가'
+    assert row['model_assessment']['verdict'] == 'COMPLIANT'
+    assert raw == before
+
+
 def test_region_selected_text_never_becomes_exact_line_fallback():
     doc = {"region_id": "R", "page_no": 2, "span_status": "region_level_selected_text", "line_refs": ["FILE-b::L1"]}
     value = resolve_locations(source(), {"evidence_ids": ["E"]}, {"E": doc})

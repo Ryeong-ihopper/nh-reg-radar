@@ -1,11 +1,29 @@
 import unittest
 
 from rag.judgment.condition_contracts import compile_condition_contract
-from rag.judgment.source_checks import source_claim_errors, has_arithmetic_mismatch_witness, unresolved_applicability
+from rag.judgment.source_checks import (source_claim_errors, has_arithmetic_mismatch_witness,
+                                       unresolved_applicability, template_heading_only_citation)
 from rag.judgment.manual_review import text_facet_claim_errors
 
 
 class SourceChecksTests(unittest.TestCase):
+    def test_template_body_requirement_cannot_be_proved_by_heading_alone(self):
+        rule = {'item_id':'SYN', 'source_sheet':'HWPX_TEMPLATE', 'title':'해약 안내',
+                'example_text':'계약을 해지하면 제공하던 서비스 이용이 제한됩니다.'}
+        check = {'obligation_ref':'O1','status':'SATISFIED','finding_basis':'OBSERVED',
+                 'evidence_line_refs':['L']}
+        for text in ('해약 안내', '상품 해약 안내', '■ 해약 안내:'):
+            docs = [{'line_refs':['L'], 'line_texts':{'L':text}}]
+            self.assertTrue(template_heading_only_citation(rule, check, docs))
+            self.assertTrue(source_claim_errors({'rules':[rule],'documents':docs},
+                {'item_id':'SYN','requirement_checks':[check]}))
+        for text in ('해약 안내\n해약 후에는 서비스를 사용할 수 없습니다.', '해약 시 이용 제한', ''):
+            self.assertFalse(template_heading_only_citation(rule, check,
+                [{'line_refs':['L'], 'line_texts':{'L':text}}]))
+        docs = [{'line_refs':['L'], 'line_texts':{'L':'상품 해약 안내'}}]
+        self.assertFalse(template_heading_only_citation({**rule, 'source_sheet':'V2'},check,docs))
+        self.assertFalse(template_heading_only_citation(rule,{**check,'finding_basis':'UNKNOWN'},docs))
+
     def test_unknown_applicability_is_not_a_confirmed_exclusion(self):
         result = {'item_id': 'SYN', 'verdict': 'NOT_APPLICABLE',
                   'reason': '제작 자료가 없어 의무 적용 여부를 판단할 수 없습니다.'}

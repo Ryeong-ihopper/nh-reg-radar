@@ -9,6 +9,10 @@ def quarantine_unsupported_observations(request, response, validate):
         return response
     affected = {}
     for error in errors:
+        match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] template heading alone cannot establish the required body disclosure", error)
+        if match:
+            affected.setdefault(match[1], set()).add(int(match[2]))
+            continue
         match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] 원문에 있다고 설명한 인용 문구가 선택한 줄에 없음; 해당 문구의 실제 원본 줄을 인용해야 함", error)
         if match:
             affected.setdefault(match[1], set()).add(int(match[2]))

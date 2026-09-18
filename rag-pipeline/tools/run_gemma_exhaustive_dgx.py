@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +94,10 @@ For v2 contracts, requirement_checks must return every listed obligation_ref
 exactly once, in source order, after gates pass. Do not merge multiple O checks
 into a generic "all mandatory disclosures present" check. Each O check needs its
 own supporting references or an explicit MISSING/UNDETERMINED outcome. Source
+section headings alone never prove the disclosures required in their body.
+Check every required meaning, benefit and restriction against its own cited
+body text; a different disclosed restriction does not establish this one.
+Source
 notes narrow the criterion; an umbrella rule is not a substitute for all other
 rules. Preserve source exceptions and ANY_OF choices. Never split examples into
 mandatory items. If the applicable set of elements cannot be established, use
@@ -1368,6 +1373,7 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
     # oversized JSON object a second time.
     max_attempts = contract_attempt_limit(row)
     for attempt in range(1, max_attempts + 1):
+        call_id = uuid4().hex
         attempt_started = time.perf_counter()
         try:
             result = call_once(current, host, key, model, max_tokens)
@@ -1381,6 +1387,7 @@ def call_with_retry(row: dict[str, Any], host: str | None, key: Path | None, mod
             }
         attempts.append(result["validation_errors"])
         event = {
+            "call_id": call_id,
             "request_id": row["request_id"], "attempt": attempt,
             "seconds": round(time.perf_counter() - attempt_started, 3),
             "validation_errors": copy.deepcopy(result["validation_errors"]),

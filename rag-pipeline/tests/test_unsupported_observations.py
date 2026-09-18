@@ -33,6 +33,14 @@ class UnsupportedObservationTests(unittest.TestCase):
         response["parsed"]["ad_id"] = "wrong-ad"
         self.assertIs(quarantine_unsupported_observations(request, response, gemma.validate), response)
 
+    def test_heading_only_observation_can_be_quarantined_after_retry(self):
+        request, response = self.fixture()
+        response['validation_errors'] = [
+            'TEST-X: requirement_checks[0] template heading alone cannot establish the required body disclosure']
+        guarded = quarantine_unsupported_observations(request, response, gemma.validate)
+        self.assertEqual(guarded['validation_errors'], [])
+        self.assertEqual(guarded['parsed']['results'][0]['verdict'], 'UNDETERMINED')
+
     def test_independent_observed_violation_survives(self):
         request, response = self.fixture()
         check = copy.deepcopy(result("TEST-X")["requirement_checks"][0])

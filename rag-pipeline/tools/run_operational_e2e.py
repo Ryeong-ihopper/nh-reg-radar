@@ -1911,16 +1911,11 @@ def main() -> None:
     }
     validate_operational_result(final_result)
     write_json(final_path, final_result)
-    from rag.judgment.runtime_metrics import judgment_call_metrics
-    write_json(runtime_metrics_path, {
+    from rag.judgment.runtime_metrics import save_completed_runtime_metrics
+    save_completed_runtime_metrics(runtime_metrics_path, {
         **pre_judgment_metrics,
-        "phase": "complete",
-        "judgment": {
-            "wall_seconds": round(judgment_wall_seconds, 3),
-            **judgment_call_metrics(physical_rows),
-        },
         "wall_seconds_total": round(time.perf_counter() - started_at, 3),
-    })
+    }, physical_rows, round(judgment_wall_seconds, 3))
     print(json.dumps({
         "status": "completed",
         "output": str(final_path),

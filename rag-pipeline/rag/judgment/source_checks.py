@@ -54,15 +54,43 @@ def quoted_required_clauses(criterion):
     return list(dict.fromkeys(match.group(0) for line in lines for match in QUOTED_REQUIRED.finditer(line)))
 
 
+def template_heading_only_citation(rule, check, documents):
+    """A source label alone cannot establish the meaning of its body example.
+
+    This narrow citation check never infers absence or a violation. It also
+    accepts any substantive body wording, without requiring example equality.
+    """
+    if rule.get('source_sheet') != 'HWPX_TEMPLATE' or check.get('finding_basis') != 'OBSERVED':
+        return False
+    if check.get('status') not in {'SATISFIED', 'VIOLATED'}:
+        return False
+    fields = (rule.get('template_basis') or {}).get('fields') or {}
+    label = str((fields.get('label') or {}).get('text') or rule.get('title') or '').strip()
+    example = str(rule.get('example_text') or (fields.get('example') or {}).get('text') or '').strip()
+    if not label or len(example) <= len(label):
+        return False
+    refs = check.get('evidence_line_refs') or []
+    ids = set(check.get('evidence_ids') or [])
+    text = (cited_window_text(refs, documents) if refs else
+            '\n'.join(str(d.get('text') or '') for d in documents if d.get('evidence_id') in ids))
+    lines = [line.strip(' •●■※:：[]') for line in text.splitlines() if line.strip()]
+    # Only a bare source label or short noun prefix plus that label qualifies.
+    # Sentence endings, conditions, rates and other body text fail this match.
+    heading = re.compile(r'(?:[가-힣A-Za-z]{1,8}\s+){0,2}' + re.escape(label))
+    return bool(lines) and all(heading.fullmatch(line) for line in lines)
+
+
 def source_claim_errors(payload, result):
     rule = next((r for r in payload.get('rules', []) if r.get('item_id') == result.get('item_id')), {})
     obligations = (rule.get('condition_contract') or {}).get('obligation_checks') or []
     documents = payload.get('documents') or []
     errors = ([f"{result.get('item_id')}: explanation says applicability cannot be determined; unknown is UNDETERMINED, not NOT_APPLICABLE"]
               if unresolved_applicability(result) else [])
-    for check in result.get('requirement_checks') or []:
+    for index, check in enumerate(result.get('requirement_checks') or []):
         if not isinstance(check, dict):
             continue
+        if template_heading_only_citation(rule, check, documents):
+            errors.append(f"{result.get('item_id')}: requirement_checks[{index}] template heading alone cannot establish the required body disclosure")
         obligation = next((o for o in obligations if o.get('obligation_id') == check.get('obligation_ref')), {})
         match = QUOTED_REQUIRED.fullmatch(obligation.get('text', ''))
         if match and check.get('status') == 'SATISFIED':
