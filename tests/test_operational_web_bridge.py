@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 import subprocess
+import zipfile
 
 import openpyxl
 from fastapi.testclient import TestClient
@@ -179,7 +180,20 @@ class BridgeTests(unittest.TestCase):
         sheet.append(["대출성상품-상품명 노출"])
         book.save(self.root / "rules.xlsx")
         book.close()
+        def template_cell(y, x, text):
+            return (f'<tc><subList><p><run><t>{text}</t></run></p></subList>'
+                    f'<cellAddr rowAddr="{y}" colAddr="{x}"/><cellSpan rowSpan="1" colSpan="1"/></tc>')
+        template_xml = '<sec>'
+        for title in ("예금성상품-적립식", "대출성상품-상품명 노출"):
+            template_xml += f'<p><run><t>[{title}]</t></run></p><tbl rowCnt="2" colCnt="4">'
+            for y, values in enumerate((("구분", "예시문구", "필수여부", "기재요령"),
+                                        ("상품명", "일반상품", "O", "상품명 표시"))):
+                template_xml += '<tr>' + ''.join(template_cell(y, x, value) for x, value in enumerate(values)) + '</tr>'
+            template_xml += '</tbl>'
+        with zipfile.ZipFile(self.root / "template.hwpx", "w") as archive:
+            archive.writestr("Contents/section0.xml", template_xml + '</sec>')
         (self.root / "config.json").write_text(json.dumps({
+            "template_source_path": str(self.root / "template.hwpx"),
             "regulation_path": str(self.root / "rules.xlsx"),
             "es_url": "http://localhost:9", "es_index": "test-only", "model": "test-only",
         }), encoding="utf-8")

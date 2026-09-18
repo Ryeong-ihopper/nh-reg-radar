@@ -12,12 +12,19 @@ class SearchReadinessTests(unittest.TestCase):
     def setUp(self):
         self.bridge = ExecutionBridge.__new__(ExecutionBridge)
         self.bridge.config = {"es_url": "http://search.invalid"}
+        self.bridge.rag = SimpleNamespace(config=SimpleNamespace(source_policy="template-plus-v2"))
         self.bridge.lock = threading.RLock()
         self.bridge.stopping = Mock()
         self.bridge.stopping.wait.return_value = False
         self.bridge.persist = Mock()
         self.bundle = SimpleNamespace(job=SimpleNamespace(status="RUNNING", current_step="CHECK"),
                                       steps=[SimpleNamespace(step_code="CHECK", step_name="Check")])
+
+    def test_template_only_does_not_require_v2_search(self):
+        self.bridge.rag.config.source_policy = "template-only"
+        with patch("operational_web_bridge.urllib.request.urlopen") as request:
+            self.bridge.wait_for_search_backend(self.bundle)
+        request.assert_not_called()
 
     def test_connection_recovers_without_failing_review(self):
         ready = io.BytesIO(b'{"cluster_name":"test","version":{"number":"8"}}')

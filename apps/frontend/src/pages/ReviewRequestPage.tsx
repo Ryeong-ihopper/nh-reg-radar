@@ -112,9 +112,9 @@ export function ReviewRequestPage() {
           <form className="review-form review-request-form" onSubmit={submit}>
             {activeReview ? <div role="status" className="state-message state-warning"><strong>이미 AI 검토가 진행 중입니다.</strong><p>새 요청을 만들지 않고 현재 진행 상태로 이동합니다.</p><Link to={`/reviews/${encodeURIComponent(activeReview.reviewId)}/status`}>진행 상태 확인</Link></div> : null}
             {operationalMode ? <div className="state-message state-warning">
-              <strong>실제 자동심의 · 규제목록 v2 + Gemma</strong>
-              <p>광고 원본 전체를 규제목록 v2로 검토합니다. 자동 판정할 수 없는 시인성·외부자료 항목은 확인 필요로 구분합니다.</p>
-              <p>등록 시 선택한 상세 상품군에 맞는 내부 체크리스트와 규제목록 v2를 시스템이 적용합니다.</p>
+              <strong>자동심의 · 내부 심의 템플릿</strong>
+              <p>등록 시 선택한 상세 상품군의 템플릿 전체 항목으로 광고 원본을 검토합니다.</p>
+              <p>심의일은 광고 최초 등록일입니다. 시인성·외부자료 등 사람 확인이 필요한 항목은 판단불가로 표시합니다.</p>
             </div> : null}
             {!operationalMode ? <fieldset>
               <legend><span>01</span> 검토 범위</legend>

@@ -83,6 +83,7 @@ class ServiceConfig:
     es_url: str
     es_index: str
     model: str
+    source_policy: str = "template-only"
     decision_guide_path: Path | None = None
     template_hwpx_path: Path | None = None
     dgx_host: str | None = None
@@ -100,13 +101,15 @@ class ServiceConfig:
 
 
 def config_from_env() -> ServiceConfig:
-    regulation = os.environ.get("NH_REGULATION_V2_PATH")
-    es_index = os.environ.get("NH_RAG_ES_INDEX")
-    if not regulation or not es_index:
+    policy = os.environ.get("NH_REVIEW_SOURCE_POLICY", "template-only")
+    regulation = os.environ.get("NH_REGULATION_V2_PATH", "")
+    es_index = os.environ.get("NH_RAG_ES_INDEX", "")
+    if policy == "template-plus-v2" and (not regulation or not es_index):
         raise RuntimeError("NH_REGULATION_V2_PATH and NH_RAG_ES_INDEX are required")
     return ServiceConfig(
         jobs_dir=Path(os.environ.get("NH_RAG_JOBS_DIR", "runtime/rag-jobs")),
         regulation_path=Path(regulation),
+        source_policy=policy,
         es_url=os.environ.get("NH_RAG_ES_URL", "http://127.0.0.1:19201"),
         es_index=es_index,
         model=os.environ.get(
@@ -290,7 +293,13 @@ def apply_routing_overrides(
 class OperationalReviewService:
     def __init__(self, config: ServiceConfig):
         self.config = config
-        if not config.regulation_path.is_file():
+        if config.source_policy not in {"template-only", "template-plus-v2"}:
+            raise ValueError("unknown review source policy")
+        if config.source_policy == "template-only" and (
+            not config.template_hwpx_path or not config.template_hwpx_path.is_file()
+        ):
+            raise RuntimeError("template-only review requires a general template HWPX")
+        if config.source_policy == "template-plus-v2" and not config.regulation_path.is_file():
             raise RuntimeError(f"regulation v2 not found: {config.regulation_path}")
         self.store = JobStore(config.jobs_dir)
         stale_job_ids = self.store.job_ids_with_status("RUNNING")
@@ -345,6 +354,7 @@ class OperationalReviewService:
         overrides = request.get("routing_overrides") or {}
         prepared = apply_routing_overrides(document, overrides)
         stored = {
+            "source_policy": self.config.source_policy,
             "schema_version": "operational-review-request-v1",
             "document": prepared,
             "execute_model": request.get("execute_model", True) is not False,
@@ -352,9 +362,9 @@ class OperationalReviewService:
             "review_date": review_date,
             "review_date_basis": review_date_basis,
             "input_sha256": hashlib.sha256(
-                json.dumps(prepared if review_date is None else
+                json.dumps({"source_policy": self.config.source_policy, "input": prepared if review_date is None else
                            {"document": prepared, "review_date": review_date,
-                            **({"review_date_basis": review_date_basis} if "review_date_basis" in request else {})},
+                            **({"review_date_basis": review_date_basis} if "review_date_basis" in request else {})}},
                            ensure_ascii=False, sort_keys=True).encode("utf-8")
             ).hexdigest(),
         }
@@ -473,6 +483,7 @@ class OperationalReviewService:
     def _run(self, job_id: str) -> None:
         directory = self.store.directory(job_id)
         request = self.store.request(job_id)
+        source_policy = request.get("source_policy", "template-plus-v2")
         attempt = int(self.store.read(job_id).get("attempt") or 0) + 1
         self.store.update(
             job_id,
@@ -517,8 +528,8 @@ class OperationalReviewService:
                 str(coarse_path),
                 "--fine",
                 str(fine_path),
-                "--regulation",
-                str(self.config.regulation_path),
+                "--source-policy",
+                source_policy,
                 "--output-dir",
                 str(output_dir),
                 "--es-url",
@@ -549,7 +560,9 @@ class OperationalReviewService:
                 command.extend(["--host", self.config.dgx_host])
             if self.config.dgx_key:
                 command.extend(["--key", str(self.config.dgx_key)])
-            if self.config.decision_guide_path:
+            if source_policy == "template-plus-v2":
+                command.extend(["--regulation", str(self.config.regulation_path)])
+            if self.config.decision_guide_path and source_policy == "template-plus-v2":
                 command.extend(
                     ["--decision-guide", str(self.config.decision_guide_path)]
                 )

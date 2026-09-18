@@ -62,6 +62,21 @@ class TemplateCatalogTests(unittest.TestCase):
             ("광고물", "LLM", "텍스트"),
         )
 
+    def test_optional_law_mapping_is_source_bound_and_not_an_obligation(self):
+        xml = '<tbl rowCnt="2" colCnt="5"><tr>'
+        xml += ''.join(cell(0, i, value) for i, value in enumerate(
+            ("구분", "예시문구", "필수여부", "기재요령", "근거 법령")))
+        xml += '</tr><tr>' + ''.join(cell(1, i, value) for i, value in enumerate(
+            ("이자 지급 시기", "후취", "O", "이자의 지급 시기를 표시", "일반 기준 제2조")))
+        xml += '</tr></tbl>'
+        self.write([p("[예금성상품-유형]") + xml])
+        catalog = TemplateCatalog.from_hwpx(self.path)
+        rule = catalog.operational_rules()[0]
+        self.assertEqual(rule["template_basis"]["legal_basis_refs"], ["일반 기준 제2조"])
+        self.assertIn("후취", rule["criterion"])
+        self.assertNotIn("일반 기준 제2조", rule["criterion"])
+        self.assertEqual(rule["template_basis"]["structure_status"], "STRUCTURED")
+
     def test_only_explicit_method_rows_become_one_any_of_rule(self):
         def rule(item_id, example):
             return {
@@ -237,7 +252,7 @@ class TemplateCatalogTests(unittest.TestCase):
         for name, rows in (("coarse", coarse), ("fine", fine)):
             (root / name).write_text(''.join(json.dumps(row)+'\n' for row in rows), encoding="utf-8")
         regulation = root / "v2.xlsx"
-        regulation.write_bytes(b"synthetic workbook; loaders mocked")
+        # A nonexistent v2 file must not be opened even when a legacy caller passes it.
         output = root / "run"
         args = ["runner", "--inputs-dir", str(inputs), "--coarse", str(root / "coarse"),
                 "--review-date", "2026-04-12",
@@ -249,13 +264,13 @@ class TemplateCatalogTests(unittest.TestCase):
             return np.ones((len(rows), 2), dtype=np.float32), False, 0.0
 
         with mock.patch.object(sys, "argv", args), \
-             mock.patch.object(runner.v2_source, "set_agent_path"), \
-             mock.patch.object(runner.discovery, "load_scope", return_value=([], [])), \
-             mock.patch.object(runner.judgment_input, "load_cd_rules", return_value=[]), \
+             mock.patch.object(runner.v2_source, "set_agent_path", side_effect=AssertionError("v2 access")), \
+             mock.patch.object(runner.discovery, "load_scope", side_effect=AssertionError("v2 access")), \
+             mock.patch.object(runner.judgment_input, "load_cd_rules", side_effect=AssertionError("v2 access")), \
              mock.patch.object(runner.discovery, "load_model"), \
              mock.patch.object(runner.discovery, "load_or_encode", side_effect=encoded), \
-             mock.patch.object(runner.discovery, "ensure_rule_index"), \
-             mock.patch.object(runner.discovery, "discover_prohibitions", return_value=[]):
+             mock.patch.object(runner.discovery, "ensure_rule_index", side_effect=AssertionError("v2 index")), \
+             mock.patch.object(runner.discovery, "discover_prohibitions", side_effect=AssertionError("v2 search")):
             runner.main()
         requests = [json.loads(line) for line in (output / "02_judgment_requests.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual(len(requests), 1)
@@ -266,3 +281,5 @@ class TemplateCatalogTests(unittest.TestCase):
         self.assertEqual(discovery['ads'][0]['template_coverage']['missing_count'], 0)
         freeze = json.loads((output / "FREEZE_BEFORE_PREDICTION.json").read_text(encoding="utf-8"))
         self.assertIn(str(self.path.resolve()), [entry["path"] for entry in freeze["inputs"]])
+        self.assertNotIn(str(regulation.resolve()), [entry["path"] for entry in freeze["inputs"]])
+        self.assertEqual(freeze["configuration"]["source_policy"], "template-only")

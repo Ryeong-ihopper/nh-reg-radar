@@ -54,7 +54,7 @@ PARSER_REUSE_PARENT_STATUSES = {
 }
 PRODUCTS = {"LOAN": "대출성", "DEPOSIT": "예금성", "SAVINGS": "예금성", "DEMAND_DEPOSIT": "예금성"}
 STEP_NAMES = ["입력 파일 확인", "OCR/VLM 파싱 (영역·라벨)", "파싱 결과 통합·검증 및 청킹 준비",
-              "규제목록 v2 검색·판정 요청", "하이브리드 검색·Gemma 판정", "실제 결과 저장"]
+              "템플릿 전체 항목 판정 요청", "원문 근거 검색·Gemma 판정", "실제 결과 저장"]
 
 
 def registration_review_date(created_at: datetime) -> str:
@@ -201,8 +201,9 @@ class ExecutionBridge:
         self.active = set()
         self.stopping = threading.Event()
         self.rag = OperationalReviewService(ServiceConfig(
-            jobs_dir=self.root / "rag-jobs", regulation_path=Path(cfg["regulation_path"]),
-            es_url=cfg["es_url"], es_index=cfg["es_index"], model=cfg["model"],
+            jobs_dir=self.root / "rag-jobs", regulation_path=Path(cfg.get("regulation_path") or "."),
+            es_url=cfg.get("es_url", ""), es_index=cfg.get("es_index", ""), model=cfg["model"],
+            source_policy="template-only",
             decision_guide_path=Path(cfg["decision_guide_path"]) if cfg.get("decision_guide_path") else None,
             template_hwpx_path=Path(cfg["template_source_path"]) if cfg.get("template_source_path") else None,
             dgx_host=cfg.get("dgx_host"), dgx_key=Path(cfg["dgx_key"]) if cfg.get("dgx_key") else None,
@@ -460,12 +461,12 @@ class ExecutionBridge:
             raise ServiceError(422, "UNSUPPORTED_OUTPUT", "현재 실행기는 문구 추천·심의 의견 초안을 생성하지 않습니다. 해당 옵션을 꺼 주세요.")
         selected = set(options.get("review_types") or FULL_REVIEW) - {"OCR_QUALITY"}
         if selected != FULL_REVIEW:
-            raise ServiceError(422, "FULL_REVIEW_REQUIRED", "현재 실행기는 규제목록 v2 전체 적용성 검사를 수행합니다. 전체 검토 범위를 선택해 주세요.")
+            raise ServiceError(422, "FULL_REVIEW_REQUIRED", "선택한 템플릿의 모든 항목을 검토합니다. 전체 검토 범위를 선택해 주세요.")
         if (
             not options.get("parent_review_id")
             and options.get("standard_effective_date") not in (None, date.today())
         ):
-            raise ServiceError(422, "FIXED_REGULATION_VERSION", "현재는 고정된 규제목록 v2만 사용합니다. 과거 기준일 버전 선택은 연결되지 않았습니다.")
+            raise ServiceError(422, "FIXED_REGULATION_VERSION", "심의일은 광고 최초 등록일이며, 현재 연결된 템플릿을 사용합니다.")
         files = [f for f in ad.files if f.file_type == "ADVERTISEMENT"]
         if not files or len(files) != len(ad.files):
             raise ServiceError(422, "ADVERTISEMENT_ASSETS_REQUIRED", "자동심의에는 동일 광고를 구성하는 광고 원본 파일만 등록해 주세요. 상품설명서·약관 대조는 아직 연결되지 않았습니다.")
@@ -559,6 +560,8 @@ class ExecutionBridge:
 
     def wait_for_search_backend(self, bundle):
         """Wait visibly for search transport before consuming parser/model work."""
+        if self.rag.config.source_policy == "template-only":
+            return  # Template enumeration and ad evidence retrieval do not use the v2 ES index.
         deadline = time.monotonic() + 300
         step = next(row for row in bundle.steps if row.step_code == bundle.job.current_step)
         original_name = step.step_name
@@ -1397,7 +1400,8 @@ class ExecutionBridge:
                     "productClassificationSource": {
                         key: value for key, value in self.template_source.items() if key != "path"
                     },
-                    "regulation": "규제목록 v2 고정본",
+                    "regulation": "내부 심의 템플릿",
+                    "sourcePolicy": "template-only",
                     "progressMeaning": "완료한 단계 비율이며 남은 시간의 비율이 아닙니다."}
 
         @backend.put("/operational/advertisements/{advertisement_id}/routing")
@@ -1539,7 +1543,8 @@ class ExecutionBridge:
                 freeze_path = result_path.with_name('FREEZE_BEFORE_PREDICTION.json')
                 if freeze_path.is_file():
                     freeze = read_json(freeze_path)
-                    rule_metadata = dict(frozen_rule_metadata(self.config['regulation_path'], freeze))
+                    if freeze.get('configuration', {}).get('source_policy') != 'template-only':
+                        rule_metadata = dict(frozen_rule_metadata(self.config['regulation_path'], freeze))
                     catalog_path = result_path.with_name('00_template_catalog.json')
                     if catalog_path.is_file():
                         catalog = read_json(catalog_path)
@@ -1583,6 +1588,8 @@ class ExecutionBridge:
             value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery, reading_audits, rule_metadata)
             value.pop("source_ads", None)
             return {"available": True, "source_type": "GEMMA", "is_model_output": True,
+                    "source_policy": (raw.get("audit", {}).get("rule_sources", {}).get("policy")
+                                      or "template-plus-v2"),
                     **value, "status": bundle.review.status,
                     "output_failure_count": len(value["output_failure_pairs"]),
                     "partial_result_warning": link.get("partial_result_warning"),

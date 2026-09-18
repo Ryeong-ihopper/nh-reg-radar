@@ -72,7 +72,7 @@ from rag.judgment.reading_quality import needs_reading_review, uncertain_ad_read
 dgx_rerank = gpu_rerank
 
 
-OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다. 입력된 일반 템플릿과 v2 규칙만
+OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다. 입력된 심의 기준만
 사용하고, 사례 정답이나 외부 규칙을 만들지 말라.
 
 1. 각 rule은 독립적으로 판정하되 광고의 공통 사실은 일관되게 적용한다.
@@ -957,8 +957,10 @@ def freeze_manifest(
         ROOT / "tools/model_result_io.py",
         ROOT / "rag/build_items.py",
     ]
-    input_paths = [args.regulation, args.coarse, args.fine, request_path, discovery_path,
+    input_paths = [args.coarse, args.fine, request_path, discovery_path,
                    *sorted(args.inputs_dir.glob("*.json"))]
+    if getattr(args, "source_policy", "template-plus-v2") == "template-plus-v2":
+        input_paths.append(args.regulation)
     if args.decision_guide:
         input_paths.append(args.decision_guide)
     if getattr(args, "template_hwpx", None):
@@ -971,6 +973,7 @@ def freeze_manifest(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "ads": ad_count,
         "configuration": {
+            "source_policy": getattr(args, "source_policy", "template-plus-v2"),
             "rule_search_text_variant": args.rule_search_text_variant,
             "per_chunk_k": args.per_chunk_k,
             "rrf_k": args.rrf_k,
@@ -999,7 +1002,7 @@ def freeze_manifest(
             {"path": str(path.resolve()), "sha256": sha256(path)} for path in code_paths
         ],
         "data_leakage_policy": (
-            "prediction receives general template, regulation-v2 and advertisement evidence; "
+            "prediction receives only the configured rule sources and advertisement evidence; "
             "no gold, researcher O/X, ad-specific rule mapping or case answer"
         ),
     }
@@ -1073,7 +1076,8 @@ def main() -> None:
                         choices=("explicit_review_date", "advertisement_registration_date"))
     parser.add_argument("--coarse", type=Path, required=True)
     parser.add_argument("--fine", type=Path, required=True)
-    parser.add_argument("--regulation", type=Path, required=True)
+    parser.add_argument("--source-policy", choices=("template-only", "template-plus-v2"), default="template-only")
+    parser.add_argument("--regulation", type=Path)
     parser.add_argument("--decision-guide", type=Path)
     parser.add_argument("--template-hwpx", type=Path,
                         help="general template source; independent checklist, no v2 ID mapping required")
@@ -1171,7 +1175,12 @@ def main() -> None:
     # directory.  Resolve once so CLI callers may safely pass a relative
     # output directory without the child looking in a different tree.
     args.output_dir = args.output_dir.resolve()
-    if not args.es_index:
+    template_only = args.source_policy == "template-only"
+    if template_only and not args.template_hwpx:
+        parser.error("template-only review requires --template-hwpx")
+    if template_only and args.decision_guide:
+        parser.error("v2 decision guides cannot be used with template-only review")
+    if not template_only and (not args.es_index or not args.regulation):
         parser.error("--es-index or NH_RAG_ES_INDEX is required")
     if not 1 <= args.batch_size <= MAX_RULES_PER_JUDGMENT:
         parser.error(
@@ -1182,7 +1191,8 @@ def main() -> None:
     if args.template_hwpx and args.enable_applicability_screen:
         parser.error("template source uses the operational joint judgment; the v2-only experimental screen is unsupported")
 
-    v2_source.set_agent_path(args.regulation)
+    if not template_only:
+        v2_source.set_agent_path(args.regulation)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     ads = load_ads(args.inputs_dir)
     coarse = read_jsonl(args.coarse)
@@ -1207,7 +1217,7 @@ def main() -> None:
             f"fine_only={sorted(set(fine_by_ad)-set(ads))}"
         )
 
-    items, all_items_by_id = discovery.load_scope(include_layout=True)
+    items, all_items_by_id = ([], {}) if template_only else discovery.load_scope(include_layout=True)
     # Search eligibility is not observation readiness. Keep product-relevant
     # layout rules searchable; automated_input_ready defers missing observations.
     # Investment-only source rows remain outside the current PoC product scope.
@@ -1227,7 +1237,7 @@ def main() -> None:
         args.output_dir / "00_condition_contract_audit.json",
         {key: value for key, value in v2_condition_audit.items() if key != "contracts"},
     )
-    cd_rules = judgment_input.load_cd_rules(include_layout=True)
+    cd_rules = [] if template_only else judgment_input.load_cd_rules(include_layout=True)
     if {item["id"] for item in items} != {rule["item_id"] for rule in cd_rules}:
         raise ValueError("search catalog and judgment rule definitions have different item IDs")
     template_catalog = TemplateCatalog.from_hwpx(args.template_hwpx) if args.template_hwpx else None
@@ -1236,7 +1246,7 @@ def main() -> None:
         write_json(args.output_dir / "00_template_catalog.json", template_catalog.document)
         write_json(args.output_dir / "00_template_source.json", template_catalog.source)
     all_rules = [*cd_rules, *t_rules]
-    guides = load_decision_guides(
+    guides = {} if template_only else load_decision_guides(
         args.decision_guide,
         regulation_path=args.regulation,
         known_item_ids=(rule["item_id"] for rule in all_rules),
@@ -1244,7 +1254,7 @@ def main() -> None:
     attach_decision_guides(all_rules, guides)
     attach_condition_contracts(all_rules)
     rule_by_id = {row["item_id"]: row for row in all_rules}
-    regulation_source_sha = sha256(args.regulation)
+    regulation_source_sha = None if template_only else sha256(args.regulation)
     template_source_sha = sha256(args.template_hwpx) if args.template_hwpx else None
     rule_basis_by_id = {
         item_id: rule_basis(
@@ -1264,17 +1274,18 @@ def main() -> None:
     started_at = time.perf_counter()
     model = discovery.load_model()
     args.vector_cache_dir.mkdir(parents=True, exist_ok=True)
+    rule_source = args.template_hwpx if template_only else args.regulation
     rule_vectors_path, rule_meta_path = vector_cache_paths(
         args.vector_cache_dir,
         kind="rules",
-        source=args.regulation,
+        source=rule_source,
         variant=(args.rule_search_text_variant + "-template-" + sha256(args.template_hwpx)
                  if args.template_hwpx else args.rule_search_text_variant),
     )
     rule_vectors, rule_vectors_cached, rule_embedding_seconds = discovery.load_or_encode(
         rule_docs,
         text_key="search_text",
-        source=args.regulation,
+        source=rule_source,
         vectors_path=rule_vectors_path,
         meta_path=rule_meta_path,
         model=model,
@@ -1296,16 +1307,14 @@ def main() -> None:
         batch_size=4,
         force=False,
     )
-    args.es_index = discovery.versioned_rule_index(
-        args.es_index, cd_rule_docs, rule_vectors[: len(cd_rule_docs)]
-    )
-    discovery.ensure_rule_index(
-        args.es_url,
-        args.es_index,
-        cd_rule_docs,
-        rule_vectors[: len(cd_rule_docs)],
-        source_sha=sha256(args.regulation),
-    )
+    if not template_only:
+        args.es_index = discovery.versioned_rule_index(
+            args.es_index, cd_rule_docs, rule_vectors[: len(cd_rule_docs)]
+        )
+        discovery.ensure_rule_index(
+            args.es_url, args.es_index, cd_rule_docs,
+            rule_vectors[: len(cd_rule_docs)], source_sha=regulation_source_sha,
+        )
     fine_vector_by_id = {row["doc_id"]: vector for row, vector in zip(fine, fine_vectors)}
     rule_vector_by_id = {row["item_id"]: vector for row, vector in zip(rule_docs, rule_vectors)}
 
@@ -1339,7 +1348,7 @@ def main() -> None:
         })
     for ad_id in sorted(ads):
         search_queries, query_context_audit = build_context_queries(fine_by_ad[ad_id])
-        context_queries = [row for row in search_queries if row.get("_query_members")]
+        context_queries = [] if template_only else [row for row in search_queries if row.get("_query_members")]
         query_vectors = dict(fine_vector_by_id)
         if context_queries:
             context_paths = vector_cache_paths(
@@ -1417,6 +1426,8 @@ def main() -> None:
             )
         ]
         template_value = confirmed_template(route_context)
+        if template_only and template_value not in {rule.get("product_subtype") for rule in t_rules}:
+            raise ValueError("selected template is missing from the authoritative template source")
         template_candidates = [
             {
                 "item_id": rule["item_id"],
@@ -1463,7 +1474,7 @@ def main() -> None:
             and rule.get("product_subtype") != template_value
         ]
         mapped_v2_ids = {item["id"] for item in mapped_v2_items}
-        supplemental_v2 = discovery.discover_prohibitions(
+        supplemental_v2 = [] if template_only else discovery.discover_prohibitions(
             search_queries,
             query_vectors,
             candidate_groups,
@@ -1721,18 +1732,19 @@ def main() -> None:
         "schema_version": DISCOVERY_VERSION,
         "gold_visible": False,
         "policy": {
+            "source_policy": args.source_policy,
             "unverified_routing": (
                 "reject before model execution unless --allow-provisional-routing is explicitly set"
             ),
             "template_primary": "enumerate every structured rule in the confirmed detailed-product template",
-            "mapped_v2_priority": "enumerate only v2 rows explicitly bound by product_subtype or template_sections",
-            "supplemental_v2": "retrieve all remaining product-scoped v2 categories from ad evidence, then require final scope/condition gates",
-            "supplemental_recall_guard": "ranked supplemental candidates are capped and the cap is recorded",
+            "mapped_v2_priority": "disabled" if template_only else "enumerate source-mapped v2 rows",
+            "supplemental_v2": "disabled" if template_only else "retrieve remaining product-scoped v2 rules",
+            "supplemental_recall_guard": "no candidate truncation",
             "evidence": "rule-to-ad BGE-M3 plus full context for short advertisements",
             "applicability": (
                 "experimental Gemma pre-screen enabled; final judgment independently confirms"
                 if args.enable_applicability_screen
-                else "regulation-v2 deterministic input gate; applicability decided in final judgment"
+                else "source-defined input gate; applicability decided in final judgment"
             ),
             "absence": "a narrowed evidence window cannot prove absence; model must abstain",
             "required_inputs": (
@@ -1811,7 +1823,7 @@ def main() -> None:
     model_results, result_sources = load_results([response_path])
     response_payload = json.loads(response_path.read_text(encoding="utf-8"))
     physical_rows = response_payload.get("rows") or []
-    regulation_sha = sha256(args.regulation)
+    regulation_sha = regulation_source_sha
     template_sha = sha256(args.template_hwpx) if args.template_hwpx else None
     missing_pairs = sorted(requested_pairs - set(model_results))
     extra_pairs = sorted(set(model_results) - requested_pairs)
@@ -1876,11 +1888,13 @@ def main() -> None:
                 "temperature": 0,
             },
             "search": {
-                "engine": "Elasticsearch BM25 + BGE-M3 + RRF + bge-reranker-v2-m3",
-                "index": args.es_index,
+                "engine": ("Template enumeration + BGE-M3 evidence retrieval" if template_only else
+                           "Elasticsearch BM25 + BGE-M3 + RRF + bge-reranker-v2-m3"),
+                "index": None if template_only else args.es_index,
                 "rule_search_text_variant": args.rule_search_text_variant,
             },
             "rule_sources": {
+                "policy": args.source_policy,
                 "regulation_v2_sha256": regulation_sha,
                 "template_hwpx_sha256": template_sha,
             },

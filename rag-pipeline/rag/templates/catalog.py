@@ -228,12 +228,20 @@ def compile_catalog(source: dict) -> dict:
                 row_issues.append("CONDITIONAL_GUIDANCE_MISSING")
             ref = f"{table['ref']}/row{y}"
             digest = hashlib.sha256(f"{source_hash}:{ref}".encode()).hexdigest()[:24]
+            # Optional researcher-authored law references are display metadata.
+            # They neither add obligations nor borrow references from v2.
+            legal_refs = list(dict.fromkeys(
+                line.strip()
+                for i, heading in enumerate(header) if heading in {"근거법령", "근거법령/규정"}
+                if row[i]
+                for line in cells[row[i]]["text"].splitlines() if line.strip()
+            ))
             entries.append({"item_id": f"TPL-{digest}", "source_ref": ref,
                             "template_section": table["title"], "fields": fields,
                             "raw_row_cell_refs": list(dict.fromkeys(r for r in row if r)),
                             "requirement_mode": mode, "issues": sorted(set(row_issues)),
                             "status": "REVIEW_REQUIRED" if row_issues else "STRUCTURED",
-                            "legal_basis_refs": []})
+                            "legal_basis_refs": legal_refs})
     if not entries:
         raise ValueError("no general template checklist found")
     return {"schema_version": SCHEMA, "parser_version": PARSER_VERSION,
@@ -408,6 +416,9 @@ def group_explicit_alternatives(rules: list[dict]) -> list[dict]:
             basis["manual_review_required"] = any(value.get("manual_review_required") for value in member_bases)
             basis["text_facet_only"] = basis["manual_review_required"] and basis["text_review_ready"]
         basis.update({
+            "legal_basis_refs": list(dict.fromkeys(
+                ref for value in member_bases for ref in value.get("legal_basis_refs", [])
+            )),
             "item_id": composite["item_id"],
             "source_ref": ";".join(value["source_ref"] for value in alternatives),
             "alternative_policy": "ANY_OF",

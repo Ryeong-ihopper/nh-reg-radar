@@ -112,6 +112,7 @@ export function OperationalResultsPage() {
     <header className="single-review-header"><div><p className="eyebrow">4단계 · 결과 확인</p><h2>{advertisement.data?.advertisementName ?? "광고 검토"}</h2>
       <p className="panel-note">실제 파서·검색·판정 실행 결과입니다. 규정 카드를 선택하면 광고 원본에서 연결된 근거 문구를 강조합니다.</p></div>
       <div className="form-actions"><button type="button" onClick={() => void downloadJson()} disabled={!reviewId}>결과 JSON 다운로드</button><button type="button" className="button-secondary" onClick={printResult}>PDF 저장·인쇄</button><Link className="button-link button-secondary" to="/advertisements">광고물 목록</Link></div></header>
+    {workspace.data?.source_policy ? <p className="panel-note">{workspace.data.source_policy === "template-only" ? "템플릿 심의" : "과거 템플릿+v2 심의"}</p> : null}
     {status.isError ? <ErrorState error={status.error} onRetry={() => void status.refetch()} /> : null}
     {workspace.isPending ? <LoadingState label="검토 결과를 불러오는 중입니다." /> : null}
     {workspace.isError ? <ErrorState error={workspace.error} onRetry={() => void workspace.refetch()} /> : null}

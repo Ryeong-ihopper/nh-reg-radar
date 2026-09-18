@@ -100,13 +100,31 @@ def integrated_input() -> dict:
 
 
 class OperationalServiceTests(unittest.TestCase):
+    def test_template_only_requires_template_but_not_v2_and_freezes_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template.hwpx"
+            template.write_bytes(b"source existence fixture; ingestion tested separately")
+            config = ServiceConfig(jobs_dir=root / "jobs", regulation_path=root / "missing.xlsx",
+                                   es_url="", es_index="", model="model", template_hwpx_path=template)
+            service = OperationalReviewService(config)
+            self.addCleanup(service.executor.shutdown, wait=True)
+            with mock.patch.object(service.executor, "submit"):
+                job = service.submit({"schema_version": "operational-review-request-v1",
+                                      "document": integrated_input(), "execute_model": False,
+                                      "routing_overrides": {"product_group": "예금성"}})
+            self.assertEqual(service.store.request(job["job_id"])["source_policy"], "template-only")
+            template.unlink()
+            with self.assertRaisesRegex(RuntimeError, "requires a general template"):
+                OperationalReviewService(config)
+
     def test_transport_failure_is_classified_for_automatic_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             regulation = root / "regulation.xlsx"
             regulation.write_bytes(b"placeholder")
             service = OperationalReviewService(ServiceConfig(
-                jobs_dir=root / "jobs", regulation_path=regulation,
+                jobs_dir=root / "jobs", regulation_path=regulation, source_policy="template-plus-v2",
                 es_url="http://search.invalid", es_index="rules", model="model",
             ))
             self.addCleanup(service.executor.shutdown, wait=True)
@@ -134,7 +152,7 @@ class OperationalServiceTests(unittest.TestCase):
             job = store.create({"document": {}})
             store.update(job["job_id"], status="RUNNING", attempt=1)
             with mock.patch.object(OperationalReviewService, "_run") as run:
-                service = OperationalReviewService(ServiceConfig(
+                service = OperationalReviewService(ServiceConfig(source_policy="template-plus-v2",
                     jobs_dir=jobs, regulation_path=regulation,
                     es_url="http://search.invalid", es_index="rules", model="model",
                 ))
@@ -193,7 +211,7 @@ class OperationalServiceTests(unittest.TestCase):
             root = Path(directory)
             regulation = root / 'rules.xlsx'
             regulation.write_bytes(b'synthetic')
-            service = OperationalReviewService(ServiceConfig(jobs_dir=root/'jobs', regulation_path=regulation,
+            service = OperationalReviewService(ServiceConfig(jobs_dir=root/'jobs', regulation_path=regulation, source_policy="template-plus-v2",
                 es_url='http://search.invalid', es_index='synthetic', model='synthetic'))
             self.addCleanup(service.executor.shutdown)
             request = {'schema_version':'operational-review-request-v1', 'client_request_id':'DATE-TEST',
@@ -223,7 +241,7 @@ class OperationalServiceTests(unittest.TestCase):
             regulation = root / "regulation.xlsx"
             regulation.write_bytes(b"placeholder")
             service = OperationalReviewService(
-                ServiceConfig(
+                ServiceConfig(source_policy="template-plus-v2",
                     jobs_dir=root / "jobs",
                     regulation_path=regulation,
                     es_url="http://search.invalid",
