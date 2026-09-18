@@ -2,6 +2,7 @@
   "runtime_profile": "dgx-interim",
   "regulation_path": "/data/regulation.xlsx",
   "template_source_path": "/data/template.hwpx",
+  "template_appropriate_judgment_path": "/data/1. 대출성상품-상품명 노출.xlsx",
   "es_url": "http://127.0.0.1:9201",
   "es_index": "nh-rules-v2-operational",
   "model": "gemma-4-26b-NVFP4-MTP",

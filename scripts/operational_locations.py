@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import hashlib
+import re
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +13,47 @@ from rag.judgment.reading_quality import project_reading_citations  # noqa: E402
 from rag.judgment.source_checks import unresolved_applicability  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.grounding import cited_window_text, ungrounded_source_quotes  # noqa: E402
+
+
+def load_template_appropriate_judgments(path):
+    """Load display-only guidance by exact template section and row label.
+
+    The guide never enters retrieval or model prompts. Ambiguous duplicate
+    labels fail closed instead of attaching another row's guidance.
+    """
+    import openpyxl
+
+    source = Path(path)
+    section = re.sub(r"^\s*\d+\s*[._-]?\s*", "", source.stem).strip()
+    book = openpyxl.load_workbook(source, read_only=True, data_only=True)
+    values = {}
+    try:
+        for sheet in book.worksheets:
+            rows = sheet.iter_rows(values_only=True)
+            header = None
+            for row in rows:
+                normalized = [str(value).strip() if value is not None else "" for value in row]
+                if "구분" in normalized and "적정 판단" in normalized:
+                    header = normalized
+                    break
+            if header is None:
+                continue
+            label_column = header.index("구분")
+            judgment_column = header.index("적정 판단")
+            for row in rows:
+                label = str(row[label_column] or "").strip() if label_column < len(row) else ""
+                judgment = str(row[judgment_column] or "").strip() if judgment_column < len(row) else ""
+                if not label or not judgment:
+                    continue
+                key = (section, label)
+                if key in values and values[key] != judgment:
+                    raise ValueError(f"ambiguous appropriate judgment for {section} / {label}")
+                values[key] = judgment
+    finally:
+        book.close()
+    if not values:
+        raise ValueError("template guide contains no '구분' / '적정 판단' rows")
+    return values
 
 
 def page_lines(page):
@@ -150,7 +192,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 if not prediction.get("verdict"):
                     continue  # Processing failures are reported separately, not model abstentions.
                 item_id = candidate["item_id"]
-                rule = rules.get(item_id, {})
+                rule = {**rules.get(item_id, {}), **(rule_metadata or {}).get(item_id, {})}
                 cited = [evidence[eid] for eid in prediction.get("evidence_ids", []) if eid in evidence]
                 text = "\n".join(texts[ref] for ref in prediction.get("evidence_line_refs", []) if ref in texts)
                 if not text:
@@ -170,6 +212,10 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                     "title": title, "question": rule.get("question", ""),
                     "criterion": rule.get("criterion") or rule.get("guide", ""),
                     "template_example": rule.get("example_text", "") if rule.get("source_sheet") == "HWPX_TEMPLATE" else "",
+                    "template_appropriate_judgment": (
+                        rule.get("appropriate_judgment", "")
+                        if rule.get("source_sheet") == "HWPX_TEMPLATE" else ""
+                    ),
                     "template_section": (candidate.get("template_basis") or {}).get("template_section"),
                     "template_requirement": (candidate.get("template_basis") or {}).get("requirement_mode"),
                     "requirement_checks": prediction.get("requirement_checks", []),

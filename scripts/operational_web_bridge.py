@@ -33,7 +33,8 @@ from nh_ad_backend.reviews import Review, ReviewBundle, ReviewJob, ReviewStep
 from nh_ad_backend.services import ServiceError
 
 from local_hwp_preview import convert_hwp_to_pdf
-from operational_locations import frozen_rule_metadata, page_asset, saved_workspace, valid_box
+from operational_locations import (frozen_rule_metadata, load_template_appropriate_judgments,
+                                   page_asset, saved_workspace, valid_box)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
@@ -232,6 +233,14 @@ class ExecutionBridge:
             finally:
                 book.close()
             self.template_source = {"kind": "v2_section_compatibility_fallback"}
+        guide_source = cfg.get("template_appropriate_judgment_path")
+        if guide_source:
+            guide_path = Path(guide_source)
+            self.template_appropriate_judgments = load_template_appropriate_judgments(guide_path)
+            self.template_appropriate_judgment_sha256 = hashlib.sha256(guide_path.read_bytes()).hexdigest()
+        else:
+            self.template_appropriate_judgments = {}
+            self.template_appropriate_judgment_sha256 = None
         self.product_classifications = [
             {
                 "code": value,
@@ -516,7 +525,11 @@ class ExecutionBridge:
                 step.step_name = name
                 step.timeout_at = datetime.now(UTC) + timedelta(hours=2)
             bundle.job.timeout_at = datetime.now(UTC) + timedelta(hours=2)
-            self.links[message.review_id] = {"routing": routing, "queued_at": datetime.now(UTC).isoformat()}
+            self.links[message.review_id] = {
+                "routing": routing,
+                "queued_at": datetime.now(UTC).isoformat(),
+                "template_appropriate_judgment_sha256": self.template_appropriate_judgment_sha256,
+            }
             self.persist()
             self.pool.submit(self.run, bundle, routing)
 
@@ -1363,9 +1376,20 @@ class ExecutionBridge:
                         catalog = read_json(catalog_path)
                         hashes = {item.get('sha256') for item in freeze.get('inputs', [])}
                         if (catalog.get('source') or {}).get('sha256') in hashes:
+                            guide_matches_review = (
+                                bool(self.template_appropriate_judgment_sha256)
+                                and link.get('template_appropriate_judgment_sha256')
+                                == self.template_appropriate_judgment_sha256
+                            )
                             for entry in catalog.get('entries', []):
                                 fields = entry.get('fields') or {}
-                                rule_metadata[entry['item_id']] = {'title': (fields.get('label') or {}).get('text', '')}
+                                label = (fields.get('label') or {}).get('text', '')
+                                metadata = {'title': label}
+                                if guide_matches_review:
+                                    key = (entry.get('template_section', ''), label)
+                                    if key in self.template_appropriate_judgments:
+                                        metadata['appropriate_judgment'] = self.template_appropriate_judgments[key]
+                                rule_metadata[entry['item_id']] = metadata
                 discovery_path = result_path.with_name("01_discovery.json")
                 if discovery_path.is_file():
                     discovery = read_json(discovery_path)

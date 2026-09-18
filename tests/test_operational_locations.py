@@ -4,7 +4,8 @@ import copy
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from operational_locations import resolve_locations, saved_workspace, valid_box
+from operational_locations import (load_template_appropriate_judgments, resolve_locations,
+                                   saved_workspace, valid_box)
 
 
 def source():
@@ -13,6 +14,27 @@ def source():
                        "regions": [{"region_id": "R", "bbox": [0, 0, 100, 100],
                                     "lines": [{"line_ref": "FILE-b::L1", "text": "repeated text", "bbox": [1, 2, 80, 20]}]}],
                        "unassigned_lines": [{"line_ref": "FILE-b::U1", "text": "unassigned", "bbox": [1, 30, 80, 40]}]}]}
+
+
+def test_template_appropriate_judgment_guide_is_exact_and_display_only(tmp_path):
+    import openpyxl
+    path = tmp_path / "1. 대출성상품-상품명 노출.xlsx"
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.append(["안내"])
+    sheet.append(["구분", "예시문구", "적정 판단"])
+    sheet.append(["상품명", "예시", "상품명 언급 시 적정"])
+    book.save(path)
+    values = load_template_appropriate_judgments(path)
+    assert values == {("대출성상품-상품명 노출", "상품명"): "상품명 언급 시 적정"}
+
+    raw = {"ads": [{"ad_id": "ADV", "candidates": [{"item_id": "TPL-1", "judgment": {
+        "verdict": "COMPLIANT", "reason": "확인", "evidence_ids": [], "evidence_line_refs": []}}]}]}
+    requests = [{"ad_id": "ADV", "rules": [{"item_id": "TPL-1", "source_sheet": "HWPX_TEMPLATE"}],
+                 "documents": []}]
+    metadata = {"TPL-1": {"appropriate_judgment": values[("대출성상품-상품명 노출", "상품명")]}}
+    row = saved_workspace(raw, requests, source(), "ADV", rule_metadata=metadata)["rows"][0]
+    assert row["template_appropriate_judgment"] == "상품명 언급 시 적정"
 
 
 def test_manual_rule_names_require_matching_frozen_source_hash(tmp_path):

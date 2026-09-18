@@ -188,6 +188,7 @@ New-Item -ItemType Directory -Force -Path temp | Out-Null
   "runtime_profile": "dgx-interim",
   "regulation_path": "C:/work/nh-data/NH_광고심의_에이전트_규제목록_v2.xlsx",
   "template_source_path": "C:/work/nh-data/REPLACE_GENERAL_TEMPLATE.hwpx",
+  "template_appropriate_judgment_path": "C:/work/nh-data/1. 대출성상품-상품명 노출.xlsx",
   "es_url": "http://127.0.0.1:19201",
   "es_index": "REPLACE_ASSIGNED_INDEX_PREFIX",
   "model": "REPLACE_JUDGE_MODEL_ID",
@@ -214,6 +215,7 @@ New-Item -ItemType Directory -Force -Path temp | Out-Null
 | --- | --- |
 | `regulation_path` | 내 PC에 있는 지정 규제목록의 절대 경로 |
 | `template_source_path` | 내 PC에 있는 지정 일반 템플릿의 절대 경로 |
+| `template_appropriate_judgment_path` | 선택 사항. TPL 결과 화면에 표시할 일반 업무 가이드 XLSX의 절대 경로. 검색·모델 판정에는 사용하지 않음 |
 | `parser_root`, `parser_cwd` | 별도 파서 코드 폴더. 처음에는 둘 다 파서 루트로 지정 |
 | `parser_python` | 별도 파서 환경의 Python 실행 파일 |
 | `model`, `NH_GPU_GEMMA_MODEL` | 판정 서비스에서 제공하는 동일한 모델 ID |

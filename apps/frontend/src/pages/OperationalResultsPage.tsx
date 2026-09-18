@@ -148,16 +148,14 @@ export function OperationalResultsPage() {
       <div className="single-regulations"><header className="single-regulations-heading"><div><h3>규정별 판정 <small>{rows.length}건</small></h3><p>위험도 대신 판정 상태를 기준으로 확인합니다.</p></div></header>
         <div className="verdict-filter" aria-label="판정 상태 필터"><button type="button" aria-pressed={filter === "ALL"} onClick={() => setFilter("ALL")}>전체 {counts.total}</button>{VERDICTS.map((verdict) => <button key={verdict} type="button" data-verdict={verdict} aria-pressed={filter === verdict} onClick={() => setFilter(verdict)}>{verdict} {counts[COUNT_KEY[verdict]]}</button>)}</div>
         <div className="single-regulations-scroll" tabIndex={0} aria-label="규정별 판정 목록">
-        {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const basisLines = legalBasisLines(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
+        {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const isTemplate = row.rule_basis?.source_type === "INTERNAL_TEMPLATE" || row.item_id.startsWith("TPL-"); const basisLines = legalBasisLines(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
           <header><strong>{row.item_id} · {row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
           {row.question ? <p className="regulation-question">{row.question}</p> : null}
-          {row.template_example ? <details className="template-item-detail"><summary>템플릿 작성 예시 보기</summary><p>{row.template_example}</p><small>작성 방식을 보여 주는 예시입니다. 광고에 이 문구를 그대로 쓸 필요는 없습니다.</small></details> : null}
+          {isTemplate && row.template_appropriate_judgment ? <dl className="regulation-basis"><div><dt>적정 판단</dt><dd>{row.template_appropriate_judgment}</dd></div></dl> : null}
           {row.judgment_scope === "TEXT_ONLY" ? <p className="panel-note">텍스트 의무의 판정입니다. 배치·로고·원문 구조는 별도 사람 확인이 남아 있습니다.</p> : null}
           <p>{row.reading_quality_review?.issues.length || row.model_assessment ? <strong>시스템의 자동 확정 보류 사유: </strong> : null}{row.reason}</p>
           {row.model_assessment ? <details className="panel-note"><summary>보류 전 모델 판단 보기 · 최종 판정으로 채택되지 않음</summary><p><strong>{({VIOLATION:"위반",COMPLIANT:"충족",UNDETERMINED:"판단불가",NOT_APPLICABLE:"미해당"} as Record<string,string>)[row.model_assessment.verdict] ?? row.model_assessment.verdict}</strong> · {row.model_assessment.reason}</p></details> : null}
-          {row.rule_basis ? <dl className="regulation-basis">
-            {row.rule_basis.source_type === "INTERNAL_TEMPLATE" ? <div><dt>기준 출처</dt><dd>{`일반 심의 템플릿${row.template_section ? ` · ${row.template_section}` : ""}`}</dd></div> : null}
-            {row.template_requirement ? <div><dt>기재 구분</dt><dd>{({REQUIRED: "필수", CONDITIONAL: "조건에 따라 필수"} as Record<string,string>)[row.template_requirement] ?? row.template_requirement}</dd></div> : null}
+          {row.rule_basis && !isTemplate ? <dl className="regulation-basis">
             <div><dt>판정 기준</dt><dd>{basisLines.length ? <ul className="legal-basis-list">{basisLines.map(ref => <li key={ref}>{ref}</li>)}</ul> : "이 항목에는 개별 법 조문을 연결하지 않았습니다."}</dd></div>
           </dl> : null}
           <small>{locationLabel(rowId, row.verdict, row.evidence)}</small>
