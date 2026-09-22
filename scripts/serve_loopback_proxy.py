@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import http.client
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 import re
 import ssl
 from urllib.parse import urlsplit
@@ -14,7 +16,7 @@ HOP_HEADERS = {
 }
 
 
-def make_handler(upstream: str, context: ssl.SSLContext):
+def make_handler(upstream: str, context: ssl.SSLContext, login: dict | None = None):
     target = urlsplit(upstream)
     if (target.scheme != "https" or not target.hostname or target.username
             or target.password or target.path or target.query or target.fragment):
@@ -26,7 +28,8 @@ def make_handler(upstream: str, context: ssl.SSLContext):
             allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
             host = self.headers.get("Host", "")
             origin = self.headers.get("Origin")
-            if host not in allowed or (origin and origin not in {f"http://{h}" for h in allowed}):
+            if (host not in allowed or self.headers.get("Sec-Fetch-Site") == "cross-site"
+                    or (origin and origin not in {f"http://{h}" for h in allowed})):
                 self.send_error(403, "Loopback requests only")
                 return
             if not self.path.startswith("/") or self.path.startswith("//"):
@@ -53,14 +56,23 @@ def make_handler(upstream: str, context: ssl.SSLContext):
             conn = http.client.HTTPSConnection(target.hostname, target.port or 443, context=context, timeout=120)
             try:
                 method, path = self.command, self.path
-                # The UI requests this route on loopback. A proxy must restore
-                # the authenticated remote cookie session, never mint a bypass.
-                if method == "GET" and path == "/api/v1/auth/local-session":
+                local_session = method == "GET" and path == "/api/v1/auth/local-session"
+                if local_session:
                     method, path = "POST", "/api/v1/auth/refresh"
                     headers["Origin"] = upstream
                 conn.request(method, path, body=body, headers=headers)
                 response = conn.getresponse()
                 payload = response.read()
+                if local_session and response.status == 401 and login is not None:
+                    # Explicit local demo mode: credentials stay in this
+                    # process and are sent only to the verified upstream.
+                    body = json.dumps(login).encode("utf-8")
+                    conn.request("POST", "/api/v1/auth/login", body=body, headers={
+                        "Host": target.netloc, "Origin": upstream,
+                        "Content-Type": "application/json", "Content-Length": str(len(body)),
+                    })
+                    response = conn.getresponse()
+                    payload = response.read()
                 self.send_response(response.status)
                 response_excluded = HOP_HEADERS | {"content-length"}
                 response_excluded |= {x.strip().lower() for x in (response.getheader("Connection") or "").split(",")}
@@ -98,9 +110,16 @@ def main():
     parser.add_argument("--upstream", required=True)
     parser.add_argument("--ca-file", required=True, help="Trusted upstream public certificate or CA bundle")
     parser.add_argument("--port", type=int, default=5182)
+    parser.add_argument("--login-file", type=Path, help="Private account JSON for explicitly enabled local automatic login")
     args = parser.parse_args()
     context = ssl.create_default_context(cafile=args.ca_file)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args.upstream.rstrip("/"), context))
+    login = None
+    if args.login_file:
+        account = json.loads(args.login_file.read_text(encoding="utf-8"))
+        login = {key: account[key] for key in ("email", "password")}
+        if not all(isinstance(value, str) and value for value in login.values()):
+            raise ValueError("Private login file needs a nonempty email and password")
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(args.upstream.rstrip("/"), context, login))
     print(f"Local application: http://127.0.0.1:{server.server_port}", flush=True)
     server.serve_forever()
 
