@@ -343,14 +343,11 @@ class OperationalReviewService:
             config.catalog_migration_path,
             config.rule_dispositions_path,
         )
-        if any(canonical_paths) and not all(canonical_paths):
-            raise RuntimeError("canonical catalog configuration is incomplete")
-        if config.source_policy == "template-plus-v2":
-            if not all(canonical_paths):
-                raise RuntimeError("template-plus-v2 requires the canonical plan, migration, and disposition gates")
-            for path in canonical_paths:
-                if path and not path.is_file():
-                    raise RuntimeError(f"canonical catalog file not found: {path}")
+        if not all(canonical_paths):
+            raise RuntimeError("operational review requires the canonical plan, migration, and disposition gates")
+        for path in canonical_paths:
+            if not path.is_file():
+                raise RuntimeError(f"canonical catalog file not found: {path}")
         if config.template_methodology_dir and not config.template_methodology_dir.is_dir():
             raise RuntimeError(
                 f"template methodology directory not found: {config.template_methodology_dir}"

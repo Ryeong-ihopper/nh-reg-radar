@@ -4,13 +4,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
+| 현행 버전 | v1.2 |
 | 기준일 | 2026-09-22 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.2 | 2026-09-22 | 정본 실행 경로 감사·r3 배포·로컬 전달 접속으로 재개 정보 갱신 |
+| v1.1 | 2026-09-22 | 사용자 승인에 따른 spark-1118 단독 운영으로 재개 절차 변경 |
 | v1.0 | 2026-09-22 | 기존 파서·템플릿 전용 fc87 시연 재개 절차 정리 |
 
 ## 재개 프롬프트
@@ -25,28 +27,31 @@ C:\Users\babie\OneDrive\Desktop\cg_법령api\nh-ad-compliance
 
 작업 전에 반드시 다음 문서를 순서대로 읽어:
 1. AGENTS.md
-2. docs/handoff-current.md 최상단의 “새 세션 재개 지점 — 2026-09-22 기존 파서·템플릿 전용 fc87 시연”
+2. docs/handoff-current.md 최상단의 “새 세션 재개 지점 — 2026-09-22 spark-1118 단독 운영”
 3. docs/decisions.md
 4. docs/evaluation-splits-current.md
 
 현재 사용자 결정:
-- 지금 시연 경로는 기존 파서 → 현행 청킹 → 구조화 템플릿 계획 → fc87 판정이다.
-- 새 파서는 당장 사용하지 않는다.
+- 사용자가 fc87 의존성 전부 제거와 실행 중단을 승인했다. 과거 시연 유지 지시는 종료됐다.
+- 웹·nh-parser-fin·OCR·검색·판정·상태 저장은 spark-1118에서 실행한다. fc87 fallback을 추가하지 않는다.
 - 규제목록 보완 규칙 32개는 끄고 템플릿만 판정한다.
 - 템플릿 심의방법의 점검항목·기재요령·적정/부적정·확인필요 기준과 구조화 계획을 우회하지 않는다.
 - 예시는 검색·해석 힌트일 뿐 완전일치 조건이나 광고 증거가 아니다.
 - 심의정답은 평가 자료다. 예측을 먼저 동결하기 전에는 읽거나 판정 경로에 넣지 않는다.
 - 현재 결과·상태를 삭제하지 않는다.
-- 시연 서버와 fc87 터널을 중지하지 않는다.
+- 원본 상태·결과·실패 기록과 서버 preserved 사본은 보존한다.
 - 커밋·푸시는 내가 요청할 때만 한다.
 
 현재 실행 상태:
-- 웹: http://127.0.0.1:5182
-- 상태: temp/operational-server-legacy-fc87
-- 설정: temp/operational-config.fc87-template-only-legacy-parser.json
-- 예금 REV-49e756a6c5798c78558293bf: 완료
-- 대출 REV-699398cef65531461409c5a3: 경고 포함 완료, MTH-LOAN-NAMED-R22 1건 출력 계약 실패
-- ISA REV-2baa93aff3b6df2a6588da5e: 마지막 확인 50%, RULE_REVIEW
+- 웹: https://172.23.80.104:5180
+- 서버 루트: /home/babie0511/nh-operational-1118-20260922-dc26430
+- 컨테이너: nh-operational-1118-web-1
+- 설정: 서버 config/execution.json, 1118 loopback ES9201/BGE8103/Gemma8102/PaddleX8081
+- 초기 상태19광고/29검토/2522항목 및5282파일 해시 대조 완료. 실기 건은 이후 추가됐다.
+- 로컬 웹5180/5181/5182는 중지했고 원본 상태는 보존했다. 구 설정은
+  temp/migration-1118-20260922/retired-configs에 있고 로컬 기본 설정은1118 전용이다.
+- 계정은 temp/migration-1118-20260922/server-login.private.json에 있다. 비밀번호 출력·커밋 금지.
+- 내장 이미지 없는 HWP는 새 파서가 산출물을 만들지 못한다. HWP 전체 지원 완료로 오해하지 않는다.
 
 구조화 정본:
 - rag-pipeline/config/canonical-execution-plans-v2.json
@@ -56,14 +61,13 @@ C:\Users\babie\OneDrive\Desktop\cg_법령api\nh-ad-compliance
 - 모든 템플릿 계획은 적용 범위, 원자 의무, Rule/LLM/사람 담당과 코드 종합 계약을 사용해야 한다.
 
 먼저 할 일:
-1. 서버와 터널을 건드리지 말고 ISA 상태부터 확인한다.
-2. ISA가 완료되면 세 건의 실행 시간, 요청 규칙 수, verdict 수, 인용 line/bbox 연결을 기록한다.
-3. 대출의 출력 실패 1건을 일반적인 단건 재시도로 복구한다.
-4. 예측이 동결된 뒤 별도 평가 경로에서만 gold와 비교한다.
-5. 새 브라우저에서 로그인이 다시 요구되는 문제를 확인한다.
+1. handoff 최상단과 docs/runtime-wiring-audit-2026-09-22.md를 확인한다. 현재 이미지는 nh-operational:1118-audit-r3, 로컬 접속은 http://127.0.0.1:5182 이다.
+2. 1118의 현재 상태와 미완료 검증이 있으면 이어서 확인하고 fc87 경로를 다시 활성화하지 않는다.
+3. 원격 서버는 로그인과 Secure 쿠키를 사용한다. localhost 자동 로그인을 원격에 적용하지 않는다.
+4. gold 비교가 요청되면 예측을 동결한 뒤 별도 평가 경로에서만 비교한다.
 
 주의:
-- 작업 트리에 15ab0fe 이후 미커밋 변경이 많다. 임의 reset/checkout/정리 금지.
+- 로고 포함 dc26430 이후의1118 이관·정본 감사 수정도 origin/feat/regulation-collection-viewer를 대상으로 관리한다. 실제 Git 상태를 먼저 확인하고 임의 reset/checkout/정리 금지.
 - PAGE_CHROME 기하 추론 제거, trigger evidence 보존, P3 region-level 근거 보존 변경을 덮어쓰지 않는다.
 - 계획 없는 v2 규칙이나 HOLD 규칙이 과거 경로로 흘러들지 않도록 template-only/canonical gate를 유지한다.
 - 특정 광고 ID·파일명·상품명·문장·정답을 런타임 규칙에 하드코딩하지 않는다.

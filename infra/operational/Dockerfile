@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements-parser.txt .
 
 FROM python:3.11-slim-trixie
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 JAVA_HOME=/opt/java/openjdk \
-    PATH=/opt/java/openjdk/bin:$PATH NH_LOCAL_SOFFICE=/usr/bin/soffice
+    PATH=/opt/java/openjdk/bin:$PATH NH_LOCAL_SOFFICE=/usr/bin/soffice \
+    LD_LIBRARY_PATH=/opt/python313/lib
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer libreoffice-h2orestart libreoffice-java-common \
     fonts-noto-cjk fontconfig libgomp1 ca-certificates \
@@ -39,8 +40,11 @@ COPY packages/parser-contracts/src packages/parser-contracts/src
 COPY rag-pipeline/rag rag-pipeline/rag
 COPY rag-pipeline/tools rag-pipeline/tools
 COPY rag-pipeline/schemas rag-pipeline/schemas
+COPY rag-pipeline/config rag-pipeline/config
 COPY scripts scripts
 COPY --from=frontend /frontend/dist apps/frontend/dist
+RUN /opt/python313/bin/python3.13 -c "import nh_parser_fin, requests, pypdfium2, jpype" \
+    && python -c "import sys; assert sys.version_info[:2] == (3, 11)"
 RUN useradd --uid 10001 --create-home nhapp && mkdir -p /state /work \
     && chown nhapp:nhapp /state /work
 USER nhapp

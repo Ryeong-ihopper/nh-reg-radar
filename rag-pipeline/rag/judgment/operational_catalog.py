@@ -130,30 +130,12 @@ def load_operational_catalog(
                 # audit. The canonical plan remains sufficient to construct
                 # the current rule; a missing physical alias is recorded, not
                 # treated as permission to restore a superseded row.
-                if aliases[0] in legacy:
-                    rule = dict(legacy[aliases[0]])
-                    source = plan["source"]
-                    template, template_status = _template_identity(source)
-                    rule.update({
-                        "item_id": plan_id,
-                        "legacy_item_ids": aliases,
-                        "product_subtype": template,
-                        "template_source_status": template_status,
-                        "product_groups": _groups(template),
-                        "title": source.get("label") or plan_id,
-                        "question": source.get("label") or plan_id,
-                        "canonical_execution_plan": project_plan(plan),
-                        "canonical_source_sha256": plan["source_sha256"],
-                        "canonical_prompt_family": plan["prompt_family"],
-                        "criterion": _criterion(plan),
-                        "example_text": "",
-                        "runtime_alias_resolved": True,
-                    })
-                    _replace_template_basis(rule, plan)
-                else:
-                    rule = _template_rule(plan)
-                    rule["legacy_item_ids"] = aliases
-                    rule["runtime_alias_resolved"] = False
+                # Aliases preserve identity, not an obsolete execution policy.
+                # Inheriting old modality, guide or obligation fields can close
+                # the gate before the canonical text atoms are even requested.
+                rule = _template_rule(plan)
+                rule["legacy_item_ids"] = aliases
+                rule["runtime_alias_resolved"] = aliases[0] in legacy
                 template_rules.append(rule)
             elif row.get("migration_state") == "NEW_OR_REVISED_SOURCE_ROW":
                 template_rules.append(_template_rule(plan))
@@ -369,6 +351,7 @@ def _template_rule(plan: dict[str, Any]) -> dict[str, Any]:
         "canonical_execution_plan": project_plan(plan),
         "canonical_source_sha256": plan["source_sha256"],
         "canonical_prompt_family": plan["prompt_family"],
+        "canonical_complexity": plan["complexity"],
     }
     _replace_template_basis(rule, plan)
     return rule

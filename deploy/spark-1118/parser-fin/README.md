@@ -1,6 +1,6 @@
 # nh-parser-fin deployment overlay
 
-Upstream baseline: `a322ab5d29f8b9fcd101f31642d812475423a417`.
+Upstream baseline: `402ab4b`.
 
 Before packaging, apply `0001-product-scoped-template-resolution.patch` to a clean checkout.
 The patch fixes the upstream regression reproduced by

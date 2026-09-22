@@ -285,15 +285,15 @@ class TemplateCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "overlapping"):
             parse_hwpx(self.path)
 
-    def test_runner_builds_template_requests_and_freezes_source_without_v2_mapping(self):
-        self.write([p("[예금성상품-유형]") + '<p><run>' + table() + '</run></p>'])
+    def test_runner_builds_canonical_requests_and_freezes_source_without_v2_mapping(self):
+        self.write([p("[예금성상품-입출식]") + '<p><run>' + table() + '</run></p>'])
         root = Path(self.tmp.name)
         inputs = root / "inputs"
         inputs.mkdir()
         ad = integrated_input()
         ad["document"]["routing_metadata"] = {
             "product_group": {"value": "예금성", "status": "provided", "source": "intake"},
-            "template_id": {"value": "예금성상품-유형", "status": "provided", "source": "intake"}}
+            "template_id": {"value": "예금성상품-입출식", "status": "provided", "source": "intake"}}
         (inputs / "ad.json").write_text(json.dumps(ad), encoding="utf-8")
         coarse, fine = search_docs(ad)
         for name, rows in (("coarse", coarse), ("fine", fine)):
@@ -320,9 +320,12 @@ class TemplateCatalogTests(unittest.TestCase):
              mock.patch.object(runner.discovery, "discover_prohibitions", side_effect=AssertionError("v2 search")):
             runner.main()
         requests = [json.loads(line) for line in (output / "02_judgment_requests.jsonl").read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(requests), 1)
+        self.assertGreater(len(requests), 1)
         payload = json.loads(requests[0]["messages"][1]["content"])
-        self.assertEqual(payload["rules"][0]["template_basis"]["basis_type"], "INTERNAL_TEMPLATE")
+        self.assertEqual(payload["rules"][0]["template_basis"]["basis_type"], "CANONICAL_TEMPLATE_PLAN")
+        canonical = json.loads((output / "00_canonical_catalog.json").read_text(encoding="utf-8"))
+        self.assertEqual(canonical["counts"]["templates"], 239)
+        self.assertEqual(canonical["counts"]["supplements"], 0)
         self.assertEqual(payload['review_context']['review_date'], '2026-04-12')
         discovery = json.loads((output / '01_discovery.json').read_text(encoding='utf8'))
         self.assertEqual(discovery['ads'][0]['template_coverage']['missing_count'], 0)

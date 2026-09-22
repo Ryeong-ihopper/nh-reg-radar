@@ -11,6 +11,7 @@ import io
 import json
 import secrets
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
@@ -18,8 +19,6 @@ from threading import Lock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_VIEWER_LOGIN = "admin"
-LOCAL_VIEWER_PASSWORD = "admin"
 sys.path[:0] = [
     str(ROOT / "apps/backend/src"),
     str(ROOT / "packages/ai-providers/src"),
@@ -29,24 +28,27 @@ sys.path[:0] = [
     str(ROOT / "scripts"),
 ]
 
-import pypdfium2 as pdfium
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
-from starlette.exceptions import HTTPException
-from starlette.staticfiles import StaticFiles
+import pypdfium2 as pdfium  # noqa: E402
+import uvicorn  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
+from starlette.exceptions import HTTPException  # noqa: E402
+from starlette.staticfiles import StaticFiles  # noqa: E402
 
-from nh_ad_backend.domain import Advertisement, AdvertisementFile, User
-from nh_ad_backend.main import build_services, create_app
-from nh_ad_backend.pdf_preview import PdfPreview, PdfPreviewMetadata
-from nh_ad_backend.results import ResultAnnotation, ResultEvidence, ResultItem
-from nh_ad_backend.reviews import Review, ReviewBundle, ReviewJob
-from nh_ad_backend.security import hash_password
-from nh_ad_backend.settings import Settings
+from nh_ad_backend.domain import Advertisement, AdvertisementFile, User  # noqa: E402
+from nh_ad_backend.main import build_services, create_app  # noqa: E402
+from nh_ad_backend.pdf_preview import PdfPreview, PdfPreviewMetadata  # noqa: E402
+from nh_ad_backend.results import ResultAnnotation, ResultEvidence, ResultItem  # noqa: E402
+from nh_ad_backend.reviews import Review, ReviewBundle, ReviewJob  # noqa: E402
+from nh_ad_backend.security import hash_password  # noqa: E402
+from nh_ad_backend.settings import Settings  # noqa: E402
 
-from local_hwp_preview import LocalHwpPreview
-from operational_server_config import load_server_config
-from operational_locations import project_reading_citations, resolve_locations
+from local_hwp_preview import LocalHwpPreview  # noqa: E402
+from operational_server_config import load_server_config  # noqa: E402
+from operational_locations import project_reading_citations, resolve_locations  # noqa: E402
+
+LOCAL_VIEWER_LOGIN = "admin"
+LOCAL_VIEWER_PASSWORD = "admin"
 
 
 VERDICTS = {
@@ -215,8 +217,14 @@ def build_operational_server(args):
     bridge = ExecutionBridge(services, args.state_dir, args.execution_config, project_results)
     backend = create_app(settings, services)
     bridge.install(backend)
-    app = FastAPI(docs_url=None, redoc_url=None)
-    app.add_event_handler("shutdown", bridge.pause_for_shutdown)
+    @asynccontextmanager
+    async def lifespan(_app):
+        try:
+            yield
+        finally:
+            bridge.pause_for_shutdown()
+
+    app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
     entry_token = secrets.token_urlsafe(32)
 
     @app.get("/open/{token}")

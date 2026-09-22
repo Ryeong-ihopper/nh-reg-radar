@@ -17,6 +17,8 @@ UNIT_PATTERNS = (
     "test_prompt_ablation.py",
     "test_execution_request_builder.py",
     "test_operational_catalog_migration.py",
+    "test_operational_canonical_catalog.py",
+    "test_operational_owner_gates.py",
     "test_canonical_execution_plans.py",
     "test_structured_predicates.py",
     "test_structured_methodology.py",

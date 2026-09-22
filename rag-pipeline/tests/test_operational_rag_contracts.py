@@ -82,7 +82,7 @@ def result(item_id):
 
 
 class WireEvidenceTests(unittest.TestCase):
-    def test_complete_scan_closes_uncited_positive_trigger_absence(self):
+    def test_complete_scan_preserves_unknown_but_supports_explicit_absence(self):
         row = request_row(["D-X"])
         payload = json.loads(row["messages"][1]["content"])
         payload.update(
@@ -134,10 +134,10 @@ class WireEvidenceTests(unittest.TestCase):
             "confidence": "LOW",
         }]}, aliases)
         value = parsed["results"][0]
-        self.assertEqual("NOT_SATISFIED", value["condition_checks"][0]["status"])
+        self.assertEqual("UNDETERMINED", value["condition_checks"][0]["status"])
         self.assertEqual("UNDETERMINED", value["condition_checks"][1]["status"])
-        self.assertEqual("NOT_APPLICABLE", value["verdict"])
-        self.assertEqual(["complete_ad_scan"], value["applicability_metadata_fields"])
+        self.assertEqual("UNDETERMINED", value["verdict"])
+        self.assertNotIn("complete_ad_scan", value["applicability_metadata_fields"])
         self.assertEqual(gemma.validate(row, parsed), [])
 
         # A model may already call the absent trigger NOT_SATISFIED. The

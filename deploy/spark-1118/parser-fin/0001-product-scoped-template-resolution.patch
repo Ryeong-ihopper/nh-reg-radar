@@ -1,12 +1,12 @@
-diff --git a/nh_parser_fin/parse/templates.py b/nh_parser_fin/parse/templates.py
 --- a/nh_parser_fin/parse/templates.py
 +++ b/nh_parser_fin/parse/templates.py
-@@
+@@ -199,7 +199,8 @@
+         shown = shown_of.get(product_id) or doc_shown
          shown, name_consistency = _validate_product_name(product, regions, shown)
          product_doc = {
 -            "source_file": doc.get("source_file"),
-+            # A multi-product filename can name several subtypes at once.
-+            # Product resolution must only use that product's name and owned
-+            # regions; document-wide filename hints can describe other products.
++            # Resolve each product from its own name and owned regions.
 +            "source_file": product.get("name") or "",
              "product_group": group,
+             "product_name_shown": shown,
+             # `_document_text`가 Region의 줄을 긁어모으므로 상품 Region만 넘기면

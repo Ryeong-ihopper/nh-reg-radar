@@ -590,6 +590,9 @@ def _expand_model_response(
                 expanded_check = {
                     "condition_ref": value.get("condition_ref"),
                     "status": value.get("status"),
+                    "evidence_ids": condition_ids,
+                    "evidence_line_refs": condition_lines,
+                    "metadata_fields": value.get("metadata_fields") or [],
                     "_has_evidence": bool(condition_ids or condition_lines),
                 }
                 if isinstance(condition_ids, list):
@@ -632,6 +635,15 @@ def _expand_model_response(
             for value in checks if isinstance(value, dict)
         }
         for obligation in contract.get("obligation_checks") or []:
+            owners = obligation.get("owners") or {}
+            check = checks_by_ref.get(str(obligation.get("obligation_id")))
+            if check is not None and (owners.get("human") or owners.get("external_input")):
+                check.update({
+                    "status": "UNDETERMINED", "finding_basis": "UNKNOWN",
+                    "evidence_ids": [], "evidence_line_refs": [],
+                    "reason": "이 의무는 사람 검토 또는 확인된 외부자료가 필요합니다.",
+                })
+                continue
             adapter = obligation.get("deterministic_adapter") or {}
             if adapter.get("kind") != "CONFIRMED_BOOLEAN":
                 continue
@@ -689,13 +701,23 @@ def _expand_model_response(
             for value in contract.get("applicability_conditions") or []
             if isinstance(value, dict)
         }
+        if isinstance(condition_checks, list):
+            for check in condition_checks:
+                if not isinstance(check, dict):
+                    continue
+                condition = conditions_by_id.get(str(check.get("condition_ref"))) or {}
+                owner = str(condition.get("owner") or "")
+                if "EXTERNAL" in owner or "HUMAN" in owner:
+                    # This wire carries advertisement evidence only. A model
+                    # assertion cannot stand in for a verified external input.
+                    check["status"] = "UNDETERMINED"
         if complete_ad_scan and isinstance(condition_checks, list):
             for check in condition_checks:
                 if not isinstance(check, dict):
                     continue
                 condition = conditions_by_id.get(str(check.get("condition_ref"))) or {}
                 if (
-                    check.get("status") in {"UNDETERMINED", "NOT_SATISFIED"}
+                    check.get("status") == "NOT_SATISFIED"
                     and not check.get("_has_evidence")
                     and condition.get("absence_policy")
                     == "NOT_SATISFIED_IF_COMPLETE_AD_SCAN"
@@ -932,6 +954,10 @@ def validate_condition_contract_result(
         condition_statuses.append(status)
         if status not in {"SATISFIED", "NOT_SATISFIED", "UNDETERMINED"}:
             errors.append(f"{item_id}: condition_checks[{index}] status enum")
+        definition = next((c for c in contract.get("applicability_conditions") or []
+                           if c.get("condition_id") == check.get("condition_ref")), {})
+        if any(owner in str(definition.get("owner") or "") for owner in ("EXTERNAL", "HUMAN")) and status != "UNDETERMINED":
+            errors.append(f"{item_id}: external/human condition has no verified input")
 
     expected_review = [
         str(value.get("condition_id"))
@@ -986,6 +1012,13 @@ def validate_condition_contract_result(
             for value in requirement_checks] if isinstance(requirement_checks, list) else []
         if actual_obligations != expected_obligations:
             errors.append(f"{item_id}: obligation_checks 누락/중복/순서 불일치 expected={expected_obligations} actual={actual_obligations}")
+        for check in requirement_checks or []:
+            if not isinstance(check, dict):
+                continue
+            definition = next((o for o in obligations if o["obligation_id"] == check.get("obligation_ref")), {})
+            owners = definition.get("owners") or {}
+            if (owners.get("human") or owners.get("external_input")) and check.get("status") != "UNDETERMINED":
+                errors.append(f"{item_id}: external/human obligation has no verified input")
     if applicability == "APPLICABLE" and (
         scope_status != "MATCHED"
         or (

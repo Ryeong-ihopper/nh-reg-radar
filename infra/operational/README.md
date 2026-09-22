@@ -7,6 +7,11 @@ LibreOffice와 H2Orestart, 상태·파일 저장소를
 Spark arm64와 H200 amd64에 같은 Dockerfile/Compose를 사용하며 모델·OCR·ES 주소만
 실행 설정으로 바꾼다. H200에서의 실기 검증은 별도 수행해야 한다.
 
+2026-09-22 현행 배포는 spark-1118의 `https://172.23.80.104:5180`이다. 운영 컨테이너는
+`nh-operational-1118-web-1`이며 ES9201/BGE8103/Gemma8102/PaddleX8081을 같은 서버에서
+직접 사용한다. 로컬 PC나 구 서버 터널 없이 동작한다. 상태 사본 해시와 새 등록부터 bbox
+표시까지의 실기 결과는 `docs/handoff-current.md` 최상단을 따른다.
+
 ## 패키징과 설치
 
 1. `scripts/package_operational_server.py --parser-root ... --document-processor-root ... --output ...`
@@ -18,6 +23,9 @@ Spark arm64와 H200 amd64에 같은 Dockerfile/Compose를 사용하며 모델·O
    유지한다. HWP 읽기는 private Java 변환기, 미리보기는 LibreOffice/H2Orestart가 담당한다.
    private document-processor의 상위 Python 버전 선언을 수정하지 않는다.
    document-processor는 파서 실행 시 `PYTHONPATH`로만 제공하며 PDF·이미지 경로와 분리한다.
+   정본 계획·migration·disposition을 포함한 `rag-pipeline/config`도 반드시 번들/이미지에 넣는다.
+   현재 파서의 HWP 경로는 내장 이미지를 사용하므로 이미지 없는 HWP는 심의 입력 생성에
+   실패할 수 있다. LibreOffice 원본 미리보기 지원과 파서의 입력 지원은 별도로 검증한다.
 3. `server.example.json`, `execution.example.json`을 비공개 서버 설정으로 복사한다.
    별도 난수 비밀번호/JWT 키 파일, 해당 서비스 주소용 TLS 인증서와 키를 준비한다.
    설정과 원본은 Git/공개 이미지에 넣지 않는다. 실제 서비스에는 신뢰할 수 있는
@@ -31,6 +39,16 @@ Spark arm64와 H200 amd64에 같은 Dockerfile/Compose를 사용하며 모델·O
    Linux host 네트워크를 사용해 기존 loopback 모델 서비스에 접속한다.
 
 ## 상태 이전과 검증
+
+### 선택적 로컬 접속
+
+`scripts/serve_loopback_proxy.py --upstream <HTTPS-origin> --ca-file <공개인증서-경로> --port 5182`
+로 같은 서버를 로컬에서 열 수 있다. 수신은127.0.0.1로 고정하고 upstream 인증서를 검증한다.
+개인키나 OS 신뢰 저장소 변경은 필요하지 않다. 원격 서버의 계정으로 최초 로그인하며 로컬
+세션 요청은 인증된 refresh 쿠키 갱신으로 전달한다. 데이터나 심의 실행기를 로컬로 복제하지 않는다.
+서버와의 TLS 연결을 유지하고 loopback 구간에서만 HTTP 쿠키를 사용한다.
+
+### 보존 절차
 
 웹/RAG 진행 작업이 0일 때 상태 디렉터리를 사본으로 동결한다. 기존 결과·원본·감사
 파일의 바이트를 보존하고 새 사본의 결과 파일 연결 경로만 `/state/execution`으로

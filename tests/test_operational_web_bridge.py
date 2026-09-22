@@ -670,16 +670,13 @@ class BridgeTests(unittest.TestCase):
             headers = {"Authorization": f"Bearer {token}"}
             capabilities = client.get("/operational/capabilities", headers=headers).json()
             self.assertNotIn("templates", capabilities)
-            self.assertEqual(capabilities["sourcePolicy"], "template-plus-v2")
-            self.assertEqual(capabilities["regulation"], "내부 심의 템플릿 + 규제목록 v2")
-            self.assertEqual(
-                {row["label"] for row in capabilities["productClassifications"]},
-                {
-                    "예금성상품-적립식",
-                    "대출성상품-상품명 노출",
-                    "투자성상품-개인종합자산관리계좌(ISA) 일반",
-                },
-            )
+            self.assertEqual(capabilities["sourcePolicy"], "template-only")
+            self.assertEqual(capabilities["regulation"], "내부 심의 템플릿")
+            labels = {row["label"] for row in capabilities["productClassifications"]}
+            self.assertEqual(len(labels), 17)
+            self.assertTrue({"예금성상품-적립식", "대출성상품-상품명 노출",
+                             "투자성상품-ETF", "투자성상품-ELB"} <= labels)
+            self.assertFalse(any("카드" in label for label in labels))
             investment = next(
                 row for row in capabilities["productClassifications"]
                 if row["label"].startswith("투자성상품-")

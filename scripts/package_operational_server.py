@@ -27,7 +27,7 @@ def package(output: Path, parser_root: Path, document_processor_root: Path):
     sources = []
     for folder in ("apps/frontend", "apps/backend/src", "packages/ai-providers/src",
                    "packages/parser-contracts/src", "rag-pipeline/rag", "rag-pipeline/tools",
-                   "rag-pipeline/schemas", "scripts", "infra/operational"):
+                   "rag-pipeline/schemas", "rag-pipeline/config", "scripts", "infra/operational"):
         sources.extend((p, Path(folder) / r) for p, r in files(ROOT / folder))
     sources.append((ROOT / "rag-pipeline/requirements-rag.txt", Path("rag-pipeline/requirements-rag.txt")))
     parser_fin = (parser_root / "run.py").is_file() and (

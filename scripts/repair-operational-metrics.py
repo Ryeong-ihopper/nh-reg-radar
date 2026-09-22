@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'rag-pipeline'), str(ROOT / 'scripts')]
-from rag.contracts.validation import validate_operational_result
+from rag.contracts.validation import validate_operational_result  # noqa: E402
 
 
 def inspect_completed_metrics_failure(state_dir, review_id):

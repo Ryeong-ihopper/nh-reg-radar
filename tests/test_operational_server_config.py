@@ -57,7 +57,7 @@ def test_server_disables_auto_login_and_never_exports_credentials(tmp_path):
     (static / "index.html").write_text("<html>fixture</html>", encoding="utf-8")
     args = SimpleNamespace(state_dir=tmp_path / "state", static_dir=static, port=5180,
                            server_config=path, execution_config=tmp_path / "execution.json")
-    with patch("operational_web_bridge.ExecutionBridge"):
+    with patch("operational_web_bridge.ExecutionBridge") as bridge:
         app = module.build_operational_server(args)
     with TestClient(app, base_url=values["public_url"]) as client:
         assert client.get("/open/anything").status_code == 404
@@ -70,6 +70,8 @@ def test_server_disables_auto_login_and_never_exports_credentials(tmp_path):
         assert login.headers["cache-control"] == "no-store"
         token = login.json()["accessToken"]
         assert client.get("/api/v1/advertisements", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+        bridge.return_value.pause_for_shutdown.assert_not_called()
+    bridge.return_value.pause_for_shutdown.assert_called_once_with()
     manifest = json.loads((args.state_dir / "viewer-session.json").read_text(encoding="utf-8"))
     assert set(manifest) == {"url", "mode"}
 

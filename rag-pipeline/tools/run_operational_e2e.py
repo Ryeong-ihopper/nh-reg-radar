@@ -66,7 +66,7 @@ from rag.judgment.condition_contracts import (  # noqa: E402
     audit_v2_source_items,
     audit_compiled_rules,
 )
-from rag.judgment.family_prompts import prompt_for_family  # noqa: E402
+from rag.judgment.family_prompts import make_batches, prompt_for_family  # noqa: E402
 from rag.judgment.candidate_activation import (  # noqa: E402
     CONTENT_TIER,
     VISUAL_TIER,
@@ -943,6 +943,10 @@ def automated_input_ready(
     """Whether the integrated evidence contains the input v2 actually requires."""
     if requires_visual_review(rule):
         return False
+    if rule.get("canonical_execution_plan"):
+        # Atom owners, evidence contracts and deterministic adapters govern
+        # canonical input readiness; legacy modality labels cannot veto it.
+        return True
     required_medium = str(rule.get("required_medium") or "").strip()
     if has_text_decision_facet(rule):
         required_medium = "텍스트"
@@ -1267,10 +1271,13 @@ def main() -> None:
         ),
     )
     parser.add_argument("--canonical-plans", type=Path,
+                        default=ROOT / "config/canonical-execution-plans-v2.json",
                         help="released canonical template and supplemental execution plans")
     parser.add_argument("--catalog-migration", type=Path,
+                        default=ROOT / "config/operational-catalog-migration-v1.json",
                         help="exact canonical-to-legacy template catalog migration")
     parser.add_argument("--rule-dispositions", type=Path,
+                        default=ROOT / "config/operational-rule-dispositions-v1.json",
                         help="active, alias, template-support and hold registry")
     parser.add_argument("--template-hwpx", type=Path,
                         help="general template source; independent checklist, no v2 ID mapping required")
@@ -1381,8 +1388,11 @@ def main() -> None:
     if template_only and args.candidate_activation_policy:
         parser.error("v2 candidate activation cannot be used with template-only review")
     canonical_paths = (args.canonical_plans, args.catalog_migration, args.rule_dispositions)
-    if any(canonical_paths) and not all(canonical_paths):
+    if not all(canonical_paths):
         parser.error("canonical catalog requires --canonical-plans, --catalog-migration and --rule-dispositions")
+    for path in canonical_paths:
+        if not path.is_file():
+            parser.error(f"canonical catalog file not found: {path}")
     if args.canonical_plans and args.candidate_activation_policy:
         parser.error("canonical catalog replaces the legacy candidate activation policy")
     if not template_only and (not args.es_index or not args.regulation):
@@ -1464,10 +1474,10 @@ def main() -> None:
             include_supplements=not template_only,
         )
         t_rules = canonical_catalog.template_rules
-        cd_rules = [
-            canonical_catalog.supplemental_rules.get(rule["item_id"], rule)
-            for rule in cd_rules
-        ]
+        # Keep search, metadata enumeration and judgment on the same released
+        # inventory; support-only, alias and HOLD rows are provenance only.
+        cd_rules = list(canonical_catalog.supplemental_rules.values())
+        items = [item for item in items if item["id"] in canonical_catalog.supplemental_rules]
         write_json(args.output_dir / "00_canonical_catalog.json", {
             "source_sha256": canonical_catalog.source_sha256,
             "migration_sha256": canonical_catalog.migration_sha256,
@@ -1506,9 +1516,7 @@ def main() -> None:
         )
         for item_id, rule in rule_by_id.items()
     }
-    cd_rule_docs = discovery.rule_docs(
-        items, search_text_variant=args.rule_search_text_variant
-    )
+    cd_rule_docs = [template_rule_doc(rule) for rule in cd_rules]
     rule_docs = [
         *cd_rule_docs,
         *(template_rule_doc(rule) for rule in t_rules),
@@ -2078,10 +2086,14 @@ def main() -> None:
           families = sorted(family for cat, family in category_to_rules if cat == category)
           for family in families:
             category_rules = sorted(category_to_rules[(category, family)], key=lambda row: row["item_id"])
-            for offset in range(0, len(category_rules), args.batch_size):
-                batch = category_rules[offset:offset + args.batch_size]
+            plan_batches = make_batches(
+                [canonical_catalog.plans[rule["item_id"]] for rule in category_rules],
+                max_items=args.batch_size, max_complexity=12,
+            )
+            for batch_number, plan_batch in enumerate(plan_batches, 1):
+                batch = [rule_by_id[plan["plan_ref"]] for plan in plan_batch["plans"]]
                 model_rules = [model_rule_view(rule) for rule in batch]
-                request_id = f"operational:{ad_id}:{category}:{family}:{offset // args.batch_size + 1}"
+                request_id = f"operational:{ad_id}:{category}:{family}:{batch_number}"
                 batch_evidence_ids = list(dict.fromkeys(
                     evidence_id
                     for rule in batch

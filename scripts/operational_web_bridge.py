@@ -52,6 +52,28 @@ FULL_REVIEW = {"REQUIRED_PHRASE", "INTEREST_RATE", "MISLEADING_EXPRESSION", "PRO
 PARSER_REUSE_PARENT_STATUSES = {
     "FAILED", "FAILED_FINAL", "COMPLETED", "COMPLETED_WITH_WARNINGS",
 }
+MARKER = r"\s*\[(?:정식|잠정)\]\s*$"
+
+
+def executable_template_names(plans_path: Path) -> list[str]:
+    """Intake may only offer templates the judgment catalog can execute.
+
+    A template section without an execution plan is a dead option: routing
+    validation rejects it and the runner raises before judgment. The plan
+    template name carries a review-status marker which is not part of the
+    routing key, so it is stripped here as it is in the catalog loader.
+    """
+    document = json.loads(plans_path.read_text(encoding="utf-8"))
+    names = []
+    for plan in document.get("plans") or []:
+        if (plan.get("source") or {}).get("source_kind") != "TEMPLATE":
+            continue
+        raw = str(((plan.get("source") or {}).get("product_template")) or "")
+        name = re.sub(MARKER, "", raw).strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
 PRODUCTS = {
     "LOAN": "대출성",
     "DEPOSIT": "예금성",
@@ -214,7 +236,7 @@ class ExecutionBridge:
         # or transport errors. Match the canonical RAG service default so one
         # advertisement does not leave model capacity idle.
         model_workers = int(cfg.get("model_workers", os.environ.get("NH_RAG_MODEL_WORKERS", "4")))
-        source_policy = str(cfg.get("source_policy") or "template-plus-v2")
+        source_policy = str(cfg.get("source_policy") or "template-only")
         if source_policy not in {"template-only", "template-plus-v2"}:
             raise ValueError("source_policy must be template-only or template-plus-v2")
         if review_workers < 1 or model_workers < 1 or parser_workers < 1:
@@ -284,6 +306,20 @@ class ExecutionBridge:
             finally:
                 book.close()
             self.template_source = {"kind": "v2_section_compatibility_fallback"}
+        plans_path = self.rag.config.canonical_plans_path
+        if plans_path:
+            # Card sections exist in the HWPX intake taxonomy but carry no
+            # execution plan, and ETF/ELB carry plans without an HWPX
+            # section. Offer exactly what can be judged.
+            executable = executable_template_names(Path(plans_path))
+            if executable:
+                self.template_source = {
+                    **self.template_source,
+                    "intake_scope": "canonical_execution_plan_templates",
+                    "hwpx_only_sections": sorted(set(self.templates) - set(executable)),
+                    "plan_only_templates": sorted(set(executable) - set(self.templates)),
+                }
+                self.templates = executable
         guide_source = cfg.get("template_appropriate_judgment_path")
         if guide_source:
             guide_path = Path(guide_source)
@@ -296,14 +332,21 @@ class ExecutionBridge:
             {
                 "code": value,
                 "label": value,
-                "productGroup": (
-                    "LOAN" if value.startswith("대출성")
-                    else "INVESTMENT" if value.startswith("투자성")
-                    else "DEPOSIT"
+                # Same prefix basis as PRODUCTS. A section whose prefix
+                # matches no product group is not offered at all, because
+                # routing validation would reject it.
+                "productGroup": next(
+                    (group for group, prefix in (("LOAN", "대출성"),
+                                                 ("INVESTMENT", "투자성"),
+                                                 ("DEPOSIT", "예금성"))
+                     if value.startswith(prefix)),
+                    None,
                 ),
             }
             for value in self.templates
         ]
+        self.product_classifications = [row for row in self.product_classifications
+                                        if row["productGroup"]]
         self.restore()
         services.reviews.queue = self
         original_request = services.reviews.request

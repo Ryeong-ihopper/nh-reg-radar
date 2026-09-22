@@ -36,6 +36,9 @@ class OperationalPackageTests(unittest.TestCase):
             self.assertIn("private/nh-parser/pyproject.toml", names)
             self.assertIn("private/nh-parser/nh_parser_fin/__init__.py", names)
             self.assertIn("source-manifest.json", names)
+            for name in ("canonical-execution-plans-v2.json", "operational-catalog-migration-v1.json",
+                         "operational-rule-dispositions-v1.json"):
+                self.assertIn("rag-pipeline/config/" + name, names)
 
     def test_legacy_parser_layout_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "rag-pipeline" / "config"
 
 
-def load_catalog():
+def load_catalog(legacy_overrides=None):
     plans = json.loads((CONFIG / "canonical-execution-plans-v2.json").read_text(encoding="utf-8"))
     migration = json.loads((CONFIG / "operational-catalog-migration-v1.json").read_text(encoding="utf-8"))
     legacy_ids = [alias for row in migration["rows"] for alias in row["legacy_item_ids"]]
@@ -29,6 +29,7 @@ def load_catalog():
         "product_subtype": "placeholder", "title": item_id, "question": item_id,
         "criterion": item_id, "required_medium": "텍스트", "input_requirement": "광고물",
         "template_basis": {"structure_status": "STRUCTURED", "source_ref": item_id},
+        **(legacy_overrides or {}),
     } for item_id in legacy_ids]
     supplement_ids = [p["plan_id"] for p in plans["plans"]
                       if p["source"]["source_kind"] != "TEMPLATE"]
@@ -48,6 +49,18 @@ def load_catalog():
 
 
 class OperationalCanonicalCatalogTests(unittest.TestCase):
+    def test_alias_does_not_restore_obsolete_modality_or_source_text(self):
+        from run_operational_e2e import automated_input_ready
+        catalog = load_catalog({"required_medium": "레이아웃", "input_requirement": "랜딩캡처 원본형식",
+                                "criterion": "OBSOLETE", "guide": "OBSOLETE"})
+        aliases = [r for r in catalog.template_rules if r.get("legacy_item_ids")]
+        self.assertTrue(aliases)
+        for rule in aliases:
+            with self.subTest(rule=rule["item_id"]):
+                self.assertNotIn("OBSOLETE", rule["criterion"] + rule["guide"])
+                atoms = rule["canonical_execution_plan"]["obligations"]
+                self.assertEqual(any(not a["owners"]["human"] for a in atoms), automated_input_ready(rule))
+
     @classmethod
     def setUpClass(cls):
         cls.catalog = load_catalog()
