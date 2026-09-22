@@ -27,7 +27,13 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 from rag.retrieval.evidence_bundle import search_terms, supplement_evidence  # noqa: E402
-from rag.judgment.manual_review import requires_visual_review, deferred_input_reason  # noqa: E402
+from rag.judgment.manual_review import (  # noqa: E402
+    attach_visual_retrieval_evidence,
+    deferred_input_reason,
+    has_text_decision_facet,
+    partition_visual_review_candidates,
+    requires_visual_review,
+)
 
 import build_silver_requests as judgment_input  # noqa: E402
 import hybrid_rule_retrieval as discovery  # noqa: E402
@@ -58,6 +64,27 @@ from rag.judgment.condition_contracts import (  # noqa: E402
     VERSION as CONDITION_CONTRACT_VERSION,
     attach_condition_contracts,
     audit_v2_source_items,
+    audit_compiled_rules,
+)
+from rag.judgment.family_prompts import prompt_for_family  # noqa: E402
+from rag.judgment.candidate_activation import (  # noqa: E402
+    CONTENT_TIER,
+    VISUAL_TIER,
+    activated_retrieval_rows,
+    load_candidate_activation_policy,
+)
+from rag.judgment.operational_catalog import (  # noqa: E402
+    audit_canonical_template_coverage,
+    load_operational_catalog,
+)
+from rag.judgment.operational_selection import (  # noqa: E402
+    activate_retrieved,
+    confirmed_metadata_facts,
+    select_supplemental_plans,
+)
+from rag.judgment.rule_relations import (  # noqa: E402
+    apply_satisfaction_relations,
+    expand_relation_dependencies,
 )
 from dgx_openai_client import post_json  # noqa: E402
 from dgx_bge_client import rerank as gpu_rerank  # noqa: E402
@@ -66,8 +93,13 @@ from rag.templates.methodology import methodology_workbooks  # noqa: E402
 from rag.templates.coverage import audit_template_coverage  # noqa: E402
 from rag.retrieval.context import expand_source_context  # noqa: E402
 from rag.retrieval.queries import build_context_queries  # noqa: E402
-from rag.retrieval.candidates import all_judgment_candidates, balanced_candidates  # noqa: E402
+from rag.retrieval.candidates import (  # noqa: E402
+    audit_only_candidates,
+    balanced_candidates,
+    formal_judgment_candidates,
+)
 from rag.judgment.reading_quality import needs_reading_review, uncertain_ad_readings  # noqa: E402
+from rag.judgment.source_checks import evidence_rows_for_rule  # noqa: E402
 
 # Existing reports/tests import this name; execution itself is provider-neutral.
 dgx_rerank = gpu_rerank
@@ -119,6 +151,14 @@ OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다.
     시인성·로고·중첩 구조의 충족 여부는 별도 사람 검토에 남아 있으며 텍스트 판정으로 확정하지 않는다.
 21. '조건 성립 시 생략 가능'은 면제 조건이다. 면제를 확인하지 못한 것을 미해당으로 바꾸지 않는다.
     의무가 적용되는 조건과 생략이 허용되는 조건을 구분하고, 미확정이면 UNDETERMINED다.
+22. canonical_execution_plan이 있으면 applicability_inputs를 의무보다 먼저 각각 확인하고,
+    obligations의 원자 의무를 빠짐없이 requirement_checks에 대응시킨다. RULE 소유 조건과 계산은
+    제공된 확정값을 그대로 사용하고, HUMAN 소유 원자는 자동 충족·위반으로 판정하지 않는다.
+    전체 판정은 하나의 키워드가 아니라 applicability_logic과 obligation_logic에 맞춰 작성한다.
+23. 광고 원문 전체 판독이 완료됐고 긍정형 내용 발동조건(추천·보증, 계산 결과, 후기, 비교,
+    수익률 등)을 뒷받침하는 직접 문구가 어디에도 없으면 그 조건은 UNDETERMINED가 아니라
+    NOT_MATCHED다. AND 조건 하나가 NOT_MATCHED이면 다른 외부 조건이 미확정이어도 적용성은
+    NOT_APPLICABLE이다. 단순 숫자 하나나 주제가 비슷한 문장을 발동 근거로 사용하지 않는다.
 """
 
 
@@ -178,6 +218,7 @@ MODEL_RULE_FIELDS = (
     "decision_guide_policy",
     "condition_contract",
     "template_basis",
+    "canonical_execution_plan",
 )
 
 
@@ -388,8 +429,9 @@ def rule_basis(
 
 
 def decision_trace(result: dict[str, Any] | None, source: str | None) -> dict[str, Any]:
-    return {
+    trace = {
         "decision_source": (
+            "DETERMINISTIC_RULE_RELATION" if (result or {}).get("relation_resolution") else
             "DETERMINISTIC_SOURCE_ARITHMETIC" if (source or '').endswith('#DETERMINISTIC_SOURCE_ARITHMETIC') else "LLM_VALIDATED_BY_DETERMINISTIC_GUARDRAILS"
             if result else "OUTPUT_CONTRACT_FAILURE"
         ),
@@ -397,6 +439,9 @@ def decision_trace(result: dict[str, Any] | None, source: str | None) -> dict[st
         "evidence_ids": list((result or {}).get("evidence_ids") or []),
         "evidence_line_refs": list((result or {}).get("evidence_line_refs") or []),
     }
+    if (result or {}).get("relation_resolution"):
+        trace["relation_resolution"] = result["relation_resolution"]
+    return trace
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -623,6 +668,9 @@ def evidence_documents(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "labels": row.get("labels") or [],
             "line_refs": row.get("line_refs") or [],
             "bbox": row.get("bbox"),
+            "layout": row.get("layout"),
+            "source_role": row.get("source_role") or "ADVERTISEMENT_CONTENT",
+            "source_role_basis": row.get("source_role_basis"),
             "line_bboxes": row.get("line_bboxes") or {},
             "line_texts": row.get("line_texts") or {},
             "span_status": row.get("span_status") or "region_level_selected_text",
@@ -633,12 +681,18 @@ def evidence_documents(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def template_rule_doc(rule: dict[str, Any]) -> dict[str, Any]:
+    canonical_queries = [
+        query
+        for atom in (rule.get("canonical_execution_plan") or {}).get("obligations") or []
+        for query in atom.get("retrieval_queries") or []
+    ]
     parts = [
         rule.get("title"),
         rule.get("question"),
         rule.get("criterion"),
         rule.get("example_text"),
         rule.get("guide"),
+        *canonical_queries,
     ]
     return {
         "doc_id": rule["item_id"],
@@ -890,8 +944,10 @@ def automated_input_ready(
     if requires_visual_review(rule):
         return False
     required_medium = str(rule.get("required_medium") or "").strip()
+    if has_text_decision_facet(rule):
+        required_medium = "텍스트"
     input_requirement = str(rule.get("input_requirement") or "").strip()
-    if "랜딩캡처" in input_requirement:
+    if "랜딩캡처" in input_requirement and landing_capture_required(rule, ad):
         return False
     if ad is None:
         return required_medium not in {"레이아웃", "원문줄구조"} and "원본형식" not in input_requirement
@@ -989,6 +1045,33 @@ def automated_input_ready(
     return True
 
 
+def landing_capture_required(
+    rule: dict[str, Any], ad: dict[str, Any] | None = None
+) -> bool:
+    """Return whether this routed ad still needs a separate landing capture.
+
+    A full web product/event page is itself the destination content.  v2 rows
+    that mention a landing capture for space-limited banners, search ads, SNS
+    or messages must not make the same external input mandatory for such a
+    page.  With no trusted media routing, retain the conservative deferral.
+    """
+    if "랜딩캡처" not in str(rule.get("input_requirement") or ""):
+        return False
+    if ad is None:
+        return True
+    media = (
+        (((ad.get("document") or {}).get("routing_metadata") or {}).get("media_type") or {})
+        if isinstance(ad, dict) else {}
+    )
+    media_value = str(media.get("value") or "") if isinstance(media, dict) else str(media or "")
+    media_status = str(media.get("status") or "") if isinstance(media, dict) else ""
+    if media_status in {"provided", "confirmed", "verified"} and media_value in {
+        "WEB_PRODUCT_PAGE", "EVENT_PAGE",
+    }:
+        return False
+    return True
+
+
 def freeze_manifest(
     args: argparse.Namespace,
     *,
@@ -1007,6 +1090,11 @@ def freeze_manifest(
         ROOT / "rag/judgment/grounding.py",
         ROOT / "rag/judgment/evidence_projection.py",
         ROOT / "rag/judgment/condition_contracts.py",
+        ROOT / "rag/judgment/candidate_activation.py",
+        ROOT / "rag/judgment/operational_catalog.py",
+        ROOT / "rag/judgment/operational_selection.py",
+        ROOT / "rag/judgment/family_prompts.py",
+        ROOT / "rag/judgment/obligation_logic.py",
         ROOT / "rag/judgment/manual_review.py",
         ROOT / "rag/templates/catalog.py",
         ROOT / "rag/templates/methodology.py",
@@ -1032,6 +1120,11 @@ def freeze_manifest(
         input_paths.append(args.regulation)
     if args.decision_guide:
         input_paths.append(args.decision_guide)
+    if args.candidate_activation_policy:
+        input_paths.append(args.candidate_activation_policy)
+    for path in (args.canonical_plans, args.catalog_migration, args.rule_dispositions):
+        if path:
+            input_paths.append(path)
     if getattr(args, "template_hwpx", None):
         input_paths.append(args.template_hwpx)
     if getattr(args, "template_methodology_dir", None):
@@ -1051,10 +1144,12 @@ def freeze_manifest(
             "batch_size": args.batch_size,
             "full_ad_max_chars": args.full_ad_max_chars,
             "evidence_per_rule": args.evidence_per_rule,
-            "prohibition_max_candidates": None,
             "reranker_candidate_pool": args.reranker_candidate_pool,
             "context_char_budget": args.context_char_budget,
-            "supplemental_selection": "category_floor_then_rank_v1",
+            "formal_candidate_scope": (
+                "TEMPLATE_PRIMARY+MEDIA_CONDITIONED_V2+"
+                "PRODUCT_CONTENT_CONDITIONED_V2+RELATION_DEPENDENCY"
+            ),
             "per_chunk_k_scope": "per_category_per_channel",
             "judgment_batch_size": args.batch_size,
             "judgment_max_tokens": args.judgment_max_tokens,
@@ -1064,6 +1159,14 @@ def freeze_manifest(
             "elasticsearch_index": args.es_index,
             "model": args.model,
             "decision_guide": str(args.decision_guide) if args.decision_guide else None,
+            "candidate_activation_policy": (
+                str(args.candidate_activation_policy)
+                if args.candidate_activation_policy
+                else None
+            ),
+            "canonical_plans": str(args.canonical_plans) if args.canonical_plans else None,
+            "catalog_migration": str(args.catalog_migration) if args.catalog_migration else None,
+            "rule_dispositions": str(args.rule_dispositions) if args.rule_dispositions else None,
             "template_methodology_dir": (
                 str(args.template_methodology_dir.resolve())
                 if args.template_methodology_dir
@@ -1155,6 +1258,20 @@ def main() -> None:
     parser.add_argument("--source-policy", choices=("template-only", "template-plus-v2"), default="template-only")
     parser.add_argument("--regulation", type=Path)
     parser.add_argument("--decision-guide", type=Path)
+    parser.add_argument(
+        "--candidate-activation-policy",
+        type=Path,
+        help=(
+            "source-bound policy that promotes retrieved content-conditional v2 "
+            "rules or routes visual rules to human review"
+        ),
+    )
+    parser.add_argument("--canonical-plans", type=Path,
+                        help="released canonical template and supplemental execution plans")
+    parser.add_argument("--catalog-migration", type=Path,
+                        help="exact canonical-to-legacy template catalog migration")
+    parser.add_argument("--rule-dispositions", type=Path,
+                        help="active, alias, template-support and hold registry")
     parser.add_argument("--template-hwpx", type=Path,
                         help="general template source; independent checklist, no v2 ID mapping required")
     parser.add_argument(
@@ -1212,8 +1329,6 @@ def main() -> None:
     parser.add_argument("--context-char-budget", type=int, default=2400,
                         help="Additional source-region context characters per rule; 0 disables expansion")
     parser.add_argument("--full-ad-max-chars", type=int, default=12000)
-    parser.add_argument("--prohibition-max-candidates", type=int, default=0,
-                        help="Deprecated compatibility option; all discovered candidates are processed")
     parser.add_argument("--reranker-candidate-pool", type=int, default=80)
     parser.add_argument(
         "--enable-applicability-screen",
@@ -1263,6 +1378,13 @@ def main() -> None:
         parser.error("--template-methodology-dir requires --template-hwpx")
     if template_only and args.decision_guide:
         parser.error("v2 decision guides cannot be used with template-only review")
+    if template_only and args.candidate_activation_policy:
+        parser.error("v2 candidate activation cannot be used with template-only review")
+    canonical_paths = (args.canonical_plans, args.catalog_migration, args.rule_dispositions)
+    if any(canonical_paths) and not all(canonical_paths):
+        parser.error("canonical catalog requires --canonical-plans, --catalog-migration and --rule-dispositions")
+    if args.canonical_plans and args.candidate_activation_policy:
+        parser.error("canonical catalog replaces the legacy candidate activation policy")
     if not template_only and (not args.es_index or not args.regulation):
         parser.error("--es-index or NH_RAG_ES_INDEX is required")
     if not 1 <= args.batch_size <= MAX_RULES_PER_JUDGMENT:
@@ -1331,6 +1453,27 @@ def main() -> None:
         else None
     )
     t_rules = template_catalog.operational_rules() if template_catalog else load_template_candidate_rules()
+    canonical_catalog = None
+    if args.canonical_plans:
+        canonical_catalog = load_operational_catalog(
+            args.canonical_plans,
+            args.catalog_migration,
+            args.rule_dispositions,
+            legacy_template_rules=t_rules,
+            v2_rules=cd_rules,
+            include_supplements=not template_only,
+        )
+        t_rules = canonical_catalog.template_rules
+        cd_rules = [
+            canonical_catalog.supplemental_rules.get(rule["item_id"], rule)
+            for rule in cd_rules
+        ]
+        write_json(args.output_dir / "00_canonical_catalog.json", {
+            "source_sha256": canonical_catalog.source_sha256,
+            "migration_sha256": canonical_catalog.migration_sha256,
+            "disposition_sha256": canonical_catalog.disposition_sha256,
+            "counts": canonical_catalog.counts,
+        })
     if template_catalog:
         write_json(args.output_dir / "00_template_catalog.json", template_catalog.document)
         write_json(args.output_dir / "00_template_source.json", template_catalog.source)
@@ -1342,6 +1485,16 @@ def main() -> None:
     )
     attach_decision_guides(all_rules, guides)
     attach_condition_contracts(all_rules)
+    candidate_activation_policy = (
+        {}
+        if template_only
+        else load_candidate_activation_policy(
+            args.candidate_activation_policy,
+            regulation_path=args.regulation,
+            rules=all_rules,
+        )
+    )
+    write_json(args.output_dir / "00_compiled_obligation_audit.json", audit_compiled_rules(all_rules))
     rule_by_id = {row["item_id"]: row for row in all_rules}
     regulation_source_sha = None if template_only else sha256(args.regulation)
     template_source_sha = sha256(args.template_hwpx) if args.template_hwpx else None
@@ -1364,12 +1517,15 @@ def main() -> None:
     model = discovery.load_model()
     args.vector_cache_dir.mkdir(parents=True, exist_ok=True)
     rule_source = args.template_hwpx if template_only else args.regulation
+    canonical_variant = canonical_catalog.source_sha256 if canonical_catalog else ""
     rule_vectors_path, rule_meta_path = vector_cache_paths(
         args.vector_cache_dir,
         kind="rules",
         source=rule_source,
         variant=(args.rule_search_text_variant + "-template-" + sha256(args.template_hwpx)
-                 if args.template_hwpx else args.rule_search_text_variant),
+                 + ("-canonical-" + canonical_variant if canonical_variant else "")
+                 if args.template_hwpx else args.rule_search_text_variant
+                 + ("-canonical-" + canonical_variant if canonical_variant else "")),
     )
     rule_vectors, rule_vectors_cached, rule_embedding_seconds = discovery.load_or_encode(
         rule_docs,
@@ -1398,7 +1554,8 @@ def main() -> None:
     )
     if not template_only:
         args.es_index = discovery.versioned_rule_index(
-            args.es_index, cd_rule_docs, rule_vectors[: len(cd_rule_docs)]
+            args.es_index, cd_rule_docs, rule_vectors[: len(cd_rule_docs)],
+            source_sha=regulation_source_sha,
         )
         discovery.ensure_rule_index(
             args.es_url, args.es_index, cd_rule_docs,
@@ -1463,6 +1620,23 @@ def main() -> None:
             }
             route_context["product_group"] = route
         confirmed_template_id = confirmed_template(route_context)
+        canonical_selection = None
+        if canonical_catalog:
+            layout_available = any(
+                region.get("bbox") is not None
+                for page in (ads[ad_id].get("pages") or [])
+                for region in (page.get("regions") or [])
+            )
+            canonical_selection = select_supplemental_plans(
+                (
+                    canonical_catalog.plans[item_id]
+                    for item_id in canonical_catalog.supplemental_rules
+                ),
+                product_groups=candidate_groups,
+                template_id=confirmed_template_id,
+                routing=route_context,
+                layout_available=layout_available,
+            )
         all_product_items = [
             item for item in items if discovery.applicable_to_any(item, candidate_groups)
         ]
@@ -1498,12 +1672,21 @@ def main() -> None:
             and v2_is_general_presence_obligation(rule_by_id[item["id"]])
         ]
         general_v2_ids = {item["id"] for item in general_v2_items}
-        media_v2_items = [] if template_only else [
-            item for item in product_items
-            if item["id"] not in mapped_v2_ids | general_v2_ids
-            and v2_applies_to_confirmed_media(rule_by_id[item["id"]], route_context)
-        ]
-        priority_v2_items = [*mapped_v2_items, *general_v2_items, *media_v2_items]
+        if canonical_selection:
+            canonical_enumerate_ids = set(canonical_selection.enumerate_ids)
+            media_v2_items = [
+                item for item in product_items if item["id"] in canonical_enumerate_ids
+            ]
+        else:
+            media_v2_items = [] if template_only else [
+                item for item in product_items
+                if item["id"] not in mapped_v2_ids | general_v2_ids
+                and v2_applies_to_confirmed_media(rule_by_id[item["id"]], route_context)
+            ]
+        # Template-linked v2 rows remain support/audit material until their
+        # separate judgments have gold coverage. Only confirmed-media v2 rows
+        # add a formal judgment beyond the selected template.
+        formal_v2_items = [*media_v2_items]
         deferred_input_rules = [
             {
                 "item_id": item["id"],
@@ -1511,41 +1694,48 @@ def main() -> None:
                 "input_requirement": item["입력요건"],
                 "reason": deferred_input_reason(rule_by_id[item["id"]]),
             }
-            for item in priority_v2_items
+            for item in formal_v2_items
             if not automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
         ]
-        enumerated = [
+        if canonical_selection:
+            deferred_input_rules.extend(dict(row) for row in canonical_selection.pending)
+        mapped_v2_audit = [
             {
                 "item_id": item["id"],
                 "category": item["category"],
                 "title": item["title"],
                 "discovery_method": "template_mapped_v2_enumeration",
+                "input_ready": automated_input_ready(rule_by_id[item["id"]], ads[ad_id]),
+                "input_deferred_reason": (
+                    None if automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
+                    else deferred_input_reason(rule_by_id[item["id"]])
+                ),
             }
             for item in mapped_v2_items
-            if (
-                automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
-                or args.enable_applicability_screen
-            )
         ]
-        general_enumerated = [
+        general_v2_audit = [
             {
                 "item_id": item["id"],
                 "category": item["category"],
                 "title": item["title"],
                 "discovery_method": "general_v2_presence_enumeration",
+                "input_ready": automated_input_ready(rule_by_id[item["id"]], ads[ad_id]),
+                "input_deferred_reason": (
+                    None if automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
+                    else deferred_input_reason(rule_by_id[item["id"]])
+                ),
             }
             for item in general_v2_items
-            if (
-                automated_input_ready(rule_by_id[item["id"]], ads[ad_id])
-                or args.enable_applicability_screen
-            )
         ]
         media_enumerated = [
             {
                 "item_id": item["id"],
                 "category": item["category"],
                 "title": item["title"],
-                "discovery_method": "confirmed_media_v2_enumeration",
+                "discovery_method": (
+                    "canonical_confirmed_metadata_enumeration"
+                    if canonical_selection else "confirmed_media_v2_enumeration"
+                ),
             }
             for item in media_v2_items
             if (
@@ -1601,7 +1791,16 @@ def main() -> None:
             if t_rule_applies(rule, candidate_groups)
             and rule.get("product_subtype") != template_value
         ]
-        priority_v2_ids = mapped_v2_ids | general_v2_ids | {item["id"] for item in media_v2_items}
+        # Policy rows must remain searchable even if a broad source-shape rule
+        # also classifies them as mapped/general. Their advertisement-content
+        # trigger comes from retrieval, not from product-wide enumeration.
+        activation_policy_ids = (
+            set(canonical_catalog.supplemental_rules)
+            if canonical_catalog else set(candidate_activation_policy)
+        )
+        priority_v2_ids = (
+            mapped_v2_ids | general_v2_ids | {item["id"] for item in media_v2_items}
+        ) - activation_policy_ids
         supplemental_v2 = [] if template_only else discovery.discover_prohibitions(
             search_queries,
             query_vectors,
@@ -1612,6 +1811,10 @@ def main() -> None:
             rrf_k=args.rrf_k,
             deterministic_item_ids=priority_v2_ids,
             categories=("PRESENCE", "PROHIBIT", "STYLE"),
+            allowed_item_ids=(
+                set(canonical_catalog.supplemental_rules)
+                if canonical_catalog else None
+            ),
         )
         supplemental_v2 = rerank_prohibition_candidates(
             supplemental_v2,
@@ -1621,16 +1824,73 @@ def main() -> None:
             candidate_pool=args.reranker_candidate_pool,
         )
         supplemental_v2_retrieved = supplemental_v2
-        deferred_input_rules.extend(
+        content_conditioned_v2 = (
+            activate_retrieved(
+                supplemental_v2_retrieved, canonical_selection.retrieval_ids
+            )
+            if canonical_selection else
+            activated_retrieval_rows(
+                supplemental_v2_retrieved,
+                candidate_activation_policy,
+                execution_tier=CONTENT_TIER,
+            )
+        )
+        content_conditioned_v2 = [
+            row
+            for row in content_conditioned_v2
+            if template_scoped_rule(
+                rule_by_id[row["item_id"]], confirmed_template_id
+            )
+            and (
+                automated_input_ready(rule_by_id[row["item_id"]], ads[ad_id])
+                or args.enable_applicability_screen
+            )
+        ]
+        policy_visual_v2 = (
+            activate_retrieved(
+                supplemental_v2_retrieved, canonical_selection.human_ids
+            )
+            if canonical_selection else
+            activated_retrieval_rows(
+                supplemental_v2_retrieved,
+                candidate_activation_policy,
+                execution_tier=VISUAL_TIER,
+            )
+        )
+        supplemental_v2_audit = [
             {
-                "item_id": row["item_id"],
-                "required_medium": rule_by_id[row["item_id"]].get("required_medium"),
-                "input_requirement": rule_by_id[row["item_id"]].get("input_requirement"),
-                "reason": deferred_input_reason(rule_by_id[row["item_id"]]),
+                **row,
+                "input_ready": automated_input_ready(
+                    rule_by_id[row["item_id"]], ads[ad_id]
+                ),
+                "input_deferred_reason": (
+                    None if automated_input_ready(rule_by_id[row["item_id"]], ads[ad_id])
+                    else deferred_input_reason(rule_by_id[row["item_id"]])
+                ),
+                "template_scope_match": template_scoped_rule(
+                    rule_by_id[row["item_id"]], confirmed_template_id
+                ),
             }
             for row in supplemental_v2_retrieved
-            if not automated_input_ready(rule_by_id[row["item_id"]], ads[ad_id])
+        ]
+        # A retrieved visual rule is still a review candidate. Retrieval tells
+        # us which source and advertisement region to surface; it does not
+        # authorize Gemma to decide color, size, contrast or placement.
+        supplemental_visual_ids = list(dict.fromkeys([
+            row["item_id"]
+            for row in [*supplemental_v2_retrieved, *policy_visual_v2]
+            if template_scoped_rule(
+                rule_by_id[row["item_id"]], confirmed_template_id
+            )
+            and requires_visual_review(rule_by_id[row["item_id"]])
+        ]))
+        _, supplemental_visual_review = partition_visual_review_candidates(
+            supplemental_visual_ids, rule_by_id
         )
+        supplemental_visual_review = attach_visual_retrieval_evidence(
+            supplemental_visual_review, supplemental_v2_retrieved
+        )
+        deferred_input_rules.extend(supplemental_visual_review)
         supplemental_v2 = [
             row
             for row in supplemental_v2_retrieved
@@ -1642,22 +1902,71 @@ def main() -> None:
                 rule_by_id[row["item_id"]], confirmed_template_id
             )
         ]
-        supplemental_v2, candidate_budget_audit = all_judgment_candidates(supplemental_v2, rule_by_id)
-        candidate_rows = [
-            *template_candidates, *enumerated, *general_enumerated,
-            *media_enumerated, *supplemental_v2,
+        audit_only_v2 = [
+            *({**row, "discovery_tier": "MAPPED_V2"}
+              for row in mapped_v2_audit),
+            *({**row, "discovery_tier": "GENERAL_V2_PRESENCE"}
+              for row in general_v2_audit),
+            *({**row, "discovery_tier": "SUPPLEMENTAL_V2"}
+              for row in supplemental_v2_audit),
         ]
+        audit_by_item: dict[str, dict[str, Any]] = {}
+        for row in audit_only_v2:
+            item_id = str(row["item_id"])
+            tier = str(row.get("discovery_tier") or "")
+            if item_id not in audit_by_item:
+                audit_by_item[item_id] = {
+                    **row,
+                    "discovery_tiers": [tier] if tier else [],
+                }
+                continue
+            existing = audit_by_item[item_id]
+            if tier and tier not in existing["discovery_tiers"]:
+                existing["discovery_tiers"].append(tier)
+        audit_only_v2 = list(audit_by_item.values())
+        activated_ids = {
+            row["item_id"]
+            for row in [*content_conditioned_v2, *policy_visual_v2]
+        }
+        audit_only_v2 = [
+            row for row in audit_only_v2 if row["item_id"] not in activated_ids
+        ]
+        candidate_rows = formal_judgment_candidates(
+            template_primary=template_candidates,
+            media_conditioned_v2=media_enumerated,
+            product_content_conditioned_v2=content_conditioned_v2,
+        )
         candidate_ids = list(dict.fromkeys(row["item_id"] for row in candidate_rows))
-        # Even the optional model applicability screen cannot bypass the
-        # user's coordinate-only / human visibility review boundary.
-        candidate_ids = [item_id for item_id in candidate_ids
-                         if not requires_visual_review(rule_by_id[item_id])]
+        original_candidate_ids = set(candidate_ids)
+        candidate_ids = expand_relation_dependencies(candidate_ids, rule_by_id)
+        relation_dependency_ids = set(candidate_ids) - original_candidate_ids
+        audit_only_v2 = [
+            row for row in audit_only_v2
+            if row["item_id"] not in relation_dependency_ids
+        ]
+        candidate_budget_audit = audit_only_candidates(
+            audit_only_v2,
+            rule_by_id,
+            reason="outside_formal_execution_scope",
+        )
+        # Candidate discovery and judgment capability are separate. Preserve
+        # every discovered visual rule for the reviewer while withholding it
+        # from automatic applicability/judgment calls.
+        candidate_ids, visual_review_candidates = partition_visual_review_candidates(
+            candidate_ids, rule_by_id
+        )
+        deferred_input_rules.extend(visual_review_candidates)
+        deferred_input_rules = list({
+            row["item_id"]: row for row in deferred_input_rules
+        }.values())
         discovery_tier_by_item = {
             **{row["item_id"]: "TEMPLATE_PRIMARY" for row in template_candidates},
-            **{row["item_id"]: "MAPPED_V2" for row in enumerated},
-            **{row["item_id"]: "GENERAL_V2_PRESENCE" for row in general_enumerated},
             **{row["item_id"]: "MEDIA_CONDITIONED_V2" for row in media_enumerated},
-            **{row["item_id"]: "SUPPLEMENTAL_V2" for row in supplemental_v2},
+            **{
+                row["item_id"]: "PRODUCT_CONTENT_CONDITIONED_V2"
+                for row in content_conditioned_v2
+            },
+            **{item_id: "RELATION_DEPENDENCY" for item_id in relation_dependency_ids},
         }
         assert_candidate_product_scope(
             candidate_ids,
@@ -1718,13 +2027,19 @@ def main() -> None:
                                ((event.get("trigger") or {}).get("query_context_doc_ids") or []))
                 if doc_id in fine_doc_by_id
             ]
-            for row in supplemental_v2
+            for row in supplemental_v2_retrieved
+        }
+        evidence_rows_by_item = {
+            item_id: evidence_rows_for_rule(
+                rule_by_id[item_id], fine_by_ad[ad_id],
+                keep_doc_ids=trigger_by_item.get(item_id, []))
+            for item_id in candidate_ids
         }
         evidence_by_item = {
             item_id: top_rule_evidence(
                 item_id,
                 rule_vector_by_id=rule_vector_by_id,
-                ad_fine_rows=fine_by_ad[ad_id],
+                ad_fine_rows=evidence_rows_by_item[item_id],
                 fine_vector_by_id=fine_vector_by_id,
                 trigger_ids=trigger_by_item.get(item_id, []),
                 k=args.evidence_per_rule,
@@ -1737,13 +2052,13 @@ def main() -> None:
         context_audit = {}
         for item_id, seed_ids in evidence_by_item.items():
             selected, source_audit = expand_source_context(
-                seed_ids, fine_by_ad[ad_id], char_budget=args.context_char_budget)
+                seed_ids, evidence_rows_by_item[item_id], char_budget=args.context_char_budget)
             remaining = args.context_char_budget - source_audit["added_chars"]
             selected, facet_audit = supplement_evidence(
-                selected, fine_by_ad[ad_id], rule_by_id[item_id], char_budget=remaining)
+                selected, evidence_rows_by_item[item_id], rule_by_id[item_id], char_budget=remaining)
             remaining -= facet_audit["added_chars"]
             evidence_by_item[item_id], followup_audit = expand_source_context(
-                selected, fine_by_ad[ad_id], char_budget=remaining)
+                selected, evidence_rows_by_item[item_id], char_budget=remaining)
             context_audit[item_id] = {**source_audit, "source_facets": facet_audit,
                 "followup_context": followup_audit,
                 "total_added_chars": source_audit["added_chars"] + facet_audit["added_chars"] + followup_audit["added_chars"]}
@@ -1754,15 +2069,19 @@ def main() -> None:
         full_ad_text = "\n".join(doc["text"] for doc in full_documents)
         use_full_ad = len(full_ad_text) <= args.full_ad_max_chars
         facts = deterministic_facts(fine_by_ad[ad_id], ad=ads[ad_id])
-        category_to_rules: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+        category_to_rules: dict[tuple[str, str], list[dict[str, Any]]] = collections.defaultdict(list)
         for item_id in candidate_ids:
-            category_to_rules[rule_by_id[item_id]["category"]].append(rule_by_id[item_id])
+            rule = rule_by_id[item_id]
+            family = str(rule.get("canonical_prompt_family") or "HYBRID_FACT_SEMANTIC")
+            category_to_rules[(rule["category"], family)].append(rule)
         for category in ("PRESENCE", "PROHIBIT", "STYLE"):
-            category_rules = sorted(category_to_rules[category], key=lambda row: row["item_id"])
+          families = sorted(family for cat, family in category_to_rules if cat == category)
+          for family in families:
+            category_rules = sorted(category_to_rules[(category, family)], key=lambda row: row["item_id"])
             for offset in range(0, len(category_rules), args.batch_size):
                 batch = category_rules[offset:offset + args.batch_size]
                 model_rules = [model_rule_view(rule) for rule in batch]
-                request_id = f"operational:{ad_id}:{category}:{offset // args.batch_size + 1}"
+                request_id = f"operational:{ad_id}:{category}:{family}:{offset // args.batch_size + 1}"
                 batch_evidence_ids = list(dict.fromkeys(
                     evidence_id
                     for rule in batch
@@ -1795,6 +2114,17 @@ def main() -> None:
                     "deterministic_facts": model_deterministic_facts(facts, docs),
                     "applicability_screen": {r["item_id"]: screened.get(r["item_id"]) for r in batch},
                     "external_input_assessment": {r["item_id"]: screened.get(r["item_id"]) for r in batch},
+                    "canonical_confirmed_facts": {
+                        r["item_id"]: confirmed_metadata_facts(
+                            canonical_catalog.plans[r["item_id"]],
+                            product_groups=candidate_groups,
+                            template_id=confirmed_template_id,
+                            routing=route_context,
+                            layout_available=layout_available,
+                        )
+                        for r in batch
+                        if canonical_catalog and r["item_id"] in canonical_catalog.plans
+                    },
                     "rules": model_rules,
                 }
                 requests.append({
@@ -1807,7 +2137,7 @@ def main() -> None:
                         for row in batch
                     },
                     "messages": [
-                        {"role": "system", "content": OPERATIONAL_SYSTEM},
+                        {"role": "system", "content": OPERATIONAL_SYSTEM + "\n\n" + prompt_for_family(family)},
                         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
                     ],
                 })
@@ -1823,46 +2153,75 @@ def main() -> None:
             "product_id": (ads[ad_id].get("document") or {}).get("product_id"),
             "product_name": (ads[ad_id].get("document") or {}).get("product_name"),
             "routing": route_context,
-            "template_coverage": audit_template_coverage(
-                template_catalog, template_value, t_rules, candidate_ids,
-                [*deferred_input_rules, *applicability_pending]
-            ) if template_catalog and template_value else None,
+            "template_coverage": (
+                audit_canonical_template_coverage(
+                    canonical_catalog, template_value, candidate_ids,
+                    [*deferred_input_rules, *applicability_pending],
+                )
+                if canonical_catalog and template_value else
+                audit_template_coverage(
+                    template_catalog, template_value, t_rules, candidate_ids,
+                    [*deferred_input_rules, *applicability_pending]
+                ) if template_catalog and template_value else None
+            ),
             "parser_coverage": parser_coverage(ads[ad_id]),
             "evidence_context": context_audit,
             "counts": {
                 "coarse": len(coarse_by_ad[ad_id]),
                 "fine": len(fine_by_ad[ad_id]),
-                "presence_and_style": (
-                    len(enumerated) + len(general_enumerated) + len(media_enumerated)
-                ),
+                "presence_and_style": len(media_enumerated),
                 "template_candidates": len(template_candidates),
                 "template_scope_deferred": len(template_scope_deferred),
                 "deferred_template_rules": len(deferred_template_rules),
                 "deferred_input_rules": len(deferred_input_rules),
-                "mapped_v2_candidates": len(enumerated),
-                "general_v2_presence_candidates": len(general_enumerated),
+                "mapped_v2_candidates": len(mapped_v2_audit),
+                "general_v2_presence_candidates": len(general_v2_audit),
                 "media_conditioned_v2_candidates": len(media_enumerated),
-                "supplemental_v2_candidates": len(supplemental_v2),
+                "product_content_conditioned_v2_candidates": len(content_conditioned_v2),
+                "supplemental_v2_candidates": len(supplemental_v2_audit),
+                "visual_review_v2_candidates": len(supplemental_visual_review),
+                "audit_only_v2_candidates": len(audit_only_v2),
                 "prohibition_candidates": sum(
                     rule_by_id[row["item_id"]]["category"] == "PROHIBIT"
-                    for row in supplemental_v2
+                    for row in supplemental_v2_audit
                 ),
                 "judgment_candidates": len(candidate_ids),
+                "canonical_metadata_enumerated": (
+                    len(canonical_selection.enumerate_ids) if canonical_selection else 0
+                ),
+                "canonical_retrieval_eligible": (
+                    len(canonical_selection.retrieval_ids) if canonical_selection else 0
+                ),
+                "canonical_human_retrieval_eligible": (
+                    len(canonical_selection.human_ids) if canonical_selection else 0
+                ),
             },
-            "presence_and_style": [*enumerated, *general_enumerated, *media_enumerated],
-            "general_v2_presence_candidates": general_enumerated,
+            "presence_and_style": media_enumerated,
+            "mapped_v2_candidates": mapped_v2_audit,
+            "general_v2_presence_candidates": general_v2_audit,
             "media_conditioned_v2_candidates": media_enumerated,
+            "product_content_conditioned_v2_candidates": content_conditioned_v2,
             "template_candidates": template_candidates,
             "template_scope_deferred": template_scope_deferred,
             "deferred_template_rule_ids": deferred_template_rules,
             "deferred_input_rules": deferred_input_rules,
             "excluded_applicability": excluded_applicability,
             "applicability_pending": applicability_pending,
-            "supplemental_v2_candidates": supplemental_v2,
+            "supplemental_v2_candidates": supplemental_v2_audit,
+            "visual_review_v2_candidates": supplemental_visual_review,
+            "audit_only_v2_candidates": audit_only_v2,
             "query_context": query_context_audit,
             "candidate_budget": candidate_budget_audit,
+            "canonical_selection": ({
+                "enumerate_ids": list(canonical_selection.enumerate_ids),
+                "retrieval_ids": list(canonical_selection.retrieval_ids),
+                "human_ids": list(canonical_selection.human_ids),
+                "excluded": list(canonical_selection.excluded),
+                "pending": list(canonical_selection.pending),
+                "confirmed_facts": list(canonical_selection.confirmed_facts),
+            } if canonical_selection else None),
             "prohibition_candidates": [
-                row for row in supplemental_v2
+                row for row in supplemental_v2_audit
                 if rule_by_id[row["item_id"]]["category"] == "PROHIBIT"
             ],
         })
@@ -1880,10 +2239,23 @@ def main() -> None:
                 "reject before model execution unless --allow-provisional-routing is explicitly set"
             ),
             "template_primary": "enumerate every structured rule in the confirmed detailed-product template",
-            "mapped_v2_priority": "disabled" if template_only else "enumerate source-mapped v2 rows",
+            "mapped_v2_priority": (
+                "disabled" if template_only else
+                "template support and discovery audit only until separate v2 gold is available"
+            ),
             "confirmed_media_v2": "disabled" if template_only else "enumerate source-authored rules for confirmed delivery media",
-            "supplemental_v2": "disabled" if template_only else "retrieve remaining product-scoped v2 rules",
-            "supplemental_recall_guard": "no candidate truncation",
+            "general_v2_presence": (
+                "disabled" if template_only else
+                "discovery audit only; excluded from judgment until source-authored scope is approved"
+            ),
+            "supplemental_v2": (
+                "disabled" if template_only else
+                "retrieve remaining product-scoped v2 rules for discovery audit only"
+            ),
+            "formal_execution_scope": (
+                "TEMPLATE_PRIMARY + MEDIA_CONDITIONED_V2 + required relation dependencies"
+            ),
+            "supplemental_recall_guard": "preserve every discovery in audit; schedule none for judgment",
             "evidence": "rule-to-ad BGE-M3 plus full context for short advertisements",
             "applicability": (
                 "experimental Gemma pre-screen enabled; final judgment independently confirms"
@@ -1987,11 +2359,17 @@ def main() -> None:
     final_ads = []
     discovery_by_ad = {row["ad_id"]: row for row in discovery_ads}
     for ad_id in sorted(ads):
+        ad_results = apply_satisfaction_relations(
+            {
+                pair[1]: enforce_review_policy(model_results[pair])
+                for pair in requested_pairs
+                if pair[0] == ad_id and pair in model_results
+            },
+            rule_by_id,
+        )
         candidates = []
         for pair in sorted((pair for pair in requested_pairs if pair[0] == ad_id), key=lambda pair: pair[1]):
-            result = model_results.get(pair)
-            if result:
-                result = enforce_review_policy(result)
+            result = ad_results.get(pair[1])
             candidates.append({
                 "item_id": pair[1],
                 "rule_basis": rule_basis_by_id[pair[1]],

@@ -13,6 +13,7 @@
     "applicability_mode",
     "applicability_conditions",
     "review_conditions",
+    "rule_relations",
     "obligation",
     "unknown_policy",
     "source_note",
@@ -64,6 +65,44 @@
     "review_conditions": {
       "$ref": "#/$defs/conditions"
     },
+    "rule_relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "relation_type",
+          "target_item_ids",
+          "join",
+          "source"
+        ],
+        "properties": {
+          "relation_type": {
+            "const": "SATISFIED_IF"
+          },
+          "target_item_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z]+-[A-Za-z0-9]+$"
+            }
+          },
+          "join": {
+            "enum": [
+              "ANY",
+              "ALL"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "source": {
+            "const": "실행_점검항목"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "obligation": {
       "type": "object",
       "required": [
@@ -98,8 +137,12 @@
     "obligation_structure": {
       "enum": [
         "SOURCE_TEXT_ONLY",
-        "SOURCE_PLUS_EXPLICIT_REQUIREMENTS"
+        "SOURCE_PLUS_EXPLICIT_REQUIREMENTS",
+        "SOURCE_EXPLICIT_ALTERNATIVES"
       ]
+    },
+    "obligation_logic": {
+      "$ref": "#/$defs/obligationLogic"
     },
     "obligation_checks": {
       "type": "array",
@@ -123,8 +166,13 @@
           "source": {
             "enum": [
               "criterion",
-              "bound_guide.requirements"
+              "bound_guide.requirements",
+              "template_alternative"
             ]
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1
           },
           "guide_id": {
             "type": [
@@ -138,6 +186,25 @@
     }
   },
   "$defs": {
+    "obligationLogic": {
+      "oneOf": [
+        {
+          "type": "object", "required": ["ref"],
+          "properties": {"ref": {"type": "string", "pattern": "^O[1-9][0-9]*$"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["all"],
+          "properties": {"all": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/obligationLogic"}}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["any"],
+          "properties": {"any": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/obligationLogic"}}},
+          "additionalProperties": false
+        }
+      ]
+    },
     "conditions": {
       "type": "array",
       "items": {

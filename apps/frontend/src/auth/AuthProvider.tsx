@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { api, setAuthRefreshHandler } from "../api/client";
+import { localAuthBypass } from "../api/operational";
 import { AuthContext, type AuthSession, type AuthValue } from "./context";
 
 export function AuthProvider({ children, initialSession }: { children: ReactNode; initialSession?: AuthSession | null }) {
@@ -8,7 +9,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
   const [isInitializing, setIsInitializing] = useState(initialSession === undefined);
   const refresh = useCallback(async () => {
     try {
-      const response = await api.refresh();
+      const response = localAuthBypass ? await api.localSession() : await api.refresh();
       // Keep the protected workspace closed during a rolling backend/frontend
       // deployment if an old backend responds with a token-only payload.
       if (!response.user) {
@@ -44,6 +45,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
         setSession({ accessToken: response.accessToken, user: response.user });
       },
       async logout() {
+        if (localAuthBypass) return;
         try {
           await api.logout();
         } finally {

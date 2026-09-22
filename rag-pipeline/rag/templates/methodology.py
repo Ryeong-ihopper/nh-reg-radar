@@ -15,6 +15,7 @@ import openpyxl
 
 
 SCHEMA = "template-methodology-catalog-v1"
+PRESENCE_ONLY_MARKER = "[판정방식: 존재확인]"
 
 
 def compact(value: Any) -> str:
@@ -26,7 +27,9 @@ def methodology_workbooks(directory: Path) -> list[Path]:
         raise ValueError(f"template methodology directory not found: {directory}")
     return sorted(
         path for path in directory.glob("*심의방법.xlsx")
-        if path.is_file() and "심의정답" not in path.name
+        if path.is_file()
+        and not path.name.startswith("~$")
+        and "심의정답" not in path.name
     )
 
 
@@ -105,6 +108,11 @@ def parse_methodology_workbook(path: Path) -> dict[str, Any]:
                     "inappropriate_guidance": value_at(inappropriate_guide_col),
                     "review_needed_judgment": value_at(review_judgment_col),
                     "review_needed_guidance": value_at(review_guide_col),
+                    "decision_mode": (
+                        "PRESENCE_ONLY"
+                        if PRESENCE_ONLY_MARKER in value_at(appropriate_col)
+                        else None
+                    ),
                     "source": {
                         "filename": path.name,
                         "sha256": source_hash,
@@ -174,4 +182,9 @@ def methodology_prompt(guide: dict[str, Any]) -> str:
         ("확인필요 시 안내", "review_needed_guidance"),
     )
     lines = [f"- {label}: {guide[field]}" for label, field in fields if guide.get(field)]
+    if guide.get("decision_mode") == "PRESENCE_ONLY":
+        lines.append(
+            "- 구조화 판정방식: 존재확인(광고에 출처가 정한 표시 사실이 있으면 충족; "
+            "출처가 별도로 요구하지 않은 요율·절차를 추가 요건으로 만들지 않음)"
+        )
     return "업무 판단 가이드 원문:\n" + "\n".join(lines)

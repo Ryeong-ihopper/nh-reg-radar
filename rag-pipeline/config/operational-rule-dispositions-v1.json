@@ -1,0 +1,285 @@
+{
+  "schema_version": "operational-rule-dispositions-v1",
+  "scope": "DEPOSIT_LOAN_INVESTMENT",
+  "canonical_source_binding_sha256": "965e7fd6347ae137d4b8ca74444ccaeb52a507aadfa3bc2769ccedb17f1b03ff",
+  "policy": {
+    "template_support_does_not_create_duplicate_results": true,
+    "aliases_share_one_result_with_target": true,
+    "holds_never_auto_activate": true,
+    "visual_rules_remain_searchable_and_route_to_human": true
+  },
+  "counts": {
+    "active_supplement": 32,
+    "alias": 2,
+    "hold": 8,
+    "template_support": 9
+  },
+  "entries": [
+    {
+      "item_id": "C-015",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-017",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-018",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "CONFIRMED_METADATA_ENUMERATION"
+    },
+    {
+      "item_id": "C-019",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-020",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "CONFIRMED_METADATA_ENUMERATION"
+    },
+    {
+      "item_id": "C-025",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "CONFIRMED_METADATA_ENUMERATION"
+    },
+    {
+      "item_id": "C-032",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-059",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-061",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-082",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-085",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-090",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-091",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-094",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-099",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-102",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-125",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "CONFIRMED_METADATA_ENUMERATION"
+    },
+    {
+      "item_id": "C-132",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-134",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-163",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-166",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-181",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-182",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-188",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-191",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-201",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-206",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-228",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-229",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "C-046",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-184",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_THEN_APPLICABILITY"
+    },
+    {
+      "item_id": "D-240",
+      "state": "ACTIVE_SUPPLEMENT",
+      "activation": "RETRIEVAL_TO_HUMAN"
+    },
+    {
+      "item_id": "C-005",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "selected investment template already owns the obligation"
+    },
+    {
+      "item_id": "C-008",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "template fee obligation and approved C-035 relation own the result"
+    },
+    {
+      "item_id": "C-011",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "selected investment-product template owns the depositor-protection obligation"
+    },
+    {
+      "item_id": "C-051",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "template procedure text and approved C-056 relation own the result"
+    },
+    {
+      "item_id": "C-052",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "selected template owns product name and content"
+    },
+    {
+      "item_id": "C-058",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "selected product template owns applicable fees and incidental costs"
+    },
+    {
+      "item_id": "D-183",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "selected template prohibition owns the constrained absolute-expression check"
+    },
+    {
+      "item_id": "D-225",
+      "state": "TEMPLATE_SUPPORT",
+      "scope": "CARD_ONLY_OUTSIDE_CURRENT_SCOPE",
+      "reason": "mapped only to card visual differentiation rows"
+    },
+    {
+      "item_id": "D-241",
+      "state": "TEMPLATE_SUPPORT",
+      "reason": "selected template and original-layout review own separator formatting"
+    },
+    {
+      "item_id": "D-190",
+      "state": "ALIAS",
+      "target_id": "C-015",
+      "relation": "SAME_OBLIGATION"
+    },
+    {
+      "item_id": "D-204",
+      "state": "ALIAS",
+      "target_id": "C-099",
+      "relation": "SAME_OBLIGATION"
+    },
+    {
+      "item_id": "C-048",
+      "state": "HOLD",
+      "route": "RESIDUAL_HUMAN_REVIEW",
+      "reason": "catch-all clarity rule must not bypass concrete rules"
+    },
+    {
+      "item_id": "C-049",
+      "state": "HOLD",
+      "route": "ROLLUP",
+      "reason": "aggregate individual required-disclosure results without a duplicate model result"
+    },
+    {
+      "item_id": "C-055",
+      "state": "HOLD",
+      "route": "SOURCE_INTERPRETATION",
+      "reason": "product scope and loss-estimate inputs require source-owner confirmation"
+    },
+    {
+      "item_id": "C-138",
+      "state": "HOLD",
+      "route": "ROLLUP",
+      "reason": "aggregate investment disclosure atoms without a duplicate model result"
+    },
+    {
+      "item_id": "D-155",
+      "state": "HOLD",
+      "route": "PRODUCT_CONTENT_CONDITIONED_PENDING_POLICY",
+      "reason": "distinguish superiority claims from statutory maximum statements"
+    },
+    {
+      "item_id": "D-170",
+      "state": "HOLD",
+      "route": "DECOMPOSE_AND_ROLLUP",
+      "reason": "split into rate, payment-time and cost obligations before any residual rule"
+    },
+    {
+      "item_id": "D-187",
+      "state": "HOLD",
+      "route": "CARD_ONLY_OUTSIDE_CURRENT_SCOPE",
+      "reason": "direct source is a specialized card/credit online guideline"
+    },
+    {
+      "item_id": "D-198",
+      "state": "HOLD",
+      "route": "PRODUCT_CONTENT_CONDITIONED_EXTERNAL_OR_HUMAN",
+      "reason": "requires actual past performance, period context and comparison source"
+    }
+  ]
+}

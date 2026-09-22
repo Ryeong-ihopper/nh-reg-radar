@@ -25,7 +25,10 @@ from rag.judgment.policy import routing_field
 from rag.parsing.parser_contract_adapter import adapt_p1_p3
 
 
-MAX_FINE_CHARS = 700
+# A packing target, not a hard split point. An atomic parser line or visual
+# table row may exceed it because cutting an unverified semantic unit merely
+# to satisfy a length limit can separate a condition from its obligation.
+TARGET_FINE_CHARS = 700
 # ``\d+[.)]``는 번호 매기기 말머리를 뜻한다. 뒤에 숫자가 이어지면 그것은
 # 말머리가 아니라 소수(0.7)나 날짜(2026.6.22.)이므로 자르지 않는다.
 BULLET_START = re.compile(
@@ -35,6 +38,9 @@ BULLET_START = re.compile(
 # 표 영역은 라벨 셀과 값 셀이 서로 다른 파서 라인으로 나온다. 두 라인의 세로
 # 구간이 이만큼 겹치면 같은 시각적 행으로 본다.
 ROW_OVERLAP_RATIO = 0.5
+PAGE_CHROME_LAYOUTS = {
+    "header", "footer", "page_header", "page_footer", "navigation", "nav", "menu"
+}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -70,6 +76,34 @@ def search_text(text: str) -> str:
     if compact(value) != compact(original):
         raise ValueError("search normalization changed canonical characters")
     return value
+
+
+def source_role(region: dict[str, Any]) -> tuple[str, str]:
+    """Preserve parser structure as evidence scope, without guessing semantics.
+
+    Explicit header/footer/navigation layout is shared page chrome. Everything
+    else remains advertisement content; text keywords never assign this role.
+    """
+    layout = region.get("layout") or {}
+    label = str(layout.get("label") or "").strip().lower()
+    if label in PAGE_CHROME_LAYOUTS:
+        return "PAGE_CHROME", f"parser_layout:{label}"
+    return "ADVERTISEMENT_CONTENT", "parser_layout:content_or_unclassified"
+
+
+def page_source_roles(page: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """Return the parser-declared source role of every region on one page.
+
+    Position is not a role.  A full-page web capture places the product hero
+    banner inside the top fifth of the image and the mandatory disclosures
+    just above the menu, so an edge-zone rule demotes the product name, the
+    principal-loss notice and the compliance approval line to page chrome and
+    removes them from body-rule evidence.  Only an explicit parser layout
+    label assigns this role; generic navigation wording is rejected after
+    judgment by ``rag.judgment.source_checks`` instead.
+    """
+    return {str(region.get("region_id")): source_role(region)
+            for region in page.get("regions") or []}
 
 
 def parser_classification_field(
@@ -179,11 +213,19 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
         for region in page.get("regions") or []:
             region_id = str(region.get("region_id") or "")
             lines_raw = region.get("lines") or []
-            if not lines_raw:
-                continue
             region_p3 = p3_regions.get(region_id)
+            if not lines_raw and region_p3 is None:
+                # A layout-only/illustrative region carries no searchable text.
+                continue
             if region_p3 is None:
                 raise ValueError(f"P3 missing non-empty region {page_no}/{region_id}")
+            if (
+                not lines_raw
+                and not str(region_p3.get("review_text") or "").strip()
+            ):
+                continue
+            if not lines_raw and not region.get("bbox"):
+                raise ValueError(f"P3 text has no P1 region bbox: {page_no}/{region_id}")
             labels, rejected_spans = _validated_labels(region_p3)
             by_line = _label_by_line({"labels": labels})
             selection = copy.deepcopy(region_p3.get("text_selection") or {})
@@ -218,6 +260,8 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
                 "lines": lines,
                 "labels": labels,
                 "assignment_status": (
+                    "unassigned" if not lines
+                    else
                     "unassigned" if labelled_count == 0
                     else "assigned" if labelled_count == len(lines)
                     else "mixed"
@@ -464,14 +508,14 @@ def _split_oversized(
     """항목 하나가 상한을 넘으면 행 경계에서만 나눈다."""
     output: list[list[dict[str, Any]]] = []
     for group, rows in zip(groups, rows_by_group):
-        if sum(len(part["text"]) for part in group) <= MAX_FINE_CHARS:
+        if sum(len(part["text"]) for part in group) <= TARGET_FINE_CHARS:
             output.append(group)
             continue
         current: list[dict[str, Any]] = []
         size = 0
         for row in rows:
             row_size = sum(len(part["text"]) for part in row)
-            if current and size + row_size > MAX_FINE_CHARS:
+            if current and size + row_size > TARGET_FINE_CHARS:
                 output.append(current)
                 current, size = [], 0
             current.extend(row)
@@ -539,6 +583,61 @@ def _selected_text_line_refs(region: dict[str, Any]) -> list[str] | None:
                         bucket.append(candidate)
         paths = next_paths
     return list(matches[0]) if matches else None
+
+
+def _single_line_agreement_refs(
+    region: dict[str, Any], selected_text: str
+) -> list[str] | None:
+    """Return one parser line which independently agrees with a P3 sentence.
+
+    OCR often omits only the final sentence stop while the VLM-selected text
+    retains it.  That harmless difference must not make an exact disclosure
+    inherit uncertainty caused by corrections on other lines in a large
+    region.  Keep this deliberately narrow: one complete source line, a
+    unique match, and whitespace/final-stop differences only.
+    """
+    target = compact(selected_text).rstrip(".。").strip()
+    if not target:
+        return None
+    matches = [
+        str(line["line_ref"])
+        for line in region.get("lines") or []
+        if compact(str(line.get("text") or "")).rstrip(".。").strip() == target
+    ]
+    return matches if len(matches) == 1 else None
+
+
+def _fine_selection(
+    region: dict[str, Any], view: dict[str, Any], aligned: bool
+) -> dict[str, Any]:
+    """Project region reading quality to the exact fine-text span.
+
+    A region-level VLM review flag remains conservative by default.  It may be
+    cleared for one fine view only when the VLM judge reported full confidence
+    and the selected sentence independently agrees with one unique OCR line.
+    Corrections on every other line remain review-required.
+    """
+    selection = _selection_for_alignment(region, aligned)
+    if not aligned or selection.get("needs_review") is False:
+        return selection
+    if (
+        selection.get("selection_status") != "judge_selected_vlm_requires_review"
+        or selection.get("confidence") != 1.0
+    ):
+        return selection
+    refs = view.get("line_refs") or []
+    agreed = _single_line_agreement_refs(region, str(view.get("text_canonical") or ""))
+    if agreed != refs:
+        return selection
+    selection.update(
+        selection_status="independent_line_agreement",
+        needs_review=False,
+        reason=(
+            str(selection.get("reason") or "")
+            + "; 해당 세부 문장은 P3 선택문과 P1 OCR 단일 줄이 독립 일치"
+        ).lstrip("; "),
+    )
+    return selection
 
 
 def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
@@ -611,7 +710,7 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
         for unit in units:
             starts_bullet = bool(BULLET_START.match(unit[0]["text"]))
             unit_size = sum(len(part["text"]) for part in unit)
-            if current and (starts_bullet or size + unit_size > MAX_FINE_CHARS):
+            if current and (starts_bullet or size + unit_size > TARGET_FINE_CHARS):
                 groups.append(current)
                 current, size = [], 0
             current.extend(unit)
@@ -621,12 +720,20 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for index, group in enumerate(groups, 1):
         text = "\n".join(part["text"] for part in group)
-        refs = evidence_refs or list(dict.fromkeys(part["line_ref"] for part in group))
+        refs = (
+            evidence_refs
+            if evidence_refs is not None
+            else list(dict.fromkeys(
+                part["line_ref"] for part in group if part.get("line_ref")
+            ))
+        )
         view_span_status = span_status
         if span_status == "region_level_selected_text":
             # A correction elsewhere in the region must not prevent proving
             # the exact source of an unchanged fine view. Never fuzzy-match.
             aligned = _selected_text_line_refs({**region, "final_text": text})
+            if not aligned:
+                aligned = _single_line_agreement_refs(region, text)
             if aligned:
                 refs = aligned
                 view_span_status = "selected_text_line_aligned"
@@ -702,6 +809,7 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
         ),
     }
     for page in ad["pages"]:
+        page_roles = page_source_roles(page)
         # Unassigned canonical lines still belong to this advertisement. Give
         # each a search projection without inventing a parser region or label.
         unassigned_views = [
@@ -722,6 +830,9 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
         for region in [*page["regions"], *unassigned_views]:
             if not region["final_text"].strip():
                 continue
+            evidence_role, role_basis = page_roles.get(
+                str(region.get("region_id")), source_role(region)
+            )
             base = {
                 "schema_version": SEARCH_DOCUMENT_VERSION,
                 "ad_id": meta["ad_id"],
@@ -735,6 +846,9 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                 "page_no": page["page_no"],
                 "region_id": region["region_id"],
                 "bbox": region["bbox"],
+                "layout": copy.deepcopy(region.get("layout")),
+                "source_role": evidence_role,
+                "source_role_basis": role_basis,
                 "labels": region["labels"],
                 "assignment_status": region["assignment_status"],
                 "text_selection": copy.deepcopy(region.get("text_selection") or {}),
@@ -773,7 +887,7 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                     **view,
                     "parent_chunk_id": view["parent_doc_id"],
                     "labels": labels,
-                    "text_selection": _selection_for_alignment(region, aligned),
+                    "text_selection": _fine_selection(region, view, aligned),
                     "line_texts": {
                         ref: line_text_by_ref[ref]
                         for ref in view["line_refs"] if ref in line_text_by_ref

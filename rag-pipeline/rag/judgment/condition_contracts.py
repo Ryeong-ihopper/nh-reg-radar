@@ -14,6 +14,10 @@ import re
 from typing import Any, Iterable
 from rag.judgment.temporal import date_window_clauses
 from rag.judgment.source_checks import source_scope_clauses, quoted_required_clauses
+from rag.judgment.obligation_logic import (
+    validate_applicability_expression,
+    validate_expression,
+)
 
 
 VERSION = "rule-applicability-contract-v2"
@@ -126,12 +130,52 @@ def compile_condition_contract(rule: dict[str, Any]) -> dict[str, Any]:
             seen_requirements.add(text)
             obligations.append({"obligation_id": f"O{len(obligations) + 1}", "text": text,
                 "source": "bound_guide.requirements", "guide_id": guide.get("guide_id")})
+    # Only explicit, unconditional source-marked alternatives can be split
+    # here. Mixed/conditional source paragraphs retain their complete O1;
+    # missing structure never authorizes inventing an atomic checklist.
+    basis = rule.get("template_basis") or {}
+    members = basis.get("alternative_members") or []
+    explicit_alternatives = (
+        rule.get("source_sheet") == "HWPX_TEMPLATE"
+        and basis.get("alternative_policy") == "ANY_OF"
+        and isinstance(members, list) and len(members) > 1
+        and not rule.get("decision_guides")
+        and not guide_conditions and not review_conditions
+        and not basis.get("manual_review_required")
+        and all(isinstance(m, dict)
+                and m.get("source_sheet") == "HWPX_TEMPLATE"
+                and m.get("template_required") in {"O", "REQUIRED"}
+                and str(m.get("criterion") or "").strip()
+                and str(m.get("source_ref") or "").strip()
+                for m in members)
+    )
+    if explicit_alternatives:
+        obligations = []
+        methods = []
+        for member in members:
+            # A method's explicit dates/quoted requirements belong to that
+            # method, not to every other allowed alternative.
+            texts = _texts([member["criterion"], *date_window_clauses(member["criterion"]),
+                            *quoted_required_clauses(member["criterion"])])
+            branch = []
+            for text in texts:
+                obligation_id = f"O{len(obligations) + 1}"
+                obligations.append({"obligation_id": obligation_id, "text": text,
+                                    "source": "template_alternative", "source_ref": member["source_ref"]})
+                branch.append({"ref": obligation_id})
+            methods.append(branch[0] if len(branch) == 1 else {"all": branch})
+        logic = {"any": methods}
+    else:
+        logic = {"all": [{"ref": value["obligation_id"]} for value in obligations]}
+    validate_expression(logic, [value["obligation_id"] for value in obligations])
     source_fields = {
         "title": str(rule.get("title") or "").strip(),
         "question": question,
         "criterion": criterion,
         "v2_note": source_note,
         "obligation_checks": obligations,
+        "obligation_logic": logic,
+        "rule_relations": list(rule.get("rule_relations") or []),
     }
     source_bytes = json.dumps(
         source_fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -158,12 +202,14 @@ def compile_condition_contract(rule: dict[str, Any]) -> dict[str, Any]:
         ),
         "applicability_conditions": conditions,
         "review_conditions": _condition_rows(review_conditions, "U"),
+        "rule_relations": list(rule.get("rule_relations") or []),
         "obligation": {
             "obligation_id": "O1",
             "text": criterion,
             "source": "criterion",
         },
         "obligation_checks": obligations,
+        "obligation_logic": logic,
         "obligation_policy": (
             "Check each source O reference separately after passing the gates. "
             "O1 retains the whole criterion including its exceptions and alternative methods. "
@@ -171,16 +217,148 @@ def compile_condition_contract(rule: dict[str, Any]) -> dict[str, Any]:
             "A compound source paragraph is not a certified atomic checklist; do not claim "
             "all elements are verified when applicability or evidence for any required element is unknown."
         ),
-        "obligation_structure": "SOURCE_PLUS_EXPLICIT_REQUIREMENTS" if len(obligations) > 1 else "SOURCE_TEXT_ONLY",
+        "obligation_structure": (
+            "SOURCE_EXPLICIT_ALTERNATIVES" if explicit_alternatives else
+            "SOURCE_PLUS_EXPLICIT_REQUIREMENTS" if len(obligations) > 1 else "SOURCE_TEXT_ONLY"
+        ),
         "unknown_policy": "UNDETERMINED",
     }
+    if explicit_alternatives:
+        contract["obligation_policy"] = (
+            "Each branch preserves one source-marked allowed method including its conditions. "
+            "Its O checks retain the whole method and any separately extracted explicit requirements. "
+            "Check all O references separately. ANY requires one complete method, not parts "
+            "borrowed across methods. Example wording/numbers are not exact-match obligations. "
+            "Unknown method-specific scope or exceptions make that O UNDETERMINED."
+        )
     return contract
+
+
+def compile_canonical_condition_contract(rule: dict[str, Any]) -> dict[str, Any]:
+    """Project a reviewed canonical plan without reparsing its prose.
+
+    The canonical compiler already separated conditions, atomic obligations,
+    owners, evidence requirements and joins. Re-running the legacy prose
+    compiler would flatten those decisions and silently lose conditions.
+    """
+    plan = rule.get("canonical_execution_plan")
+    if not isinstance(plan, dict):
+        raise ValueError("canonical execution plan is required")
+    facts = [
+        {
+            "condition_id": value["fact_id"],
+            "text": value["name"],
+            "source": "canonical_execution_plan",
+            "condition_role": "FACT",
+            "owner": value["owner"],
+            "input_type": value["type"],
+            "unknown_policy": value.get("unknown_policy") or "UNDETERMINED",
+            **({"absence_policy": value["absence_policy"]}
+               if value.get("absence_policy") else {}),
+        }
+        for value in plan.get("applicability_inputs") or []
+    ]
+    fact_ids = [value["condition_id"] for value in facts]
+    applicability_logic = plan.get("applicability_logic")
+    validate_applicability_expression(applicability_logic, fact_ids)
+    obligations = [
+        {
+            "obligation_id": value["obligation_ref"],
+            "text": value["text"],
+            "source": "canonical_execution_plan",
+            "owners": value["owners"],
+            "evidence": value["evidence_contract"],
+            "interpretation_hints": value.get("interpretation_hints") or [],
+            **({"deterministic_adapter": value["deterministic_adapter"]}
+               if value.get("deterministic_adapter") else {}),
+        }
+        for value in plan.get("obligations") or []
+    ]
+    obligation_ids = [value["obligation_id"] for value in obligations]
+    obligation_logic = plan.get("obligation_logic")
+    validate_expression(obligation_logic, obligation_ids)
+    source_fields = {
+        "plan_ref": plan["plan_ref"],
+        "source_hash": plan["source_hash"],
+        "applicability_inputs": facts,
+        "applicability_logic": applicability_logic,
+        "obligations": obligations,
+        "obligation_logic": obligation_logic,
+    }
+    source_bytes = json.dumps(
+        source_fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    is_template = rule.get("source_sheet") == "HWPX_TEMPLATE"
+    return {
+        "schema_version": VERSION,
+        "canonical_plan_ref": plan["plan_ref"],
+        "canonical_source_hash": plan["source_hash"],
+        "scope_ref": "SCOPE",
+        "scope_text": str(rule.get("question") or rule.get("title") or plan["plan_ref"]),
+        "scope_source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "scope_policy": "runtime-selected canonical product/template scope",
+        "scope_owner": "RULE",
+        "scope_metadata_fields": ["template_id" if is_template else "product_group"],
+        "product_groups": list(rule.get("product_groups") or []),
+        "product_subtype": rule.get("product_subtype"),
+        "applicability_mode": "CANONICAL_LOGIC",
+        "applicability_conditions": facts,
+        "applicability_logic": applicability_logic,
+        "review_conditions": [],
+        "rule_relations": list(rule.get("rule_relations") or []),
+        "obligation_checks": obligations,
+        "obligation_logic": obligation_logic,
+        "obligation_policy": (
+            "Observe every atomic obligation independently. The runtime computes the "
+            "authoritative ALL/ANY join; examples and neighboring rules are not evidence."
+        ),
+        "obligation_structure": "CANONICAL_ATOMIC",
+        "unknown_policy": "UNDETERMINED",
+    }
 
 
 def attach_condition_contracts(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for rule in rules:
-        rule["condition_contract"] = compile_condition_contract(rule)
+        rule["condition_contract"] = (
+            compile_canonical_condition_contract(rule)
+            if rule.get("canonical_execution_plan")
+            else compile_condition_contract(rule)
+        )
     return rules
+
+
+def audit_compiled_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
+    """Expose remaining source-text checks instead of claiming full atomization."""
+    rows = []
+    seen = set()
+    for rule in rules:
+        item_id = rule.get("item_id")
+        if not item_id or item_id in seen:
+            raise ValueError("compiled audit requires unique item IDs")
+        seen.add(item_id)
+        contract = rule["condition_contract"]
+        obligations = contract["obligation_checks"]
+        validate_expression(contract["obligation_logic"], [o["obligation_id"] for o in obligations])
+        rows.append({
+            "item_id": item_id,
+            "source_sheet": rule.get("source_sheet"),
+            "product_groups": rule.get("product_groups") or [],
+            "obligation_structure": contract["obligation_structure"],
+            "obligation_count": len(obligations),
+            "obligation_logic": contract["obligation_logic"],
+            "scope_source_sha256": contract["scope_source_sha256"],
+        })
+    return {
+        "schema_version": "compiled-obligation-audit-v1",
+        "rule_count": len(rows),
+        "structure_counts": {
+            structure: sum(row["obligation_structure"] == structure for row in rows)
+            for structure in ("SOURCE_TEXT_ONLY", "SOURCE_PLUS_EXPLICIT_REQUIREMENTS",
+                              "SOURCE_EXPLICIT_ALTERNATIVES", "CANONICAL_ATOMIC")
+        },
+        "coverage_note": "Expression coverage is not certified semantic clause coverage; source paragraphs remain indivisible where no explicit decomposition exists.",
+        "rules": rows,
+    }
 
 
 def rule_view_from_v2_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -198,6 +376,7 @@ def rule_view_from_v2_item(item: dict[str, Any]) -> dict[str, Any]:
         "guide": item.get("기재요령") or None,
         "standard_guidance": item.get("기재요령") or None,
         "decision_guides": [],
+        "rule_relations": list(item.get("규칙관계") or []),
     }
 
 

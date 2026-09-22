@@ -12,7 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "rag-pipeline"))
 from rag.judgment.reading_quality import (VERSION as READING_QUALITY_VERSION, apply_reading_guard,
                                           needs_reading_review, project_reading_citations)  # noqa: E402
-from rag.judgment.source_checks import unresolved_applicability, template_heading_only_citation  # noqa: E402
+from rag.judgment.source_checks import (observed_grounding_errors, unresolved_applicability,
+                                        template_heading_only_citation)  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.grounding import cited_window_text, ungrounded_source_quotes  # noqa: E402
 from rag.templates.catalog import required_observation_medium  # noqa: E402
@@ -202,6 +203,51 @@ def resolve_locations(document, judgment, evidence):
     return locations
 
 
+def resolve_chunk_locations(document, judgment, evidence):
+    """Project each cited retrieval chunk as labeled context geometry.
+
+    Exact judgment citations remain in ``evidence_locations``.  This separate
+    projection lets the reviewer see the full text window supplied to the
+    model without presenting every line in that window as the decisive quote.
+    """
+    cited_ids = list(dict.fromkeys(str(value) for value in judgment.get("evidence_ids") or []))
+    chunks = []
+    for evidence_id in cited_ids:
+        doc = evidence.get(evidence_id)
+        if not isinstance(doc, dict):
+            continue
+        refs = list(dict.fromkeys(str(value) for value in doc.get("line_refs") or []))
+        locations = resolve_locations(
+            document,
+            {"evidence_ids": [evidence_id], "evidence_line_refs": refs},
+            evidence,
+        )
+        grouped = {}
+        for location in locations:
+            group = (
+                location["pageNo"], location.get("asset_id"),
+                location.get("source_page_no"), location["width"], location["height"],
+            )
+            grouped.setdefault(group, []).append(location["bbox"])
+        for number, (group, boxes) in enumerate(grouped.items()):
+            page_no, asset_id, source_page_no, width, height = group
+            chunks.append({
+                "key": f"chunk:{evidence_id}:{page_no}:{number}",
+                "pageNo": page_no,
+                "bbox": [
+                    min(box[0] for box in boxes), min(box[1] for box in boxes),
+                    max(box[2] for box in boxes), max(box[3] for box in boxes),
+                ],
+                "width": width,
+                "height": height,
+                "asset_id": asset_id,
+                "source_page_no": source_page_no,
+                "precision": "CHUNK",
+                "evidence_id": evidence_id,
+            })
+    return chunks
+
+
 def resolve_review_locations(document, judgment, evidence):
     """Map uncertain source regions as review targets, never as judgment proof."""
     issues = (judgment.get("reading_quality_review") or {}).get("issues") or []
@@ -303,6 +349,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 if arithmetic_result and not prediction.get('reading_quality_review'):
                     prediction = arithmetic_result
                 applicability_audit = None
+                applicability_review_locations = []
                 reading_payload = reading_payloads.get((key, candidate['item_id']))
                 if reading_payload and prediction:
                     guarded = copy.deepcopy(prediction)
@@ -313,7 +360,8 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                             'reason': prediction.get('reason', ''), 'status': 'WITHHELD_BY_READING_GUARD'}
                         prediction = guarded
                 if prediction.get('verdict') in {'COMPLIANT', 'VIOLATION'}:
-                    inconsistent = False
+                    inconsistent = bool(reading_payload and observed_grounding_errors(
+                        reading_payload, {**prediction, 'item_id': candidate['item_id']}))
                     for check in prediction.get('requirement_checks') or []:
                         if check.get('finding_basis') != 'OBSERVED' or check.get('status') not in {'SATISFIED', 'VIOLATED'}:
                             continue
@@ -334,6 +382,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                                       'evidence_ids': [], 'evidence_line_refs': [], 'requirement_checks': [],
                                       'reason': '인용한 원문이 판정 내용의 근거가 되지 않아 자동 확정을 보류했습니다. 제목만 인용했거나 실제 문구와 맞지 않는지 원본 본문을 확인해야 합니다.'}
                 if unresolved_applicability(prediction):
+                    applicability_review_locations = resolve_locations(document, prediction, evidence)
                     applicability_audit = {'verdict': prediction['verdict'], 'reason': prediction.get('reason', ''),
                                            'status': 'WITHHELD_BY_APPLICABILITY_GUARD'}
                     prediction = {**prediction, 'verdict': 'UNDETERMINED',
@@ -359,7 +408,9 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 if ad.get("product_name"):
                     title = f"{ad['product_name']} · {title}"
                 locations = resolve_locations(document, prediction, evidence)
-                review_locations = arithmetic_review_locations or resolve_review_locations(document, prediction, evidence)
+                chunk_locations = resolve_chunk_locations(document, prediction, evidence)
+                review_locations = (arithmetic_review_locations or applicability_review_locations
+                                    or resolve_review_locations(document, prediction, evidence))
                 location_status = "MAPPED" if locations else "NO_CITATION"
                 if not locations and text:
                     location_status = "UNRESOLVED_REFERENCE"
@@ -384,6 +435,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                     "evidence_ids": prediction.get("evidence_ids", []),
                     "evidence_line_refs": prediction.get("evidence_line_refs", []),
                     "evidence_locations": locations,
+                    "chunk_locations": chunk_locations,
                     "review_locations": review_locations,
                     "evidence_location_status": location_status,
                     "reading_quality_review": prediction.get("reading_quality_review"),
@@ -409,9 +461,14 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 if not any(row.get('scope_id') == scope['ad_id'] and row.get('item_id') == source.get('item_id')
                            and row.get('reason') == source.get('reason') for row in deferred):
                     deferred.append(dict(source, scope_id=scope['ad_id']))
-            deferred.extend({"scope_id": scope["ad_id"], "item_id": item,
-                             "reason": "execution_budget_not_inapplicability"}
-                            for item in scope.get("candidate_budget", {}).get("deferred_ids", []))
+            budget = scope.get("candidate_budget", {})
+            # Discovery audit rows are outside the approved execution catalog;
+            # they are diagnostics, not omitted judgments for the workspace.
+            if (budget.get("method") != "discovery_audit_only_v1"
+                    and budget.get("deferred_reason") != "outside_formal_execution_scope"):
+                deferred.extend({"scope_id": scope["ad_id"], "item_id": item,
+                                 "reason": "execution_budget_not_inapplicability"}
+                                for item in budget.get("deferred_ids", []))
     for row in deferred:
         row["deferred_kind"] = (
             "EXECUTION_BUDGET" if row.get("reason") == "execution_budget_not_inapplicability"
@@ -452,6 +509,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
             "evidence_ids": [],
             "evidence_line_refs": [],
             "evidence_locations": [],
+            "chunk_locations": [],
             "review_locations": reading_locations,
             "evidence_location_status": "NO_CITATION",
             "reading_quality_review": {"policy": READING_QUALITY_VERSION, "issues": reading_issues},
@@ -554,12 +612,34 @@ def consolidate_review_rows(rows, review_rows, deferred, scoped, coverage, *, do
                 'title': entry.get('title') or titles.get(item) or rule.get('title') or '사람 확인이 필요한 점검항목',
                 'question': entry.get('question') or rule.get('question', ''),
                 'criterion': rule.get('criterion', ''), 'verdict': '판단불가', 'reason': '',
-                'evidence': '', 'evidence_ids': [], 'evidence_line_refs': [], 'evidence_locations': [],
+                'evidence': '', 'evidence_ids': [], 'evidence_line_refs': [],
+                'evidence_locations': [], 'chunk_locations': [],
                 'evidence_location_status': 'NO_CITATION', 'requirement_checks': [],
                 'template_section': basis.get('template_section'),
                 'template_requirement': basis.get('requirement_mode'),
                 'rule_basis': entry.get('rule_basis'), 'judgment_scope': 'RULE'}
         row = by_pair[pair]
+        # A visual rule has no model citation, but its retrieval trigger is the
+        # exact place a reviewer should inspect. Keep that distinction in the
+        # UI model: review_locations carries geometry while evidence_locations
+        # remains reserved for automated judgment citations.
+        trigger = next(iter(entry.get('trigger_evidence') or []), {}).get('trigger') or {}
+        trigger_refs = list(dict.fromkeys(str(value) for value in trigger.get('line_refs') or []))
+        if trigger_refs:
+            trigger_locations = resolve_locations(
+                document or {}, {'evidence_line_refs': trigger_refs}, {}
+            )
+            if trigger_locations:
+                known = {value.get('key') for value in row.get('review_locations') or []}
+                row['review_locations'] = [
+                    *(row.get('review_locations') or []),
+                    *(value for value in trigger_locations if value.get('key') not in known),
+                ]
+                row['evidence_line_refs'] = list(dict.fromkeys([
+                    *(row.get('evidence_line_refs') or []), *trigger_refs,
+                ]))
+                if trigger.get('text') and not row.get('evidence'):
+                    row['evidence'] = str(trigger['text'])
         line_observation = verified_separate_notice_lines(document or {}, entry)
         if line_observation and row.get("verdict") == "충족":
             row["judgment_scope"] = "RULE"

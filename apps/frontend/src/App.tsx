@@ -18,7 +18,8 @@ import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pag
 import { StandardManagementPage } from "./pages/StandardManagementPage";
 import { ValidationDatasetsPage, ValidationEvaluationPage } from "./pages/ValidationPage";
 import nhBankLogo from "./assets/brand/nh-bank-logo.png";
-import { operationalMode } from "./api/operational";
+import cgInsideLogo from "./assets/brand/cg-inside-logo.png";
+import { localAuthBypass, operationalMode } from "./api/operational";
 
 const ADVERTISEMENT_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"]);
 const CREATE_ROLES = new Set(["PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"]);
@@ -63,8 +64,8 @@ function Shell() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        {session ? <Link className="brand" to={homePath(session.user.roles)}><img className="brand-mark brand-mark--inverse" src={nhBankLogo} alt="NH농협은행" /><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></Link> : <div className="brand"><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></div>}
-        {session ? <div className="account-context"><span><strong>{session.user.userName}</strong><small>{session.user.departmentName}</small></span><button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button></div> : null}
+        {session ? <Link className="brand" to={homePath(session.user.roles)}><img className="brand-mark brand-mark--inverse" src={nhBankLogo} alt="NH농협은행" /><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></Link> : <div className="brand"><img className="brand-mark brand-mark--inverse" src={nhBankLogo} alt="NH농협은행" /><span><strong>광고심의 적정성 검토</strong><small>광고 검토 업무 시스템</small></span></div>}
+        <div className="header-partners">{session ? <div className="account-context"><span><strong>{session.user.userName}</strong><small>{session.user.departmentName}</small></span>{!localAuthBypass ? <button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button> : null}</div> : null}<img className="partner-mark" src={cgInsideLogo} alt="씨지인사이드" /></div>
       </header>
       <div className={session ? "app-workspace" : "app-workspace app-workspace--public"} data-sidebar-collapsed={session ? sidebarCollapsed : undefined} data-operational={session && operationalMode ? "true" : undefined}>
         {session && !operationalMode ? <aside className="app-sidebar">

@@ -2,11 +2,61 @@
 import re
 from decimal import Decimal
 
-from rag.judgment.grounding import cited_window_text
+from rag.judgment.grounding import cited_window_text, grounded_source_excerpt_present
+from rag.judgment.reading_quality import claims_disclosure_absence
 from rag.templates.catalog import required_observation_medium
 
 QUOTED_REQUIRED = re.compile(r"[‘'\"]([^’'\"\n]{1,60})[’'\"]\s*(?:기재|표시)\s*필수")
 AD_SCOPE = re.compile(r"[（(]([^()（）\n]*(?:없는|있는)\s*광고)\s*[)）]")
+
+# Conservative markers for shared website chrome. These are generic UI
+# elements, not advertisement-specific answers. A product breadcrumb that
+# contains the actual product name does not match merely because it is near a
+# page header.
+PAGE_CHROME = re.compile(
+    r'금융상품몰|계열사|관련사이트|보안센터|전자민원|개인정보처리|'
+    r'금융소비자정보포털|상품공시실|전화상담|이메일상담|고객행복센터|'
+    r'고객센터|상담시간|copyright|all\s+rights\s+reserved',
+    re.IGNORECASE,
+)
+CHROME_FACT_RULE = re.compile(
+    r'(?:금융회사|판매업자|금융상품판매업자|회사|은행|상호).{0,20}(?:명칭|이름)|'
+    r'(?:명칭|이름).{0,20}(?:금융회사|판매업자|회사|은행)|'
+    r'연락처|전화번호|이메일|홈페이지|웹사이트|사이트\s*주소|URL|링크|접속',
+    re.IGNORECASE,
+)
+
+
+def rule_accepts_page_chrome(rule):
+    """Whether shared page chrome can directly prove the fact being checked."""
+    rule_text = ' '.join(str(rule.get(key) or '') for key in (
+        'title', 'question', 'criterion', 'guide', 'standard_guidance'))
+    return bool(CHROME_FACT_RULE.search(rule_text))
+
+
+def evidence_rows_for_rule(rule, rows, *, keep_doc_ids=()):
+    """Remove structurally identified page chrome before body-rule retrieval.
+
+    Evidence already discovered as a trigger stays in the pool. Dropping it
+    would leave the retrieved window disagreeing with the discovery record,
+    which reads downstream as a missing source rather than as excluded chrome.
+    """
+    if rule_accepts_page_chrome(rule):
+        return list(rows)
+    keep = set(keep_doc_ids)
+    return [row for row in rows
+            if row.get('source_role') != 'PAGE_CHROME' or row.get('doc_id') in keep]
+
+EXTERNAL_VERIFICATION_NOTE = re.compile(
+    r'(?:상품설명서|원자료|외부\s*자료).{0,20}(?:대조|확인).{0,10}필요|'
+    r'(?:대조|원자료\s*확인).{0,10}필요'
+)
+CERTAINTY_RULE = re.compile(r'불확실.{0,20}(?:단정|확정)|단정적\s*판단')
+CERTAINTY_MARKER = re.compile(
+    r'확실(?:히)?|틀림없이|반드시|무조건|(?<!비)보장|확정|변함없이|앞으로도\s*계속|'
+    r'하면\s*됩니다|수익률\s*\d+(?:\.\d+)?\s*%'
+)
+NEGATED_GUARANTEE = re.compile(r'비보장|보장(?:되지|하지)\s*않\w*|보장할\s*수\s*없\w*')
 
 
 def unresolved_applicability(result):
@@ -93,6 +143,16 @@ def template_heading_only_citation(rule, check, documents):
     fields = (rule.get('template_basis') or {}).get('fields') or {}
     label = str((fields.get('label') or {}).get('text') or rule.get('title') or '').strip()
     example = str(rule.get('example_text') or (fields.get('example') or {}).get('text') or '').strip()
+    if not example:
+        canonical_plan = (rule.get('canonical_execution_plan')
+                          or (rule.get('template_basis') or {}).get('canonical_plan') or {})
+        example = next((
+            str(hint.get('text') or '').strip()
+            for obligation in canonical_plan.get('obligations') or []
+            for hint in obligation.get('interpretation_hints') or []
+            if hint.get('role') == 'NON_BINDING_SOURCE_EXAMPLE'
+            and str(hint.get('text') or '').strip()
+        ), '')
     if not label or len(example) <= len(label):
         return False
     refs = check.get('evidence_line_refs') or []
@@ -100,10 +160,123 @@ def template_heading_only_citation(rule, check, documents):
     text = (cited_window_text(refs, documents) if refs else
             '\n'.join(str(d.get('text') or '') for d in documents if d.get('evidence_id') in ids))
     lines = [line.strip(' •●■※:：[]') for line in text.splitlines() if line.strip()]
+    criterion = str(rule.get('criterion') or '')
+    normalized_example = re.sub(r'\s+', '', example)
+    normalized_citation = re.sub(r'\s+', '', ''.join(lines))
+    # When the source expressly defines compliance by semantic similarity to
+    # a substantive example, a short noun fragment cannot prove the complete
+    # meaning. This is length/role validation only; it neither requires exact
+    # example wording nor turns the example into advertisement evidence.
+    if (re.search(r'예시\s*문구와\s*유사(?:한\s*)?(?:의미|문구)', criterion)
+            and len(normalized_example) >= 16
+            and 0 < len(normalized_citation) < 12):
+        return True
+    if (re.search(r'예시\s*문구와\s*유사(?:한\s*)?(?:의미|문구)', criterion)
+            and len(normalized_example) >= 16 and len(normalized_citation) >= 12):
+        example_chars = re.sub(r'[^가-힣A-Za-z0-9]', '', example)
+        citation_chars = re.sub(r'[^가-힣A-Za-z0-9]', '', ''.join(lines))
+        example_trigrams = {example_chars[index:index + 3]
+                            for index in range(max(0, len(example_chars) - 2))}
+        citation_trigrams = {citation_chars[index:index + 3]
+                             for index in range(max(0, len(citation_chars) - 2))}
+        # Sentence endings are shared by unrelated Korean disclosures and are
+        # not meaningful lexical anchors (for example, both may end in
+        # "합니다").  Keep the veto conservative by ignoring only these
+        # grammar-only spans.
+        grammar_trigrams = {
+            ending[index:index + 3]
+            for ending in ('합니다', '됩니다', '있습니다', '없습니다', '바랍니다')
+            for index in range(max(0, len(ending) - 2))
+        }
+        example_trigrams -= grammar_trigrams
+        citation_trigrams -= grammar_trigrams
+        # Zero lexical anchors is a conservative mismatch veto. A paraphrase
+        # with any shared substantive three-character span proceeds to LLM
+        # review; this check never declares compliance by itself.
+        if example_trigrams and citation_trigrams and not example_trigrams & citation_trigrams:
+            return True
     # Only a bare source label or short noun prefix plus that label qualifies.
     # Sentence endings, conditions, rates and other body text fail this match.
     heading = re.compile(r'(?:[가-힣A-Za-z]{1,8}\s+){0,2}' + re.escape(label))
     return bool(lines) and all(heading.fullmatch(line) for line in lines)
+
+
+def page_chrome_only_citation(rule, check, documents):
+    """Reject shared site chrome as proof of an unrelated body disclosure.
+
+    Header, footer and navigation text can still prove the company identity,
+    contact detail or link it directly states. It cannot prove product terms,
+    fees, review procedure or other disclosure content merely by proximity.
+    """
+    if check.get('finding_basis') != 'OBSERVED':
+        return False
+    if check.get('status') not in {'SATISFIED', 'VIOLATED'}:
+        return False
+    if rule_accepts_page_chrome(rule):
+        return False
+    refs = check.get('evidence_line_refs') or []
+    ids = set(check.get('evidence_ids') or [])
+    cited_documents = [
+        document for document in documents
+        if document.get('evidence_id') in ids
+        or set(document.get('line_refs') or []).intersection(refs)
+    ]
+    if cited_documents and all(
+        document.get('source_role') == 'PAGE_CHROME'
+        for document in cited_documents
+    ):
+        return True
+    text = (cited_window_text(refs, documents) if refs else
+            '\n'.join(str(d.get('text') or '') for d in documents
+                      if d.get('evidence_id') in ids))
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return bool(lines) and all(
+        len(line) <= 180 and PAGE_CHROME.search(line) for line in lines
+    )
+
+
+def observed_grounding_errors(payload, result):
+    """Validate model-observed facts against their exact cited advertisement lines."""
+    rule = next((r for r in payload.get('rules', [])
+                 if r.get('item_id') == result.get('item_id')), {})
+    documents = payload.get('documents') or []
+    rule_text = ' '.join(str(rule.get(key) or '') for key in (
+        'title', 'question', 'criterion', 'v2_note'))
+    errors = []
+    for index, check in enumerate(result.get('requirement_checks') or []):
+        if (not isinstance(check, dict) or check.get('finding_basis') != 'OBSERVED'
+                or check.get('status') not in {'SATISFIED', 'VIOLATED'}):
+            continue
+        refs = check.get('evidence_line_refs') or []
+        text = cited_window_text(refs, documents)
+        if (claims_disclosure_absence(check, str(result.get('reason') or ''))
+                and check.get('finding_basis') != 'ABSENCE'):
+            errors.append(
+                f"{result.get('item_id')}: requirement_checks[{index}] 누락 주장은 "
+                "OBSERVED가 아니라 ABSENCE 근거와 전체 판독을 사용해야 함"
+            )
+        if (refs and not claims_disclosure_absence(check, str(result.get('reason') or ''))
+                and not requires_arithmetic_consistency(rule.get('criterion', ''))
+                and not grounded_source_excerpt_present(str(check.get('reason') or ''), text)):
+            errors.append(
+                f"{result.get('item_id')}: requirement_checks[{index}] 관찰 판정 사유에 "
+                "인용한 원문 줄의 직접 인용이 없음; 실제 지지 문구를 따옴표로 "
+                "제시하고 그 문구가 있는 줄만 인용해야 함"
+            )
+        if (check.get('status') == 'VIOLATED' and EXTERNAL_VERIFICATION_NOTE.search(
+                str(rule.get('v2_note') or ''))):
+            errors.append(
+                f"{result.get('item_id')}: requirement_checks[{index}] 규칙이 요구하는 "
+                "외부 자료 대조 없이 광고 원문만으로 위반을 확정할 수 없음"
+            )
+        if check.get('status') == 'VIOLATED' and CERTAINTY_RULE.search(rule_text):
+            assertion_text = NEGATED_GUARANTEE.sub('', text)
+            if not CERTAINTY_MARKER.search(assertion_text):
+                errors.append(
+                    f"{result.get('item_id')}: requirement_checks[{index}] 인용 원문에 "
+                    "불확실한 사항을 확정하는 표현이 없어 단정적 판단 위반을 확정할 수 없음"
+                )
+    return errors
 
 
 def source_claim_errors(payload, result):
@@ -112,11 +285,17 @@ def source_claim_errors(payload, result):
     documents = payload.get('documents') or []
     errors = ([f"{result.get('item_id')}: explanation says applicability cannot be determined; unknown is UNDETERMINED, not NOT_APPLICABLE"]
               if unresolved_applicability(result) else [])
+    errors.extend(observed_grounding_errors(payload, result))
     for index, check in enumerate(result.get('requirement_checks') or []):
         if not isinstance(check, dict):
             continue
         if template_heading_only_citation(rule, check, documents):
             errors.append(f"{result.get('item_id')}: requirement_checks[{index}] template heading alone cannot establish the required body disclosure")
+        if page_chrome_only_citation(rule, check, documents):
+            errors.append(
+                f"{result.get('item_id')}: requirement_checks[{index}] shared page chrome "
+                "cannot establish an unrelated body disclosure"
+            )
         obligation = next((o for o in obligations if o.get('obligation_id') == check.get('obligation_ref')), {})
         match = QUOTED_REQUIRED.fullmatch(obligation.get('text', ''))
         if match and check.get('status') == 'SATISFIED':

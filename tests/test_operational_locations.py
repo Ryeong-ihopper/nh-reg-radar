@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from operational_locations import (load_template_appropriate_judgments, resolve_locations,
                                    local_reading_review, resolve_review_locations,
-                                   saved_workspace, valid_box, with_rendered_line_locations,
+                                   resolve_chunk_locations, saved_workspace, valid_box, with_rendered_line_locations,
                                    verified_separate_notice_lines)
 
 
@@ -125,7 +125,14 @@ def test_saved_absence_disguised_as_observed_is_projected_without_mutating_origi
     assert (raw, request) == frozen
     request['parser_coverage'] = 'FULL'
     request['evidence_scope']['SYNTHETIC']['complete_ad_scan'] = True
-    assert saved_workspace(raw, [request], source(), 'ADV')['rows'][0]['verdict'] == '위반'
+    # A complete scan does not make unrelated OBSERVED evidence a valid
+    # absence finding. The source contract still requires MISSING + ABSENCE.
+    complete = copy.deepcopy((raw, request))
+    row = saved_workspace(raw, [request], source(), 'ADV')['rows'][0]
+    assert row['verdict'] == '판단불가'
+    assert row['evidence_locations'] == []
+    assert row['model_assessment']['verdict'] == 'VIOLATION'
+    assert (raw, request) == complete
 
 
 def test_template_appropriate_judgment_guide_is_exact_and_display_only(tmp_path):
@@ -182,6 +189,7 @@ def test_unresolved_exclusion_is_visible_without_rewriting_saved_prediction():
     assert row['verdict'] == '판단불가'
     assert row['model_assessment']['verdict'] == 'NOT_APPLICABLE'
     assert row['evidence_locations'] == [] and row['evidence_ids'] == []
+    assert len(row['review_locations']) == 1
     assert raw == before and workspace['source_ads'] == raw['ads']
     judgment['reason'] = '대상 상품군이 달라 적용 대상이 아닙니다.'
     assert saved_workspace(raw, [], source(), 'ADV')['rows'] == []
@@ -215,6 +223,23 @@ def test_unassigned_and_asset_local_page_are_preserved():
     assert len(value) == 1
     assert (value[0]["pageNo"], value[0]["asset_id"], value[0]["source_page_no"]) == (2, "FILE-b", 1)
     assert value[0]["precision"] == "LINE"
+
+
+def test_chunk_projection_unions_cited_window_without_replacing_exact_line():
+    document = source()
+    document["pages"][0]["regions"][0]["lines"].append(
+        {"line_ref": "FILE-b::L2", "text": "context", "bbox": [2, 22, 90, 44]}
+    )
+    evidence = {"E": {"evidence_id": "E", "span_status": "parser_line_exact",
+                       "line_refs": ["FILE-b::L1", "FILE-b::L2"]}}
+    judgment = {"evidence_ids": ["E"], "evidence_line_refs": ["FILE-b::L1"]}
+
+    assert resolve_locations(document, judgment, evidence)[0]["bbox"] == [1, 2, 80, 20]
+    assert resolve_chunk_locations(document, judgment, evidence) == [{
+        "key": "chunk:E:2:0", "pageNo": 2, "bbox": [1, 2, 90, 44],
+        "width": 100, "height": 200, "asset_id": "FILE-b", "source_page_no": 1,
+        "precision": "CHUNK", "evidence_id": "E",
+    }]
 
 
 def test_conditional_template_title_exposes_the_actual_condition():
@@ -373,6 +398,30 @@ def test_manual_facets_merge_without_hiding_violations_or_counting_twice():
     assert raw == before
 
 
+def test_visual_deferred_rule_projects_retrieval_trigger_as_review_location():
+    deferred = [{
+        'item_id': 'VISUAL',
+        'title': '배경 대비',
+        'reason': '시인성은 사람 검토 대상입니다.',
+        'trigger_evidence': [{
+            'trigger': {
+                'doc_id': 'chunk-1',
+                'line_refs': ['FILE-b::L1'],
+                'text': '원금손실 위험 고지',
+            },
+        }],
+    }]
+    raw = {'ads': [{'ad_id': 'ADV', 'deferred_rules': deferred}]}
+    row = saved_workspace(raw, [], source(), 'ADV')['rows'][0]
+    assert row['item_id'] == 'VISUAL'
+    assert row['evidence_locations'] == []
+    assert row['evidence_location_status'] == 'NO_CITATION'
+    assert row['evidence'] == '원금손실 위험 고지'
+    assert row['evidence_line_refs'] == ['FILE-b::L1']
+    assert len(row['review_locations']) == 1
+    assert row['review_locations'][0]['bbox'] == [1, 2, 80, 20]
+
+
 def test_workspace_scopes_rules_and_preserves_failure_distinction():
     ads, requests = [], []
     for suffix in ("a", "b"):
@@ -400,6 +449,18 @@ def test_legacy_budget_omission_is_unknown_and_explicitly_incomplete():
     assert len(value['execution_omissions']) == 1
     assert all(row['verdict'] == '판단불가' for row in value['rows'])
     assert [row['item_id'] for row in value['rows']] == ['R2']
+
+
+def test_discovery_audit_only_rows_do_not_become_workspace_judgments():
+    raw = {"ads": [{"ad_id": "ADV", "scope_id": "S", "candidates": []}]}
+    discovery = {"ads": [{"ad_id": "S", "candidate_budget": {
+        "method": "discovery_audit_only_v1",
+        "deferred_reason": "outside_formal_execution_scope",
+        "deferred_ids": ["HOLD", "UNCLASSIFIED"],
+    }}]}
+    value = saved_workspace(raw, [], source(), "ADV", discovery)
+    assert value["rows"] == []
+    assert value["execution_omissions"] == []
 
 
 def test_recovered_legacy_result_uses_its_frozen_scope_coverage_without_mutation():

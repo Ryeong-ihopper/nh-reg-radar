@@ -70,10 +70,28 @@ class UnsupportedObservationTests(unittest.TestCase):
         self.assertEqual(guarded['validation_errors'], [])
         self.assertEqual(guarded['parsed']['results'][0]['verdict'], 'UNDETERMINED')
 
+    def test_missing_direct_quote_can_be_quarantined_after_retry(self):
+        request, response = self.fixture()
+        response['validation_errors'] = [
+            'TEST-X: requirement_checks[0] 관찰 판정 사유에 인용한 원문 줄의 직접 인용이 없음; '
+            '실제 지지 문구를 따옴표로 제시하고 그 문구가 있는 줄만 인용해야 함']
+        guarded = quarantine_unsupported_observations(request, response, gemma.validate)
+        self.assertEqual(guarded['validation_errors'], [])
+        self.assertEqual(guarded['parsed']['results'][0]['verdict'], 'UNDETERMINED')
+
+    def test_missing_external_comparison_can_be_quarantined_after_retry(self):
+        request, response = self.fixture()
+        response['validation_errors'] = [
+            'TEST-X: requirement_checks[0] 규칙이 요구하는 외부 자료 대조 없이 '
+            '광고 원문만으로 위반을 확정할 수 없음']
+        guarded = quarantine_unsupported_observations(request, response, gemma.validate)
+        self.assertEqual(guarded['validation_errors'], [])
+        self.assertEqual(guarded['parsed']['results'][0]['verdict'], 'UNDETERMINED')
+
     def test_independent_observed_violation_survives(self):
         request, response = self.fixture()
         check = copy.deepcopy(result("TEST-X")["requirement_checks"][0])
-        check.update(status="VIOLATED", reason="별도 원문에서 확인한 위반")
+        check.update(status="VIOLATED", reason="'테스트 근거'에서 확인한 위반")
         response["parsed"]["results"][0]["requirement_checks"].append(check)
         guarded = quarantine_unsupported_observations(request, response, gemma.validate)
         self.assertEqual(guarded["validation_errors"], [])

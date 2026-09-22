@@ -110,7 +110,23 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
     documents = payload.get("documents") or []
     unsafe = [doc for doc in documents if needs_reading_review(doc)]
     unsafe_ids = {str(doc.get("evidence_id")) for doc in unsafe}
-    unsafe_refs = {str(ref) for doc in unsafe for ref in doc.get("line_refs") or []}
+    # A region-level fallback carries every region line as conservative
+    # provenance.  It must not contaminate a separately aligned, clean fine
+    # view of one exact line from the same region.  Only line references which
+    # have no clean projection remain unsafe; the uncertain document ID itself
+    # is still unsafe when cited directly.
+    clean_refs = {
+        str(ref)
+        for doc in documents
+        if not needs_reading_review(doc)
+        for ref in doc.get("line_refs") or []
+    }
+    unsafe_refs = {
+        str(ref)
+        for doc in unsafe
+        for ref in doc.get("line_refs") or []
+        if str(ref) not in clean_refs
+    }
     scope = (payload.get("evidence_scope") or {}).get(result.get("item_id")) or {}
     incomplete = (
         payload.get("parser_coverage") == "PARTIAL"

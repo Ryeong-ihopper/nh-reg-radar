@@ -1,0 +1,38 @@
+{
+  "schema_version": "candidate-activation-policy-v1",
+  "regulation_sha256": [
+    "6989270c348983aac0e43579c25df55110aef805dccd4a2bbe926ca1fa3a8d7e",
+    "6124081621a56fa438ba681638fc24cff422f9bf0a569cda75cfd51113310394"
+  ],
+  "entries": [
+    {
+      "item_id": "C-046",
+      "execution_tier": "PRODUCT_CONTENT_CONDITIONED_V2",
+      "activation": "RETRIEVAL_HIT",
+      "source_fragment": "과거의 재무상태 또는 영업실적을 표기한 경우",
+      "evidence_trigger_any": ["재무상태", "영업실적"]
+    },
+    {
+      "item_id": "D-184",
+      "execution_tier": "PRODUCT_CONTENT_CONDITIONED_V2",
+      "activation": "RETRIEVAL_HIT",
+      "source_fragment": "실현되지 않은 수익률(예상·목표 수익률 등)을 표시하지 않았는가?",
+      "evidence_trigger_any": [
+        "예상수익률",
+        "목표수익률",
+        "기대수익률",
+        "전환목표수익률",
+        "약정수익률",
+        "추구수익률",
+        "절대수익 추구",
+        "공시수익률(모델포트폴리오)"
+      ]
+    },
+    {
+      "item_id": "D-240",
+      "execution_tier": "HUMAN_VISUAL_REVIEW",
+      "activation": "RETRIEVAL_HIT",
+      "source_fragment": "의무표시사항·위험고지·경고문구가 바탕(배경)색과 뚜렷이 구별되는 색상"
+    }
+  ]
+}

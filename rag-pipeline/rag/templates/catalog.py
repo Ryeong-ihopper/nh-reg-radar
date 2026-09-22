@@ -403,6 +403,9 @@ def group_explicit_alternatives(rules: list[dict]) -> list[dict]:
                     "", str(member.get("example_text") or ""), count=1
                 ).strip(),
                 "guide": member.get("guide") or "",
+                "criterion": member.get("criterion") or "",
+                "template_required": member.get("template_required"),
+                "source_sheet": member.get("source_sheet"),
             }
             for method, member in members
         ]

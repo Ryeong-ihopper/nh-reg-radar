@@ -123,6 +123,93 @@ class OutputContractTests(unittest.TestCase):
             self.assertEqual(call.call_count, 1)
             self.assertEqual(updated['parsed'], batch['parsed'])
 
+    def test_source_marked_presence_violation_gets_isolated_source_recheck(self):
+        row, payload, batch = self.focused_fixture()
+        original = batch['parsed']['results'][0]
+        original.update(verdict='VIOLATION', needs_researcher_review=True)
+        original['requirement_checks'][0].update(
+            status='MISSING', finding_basis='ABSENCE', evidence_ids=[], evidence_line_refs=[])
+        payload['rules'][0]['template_basis'] = {
+            'methodology': {'decision_mode': 'PRESENCE_ONLY'}
+        }
+        row['messages'][1]['content'] = json.dumps(payload)
+        retry_result = result('TEST-A')
+        retry_result.update(scope_check={'scope_ref': None, 'status': 'MATCHED'},
+                            condition_checks=[], review_condition_checks=[])
+        retry = {'parsed': {'ad_id': row['ad_id'], 'results': [retry_result]},
+                 'validation_errors': []}
+        with patch.object(gemma, 'call_with_retry', return_value=retry) as call:
+            updated = gemma.focus_unresolved_source_checks(
+                row, batch, None, None, 'test', 100)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(updated['parsed']['results'][0]['verdict'], 'COMPLIANT')
+        self.assertIn('[판정방식: 존재확인]', call.call_args.args[0]['messages'][-1]['content'])
+
+    def test_unmarked_presence_violation_is_not_retried(self):
+        row, payload, batch = self.focused_fixture()
+        batch['parsed']['results'][0].update(verdict='VIOLATION', needs_researcher_review=True)
+        batch['parsed']['results'][0]['requirement_checks'][0].update(
+            status='MISSING', finding_basis='ABSENCE', evidence_ids=[], evidence_line_refs=[])
+        row['messages'][1]['content'] = json.dumps(payload)
+        with patch.object(gemma, 'call_with_retry') as call:
+            updated = gemma.focus_unresolved_source_checks(
+                row, batch, None, None, 'test', 100)
+        call.assert_not_called()
+        self.assertIs(updated, batch)
+
+    def test_presence_absence_claim_cannot_use_violated_observed(self):
+        row = request_row(['TEST-A'])
+        payload = json.loads(row['messages'][1]['content'])
+        payload['documents'][0].update(
+            line_texts={'L-1': '고객투자유의사항'},
+            span_status='parser_line_exact',
+            text_selection={'needs_review': False},
+        )
+        payload['evidence_scope'] = {
+            'TEST-A': {'evidence_ids': ['E-1'], 'complete_ad_scan': True}
+        }
+        row['messages'][1]['content'] = json.dumps(payload, ensure_ascii=False)
+        judgment = result('TEST-A')
+        judgment.update(
+            verdict='VIOLATION', reason='설명받을 권리 안내 문구가 누락되었습니다.',
+            needs_researcher_review=True,
+        )
+        judgment['requirement_checks'][0].update(
+            status='VIOLATED', finding_basis='OBSERVED',
+            reason='설명받을 권리에 대한 안내 문구가 확인되지 않습니다.',
+        )
+        parsed = {'ad_id': row['ad_id'], 'results': [judgment]}
+        errors = gemma.validate(row, parsed)
+        self.assertTrue(any('표시의무 누락을 VIOLATED+OBSERVED로 우회함' in error
+                            for error in errors))
+        instruction = gemma.retry_contract_instruction(row, errors)
+        self.assertIn('동일 취지 문구가 있으면 SATISFIED+OBSERVED', instruction)
+
+    def test_presence_observed_violation_without_absence_claim_remains_valid(self):
+        row = request_row(['TEST-A'])
+        payload = json.loads(row['messages'][1]['content'])
+        payload['documents'][0].update(
+            line_texts={'L-1': '광고에 허용되지 않은 확정 표현'},
+            span_status='parser_line_exact',
+            text_selection={'needs_review': False},
+        )
+        payload['evidence_scope'] = {
+            'TEST-A': {'evidence_ids': ['E-1'], 'complete_ad_scan': True}
+        }
+        row['messages'][1]['content'] = json.dumps(payload, ensure_ascii=False)
+        judgment = result('TEST-A')
+        judgment.update(
+            verdict='VIOLATION', reason='허용되지 않은 확정 표현이 관찰되었습니다.',
+            needs_researcher_review=True,
+        )
+        judgment['requirement_checks'][0].update(
+            status='VIOLATED', finding_basis='OBSERVED',
+            reason='허용되지 않은 확정 표현이 관찰되었습니다.',
+        )
+        parsed = {'ad_id': row['ad_id'], 'results': [judgment]}
+        self.assertFalse(any('표시의무 누락을 VIOLATED+OBSERVED로 우회함' in error
+                             for error in gemma.validate(row, parsed)))
+
     def test_focus_single_request_does_not_mutate_original_messages(self):
         row, payload, batch = self.focused_fixture()
         row['requested_item_ids'] = ['TEST-A']

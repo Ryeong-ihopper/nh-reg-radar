@@ -44,7 +44,8 @@ test("redirects an unauthenticated root route to login and validates required cr
   render(<MemoryRouter><App initialSession={null} /></MemoryRouter>);
   expect(screen.getByRole("heading", { name: "로그인" })).toBeInTheDocument();
   expect(screen.queryByText("M2 보안 로그인")).not.toBeInTheDocument();
-  expect(screen.queryByRole("img", { name: "NH농협은행" })).not.toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "NH농협은행" })).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "씨지인사이드" })).toBeInTheDocument();
   expect(document.querySelector(".app-workspace")).toHaveClass("app-workspace--public");
   fireEvent.click(screen.getByRole("button", { name: "로그인" }));
   expect(screen.getByRole("alert")).toHaveTextContent("이메일과 비밀번호를 입력해 주세요.");
@@ -403,9 +404,31 @@ test("shows the current workflow step and links completed review history back to
   expect(screen.getByRole("navigation", { name: "광고 심의 업무 단계" }).querySelector('[aria-current="step"]')).toHaveTextContent("원본 확인");
   expect(screen.getByText("예금")).toBeInTheDocument();
   expect(screen.getByText("영업점 전단")).toBeInTheDocument();
-  expect(await screen.findByRole("link", { name: "다음 단계: 결과 확인" })).toHaveAttribute("href", "/reviews/REV-DONE/results");
+  expect(await screen.findByRole("link", { name: "AI 검토 요청" })).toHaveAttribute("href", "/advertisements/ADV-HISTORY/reviews/new");
+  expect(screen.queryByRole("link", { name: "다음 단계: 결과 확인" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "결과 확인" })).toHaveAttribute("href", "/reviews/REV-DONE/results");
   expect(screen.getByRole("link", { name: "결과 확인" })).toHaveClass("button-link", "button-secondary");
   expect(screen.queryByText("REVIEW_COMPLETED")).not.toBeInTheDocument();
+});
+
+test("loads review history in parallel with advertisement detail", async () => {
+  const requestedUrls: string[] = [];
+  let releaseDetail!: (value: Response) => void;
+  const pendingDetail = new Promise<Response>((resolve) => { releaseDetail = resolve; });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    requestedUrls.push(url);
+    if (url.endsWith("/advertisements/ADV-PARALLEL/reviews")) return response([]);
+    if (url.endsWith("/advertisements/ADV-PARALLEL")) return pendingDetail;
+    throw new Error(`Unexpected request: ${url}`);
+  }));
+
+  render(<MemoryRouter initialEntries={["/advertisements/ADV-PARALLEL"]}><App initialSession={productSession} /></MemoryRouter>);
+
+  await waitFor(() => expect(requestedUrls.some((url) => url.endsWith("/advertisements/ADV-PARALLEL/reviews"))).toBe(true));
+  releaseDetail(response({ advertisementId: "ADV-PARALLEL", advertisementName: "병렬 조회 광고", productGroup: "DEPOSIT", advertisementType: "SMS", departmentId: "DPT-001", registeredBy: "user001", registeredAt: "2026-09-18T00:00:00Z", reviewStatus: "UPLOADED", files: [] }));
+  expect(await screen.findByRole("heading", { name: "병렬 조회 광고" })).toBeInTheDocument();
+  expect(screen.getByText("아직 요청된 검토가 없습니다.")).toBeInTheDocument();
 });
 
 test("shows an action-shaped link from the original preview to a running review", async () => {

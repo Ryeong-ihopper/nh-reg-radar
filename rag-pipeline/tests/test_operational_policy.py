@@ -52,6 +52,13 @@ class OperationalPolicyTests(unittest.TestCase):
         self.assertEqual(facts["bullet_marker_count"], 1)
         self.assertEqual(facts["date_token_count"], 1)
 
+    def test_review_number_wording_is_equivalent_to_review_approval_number(self) -> None:
+        facts = deterministic_facts([{
+            "text_canonical": "준법감시인심의번호 2026-4847(2026.09.01 ~ 2027.08.31.)"
+        }])
+        self.assertTrue(facts["review_number_present"])
+        self.assertEqual(facts["date_token_count"], 2)
+
     def test_bare_pre_review_placeholders_are_recognized(self) -> None:
         facts = deterministic_facts([{
             "text_canonical": (

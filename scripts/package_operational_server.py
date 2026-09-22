@@ -30,12 +30,14 @@ def package(output: Path, parser_root: Path, document_processor_root: Path):
                    "rag-pipeline/schemas", "scripts", "infra/operational"):
         sources.extend((p, Path(folder) / r) for p, r in files(ROOT / folder))
     sources.append((ROOT / "rag-pipeline/requirements-rag.txt", Path("rag-pipeline/requirements-rag.txt")))
-    for folder in ("src", "tools"):
-        sources.extend((p, Path("private/nh-parser") / folder / r) for p, r in files(parser_root / folder))
+    parser_fin = (parser_root / "run.py").is_file() and (
+        parser_root / "nh_parser_fin/__init__.py"
+    ).is_file() and (parser_root / "pyproject.toml").is_file()
+    if not parser_fin:
+        raise ValueError("nh-parser-fin run.py, pyproject.toml and package source are required")
+    sources.extend((p, Path("private/nh-parser") / r) for p, r in files(parser_root))
     sources.extend((p, Path("private/document-processor/src") / r)
                    for p, r in files(document_processor_root / "src"))
-    if not (parser_root / "tools/parse.py").is_file():
-        raise ValueError("private parser CLI source is required")
     if not (document_processor_root / "src/document_processor/__init__.py").is_file():
         raise ValueError("private document-processor source is required")
     manifest = {}

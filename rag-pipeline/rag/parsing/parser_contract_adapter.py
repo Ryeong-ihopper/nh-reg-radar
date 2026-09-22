@@ -15,6 +15,8 @@ CANONICAL_P1 = "nh-ad-review-evidence-v6"
 CANONICAL_P3 = "nh-ad-review-region-input-v1"
 EXTERNAL_P1 = "nh-ad-parse-evidence-v1"
 EXTERNAL_P3 = "nh-ad-region-review-input-v1"
+PARSER_FIN_P1 = "nh-ad-parse-evidence-v3"
+PARSER_FIN_P3 = "nh-ad-region-review-input-v6"
 
 
 def adapt_p1_p3(p1: dict[str, Any], p3: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -30,6 +32,8 @@ def adapt_p1_p3(p1: dict[str, Any], p3: dict[str, Any]) -> tuple[dict[str, Any],
         return p1, p3
     if p1_version == EXTERNAL_P1 and p3_version == EXTERNAL_P3:
         return _adapt_external_pair(p1, p3)
+    if p1_version == PARSER_FIN_P1 and p3_version == PARSER_FIN_P3:
+        return _adapt_parser_fin_pair(p1, p3)
     raise ValueError(
         "unsupported parser contract pair: "
         f"P1={p1_version!r}, P3={p3_version!r}"
@@ -88,6 +92,167 @@ def _adapt_external_pair(source_p1: dict[str, Any], source_p3: dict[str, Any]) -
     }
     _validate_partition(p1, p3)
     return p1, p3
+
+
+def _adapt_parser_fin_pair(
+    source_p1: dict[str, Any], source_p3: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Project nh-parser-fin P1 v3/P3 v6 without inventing geometry.
+
+    P3 v6 intentionally addresses evidence by ``region_id`` and omits line
+    references.  The references below are copied from the matching P1 region;
+    selected text remains region-level whenever it differs from those lines.
+    P1-only unassigned lines are retained as their own canonical evidence so
+    the compact P3 projection cannot silently delete source text.
+    """
+    p3_document = source_p3.get("document") or {}
+    if source_p1.get("doc_id") != p3_document.get("doc_id"):
+        raise ValueError("nh-parser-fin P1/P3 doc_id mismatch")
+
+    classification = copy.deepcopy(source_p1.get("classification") or {})
+    for key in (
+        "product_group", "ad_type", "product_name_shown",
+        "category_source", "classification_confidence",
+    ):
+        if source_p1.get(key) is not None and key not in classification:
+            classification[key] = copy.deepcopy(source_p1[key])
+
+    pages = [_adapt_parser_fin_p1_page(page) for page in source_p1.get("pages") or []]
+    p1_region_index = {
+        (page.get("page_no"), str(region.get("region_id"))): region
+        for page in pages for region in page.get("regions") or []
+    }
+    p1_pages = {page.get("page_no"): page for page in pages}
+    p3_pages = []
+    for page in source_p3.get("pages") or []:
+        page_no = page.get("page_no")
+        regions = []
+        for region in page.get("regions") or []:
+            region_id = str(region.get("region_id") or "")
+            source_region = p1_region_index.get((page_no, region_id))
+            if source_region is None:
+                raise ValueError(f"nh-parser-fin P3 unknown region {page_no}/{region_id}")
+            refs = [str(line.get("line_ref") or "") for line in source_region.get("lines") or []]
+            if any(not ref for ref in refs):
+                raise ValueError(f"nh-parser-fin P1 missing line_ref {page_no}/{region_id}")
+            regions.append({
+                "region_id": region_id,
+                "review_text": str(region.get("selected_text") or ""),
+                "text_source": region.get("text_source"),
+                "line_refs": refs,
+                # v6 labels are region-wide parser observations and do not
+                # contain source spans.  The operational intake template is
+                # authoritative, so do not promote inferred labels to exact
+                # line evidence here.
+                "labels": [],
+                "text_selection": {
+                    "needs_review": bool(region.get("needs_review")),
+                    "selection_status": "needs_review" if region.get("needs_review") else "selected",
+                    "reason": "nh-parser-fin region evidence verification",
+                },
+            })
+        canonical_page = p1_pages.get(page_no)
+        if canonical_page is None:
+            raise ValueError(f"nh-parser-fin P3 unknown page {page_no}")
+        unassigned = [{
+            "line_ref": str(line.get("line_ref") or ""),
+            "review_text": str(line.get("parser_text", line.get("text") or "")),
+            "text_source": line.get("text_source", line.get("source")),
+            "text_selection": {
+                "needs_review": False,
+                "selection_status": "parser_source",
+                "reason": "P1 unassigned source line retained by adapter",
+            },
+        } for line in canonical_page.get("unassigned_lines") or []]
+        p3_pages.append({"page_no": page_no, "regions": regions, "unassigned_text": unassigned})
+
+    p1 = {
+        "doc_id": source_p1.get("doc_id"),
+        "source_file": source_p1.get("source_file"),
+        "file_type": source_p1.get("file_type"),
+        "classification": classification,
+        "template": copy.deepcopy(source_p1.get("template") or p3_document.get("template") or {}),
+        "reading_evidence_contract": {
+            "version": CANONICAL_P1,
+            "parser_primary_text": "pages[].regions[].lines[].parser_text",
+            "parser_primary_text_sources": ["digital", "ocr", "hybrid"],
+            "vlm_region_reading_mode": "external_parser_observation",
+            "parser_mutates_primary_text_from_vlm": False,
+            "adapter_source_contract": PARSER_FIN_P1,
+        },
+        "pages": pages,
+        "notes": copy.deepcopy(source_p1.get("notes") or []),
+        "coverage": copy.deepcopy(source_p1.get("coverage") or {}),
+        "quality": copy.deepcopy(source_p1.get("quality") or {}),
+        "relations": copy.deepcopy(source_p1.get("relations") or []),
+        "_adapter_provenance": {
+            "adapter": "nh-parser-fin-contract-adapter-v1",
+            "source_p1_contract": PARSER_FIN_P1,
+            "source_p3_contract": PARSER_FIN_P3,
+            "bbox_policy": "P1 OCR/PDF/layout coordinates only; never VLM-generated",
+        },
+    }
+    p3 = {
+        "contract": {
+            "version": CANONICAL_P3,
+            "source_evidence_version": CANONICAL_P1,
+            "review_unit": "region",
+            "text_policy": "nh-parser-fin P3 selected_text; original P1 preserved",
+            "label_policy": "v6 region labels remain P1 audit observations; no invented line spans",
+        },
+        "document": {
+            "doc_id": p3_document.get("doc_id"),
+            "source_file": p3_document.get("source_file"),
+            "file_type": p3_document.get("file_type"),
+        },
+        "pages": p3_pages,
+        "unverified_recovery_candidates": [
+            {"page_no": page.get("page_no"), **copy.deepcopy(candidate)}
+            for page in source_p1.get("pages") or []
+            for candidate in page.get("recovery_candidates") or []
+        ],
+        "diagnostics": {"review_units": copy.deepcopy(source_p3.get("review_units") or [])},
+        "summary": copy.deepcopy(source_p1.get("summary") or {}),
+    }
+    _validate_partition(p1, p3)
+    return p1, p3
+
+
+def _adapt_parser_fin_p1_page(page: dict[str, Any]) -> dict[str, Any]:
+    canvas = page.get("canvas") or [page.get("canvas_w"), page.get("canvas_h")]
+    canvas_w = canvas[0] if isinstance(canvas, (list, tuple)) and len(canvas) == 2 else None
+    canvas_h = canvas[1] if isinstance(canvas, (list, tuple)) and len(canvas) == 2 else None
+    regions = []
+    for region in page.get("regions") or []:
+        value = copy.deepcopy(region)
+        value["layout"] = {
+            "label": region.get("label"),
+            "score": region.get("layout_score"),
+            "role": region.get("role"),
+        }
+        for line in value.get("lines") or []:
+            line["parser_text"] = str(line.get("text") or "")
+            line["text_source"] = line.get("source")
+            line["ocr_confidence"] = line.get("confidence")
+        regions.append(value)
+    unassigned = copy.deepcopy(page.get("unassigned_lines") or [])
+    for line in unassigned:
+        line["parser_text"] = str(line.get("text") or "")
+        line["text_source"] = line.get("source")
+        line["ocr_confidence"] = line.get("confidence")
+    return {
+        "page_no": page.get("page_no"),
+        "canvas_w": canvas_w,
+        "canvas_h": canvas_h,
+        "dpi": page.get("dpi") or (page.get("origin") or {}).get("dpi_used"),
+        "parse_route": page.get("parse_route"),
+        "parse_status": page.get("parse_status"),
+        "unread_regions": copy.deepcopy(page.get("unread_regions") or []),
+        "relations": copy.deepcopy(page.get("relations") or []),
+        "regions": regions,
+        "unassigned_lines": unassigned,
+        "recovery_candidates": copy.deepcopy(page.get("recovery_candidates") or []),
+    }
 
 
 def _adapt_p1_page(page: dict[str, Any]) -> dict[str, Any]:
@@ -185,16 +350,23 @@ def _validate_partition(p1: dict[str, Any], p3: dict[str, Any]) -> None:
         for region_id, region in p1_regions.items():
             refs = [str(line.get("line_ref") or "") for line in region.get("lines") or []]
             projection = p3_regions.get(region_id)
-            # The parser retains layout-only/illustrative regions in P1 but
-            # intentionally omits them from the text-focused P3 projection.
-            # They own no text and therefore are not part of the line partition.
+            # Some image pages have a trustworthy layout bbox but no OCR line.
+            # P3 may still provide a VLM reading for that exact P1 region.  It
+            # remains region-level evidence: it owns no canonical line and must
+            # never acquire an invented line bbox.  A text projection without
+            # any P1 geometry is still rejected.
             if not refs:
-                if projection is not None and (
-                    projection.get("line_refs")
-                    or str(projection.get("review_text") or "").strip()
+                if projection is not None and projection.get("line_refs"):
+                    raise ValueError(
+                        f"external P3 assigns line refs to empty P1 region on page {page_no}"
+                    )
+                if (
+                    projection is not None
+                    and str(projection.get("review_text") or "").strip()
+                    and not region.get("bbox")
                 ):
                     raise ValueError(
-                        f"external P3 assigns text to empty P1 region on page {page_no}"
+                        f"external P3 assigns text to geometry-free P1 region on page {page_no}"
                     )
                 continue
             if any(not ref for ref in refs):

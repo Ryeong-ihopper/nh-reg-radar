@@ -74,6 +74,10 @@ class SearchIntegrityTests(unittest.TestCase):
         for change in ({"search_text": "changed"}, {"product_groups": ["대출성"]}):
             self.assertNotEqual(name, retrieval.versioned_rule_index("base", [{**docs[0], **change}], vectors))
         self.assertNotEqual(name, retrieval.versioned_rule_index("base", docs, np.roll(vectors, 1)))
+        self.assertNotEqual(
+            retrieval.versioned_rule_index("base", docs, vectors, source_sha="a" * 64),
+            retrieval.versioned_rule_index("base", docs, vectors, source_sha="b" * 64),
+        )
 
     def test_partial_search_results_are_not_success_or_empty_hits(self):
         for response in ({"timed_out": True}, {"_shards": {"failed": 1}}, {"error": "bad query"}):
@@ -120,14 +124,36 @@ class SearchIntegrityTests(unittest.TestCase):
         self.assertEqual(balanced_candidates(rows, rules, 0)[0], [])
         self.assertEqual(balanced_candidates(rows, rules, 100)[0], rows)
 
-    def test_judgment_candidates_have_no_thirty_or_eighty_item_cutoff(self):
-        from rag.retrieval.candidates import all_judgment_candidates
-        rules = {str(i): {'category': ['PRESENCE', 'PROHIBIT', 'STYLE'][i % 3]} for i in range(121)}
-        rows = [{'item_id': key} for key in rules]
-        selected, audit = all_judgment_candidates(rows, rules)
-        self.assertEqual(selected, rows)
-        self.assertEqual(audit['deferred_ids'], [])
-        self.assertIsNone(audit['limit'])
+    def test_formal_scope_only_adds_source_approved_conditional_v2(self):
+        from rag.retrieval.candidates import (
+            audit_only_candidates,
+            formal_judgment_candidates,
+        )
+        template = [{"item_id": "tpl"}]
+        media = [{"item_id": "media"}]
+        mapped = [{"item_id": "mapped"}]
+        general = [{"item_id": "general"}]
+        supplemental = [{"item_id": "supplemental"}]
+        conditioned = [{"item_id": "conditioned"}]
+        formal = formal_judgment_candidates(
+            template_primary=template,
+            media_conditioned_v2=media,
+            product_content_conditioned_v2=conditioned,
+        )
+        self.assertEqual(
+            [row["item_id"] for row in formal],
+            ["tpl", "media", "conditioned"],
+        )
+        audit = audit_only_candidates(
+            [*mapped, *general, *supplemental],
+            {"mapped": {"category": "PRESENCE"},
+             "general": {"category": "PRESENCE"},
+             "supplemental": {"category": "PROHIBIT"}},
+            reason="outside_formal_execution_scope",
+        )
+        self.assertEqual(audit["selected_ids"], [])
+        self.assertEqual(audit["deferred_ids"], ["mapped", "general", "supplemental"])
+        self.assertEqual(audit["method"], "discovery_audit_only_v1")
 
     def test_context_queries_preserve_originals_and_never_cross_source_scope(self):
         from rag.retrieval.queries import build_context_queries
@@ -146,6 +172,25 @@ class SearchIntegrityTests(unittest.TestCase):
         limited, audit = build_context_queries(rows, max_chars=2)
         self.assertEqual(limited, rows)
         self.assertEqual(len(audit["deferred"]), 1)
+
+    def test_context_queries_join_only_observed_source_relations(self):
+        from rag.retrieval.queries import build_context_queries
+        relation = {"type": "header_for", "status": "observed",
+                    "from_line_ids": ["L1"], "to_line_ids": ["L2"]}
+        base = {"ad_id": "ad", "product_id": "p", "source_file": "f", "page_no": 1}
+        rows = [
+            {**base, "doc_id": "a", "parent_doc_id": "r1", "line_refs": ["L1"],
+             "text_search": "중도해지이율", "source_relations": [relation]},
+            {**base, "doc_id": "b", "parent_doc_id": "r2", "line_refs": ["L2"],
+             "text_search": "신규일 당시 고시한 이율", "source_relations": [relation]},
+        ]
+        views, audit = build_context_queries(rows)
+        self.assertEqual(len(views), 3)
+        self.assertEqual(views[-1]["text_search"], "중도해지이율\n신규일 당시 고시한 이율")
+        self.assertEqual(views[-1]["_query_context_method"], "observed_relation")
+        self.assertEqual(audit["relation_added"][0]["source_doc_ids"], ["a", "b"])
+        rows[0]["source_relations"][0]["status"] = "inferred"
+        self.assertEqual(build_context_queries(rows)[0], rows)
 
     def test_context_query_returns_only_original_evidence_to_reranker(self):
         from rag.retrieval.queries import build_context_queries

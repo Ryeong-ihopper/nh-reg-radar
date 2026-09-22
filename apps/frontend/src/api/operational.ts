@@ -1,7 +1,10 @@
-import { resolveApiUrl } from "./client";
+import { refreshAuthentication, resolveApiUrl } from "./client";
 
 // Opt-in local bridge only. Production API contracts remain unchanged.
 export const operationalMode = import.meta.env.VITE_OPERATIONAL_REVIEW === "true";
+export const localAuthBypass = operationalMode
+  && typeof window !== "undefined"
+  && ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
 export interface ProductClassificationOption {
   code: string;
@@ -48,10 +51,23 @@ export interface ParserLayout {
   counts: { pages: number; regions: number; lines: number };
 }
 
+async function fetchOperational(token: string, path: string, init: RequestInit): Promise<Response> {
+  const request = (accessToken: string) => fetch(resolveApiUrl(path), {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${accessToken}` },
+  });
+  let response = await request(token);
+  if (response.status === 401 && localAuthBypass) {
+    const refreshed = await refreshAuthentication();
+    if (refreshed) response = await request(refreshed.accessToken);
+  }
+  return response;
+}
+
 export async function operationalRequest<T>(token: string, path: string, body?: object): Promise<T> {
-  const response = await fetch(resolveApiUrl(`/operational/${path}`), {
+  const response = await fetchOperational(token, `/operational/${path}`, {
     method: body ? "PUT" : "GET",
-    headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    headers: body ? { "Content-Type": "application/json" } : {},
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const data = await response.json();
@@ -60,9 +76,9 @@ export async function operationalRequest<T>(token: string, path: string, body?: 
 }
 
 export async function cancelOperationalReview(token: string, reviewId: string): Promise<void> {
-  const response = await fetch(resolveApiUrl(`/operational/reviews/${encodeURIComponent(reviewId)}/cancel`), {
+  const response = await fetchOperational(token, `/operational/reviews/${encodeURIComponent(reviewId)}/cancel`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
   if (!response.ok) {
@@ -72,12 +88,17 @@ export async function cancelOperationalReview(token: string, reviewId: string): 
 }
 
 export async function deleteLatestOperationalReview(token: string, advertisementId: string): Promise<void> {
-  const response = await fetch(resolveApiUrl(`/operational/advertisements/${encodeURIComponent(advertisementId)}/latest-review`), {
+  const response = await fetchOperational(token, `/operational/advertisements/${encodeURIComponent(advertisementId)}/latest-review`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(body.message ?? "심의 결과 삭제에 실패했습니다.");
   }
+}
+
+export async function downloadOperationalResult(token: string, reviewId: string): Promise<Blob> {
+  const response = await fetchOperational(token, `/operational/reviews/${encodeURIComponent(reviewId)}/export.json`, {});
+  if (!response.ok) throw new Error("결과 JSON을 만들지 못했습니다.");
+  return response.blob();
 }

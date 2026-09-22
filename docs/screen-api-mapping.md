@@ -1,5 +1,13 @@
 # 화면-API 매핑표
 
+## 결과 필터와 적용 제외 데이터 — 2026-09-22
+
+S-006은 기존 workspace `rows`의 전체 판정을 기본 표시하고 `전체·위반·판단불가·충족` 네 필터로 같은 응답을 다시 요청하지 않고 전환한다. 우선 검토·규제목록 확인 버튼과 출처별 필터는 제거한다. `excluded_rows`는 응답과 JSON 내보내기에 보존하지만 화면에서는 렌더링하지 않는다. 헤더 로고는 번들 정적 자산이다. API 경로·응답 스키마·저장 결과는 변경하지 않는다.
+
+## 광고물 상세·검토 이력 병렬 조회 — 2026-09-18
+
+광고물 상세 진입 시 `GET /advertisements/{advertisementId}`와 `GET /advertisements/{advertisementId}/reviews`를 동시에 호출한다. 이력 요청은 상세 응답 완료를 기다리지 않으며, 성공 응답은 동일 광고 query key에서 30초 동안 fresh 상태로 재사용한다. 두 API의 인증·부서 접근 검사는 각각 유지한다.
+
 ## 투자성 상품군 연결 — 2026-09-17
 
 S-003의 투자성 선택은 제품 API `productGroup=INVESTMENT`, intake `product_group=투자성`, 사용자 선택 `product_classification_code`로 전달한다. `/operational/capabilities`는 `투자성상품-`으로 시작하는 템플릿을 `productGroup=INVESTMENT`로 반환한다. 서버는 상위 상품군과 상세 템플릿 접두어가 다르면422로 거부한다.
@@ -62,8 +70,8 @@ S-003 운영 등록에서 `광고 형식·매체`로 표시하는 기존 `advert
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.82 |
-| 기준일 | 2026-09-17 |
+| 현행 버전 | v1.86 |
+| 기준일 | 2026-09-22 |
 
 ## 현행 시인성·판독 불확실성 처리 범위
 
@@ -79,6 +87,10 @@ operational workspace 결과 행은 활성 판정 근거를 `evidence_locations`
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.86 | 2026-09-22 | 결과 전체 기본·판정별 네 필터와 정적 로고 연결 |
+| v1.85 | 2026-09-18 | workspace 행 출처로 우선 검토와 규제목록 판단불가 필터를 클라이언트에서 분리 |
+| v1.84 | 2026-09-18 | workspace 결과의 확인 필요 기본 필터와 excluded_rows 화면 비노출 연결 |
+| v1.83 | 2026-09-18 | 광고물 상세와 기존 검토 이력 API의 병렬 호출 및 30초 캐시 연결을 반영 |
 | v1.82 | 2026-09-17 | S-003 투자성 상품군·상세 템플릿·확정 RAG 라우팅 연결 |
 | v1.81 | 2026-09-17 | S-006의 유의사항 동일 줄 구조 판정과 정확 렌더링 줄 감사 연결 |
 | v1.80 | 2026-09-17 | capabilities의 template-plus-v2 복원과 원본 확인의 버튼형 다음 단계 연결 |
@@ -309,7 +321,7 @@ M2 1차 화면은 OpenAPI v0.2.0 `AdvertisementPage`에 잠긴 광고물 ID·광
 | 호출 시점 | 기능 | API | Method | 주요 요청값 | 주요 응답값 | 화면 반영 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 목록 ID 클릭 | M2 광고물 기본 상세 | `/advertisements/{advertisementId}` | GET | `advertisementId` | `AdvertisementDetail`, 안전한 `AdvertisementFile` 메타데이터 | `/advertisements/{advertisementId}` 기본정보·파일 목록 |
-| 광고물 상세 진입 | 기존 검토 이력 조회 | `/advertisements/{advertisementId}/reviews` | GET | `advertisementId` | `ReviewHistory[]`: 회차, 검토 상태, 위험도, 요청·완료일 | 최근 검토를 우선 표시하고 진행 중이면 S-005, 완료·확인 필요이면 S-006 복귀 링크 제공 |
+| 광고물 상세 진입 | 기존 검토 이력 조회 | `/advertisements/{advertisementId}/reviews` | GET | `advertisementId` | `ReviewHistory[]`: 회차, 검토 상태, 위험도, 요청·완료일 | 상세정보 API와 병렬 호출, 30초 캐시 재사용, 최근 검토 우선 표시 및 진행 중이면 S-005·완료/확인 필요이면 S-006 복귀 링크 제공 |
 | 시스템 관리자 삭제 | 광고물·연결 결과 비노출 | `/advertisements/{advertisementId}` | DELETE | `advertisementId` | `204 No Content` | 확인 대화상자 뒤 목록으로 복귀한다. 삭제 후 원본 파일과 연결 검토 결과는 일반 조회 경로에서 표시하지 않는다. |
 | 시스템 관리자 선택 삭제 | 현재 페이지 광고물 일괄 삭제 | `/advertisements/{advertisementId}` | DELETE (항목별) | 선택한 `advertisementId` 목록 | 각 항목 `204 No Content` | 개별 선택 또는 현재 페이지 전체 선택 뒤 확인 대화상자를 표시한다. 별도 bulk API는 만들지 않으며 완료·실패 후 목록을 다시 조회한다. |
 | 단건 권한 거부 | 부서 scope 거부 | `/advertisements/{advertisementId}` | GET | 타 부서 `advertisementId` | 403 `ErrorResponse` | 전용 권한 안내. raw message, object key, presigned URL 미표시 |
@@ -1008,7 +1020,7 @@ workspace 각 행은 template_section 및 template_requirement를 원본 templat
 
 메인 결과는 위반·판단불가·충족만 표시한다. 다른 템플릿 소속 항목은 목록·집계에서 제외하고 원저장 감사만 유지한다. 실제 NOT_APPLICABLE은 적용 제외 내역(excluded_rows)에 사유와 함께 보존하며 메인 카드·필터에 미해당을 두지 않는다. 적용성 미확정인 추가 v2 후보와 시인성/외부 자료/구조 확인은 모두 판단불가 목록·집계에 포함한다. 동일 scope/item의 보류는 중복 집계하지 않는다. 텍스트 충족에 필수 사람 확인이 남으면 전체 판단불가로 표시하고 자동 텍스트 결과를 automated_assessment에 보존한다. 이미 확인된 위반은 유지하며 남은 확인 사유를 함께 표시한다.
 
-기존 추가 v2 후보의 최대30개 실행 제한을 제거한다. 검색·적용범위/입력 필터를 통과해 발견된 후보는 모두 처리하며 동시 실행 수·요청 배치 크기는 처리 순서와 자원 관리에만 사용한다. 기존 prohibition_max_candidates 설정/CLI는 호환성 입력으로만 남고 판정 후보를 잘라내지 않는다. reranker80개는 순위 보강 범위이며 기존에도 나머지 후보를 보존했다. 검색 top-k 자체와 응답 토큰/작업 제한시간은 별개이고 v2 모든 행 전수 판정으로 전환한 것은 아니다. 처리 실패를 충족/미해당/정상 완료로 숨기지 않는다.
+후보 개수 상한으로 규칙을 자르던 과거 방식은 사용하지 않는다. 현행 실행기는 출처 승인 티어로 정식 범위를 먼저 정해 `TEMPLATE_PRIMARY`, `MEDIA_CONDITIONED_V2`, 원문 결합·검색 발동형 `PRODUCT_CONTENT_CONDITIONED_V2`와 관계 의존 규칙을 판정한다. 시인성 규칙은 검색 후보와 근거를 유지하되 사람 검토로 보낸다. 나머지 `MAPPED_V2`, `GENERAL_V2_PRESENCE`, `SUPPLEMENTAL_V2`는 기존 역할에 따라 보강·평가 또는 발견 감사 후보로 보존한다. 용도가 사라진 `prohibition_max_candidates` 설정과 CLI는 제거했으며, 동시 실행 수·요청 배치 크기·reranker 범위는 처리 순서와 자원 관리에만 사용한다. 처리 실패를 충족·미해당·정상 완료로 숨기지 않는다.
 
 workspace/export에 excluded_rows와 execution_omissions를 추가하며 review_candidate_rows/deferred_rules는 빈 호환 배열로 유지한다. 사람 확인은 manual_review_reasons와 실제 점검 제목/질문을 반환한다. 과거 파일에 제목이 없으면 검토 시 동결한 SHA와 동일한 규정 파일 및 저장 템플릿 카탈로그에서 표시 메타데이터만 보충한다. 버전 불일치면 현재 규정으로 바꾸지 않는다. 원저장·모델 판정·source_results는 변경하지 않는다. 과거 후보 실행 누락이 있다면 판단불가와 재처리 필요 경고로 드러내며 자동 완료로 표시하지 않는다.
 
@@ -1021,3 +1033,11 @@ workspace/export에 excluded_rows와 execution_omissions를 추가하며 review_
 ## 저장 결과의 판독 불확실성 재검증 — 2026-09-17
 
 workspace와 JSON 다운로드는 같은 saved_workspace 경로에서 저장된 요청의 판독 상태와 규칙별 원문 범위를 사용한다. OBSERVED로 잘못 분류된 명시적인 누락 주장도 판독이 불완전하면 판단불가로 보류하며, 철회한 근거 좌표는 표시하지 않는다. 기존 보류 전 모델 판단에 원래 판정·사유를 남긴다. 원본 결과 파일·상태 데이터와 API 스키마는 변경하지 않는다. 독립적으로 검증되는 산술 위반은 유지한다.
+
+## 로컬 운영 화면 추가 매핑 — 2026-09-18
+
+| 화면 동작 | API/필드 | 비고 |
+|---|---|---|
+| 루프백 자동 세션 | `GET /api/v1/auth/local-session` | 로컬 운영 서버 전용, 배포/외부 요청 404 |
+| 검색 청크 표시 | workspace `rows[].chunk_locations` | `evidence_locations`와 구분한 표시용 좌표 |
+| 결과 JSON 다운로드 | `GET /api/v1/operational/reviews/{reviewId}/export.json` | 로컬 401 시 자동 세션 갱신 후 1회 재시도 |

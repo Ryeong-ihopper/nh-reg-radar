@@ -1,0 +1,12 @@
+diff --git a/nh_parser_fin/parse/templates.py b/nh_parser_fin/parse/templates.py
+--- a/nh_parser_fin/parse/templates.py
++++ b/nh_parser_fin/parse/templates.py
+@@
+         shown, name_consistency = _validate_product_name(product, regions, shown)
+         product_doc = {
+-            "source_file": doc.get("source_file"),
++            # A multi-product filename can name several subtypes at once.
++            # Product resolution must only use that product's name and owned
++            # regions; document-wide filename hints can describe other products.
++            "source_file": product.get("name") or "",
+             "product_group": group,

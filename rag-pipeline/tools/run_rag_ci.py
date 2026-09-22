@@ -14,6 +14,14 @@ TESTS = ROOT / "tests"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 UNIT_PATTERNS = (
+    "test_prompt_ablation.py",
+    "test_execution_request_builder.py",
+    "test_operational_catalog_migration.py",
+    "test_canonical_execution_plans.py",
+    "test_structured_predicates.py",
+    "test_structured_methodology.py",
+    "test_execution_routing.py",
+    "test_candidate_activation.py",
     "test_manual_review_scope.py",
     "test_evidence_bundle.py",
     "test_retrieval_separation.py",

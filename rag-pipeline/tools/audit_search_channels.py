@@ -16,6 +16,7 @@ import numpy as np
 
 import hybrid_rule_retrieval as r
 import run_operational_e2e as runner
+from rag.parsing.chunking_audit import bm25_fine_coverage, summarize_fine_documents
 
 
 def main() -> None:
@@ -63,6 +64,7 @@ def main() -> None:
         "outside_product_scope_ids": sorted(set(catalog) - current_ids),
         "candidate_product_groups": groups, "runs": {},
         "query_context": query_audit,
+        "fine_chunking": summarize_fine_documents(fine),
     }
     indexes = [("previous", cfg["es_index"])]
     if args.prepare_current_index:
@@ -106,6 +108,7 @@ def main() -> None:
             "top30_category_counts": dict(collections.Counter(rules[row["item_id"]]["category"] for row in reranked[:30])),
             "balanced30_category_counts": budget_audit["selected_by_category"],
             "balanced30_ids": ids(selected)}
+        report["runs"][label]["fine_bm25"] = bm25_fine_coverage(fine, channels)
         if label == "current":
             deltas = [float(np.max(np.abs(np.asarray(actual[row["item_id"]]["text_vector"]) - vector)))
                       for row, vector in zip(docs, rule_vectors)]
@@ -117,6 +120,8 @@ def main() -> None:
             eligible_positions = {row["item_id"]: i for i, row in enumerate(eligible)}
             below_exact_cutoff = 0
             for row in query_views:
+                if row["doc_id"] not in channels:
+                    continue
                 query_vector = vector_by_id[row["doc_id"]]
                 scores = indexed_vectors @ (query_vector / np.linalg.norm(query_vector))
                 for hit in channels[row["doc_id"]]["bge_m3_exact_cosine"]:
@@ -130,7 +135,8 @@ def main() -> None:
                 {"doc_id": row["doc_id"], "text": row["text_search"],
                  "tokens": [token["token"] for token in r.request(cfg["es_url"], "POST",
                             f"/{index}/_analyze", {"analyzer": "ko_nori", "text": row["text_search"]})["tokens"]]}
-                for row in fine if not channels[row["doc_id"]]["bm25_nori"]]
+                for row in fine
+                if not (channels.get(row["doc_id"]) or {}).get("bm25_nori")]
         details[label] = {"channels": channels, "rrf": candidates, "reranked": reranked,
                           "candidate_budget": budget_audit}
     for name, value in (("metrics", report), ("channel-trace", details)):

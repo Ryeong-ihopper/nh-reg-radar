@@ -82,7 +82,9 @@ export function AdvertisementCreatePage() {
         advertisementFiles: draft.files, additionalFiles: [],
       });
     if (!draft.created) updateDraft(draft.key, "created", created);
-    await operationalRequest(token, `advertisements/${created.advertisementId}/routing`, { product_classification_code: draft.productClassificationCode });
+    await operationalRequest(token, `advertisements/${created.advertisementId}/routing`, {
+      product_classification_code: draft.productClassificationCode,
+    });
     const normalizedProductGroup = operationalProductGroup(productGroup);
     const advertisementAssets = created.files.filter((file) => file.fileType === "ADVERTISEMENT");
     await operationalRequest(token, `advertisements/${created.advertisementId}/intake`, {

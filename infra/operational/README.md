@@ -1,7 +1,8 @@
 # 브라우저 접속용 운영 검토 서버
 
 현재 운영 검토 실행기를 서버에서 실행하는 중간 배포 구성이다. 웹/API, 작업 실행,
-Python 3.11, private 파서, Java 25, LibreOffice와 H2Orestart, 상태·파일 저장소를
+애플리케이션 Python 3.11, 파서 전용 Python 3.13, nh-parser-fin, Java 25,
+LibreOffice와 H2Orestart, 상태·파일 저장소를
 서버에 둔다. 사용자는 접속 가능한 HTTPS 주소와 브라우저만 사용한다.
 Spark arm64와 H200 amd64에 같은 Dockerfile/Compose를 사용하며 모델·OCR·ES 주소만
 실행 설정으로 바꾼다. H200에서의 실기 검증은 별도 수행해야 한다.
@@ -13,9 +14,10 @@ Spark arm64와 H200 amd64에 같은 Dockerfile/Compose를 사용하며 모델·O
    파일별 SHA를 포함한다. 묶음은 고객 원문과 분리해 비공개로 전달한다.
 2. 서버의 새 디렉터리에 풀고 manifest 해시를 검증한다.
    `docker build -f infra/operational/Dockerfile -t <불변-태그> .`로 이미지를 만든다.
-   HWP 읽기는 private Java 변환기, 미리보기는 LibreOffice/H2Orestart가 담당한다.
+   nh-parser-fin은 전용 Python 3.13(`/opt/python313`)에서 실행하고 웹/RAG는 Python 3.11을
+   유지한다. HWP 읽기는 private Java 변환기, 미리보기는 LibreOffice/H2Orestart가 담당한다.
    private document-processor의 상위 Python 버전 선언을 수정하지 않는다.
-   현재 사용 경로는 Python 3.11에서 검증하며 전체 라이브러리 호환성을 주장하지 않는다.
+   document-processor는 파서 실행 시 `PYTHONPATH`로만 제공하며 PDF·이미지 경로와 분리한다.
 3. `server.example.json`, `execution.example.json`을 비공개 서버 설정으로 복사한다.
    별도 난수 비밀번호/JWT 키 파일, 해당 서비스 주소용 TLS 인증서와 키를 준비한다.
    설정과 원본은 Git/공개 이미지에 넣지 않는다. 실제 서비스에는 신뢰할 수 있는

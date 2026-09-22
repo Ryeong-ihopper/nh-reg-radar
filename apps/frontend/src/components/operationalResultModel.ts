@@ -2,23 +2,56 @@ import type { ParserLayout } from "../api/operational";
 
 export type RuleBasis = { item_id: string; source_type: "INTERNAL_TEMPLATE" | "REGULATION_V2"; source_ref: string; source_sha256: string | null; legal_basis_refs: string[]; basis_status: string };
 type TemplateSource = { template_section?: string | null; template_requirement?: string | null; template_appropriate_judgment?: string | null };
-export type ResultRow = TemplateSource & { manual_review_reasons?: string[]; judgment_scope?: "TEXT_ONLY" | "RULE"; model_assessment?: {verdict: string; reason: string; status: string} | null; row_id?: string; item_id: string; title: string; question: string; criterion: string; template_example?: string; requirement_checks?: {status: string; finding_basis?: string}[]; verdict: string; reason: string; evidence: string; evidence_locations?: EvidenceBox[]; review_locations?: EvidenceBox[]; evidence_location_status?: "MAPPED" | "NO_CITATION" | "SOURCE_GEOMETRY_MISSING" | "UNRESOLVED_REFERENCE"; reading_quality_review?: {policy: string; issues: {location: string; code: string}[]} | null; rule_basis?: RuleBasis | null };
+export type ResultRow = TemplateSource & { manual_review_reasons?: string[]; judgment_scope?: "TEXT_ONLY" | "RULE"; model_assessment?: {verdict: string; reason: string; status: string} | null; row_id?: string; item_id: string; title: string; question: string; criterion: string; template_example?: string; requirement_checks?: {status: string; finding_basis?: string}[]; verdict: string; reason: string; evidence: string; evidence_locations?: EvidenceBox[]; chunk_locations?: EvidenceBox[]; review_locations?: EvidenceBox[]; evidence_location_status?: "MAPPED" | "NO_CITATION" | "SOURCE_GEOMETRY_MISSING" | "UNRESOLVED_REFERENCE"; reading_quality_review?: {policy: string; issues: {location: string; code: string}[]} | null; rule_basis?: RuleBasis | null };
 export type HumanReviewDecision = { decision: "APPROVED" | "REJECTED"; comment: string | null; reviewer_id: string; decided_at: string; ai_result_unchanged: true };
 export type ResultWorkspace = { source_policy?: "template-only" | "template-plus-v2"; excluded_rows?: ResultRow[]; execution_omissions?: {scope_id: string; item_id: string; reason: string}[]; template_coverage?: {template_section: string; source_row_count: number; rule_count: number; requested_count: number; manual_review_count: number; missing_count: number}[]; available: boolean; source_type: string; rows: ResultRow[]; review_candidate_rows?: ResultRow[]; deferred_rules?: {item_id: string; reason: string; scope_id?: string; deferred_kind?: string}[]; output_failure_count?: number; output_failure_pairs?: {ad_id: string; scope_id?: string; product_id?: string; item_id: string; reason?: string}[]; partial_result_warning?: string | null; human_decision?: HumanReviewDecision | null };
-export type EvidenceBox = { key: string; pageNo: number; bbox: number[]; width: number; height: number; precision?: "LINE" | "REGION"; asset_id?: string | null; source_page_no?: number };
+export type EvidenceBox = { key: string; pageNo: number; bbox: number[]; width: number; height: number; precision?: "LINE" | "REGION" | "CHUNK"; asset_id?: string | null; source_page_no?: number };
 
-export function legalBasisLines(refs: readonly string[]): string[] {
-  // Display projection only: retain source spelling and do not equate article
-  // variants (e.g. 제4호 versus 4). Original refs remain in the API/export.
-  const lines = refs.flatMap(ref => ref
+export function resultChunkBoxes(row: ResultRow): EvidenceBox[] {
+  return row.chunk_locations ?? [];
+}
+
+export type LegalBasisEntry = { key: string; label: string; searchQuery: string | null };
+
+function cleanLegalBasisRefs(refs: readonly string[]): string[] {
+  return refs.flatMap(ref => ref
     .replace(/(제\d+(?:의\d+)?[조항호목]|\d+)\s*[（(][^()（）]*[)）]/g, "$1")
-    .split(/[;\n]+/)
+    .split(/[;\n]+|,\s*(?=(?:동법\s*)?(?:시행령|시행규칙)|[^,]*(?:법|법률|감독규정)\s*제\d)/)
     .map(part => part
       .replace(/(?:실행_점검항목\s*[:：]\s*)?\b(?:[CDRT]-\d+|TPL-[a-f\d]+)\b/g, "")
       .replace(/^[\s·:：,()[\]-]+|[\s·:：,()[\]-]+$/g, "")
       .replace(/\s+/g, " ").trim())
     .filter(Boolean));
-  return [...new Set(lines)];
+}
+
+function authorityName(label: string): string | null {
+  const match = label.match(/^(.+?(?:법률|법|시행령|시행규칙|감독규정|규정|기준))(?=\s*제\d|$)/);
+  return match?.[1].trim() ?? null;
+}
+
+export function legalBasisEntries(refs: readonly string[]): LegalBasisEntry[] {
+  let baseStatute: string | null = null;
+  const entries: LegalBasisEntry[] = [];
+  const seen = new Set<string>();
+  for (let label of cleanLegalBasisRefs(refs)) {
+    const namedBase = label.startsWith("동법") ? undefined : label.match(/^(.+?(?:법률|법))(?=\s*제\d|\s*(?:시행령|시행규칙))/)?.[1]?.trim();
+    if (namedBase) baseStatute = namedBase;
+    label = label.replace(/^동법\s*(시행령|시행규칙)/, (_, child: string) => baseStatute ? `${baseStatute} ${child}` : `동법 ${child}`);
+    if (/^시행령\s*제/.test(label) && baseStatute) label = `${baseStatute} 시행령 ${label.replace(/^시행령\s*/, "")}`;
+    if (/^시행규칙\s*제/.test(label) && baseStatute) label = `${baseStatute} 시행규칙 ${label.replace(/^시행규칙\s*/, "")}`;
+    if (/^감독규정\s*제/.test(label) && baseStatute) label = `${baseStatute.replace(/(?:법률|법)$/, "")}감독규정 ${label.replace(/^감독규정\s*/, "")}`;
+    const key = label.normalize("NFKC").replace(/[^\p{L}\p{N}]/gu, "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const authority = authorityName(label);
+    const internal = /(?:광고심의\s*기준|내부통제기준)/.test(label);
+    entries.push({ key, label, searchQuery: internal ? null : authority });
+  }
+  return entries;
+}
+
+export function legalBasisLines(refs: readonly string[]): string[] {
+  return legalBasisEntries(refs).map(entry => entry.label);
 }
 
 export function resultEvidenceBoxes(row: ResultRow, layout?: ParserLayout): EvidenceBox[] {

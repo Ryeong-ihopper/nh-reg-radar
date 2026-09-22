@@ -151,7 +151,14 @@ def parser_runner_layout(config: dict) -> dict[str, str]:
         return {"runner": runner, "p1_dir": "json", "p3_dir": "review_region_input", "raw_dir": "json"}
     if runner == "nh_ad_parser_cli":
         return {"runner": runner, "p1_dir": "evidence", "p3_dir": "review-input", "raw_dir": "parse"}
+    if runner == "nh_parser_fin":
+        return {"runner": runner, "p1_dir": "final", "p3_dir": "final", "raw_dir": "raw"}
     raise ValueError(f"unsupported parser_runner: {runner!r}")
+
+
+def parser_fin_output_stem(source: Path) -> str:
+    """Mirror nh-parser-fin's stable, filesystem-safe output basename."""
+    return "".join(char if char.isalnum() or char in "-_." else "_" for char in source.name)
 
 
 def read_json(path):
@@ -225,6 +232,23 @@ class ExecutionBridge:
             es_url=cfg.get("es_url", ""), es_index=cfg.get("es_index", ""), model=cfg["model"],
             source_policy=source_policy,
             decision_guide_path=Path(cfg["decision_guide_path"]) if cfg.get("decision_guide_path") else None,
+            candidate_activation_policy_path=(
+                Path(cfg["candidate_activation_policy_path"])
+                if cfg.get("candidate_activation_policy_path")
+                else None
+            ),
+            canonical_plans_path=Path(cfg.get(
+                "canonical_plans_path",
+                ROOT / "rag-pipeline/config/canonical-execution-plans-v2.json",
+            )),
+            catalog_migration_path=Path(cfg.get(
+                "catalog_migration_path",
+                ROOT / "rag-pipeline/config/operational-catalog-migration-v1.json",
+            )),
+            rule_dispositions_path=Path(cfg.get(
+                "rule_dispositions_path",
+                ROOT / "rag-pipeline/config/operational-rule-dispositions-v1.json",
+            )),
             template_hwpx_path=Path(cfg["template_source_path"]) if cfg.get("template_source_path") else None,
             template_methodology_dir=(
                 Path(cfg["template_methodology_dir"])
@@ -235,7 +259,6 @@ class ExecutionBridge:
             model_env=model_env,
             workers=model_workers, queue_workers=review_workers,
             vector_cache_dir=Path(cfg["vector_cache_dir"]).resolve() if cfg.get("vector_cache_dir") else None,
-            prohibition_max_candidates=0,  # compatibility only; never truncate discovered rules
             judgment_batch_size=4, job_timeout_seconds=3600,
         ))
         template_source = cfg.get("template_source_path")
@@ -308,6 +331,9 @@ class ExecutionBridge:
                     raise ValueError("PARSER_TEMPLATE_REQUIRED: 사용자 선택 템플릿이 필요합니다")
                 command.extend(["--template-id", template_id])
             return command
+        if runner == "nh_parser_fin":
+            return [self.config["parser_python"], "-u", str(root / "run.py"),
+                    "--input", str(source_dir), "--run-name", output.name, "--with-vlm"]
         if not visual:
             raise ValueError("PARSER_TEMPLATE_UNSUPPORTED: 사용자 템플릿을 받는 nh_ad_parser_cli가 필요합니다")
         scope = "visual" if visual else "upload"
@@ -316,6 +342,9 @@ class ExecutionBridge:
 
     def parser_outputs(self, output):
         layout = self.parser_layout_config
+        if layout["runner"] == "nh_parser_fin":
+            directory = output / layout["p1_dir"]
+            return (list(directory.glob("*.p1.json")), list(directory.glob("*.p3.json")))
         return (list((output / layout["p1_dir"]).glob("*.json")),
                 list((output / layout["p3_dir"]).glob("*.json")))
 
@@ -325,12 +354,21 @@ class ExecutionBridge:
     def parser_output_name_matches(self, path, source):
         if self.parser_layout_config["runner"] == "nh_ad_parser_cli":
             return path.stem == source.stem
+        if self.parser_layout_config["runner"] == "nh_parser_fin":
+            return path.name == parser_fin_output_stem(source) + ".p1.json"
         return path.name == source.name
+
+    def parser_p3_matches(self, p1_path, candidate):
+        if self.parser_layout_config["runner"] == "nh_parser_fin":
+            return candidate.name == p1_path.name.removesuffix(".p1.json") + ".p3.json"
+        return candidate.name == p1_path.name
 
     def parser_output_root(self, output):
         """Return the P1/P3 root for either supported parser runner."""
         output = Path(output)
-        return output / "upload" if self.parser_layout_config["runner"] == "nh_parsing_test_batch" else output
+        if self.parser_layout_config["runner"] == "nh_parsing_test_batch":
+            return output / "upload"
+        return output
 
     def parsed_assets(self, files, source_by_file, output):
         """Accept validated, nonempty P1/P3 pairs; retain partial batch output."""
@@ -342,7 +380,7 @@ class ExecutionBridge:
                 missing[file.file_id] = "P1 산출물이 없거나 하나가 아닙니다"
                 continue
             p1_path = matches[0]
-            p3_matches = [path for path in p3s if path.name == p1_path.name]
+            p3_matches = [path for path in p3s if self.parser_p3_matches(p1_path, path)]
             if len(p3_matches) != 1:
                 missing[file.file_id] = "P3 산출물이 없거나 하나가 아닙니다"
                 continue
@@ -374,6 +412,9 @@ class ExecutionBridge:
         """Run one parser input directory and retain its raw log for audit."""
         env = dict(os.environ)
         env.update(self.config.get("parser_env", {}))
+        if self.parser_layout_config["runner"] == "nh_parser_fin":
+            env["NH_OUTPUT_ROOT"] = str(Path(output).resolve().parent)
+            env.setdefault("NH_MEDIA_DIR", str((Path(output).resolve().parent / "media")))
         env["PYTHONIOENCODING"] = "utf-8"
         with Path(log_path).open("w", encoding="utf-8") as log:
             try:
@@ -1017,8 +1058,17 @@ class ExecutionBridge:
     def parser_intake(template_id):
         return {"version": "user-template-labeling-v5", "template_id": template_id}
 
-    @staticmethod
-    def validate_parser_template(p1_path, p3_path, template_id):
+    def validate_parser_template(self, p1_path, p3_path, template_id):
+        if self.parser_layout_config["runner"] == "nh_parser_fin":
+            p1_template = read_json(p1_path).get("template") or {}
+            p3_template = (read_json(p3_path).get("document") or {}).get("template") or {}
+            if p1_template != p3_template:
+                raise ValueError("PARSER_TEMPLATE_MISMATCH: nh-parser-fin P1/P3 observations differ")
+            # nh-parser-fin currently infers its own template and has no CLI
+            # option for the user's selection.  The saved intake value remains
+            # authoritative downstream; inferred semantic labels are not
+            # promoted to exact evidence by the contract adapter.
+            return
         for template in (
             read_json(p1_path).get("template") or {},
             (read_json(p3_path).get("document") or {}).get("template") or {},
@@ -1062,7 +1112,11 @@ class ExecutionBridge:
             if self.parser_layout_config["runner"] == "nh_parsing_test_batch":
                 parent_output = parent_output / "upload"
             p1s, p3s = self.parser_outputs(parent_output)
-            p3_by_name = {path.name: path for path in p3s}
+            p3_by_name = {
+                (path.name.removesuffix(".p3.json") + ".p1.json"
+                 if self.parser_layout_config["runner"] == "nh_parser_fin" else path.name): path
+                for path in p3s
+            }
             if len(p1s) == len(files) and set(path.name for path in p1s) == set(p3_by_name):
                 break
             reuse_path = parent_directory / "parser-reuse.json"
@@ -1430,7 +1484,7 @@ class ExecutionBridge:
             self.stage(bundle, 3)
             self.wait_for_search_backend(bundle)
             self.wait_for_judgment_backends(bundle)
-            job = self.rag.submit({"schema_version": "operational-review-request-v1", "client_request_id": bundle.review.review_id,
+            job = self.submit_rag({"schema_version": "operational-review-request-v1", "client_request_id": bundle.review.review_id,
                                    "review_date": registration_review_date(ad.created_at),
                                    "review_date_basis": "advertisement_registration_date",
                                    "document": document, "routing_overrides": overrides, "execute_model": True})
@@ -1569,6 +1623,13 @@ class ExecutionBridge:
             if os.name == "nt":
                 ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
 
+    def submit_rag(self, request):
+        """Resume a failed idempotent RAG job instead of replaying its failure."""
+        job = self.rag.submit(request)
+        if job.get("idempotent_replay") and job["status"] in {"FAILED", "INTERRUPTED"}:
+            job = self.rag.retry(job["job_id"])
+        return job
+
     def install(self, backend):
         def actor(request):
             header = request.headers.get("authorization", "")
@@ -1592,8 +1653,9 @@ class ExecutionBridge:
             current = actor(request)
             ad = self.services.advertisements.get(current, advertisement_id, "local-routing")
             body = await request.json()
-            if not isinstance(body, dict) or set(body) != {"product_classification_code"}:
-                raise ServiceError(422, "INVALID_ROUTING", "상세 상품군 코드만 지정할 수 있습니다.")
+            expected_fields = {"product_classification_code"}
+            if not isinstance(body, dict) or set(body) != expected_fields:
+                raise ServiceError(422, "INVALID_ROUTING", "상세 상품군을 지정해야 합니다.")
             classification = body["product_classification_code"]
             if not isinstance(classification, str) or not classification:
                 raise ServiceError(422, "INVALID_PRODUCT_CLASSIFICATION", "상세 상품군을 선택해 주세요.")

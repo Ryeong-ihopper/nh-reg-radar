@@ -291,6 +291,8 @@ def validate_search_document(value: Any) -> dict[str, Any]:
     _list(row.get("line_refs"), "line_refs")
     _list(row.get("labels"), "labels")
     _mapping(row.get("routing_metadata"), "routing_metadata")
+    if row.get("source_role") not in (None, "ADVERTISEMENT_CONTENT", "PAGE_CHROME"):
+        raise ContractError("source_role enum mismatch")
     return row
 
 

@@ -359,9 +359,18 @@ def rule_index_fingerprint(docs: list[dict[str, Any]], vectors: np.ndarray) -> s
     return digest.hexdigest()
 
 
-def versioned_rule_index(base: str, docs: list[dict[str, Any]], vectors: np.ndarray) -> str:
+def versioned_rule_index(
+    base: str,
+    docs: list[dict[str, Any]],
+    vectors: np.ndarray,
+    *,
+    source_sha: str | None = None,
+) -> str:
     """Do not mutate an index used by an already-running review."""
-    return f"{base}-catalog-{rule_index_fingerprint(docs, vectors)[:16]}"
+    fingerprint = rule_index_fingerprint(docs, vectors)
+    if source_sha:
+        fingerprint = hashlib.sha256(f"{source_sha}:{fingerprint}".encode()).hexdigest()
+    return f"{base}-catalog-{fingerprint[:16]}"
 
 
 def ensure_rule_index(
@@ -455,6 +464,7 @@ def semantic_rule_filter(
     product_group: str | Iterable[str],
     deterministic_item_ids: set[str],
     categories: Iterable[str] | None = None,
+    allowed_item_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     category_values = list(dict.fromkeys(categories or ["PROHIBIT"]))
     result: dict[str, Any] = {
@@ -463,6 +473,10 @@ def semantic_rule_filter(
             {"terms": {"product_groups": ["전체", *_normalize_product_groups(product_group)]}},
         ]
     }
+    if allowed_item_ids is not None:
+        if not allowed_item_ids:
+            raise ValueError("allowed_item_ids cannot be empty")
+        result["filter"].append({"terms": {"item_id": sorted(allowed_item_ids)}})
     if deterministic_item_ids:
         result["must_not"] = [
             {"terms": {"item_id": sorted(deterministic_item_ids)}}
@@ -533,6 +547,7 @@ def hybrid_hits_batch(
     deterministic_item_ids: set[str],
     k: int,
     categories: Iterable[str] | None = None,
+    allowed_item_ids: set[str] | None = None,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """한 광고의 fine→규칙 검색을 Elasticsearch 한 번의 msearch로 묶는다."""
     searchable = [
@@ -551,7 +566,9 @@ def hybrid_hits_batch(
     plans = [(fine, category) for fine in unique_queries.values() for category in category_values]
     ndjson: list[str] = []
     for fine, category in plans:
-        rule_filter = semantic_rule_filter(product_group, deterministic_item_ids, [category])["bool"]
+        rule_filter = semantic_rule_filter(
+            product_group, deterministic_item_ids, [category], allowed_item_ids
+        )["bool"]
         query = str(fine.get("text_search") or fine.get("text_canonical") or "").strip()
         vector = fine_vector_by_id[fine["doc_id"]]
         ndjson.extend([
@@ -571,7 +588,7 @@ def hybrid_hits_batch(
                 "size": k,
                 "_source": SOURCE_FIELDS,
                 "query": exact_vector_query(vector, semantic_rule_filter(
-                    product_group, deterministic_item_ids, [category])),
+                    product_group, deterministic_item_ids, [category], allowed_item_ids)),
                 "sort": [{"_score": "desc"}, {"item_id": "asc"}],
             }, ensure_ascii=False),
         ])
@@ -704,6 +721,7 @@ def discover_prohibitions(
     rrf_k: int,
     deterministic_item_ids: set[str],
     categories: Iterable[str] | None = None,
+    allowed_item_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     events: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     rule_source: dict[str, dict[str, Any]] = {}
@@ -716,6 +734,7 @@ def discover_prohibitions(
         deterministic_item_ids,
         per_chunk_k,
         categories,
+        allowed_item_ids,
     )
     for fine in ad_fine:
         query = str(fine.get("text_search") or fine.get("text_canonical") or "").strip()

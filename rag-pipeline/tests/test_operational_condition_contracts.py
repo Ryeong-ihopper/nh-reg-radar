@@ -91,7 +91,7 @@ def judgment(*, scope_status="MATCHED", applicability="APPLICABLE", condition_ch
                 "finding_basis": "OBSERVED" if applicability == "APPLICABLE" else "UNKNOWN",
                 "evidence_ids": ["E-CANON"],
                 "evidence_line_refs": ["L-CANON"],
-                "reason": "확인",
+                "reason": "'특정 담당 주체'가 확인됨",
             }],
             "reason": "확인",
             "confidence": "HIGH",

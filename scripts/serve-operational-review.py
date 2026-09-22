@@ -12,7 +12,7 @@ import json
 import secrets
 import sys
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from threading import Lock
 
@@ -242,6 +242,37 @@ def build_operational_server(args):
             return JSONResponse({"code": getattr(exc, "code", "UNAUTHORIZED"), "message": getattr(exc, "message", "로그인에 실패했습니다.")}, status_code=getattr(exc, "status_code", 401))
         response = JSONResponse({"accessToken": access, "tokenType": "Bearer", "expiresIn": 1800, "user": {"userId": authenticated.user_id, "userName": authenticated.user_name, "departmentId": authenticated.department_id, "departmentName": authenticated.department_name, "roles": list(authenticated.roles)}})
         response.set_cookie("refreshToken", refresh, httponly=True, secure=bool(server), samesite="lax", path="/api/v1/auth")
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/api/v1/auth/local-session")
+    async def local_session(request: Request):
+        """Issue a fresh loopback viewer session without exposing credentials.
+
+        The deployed server keeps its normal login flow.  On localhost the UI
+        can recover from access-token expiry without dropping the reviewer on
+        a login screen while a long RAG run is being inspected.
+        """
+        if server is not None or not request.client or request.client.host not in {
+            "127.0.0.1", "::1", "localhost",
+        }:
+            return JSONResponse({"code": "NOT_FOUND", "message": "요청한 대상을 찾을 수 없습니다."}, status_code=404)
+        access, _, authenticated = services.auth.login(
+            user.email, password, request.client.host, request.headers.get("user-agent", ""),
+            "local-operational-session",
+        )
+        response = JSONResponse({
+            "accessToken": access,
+            "tokenType": "Bearer",
+            "expiresIn": 1800,
+            "user": {
+                "userId": authenticated.user_id,
+                "userName": authenticated.user_name,
+                "departmentId": authenticated.department_id,
+                "departmentName": authenticated.department_name,
+                "roles": list(authenticated.roles),
+            },
+        })
         response.headers["Cache-Control"] = "no-store"
         return response
 

@@ -53,7 +53,69 @@ def external_pair():
     return p1, p3
 
 
+def parser_fin_pair():
+    p1 = {
+        "contract": {"version": "nh-ad-parse-evidence-v3"},
+        "doc_id": "DOC-FIN", "source_file": "fin.png", "file_type": "png",
+        "product_group": "예금성", "category_source": "vlm",
+        "classification": {"product_group": "예금성"},
+        "template": {"template_id": "deposit-demand"},
+        "pages": [{
+            "page_no": 1, "canvas": [1200, 1800], "parse_route": "ocr", "parse_status": "ok",
+            "regions": [{
+                "region_id": "p1_r001", "bbox": [20, 40, 600, 120], "label": "text",
+                "layout_score": 0.98, "role": "본문",
+                "lines": [{"line_ref": "p1/r1/L1", "text": "원금과 이자 보호",
+                           "bbox": [25, 45, 580, 90], "source": "ocr", "confidence": 0.99}],
+            }],
+            "unassigned_lines": [{"line_ref": "p1/u/L1", "text": "하단 고지",
+                                  "bbox": [20, 1700, 300, 1750], "source": "ocr"}],
+            "recovery_candidates": [{
+                "candidate_id": "p1_x001", "bbox": [20, 1700, 300, 1750],
+                "text": "하단 고지",
+            }],
+        }],
+    }
+    p3 = {
+        "contract": {"version": "nh-ad-region-review-input-v6"},
+        "document": {"doc_id": "DOC-FIN", "source_file": "fin.png", "file_type": "png"},
+        "review_units": [{"product_id": "product_1", "region_ids": ["p1_r001"]}],
+        "pages": [{"page_no": 1, "canvas": [1200, 1800], "regions": [{
+            "region_id": "p1_r001", "product_id": "product_1", "bbox": [20, 40, 600, 120],
+            "selected_text": "원금과 이자 보호", "labels": ["예금자보호"],
+            "kind": "text", "needs_review": False, "text_source": "ocr",
+        }]}],
+    }
+    return p1, p3
+
+
 class ParserContractAdapterTests(unittest.TestCase):
+    def test_parser_fin_v3_v6_preserves_bbox_and_p1_only_lines(self):
+        p1, p3 = adapt_p1_p3(*parser_fin_pair())
+        self.assertEqual(p1["pages"][0]["canvas_w"], 1200)
+        self.assertEqual(p1["pages"][0]["canvas_h"], 1800)
+        self.assertEqual(p1["pages"][0]["regions"][0]["bbox"], [20, 40, 600, 120])
+        self.assertEqual(p3["pages"][0]["regions"][0]["line_refs"], ["p1/r1/L1"])
+        self.assertEqual(p3["pages"][0]["unassigned_text"][0]["line_ref"], "p1/u/L1")
+        self.assertEqual(p3["pages"][0]["regions"][0]["labels"], [])
+        self.assertEqual(p3["unverified_recovery_candidates"][0]["page_no"], 1)
+        self.assertEqual(p3["unverified_recovery_candidates"][0]["candidate_id"], "p1_x001")
+
+    def test_parser_fin_v3_v6_combines_without_promoting_vlm_bbox(self):
+        p1, p3 = parser_fin_pair()
+        p3["pages"][0]["regions"][0]["selected_text"] = "VLM 교정 문구"
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory) / "p1.json", Path(directory) / "p3.json"
+            a.write_text(json.dumps(p1, ensure_ascii=False), encoding="utf-8")
+            b.write_text(json.dumps(p3, ensure_ascii=False), encoding="utf-8")
+            integrated = combine(a, b)
+        region = integrated["pages"][0]["regions"][0]
+        self.assertEqual(region["bbox"], [20, 40, 600, 120])
+        self.assertEqual(region["lines"][0]["bbox"], [25, 45, 580, 90])
+        self.assertEqual(region["final_text"], "VLM 교정 문구")
+        _, fine = search_docs(integrated)
+        self.assertEqual(fine[0]["span_status"], "region_level_selected_text")
+
     def test_invalid_label_refs_are_removed_without_losing_text_or_valid_labels(self):
         valid = {"line_refs": ["p1/R-1/L000"], "sources": ["parser"]}
         for invalid in (
@@ -258,7 +320,7 @@ class ParserContractAdapterTests(unittest.TestCase):
         self.assertEqual(len(adapted_p1["pages"][0]["regions"]), 2)
         self.assertEqual(len(adapted_p3["pages"][0]["regions"]), 1)
 
-    def test_adapter_rejects_p3_text_assigned_to_layout_only_region(self):
+    def test_adapter_keeps_bbox_backed_p3_text_as_region_level_evidence(self):
         p1, p3 = external_pair()
         p1["pages"][0]["regions"].append({
             "region_id": "R-IMAGE", "bbox": [300, 300, 600, 600], "lines": [],
@@ -267,5 +329,31 @@ class ParserContractAdapterTests(unittest.TestCase):
             "region_id": "R-IMAGE", "selected_text": "invented", "line_refs": [], "labels": [],
         })
 
-        with self.assertRaisesRegex(ValueError, "assigns text to empty P1 region"):
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory) / "p1.json", Path(directory) / "p3.json"
+            a.write_text(json.dumps(p1), encoding="utf-8")
+            b.write_text(json.dumps(p3), encoding="utf-8")
+            integrated = combine(a, b)
+            _, fine = search_docs(integrated)
+
+        region = next(row for row in integrated["pages"][0]["regions"] if row["region_id"] == "R-IMAGE")
+        self.assertEqual(region["final_text"], "invented")
+        self.assertEqual(region["bbox"], [300, 300, 600, 600])
+        self.assertEqual(region["line_refs"], [])
+        view = next(row for row in fine if row["region_id"] == "R-IMAGE")
+        self.assertEqual(view["span_status"], "region_level_selected_text")
+        self.assertEqual(view["line_refs"], [])
+        self.assertEqual(view["bbox"], [300, 300, 600, 600])
+
+    def test_adapter_rejects_p3_text_without_p1_geometry(self):
+        p1, p3 = external_pair()
+        p1["pages"][0]["regions"].append({
+            "region_id": "R-NO-GEOMETRY", "bbox": None, "lines": [],
+        })
+        p3["pages"][0]["regions"].append({
+            "region_id": "R-NO-GEOMETRY", "selected_text": "invented",
+            "line_refs": [], "labels": [],
+        })
+
+        with self.assertRaisesRegex(ValueError, "geometry-free P1 region"):
             adapt_p1_p3(p1, p3)

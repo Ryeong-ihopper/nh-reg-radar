@@ -62,6 +62,8 @@ def evaluate_search(directory: Path, references_path: Path) -> dict:
                   "TEMPLATE_ENUMERATION" if item in template else
                   "MAPPED_ENUMERATION" if item in mapped else "NOT_DISCOVERED")
         state = ("REQUESTED" if key in scoped else
+                 "AUDIT_ONLY" if (budget.get("method") == "discovery_audit_only_v1"
+                                  and item in budget.get("deferred_ids", [])) else
                  "BUDGET_DEFERRED" if item in budget.get("deferred_ids", []) else
                  "INPUT_DEFERRED" if any(row["item_id"] == item for row in ad.get("deferred_input_rules", [])) else
                  "NOT_REQUESTED")

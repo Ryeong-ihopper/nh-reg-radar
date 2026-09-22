@@ -232,11 +232,42 @@ class BridgeTests(unittest.TestCase):
             "SERVER_STOPPED",
         )
 
+    def test_failed_idempotent_rag_job_is_retried_for_same_review_id(self):
+        rag = Mock()
+        rag.submit.return_value = {
+            "job_id": "RAG-existing",
+            "status": "FAILED",
+            "idempotent_replay": True,
+        }
+        rag.retry.return_value = {"job_id": "RAG-existing", "status": "QUEUED"}
+        self.bridge.rag = rag
+
+        job = self.bridge.submit_rag({"client_request_id": "REV-existing"})
+
+        self.assertEqual(job["status"], "QUEUED")
+        rag.retry.assert_called_once_with("RAG-existing")
+
+    def test_completed_idempotent_rag_job_is_reused_without_retry(self):
+        rag = Mock()
+        rag.submit.return_value = {
+            "job_id": "RAG-existing",
+            "status": "COMPLETED",
+            "idempotent_replay": True,
+        }
+        self.bridge.rag = rag
+
+        job = self.bridge.submit_rag({"client_request_id": "REV-existing"})
+
+        self.assertEqual(job["status"], "COMPLETED")
+        rag.retry.assert_not_called()
+
     def test_parser_runner_layouts_are_explicit(self):
         legacy = parser_runner_layout({})
         external = parser_runner_layout({"parser_runner": "nh_ad_parser_cli"})
+        parser_fin = parser_runner_layout({"parser_runner": "nh_parser_fin"})
         self.assertEqual((legacy["p1_dir"], legacy["p3_dir"]), ("json", "review_region_input"))
         self.assertEqual((external["p1_dir"], external["p3_dir"]), ("evidence", "review-input"))
+        self.assertEqual((parser_fin["p1_dir"], parser_fin["p3_dir"]), ("final", "final"))
         with self.assertRaises(ValueError):
             parser_runner_layout({"parser_runner": "unknown"})
 
@@ -274,6 +305,29 @@ class BridgeTests(unittest.TestCase):
         visual = self.bridge.parser_command(self.root, self.root, visual=True)
         self.assertIn("--parse-only", visual)
         self.assertNotIn("--template-id", visual)
+
+    def test_parser_fin_command_and_output_pairing(self):
+        parser_root = self.root / "parser-fin"
+        parser_root.mkdir()
+        self.bridge.config.update({
+            "parser_runner": "nh_parser_fin",
+            "parser_root": str(parser_root),
+            "parser_python": "python",
+        })
+        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        source, output = self.root / "source", self.root / "parser-output"
+        command = self.bridge.parser_command(source, output, template_id="예금성상품-입출식")
+        self.assertEqual(command[1:3], ["-u", str((parser_root / "run.py").resolve())])
+        self.assertEqual(command[-3:], ["--run-name", "parser-output", "--with-vlm"])
+        final = output / "final"
+        final.mkdir(parents=True)
+        (final / "ad_file.png.p1.json").write_text("{}", encoding="utf-8")
+        (final / "ad_file.png.p3.json").write_text("{}", encoding="utf-8")
+        p1s, p3s = self.bridge.parser_outputs(output)
+        self.assertEqual([p.name for p in p1s], ["ad_file.png.p1.json"])
+        self.assertEqual([p.name for p in p3s], ["ad_file.png.p3.json"])
+        self.assertTrue(self.bridge.parser_output_name_matches(p1s[0], Path("ad file.png")))
+        self.assertTrue(self.bridge.parser_p3_matches(p1s[0], p3s[0]))
 
     def test_missing_asset_retries_individually_and_keeps_batch_output(self):
         parser_root = self.root / "parser"
@@ -610,7 +664,8 @@ class BridgeTests(unittest.TestCase):
         self.bridge.install(app)
         with TestClient(app) as client:
             url = "/operational/advertisements/ADV-test/routing"
-            self.assertEqual(client.put(url, json={"product_classification_code": "예금성상품-적립식"}).status_code, 401)
+            route_body = {"product_classification_code": "예금성상품-적립식"}
+            self.assertEqual(client.put(url, json=route_body).status_code, 401)
             token, _, _ = self.services.auth.login(self.user.email, "test-password", "local", "test", "test")
             headers = {"Authorization": f"Bearer {token}"}
             capabilities = client.get("/operational/capabilities", headers=headers).json()
@@ -630,8 +685,8 @@ class BridgeTests(unittest.TestCase):
                 if row["label"].startswith("투자성상품-")
             )
             self.assertEqual(investment["productGroup"], "INVESTMENT")
-            self.assertEqual(client.put(url, headers=headers, json={"product_classification_code": "대출성상품-상품명 노출"}).status_code, 422)
-            self.assertEqual(client.put(url, headers=headers, json={"product_classification_code": "예금성상품-적립식"}).status_code, 200)
+            self.assertEqual(client.put(url, headers=headers, json={**route_body, "product_classification_code": "대출성상품-상품명 노출"}).status_code, 422)
+            self.assertEqual(client.put(url, headers=headers, json=route_body).status_code, 200)
             intake = {
                 "schema_version": "operational-ad-intake-v1", "advertisement_name": "test", "media_codes": ["NOTICE"],
                 "assets": [{"asset_id": "FILE-test", "file_name": "input.pdf"}],

@@ -85,6 +85,16 @@ class ServiceConfig:
     model: str
     source_policy: str = "template-only"
     decision_guide_path: Path | None = None
+    candidate_activation_policy_path: Path | None = None
+    canonical_plans_path: Path | None = dataclass_field(
+        default_factory=lambda: ROOT / "config" / "canonical-execution-plans-v2.json"
+    )
+    catalog_migration_path: Path | None = dataclass_field(
+        default_factory=lambda: ROOT / "config" / "operational-catalog-migration-v1.json"
+    )
+    rule_dispositions_path: Path | None = dataclass_field(
+        default_factory=lambda: ROOT / "config" / "operational-rule-dispositions-v1.json"
+    )
     template_hwpx_path: Path | None = None
     template_methodology_dir: Path | None = None
     dgx_host: str | None = None
@@ -96,17 +106,19 @@ class ServiceConfig:
     judgment_max_tokens: int = 4096
     vector_cache_dir: Path | None = None
     evidence_per_rule: int = 3
-    prohibition_max_candidates: int = 0  # deprecated; the runner processes every discovered candidate
     job_timeout_seconds: int = 1800
     max_attempts: int = 3
 
 
 def config_from_env() -> ServiceConfig:
-    policy = os.environ.get("NH_REVIEW_SOURCE_POLICY", "template-only")
+    policy = os.environ.get("NH_REVIEW_SOURCE_POLICY", "template-plus-v2")
     regulation = os.environ.get("NH_REGULATION_V2_PATH", "")
     es_index = os.environ.get("NH_RAG_ES_INDEX", "")
     if policy == "template-plus-v2" and (not regulation or not es_index):
         raise RuntimeError("NH_REGULATION_V2_PATH and NH_RAG_ES_INDEX are required")
+    canonical_default = ROOT / "config" / "canonical-execution-plans-v2.json"
+    migration_default = ROOT / "config" / "operational-catalog-migration-v1.json"
+    disposition_default = ROOT / "config" / "operational-rule-dispositions-v1.json"
     return ServiceConfig(
         jobs_dir=Path(os.environ.get("NH_RAG_JOBS_DIR", "runtime/rag-jobs")),
         regulation_path=Path(regulation),
@@ -128,6 +140,20 @@ def config_from_env() -> ServiceConfig:
             if os.environ.get("NH_DECISION_GUIDE_PATH")
             else None
         ),
+        candidate_activation_policy_path=(
+            Path(os.environ["NH_CANDIDATE_ACTIVATION_POLICY_PATH"])
+            if os.environ.get("NH_CANDIDATE_ACTIVATION_POLICY_PATH")
+            else None
+        ),
+        canonical_plans_path=Path(os.environ.get(
+            "NH_CANONICAL_EXECUTION_PLANS", str(canonical_default)
+        )),
+        catalog_migration_path=Path(os.environ.get(
+            "NH_OPERATIONAL_CATALOG_MIGRATION", str(migration_default)
+        )),
+        rule_dispositions_path=Path(os.environ.get(
+            "NH_OPERATIONAL_RULE_DISPOSITIONS", str(disposition_default)
+        )),
         dgx_host=os.environ.get("DGX_HOST"),
         dgx_key=Path(os.environ["DGX_SSH_KEY"]) if os.environ.get("DGX_SSH_KEY") else None,
         workers=int(os.environ.get("NH_RAG_MODEL_WORKERS", "4")),
@@ -140,9 +166,6 @@ def config_from_env() -> ServiceConfig:
             else None
         ),
         evidence_per_rule=int(os.environ.get("NH_RAG_EVIDENCE_PER_RULE", "3")),
-        prohibition_max_candidates=int(
-            os.environ.get("NH_RAG_PROHIBITION_MAX_CANDIDATES", "0")
-        ),
         job_timeout_seconds=int(os.environ.get("NH_RAG_JOB_TIMEOUT_SECONDS", "1800")),
         max_attempts=int(os.environ.get("NH_RAG_MAX_ATTEMPTS", "3")),
     )
@@ -307,6 +330,27 @@ class OperationalReviewService:
             raise RuntimeError("template-only review requires a general template HWPX")
         if config.source_policy == "template-plus-v2" and not config.regulation_path.is_file():
             raise RuntimeError(f"regulation v2 not found: {config.regulation_path}")
+        if (
+            config.candidate_activation_policy_path
+            and not config.candidate_activation_policy_path.is_file()
+        ):
+            raise RuntimeError(
+                "candidate activation policy not found: "
+                f"{config.candidate_activation_policy_path}"
+            )
+        canonical_paths = (
+            config.canonical_plans_path,
+            config.catalog_migration_path,
+            config.rule_dispositions_path,
+        )
+        if any(canonical_paths) and not all(canonical_paths):
+            raise RuntimeError("canonical catalog configuration is incomplete")
+        if config.source_policy == "template-plus-v2":
+            if not all(canonical_paths):
+                raise RuntimeError("template-plus-v2 requires the canonical plan, migration, and disposition gates")
+            for path in canonical_paths:
+                if path and not path.is_file():
+                    raise RuntimeError(f"canonical catalog file not found: {path}")
         if config.template_methodology_dir and not config.template_methodology_dir.is_dir():
             raise RuntimeError(
                 f"template methodology directory not found: {config.template_methodology_dir}"
@@ -556,8 +600,6 @@ class OperationalReviewService:
                 str(self.config.judgment_max_tokens),
                 "--evidence-per-rule",
                 str(self.config.evidence_per_rule),
-                "--prohibition-max-candidates",
-                str(self.config.prohibition_max_candidates),
             ]
             if self.config.vector_cache_dir:
                 command.extend(["--vector-cache-dir", str(self.config.vector_cache_dir)])
@@ -576,6 +618,22 @@ class OperationalReviewService:
                 command.extend(
                     ["--decision-guide", str(self.config.decision_guide_path)]
                 )
+            if (
+                self.config.candidate_activation_policy_path
+                and source_policy == "template-plus-v2"
+                and not self.config.canonical_plans_path
+            ):
+                command.extend([
+                    "--candidate-activation-policy",
+                    str(self.config.candidate_activation_policy_path),
+                ])
+            # The canonical catalog also owns the structured template plans.
+            # In template-only mode the runner loads only those template plans;
+            # supplemental v2 rules remain excluded from discovery and judgment.
+            if self.config.canonical_plans_path:
+                command.extend(["--canonical-plans", str(self.config.canonical_plans_path)])
+                command.extend(["--catalog-migration", str(self.config.catalog_migration_path)])
+                command.extend(["--rule-dispositions", str(self.config.rule_dispositions_path)])
             if self.config.template_hwpx_path:
                 command.extend(["--template-hwpx", str(self.config.template_hwpx_path)])
             if self.config.template_methodology_dir:

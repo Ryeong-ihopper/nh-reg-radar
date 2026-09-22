@@ -1,0 +1,60 @@
+services:
+  elasticsearch:
+    build:
+      context: ./elasticsearch
+    image: nh-rag-elasticsearch:8.15.0-nori
+    container_name: nh-rag-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "127.0.0.1:9201:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  bge:
+    build:
+      context: ./bge
+    image: nh-rag-bge:20260922
+    container_name: nh-rag-bge
+    restart: unless-stopped
+    gpus: all
+    ipc: host
+    environment:
+      BGE_HOST: 0.0.0.0
+      BGE_PORT: "8103"
+      BGE_EMBED_MODEL: BAAI/bge-m3
+      BGE_RERANK_MODEL: BAAI/bge-reranker-v2-m3
+      HF_HUB_OFFLINE: "1"
+    ports:
+      - "127.0.0.1:8103:8103"
+    volumes:
+      - /data/rookies-lab/nh-ai/models/huggingface:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  bge-model-sync:
+    profiles: ["setup"]
+    build:
+      context: ./bge
+    image: nh-rag-bge:20260922
+    environment:
+      HF_HUB_OFFLINE: "0"
+    volumes:
+      - /data/rookies-lab/nh-ai/models/huggingface:/root/.cache/huggingface
+    entrypoint: ["python3", "/app/sync_models.py"]
+
+volumes:
+  elasticsearch-data:

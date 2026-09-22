@@ -25,12 +25,23 @@ if str(ROOT) not in sys.path:
 from rag.judgment.grounding import grounding_errors  # noqa: E402
 from rag.judgment.evidence_projection import pack_documents  # noqa: E402
 from rag.parsing.source_structure import compact_source_structure  # noqa: E402
-from rag.judgment.reading_quality import apply_reading_guard, needs_reading_review, reading_issues  # noqa: E402
+from rag.judgment.reading_quality import (  # noqa: E402
+    apply_reading_guard,
+    claims_disclosure_absence,
+    needs_reading_review,
+    reading_issues,
+)
 from rag.judgment.temporal import basis_date_observations, temporal_claim_errors  # noqa: E402
 from rag.judgment.manual_review import text_facet_claim_errors  # noqa: E402
 from rag.judgment.source_checks import source_claim_errors  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
+from rag.judgment.canonical_arithmetic import (  # noqa: E402
+    calculate_explicit_arithmetic, METHOD as CANONICAL_ARITHMETIC_METHOD,
+)
 from rag.judgment.output_contract import response_format, response_mode  # noqa: E402
+from rag.judgment.obligation_logic import (  # noqa: E402
+    aggregate_applicability, aggregate_obligations, OBLIGATION_LOGIC_PROMPT,
+)
 from dgx_openai_client import ModelTransportError, post_json  # noqa: E402
 
 
@@ -70,7 +81,7 @@ the gate rules below for whether obligation checks are required.
       "obligation_ref": "O1",
       "requirement": "checked obligation",
       "status": "SATISFIED|MISSING|VIOLATED|UNDETERMINED",
-      "finding_basis": "OBSERVED|ABSENCE|UNKNOWN",
+      "finding_basis": "OBSERVED|ABSENCE|CONFIRMED_METADATA|UNKNOWN",
       "evidence_refs": ["E1", "L1"],
       "reason": "direct reason"
     }],
@@ -105,9 +116,9 @@ mandatory items. If the applicable set of elements cannot be established, use
 UNDETERMINED rather than asserting complete compliance.
 Search facets are retrieval hints, not additional obligations or proof of absence.
 Resolve each O against its source conditions, exceptions and alternatives before
-assigning its status. A definitive VIOLATED obligation remains an overall VIOLATION
-even when another obligation is UNDETERMINED; do not hide a confirmed independent
-violation behind uncertainty elsewhere. Do not mark an O VIOLATED while its own
+assigning its status. Unless source obligation_logic explicitly declares ANY
+alternatives, a definitive failed mandatory O remains an overall VIOLATION
+even when another O is UNDETERMINED. Do not mark an O VIOLATED while its own
 applicability or exception remains unresolved.
 MATCHED SCOPE requires a supporting allowed evidence reference or a confirmed
 metadata field. Do not leave both empty when claiming a match. Before returning
@@ -135,8 +146,14 @@ One caution sentence on one L line does not violate that rule. Return VIOLATED
 only when the same cited L line contains at least two distinct caution notices;
 name both notices in the reason. Separate L lines and a single notice are compliant.
 For every SATISFIED/VIOLATED OBSERVED check, cite the specific supporting L aliases
-when exact lines are supplied. An E region alone is insufficient: select the
-actual source sentence, not all lines in the region. Uncertain source readings
+when exact lines are supplied and include at least one short verbatim excerpt from
+those exact L lines in the check reason, enclosed in quotation marks. An E region
+alone is insufficient: select the actual source sentence, not all lines in the region.
+Every factual element used to establish the finding must be supported by the cited
+lines. A website header, footer, menu, related-site link or other common navigation
+may establish only the identity or navigation fact it directly states; it cannot
+establish a product name/content, fee, review procedure or other advertisement-body
+obligation. Uncertain source readings
 are retained as context but have no citable aliases; use readable evidence.
 When claiming a name or phrase is present, quote the observed wording in the
 reason and cite the L line that actually contains it. The first line of a
@@ -277,7 +294,9 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
     line_to_ref: dict[str, str] = {}
     ref_to_line: dict[str, str] = {}
     compact_documents = []
-    needs_spatial_evidence = row.get("category") == "STYLE" or any(
+    # STYLE is an authoring taxonomy, not an observation modality.  Only the
+    # compiled medium contract may request spatial evidence.
+    needs_spatial_evidence = any(
         str(rule.get("required_medium") or "") == "레이아웃"
         or "원본형식" in str(rule.get("input_requirement") or "")
         for rule in (payload.get("rules") or [])
@@ -318,6 +337,7 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
             "text": document.get("text") or "",
             "span_status": document.get("span_status") or "unknown",
             "text_selection": document.get("text_selection") or {},
+            "source_role": document.get("source_role") or "ADVERTISEMENT_CONTENT",
         }
         if needs_spatial_evidence:
             compact_document["bbox"] = document.get("bbox")
@@ -462,9 +482,17 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
             for item_id, value in (payload.get("external_input_assessment") or {}).items()
             if item_id in item_to_ref
         },
+        "canonical_confirmed_facts": {
+            item_to_ref[item_id]: value
+            for item_id, value in (payload.get("canonical_confirmed_facts") or {}).items()
+            if item_id in item_to_ref
+        },
         "rules": rules,
     }
     system = row["messages"][0]["content"].strip() + "\n\n" + COMPACT_OUTPUT_SYSTEM
+    if any((rule.get("condition_contract") or {}).get("obligation_logic")
+           for rule in rules):
+        system += "\n" + OBLIGATION_LOGIC_PROMPT
     for field, statuses in (
         ("condition_checks", "SATISFIED|NOT_SATISFIED|UNDETERMINED"),
         ("review_condition_checks", "TRIGGERED|NOT_TRIGGERED|UNDETERMINED"),
@@ -558,11 +586,12 @@ def _expand_model_response(
                 if not isinstance(value, dict):
                     output.append(value)
                     continue
+                condition_ids, condition_lines = expand_refs(value.get("evidence_refs"))
                 expanded_check = {
                     "condition_ref": value.get("condition_ref"),
                     "status": value.get("status"),
+                    "_has_evidence": bool(condition_ids or condition_lines),
                 }
-                condition_ids, condition_lines = expand_refs(value.get("evidence_refs"))
                 if isinstance(condition_ids, list):
                     gate_ids.extend(condition_ids)
                 if isinstance(condition_lines, list):
@@ -593,31 +622,109 @@ def _expand_model_response(
                 "reason": check.get("reason"),
             })
 
+        rule = rules_by_id.get(str(item_id), {})
+        contract = rule.get("condition_contract") or {}
+        # Deterministic obligation adapters override model guesses before the
+        # ALL/ANY join. Metadata is an auditable input, not advertisement text.
+        routing = payload.get("routing") or {}
+        checks_by_ref = {
+            str(value.get("obligation_ref")): value
+            for value in checks if isinstance(value, dict)
+        }
+        for obligation in contract.get("obligation_checks") or []:
+            adapter = obligation.get("deterministic_adapter") or {}
+            if adapter.get("kind") != "CONFIRMED_BOOLEAN":
+                continue
+            field = str(adapter.get("field") or "")
+            raw = routing.get(field) or {}
+            status = str(raw.get("status") or "").lower() if isinstance(raw, dict) else ""
+            value = raw.get("value") if isinstance(raw, dict) else None
+            check = checks_by_ref.get(str(obligation.get("obligation_id")))
+            if check is None:
+                continue
+            confirmed_value = value if status in {"provided", "confirmed", "verified"} and isinstance(value, bool) else None
+            check.update({
+                "status": "SATISFIED" if confirmed_value is True else "MISSING" if confirmed_value is False else "UNDETERMINED",
+                "finding_basis": "CONFIRMED_METADATA" if confirmed_value is not None else "UNKNOWN",
+                "evidence_ids": [],
+                "evidence_line_refs": [],
+                "reason": (
+                    f"접수 확정값 {field}={str(confirmed_value).lower()}를 적용했습니다."
+                    if confirmed_value is not None else
+                    f"접수 확정값 {field}가 없어 판단할 수 없습니다."
+                ),
+            })
+        if contract.get("scope_owner") == "RULE":
+            scope_check = {"scope_ref": contract.get("scope_ref"), "status": "MATCHED"}
+            gate_metadata.extend(contract.get("scope_metadata_fields") or [])
+        confirmed = {
+            str(value.get("fact_id")): value
+            for value in (payload.get("canonical_confirmed_facts") or {}).get(str(item_id), [])
+            if isinstance(value, dict)
+        }
+        if isinstance(condition_checks, list) and confirmed:
+            for check in condition_checks:
+                if not isinstance(check, dict) or check.get("condition_ref") not in confirmed:
+                    continue
+                observation = confirmed[check["condition_ref"]]
+                check["status"] = (
+                    "SATISFIED" if observation.get("value") is True else
+                    "NOT_SATISFIED" if observation.get("value") is False else
+                    "UNDETERMINED"
+                )
+                basis = observation.get("basis")
+                if basis and observation.get("value") is not None:
+                    gate_metadata.append(str(basis))
+        closed_absence_facts = []
+        item_scope = (payload.get("evidence_scope") or {}).get(str(item_id)) or {}
+        reading_quality = payload.get("reading_quality") or {}
+        complete_ad_scan = (
+            payload.get("parser_coverage") == "READY"
+            and item_scope.get("complete_ad_scan") is True
+            and reading_quality.get("global_scan_incomplete") is not True
+            and bool(payload.get("full_ad_text"))
+        )
+        conditions_by_id = {
+            str(value.get("condition_id")): value
+            for value in contract.get("applicability_conditions") or []
+            if isinstance(value, dict)
+        }
+        if complete_ad_scan and isinstance(condition_checks, list):
+            for check in condition_checks:
+                if not isinstance(check, dict):
+                    continue
+                condition = conditions_by_id.get(str(check.get("condition_ref"))) or {}
+                if (
+                    check.get("status") in {"UNDETERMINED", "NOT_SATISFIED"}
+                    and not check.get("_has_evidence")
+                    and condition.get("absence_policy")
+                    == "NOT_SATISFIED_IF_COMPLETE_AD_SCAN"
+                ):
+                    check["status"] = "NOT_SATISFIED"
+                    closed_absence_facts.append({
+                        "condition_ref": check.get("condition_ref"),
+                        "condition": condition.get("text"),
+                        "basis": "COMPLETE_AD_SCAN_NO_POSITIVE_TRIGGER",
+                    })
+            if closed_absence_facts:
+                gate_metadata.append("complete_ad_scan")
+        if isinstance(condition_checks, list):
+            for check in condition_checks:
+                if isinstance(check, dict):
+                    check.pop("_has_evidence", None)
         scope_status = scope_check.get("status") if isinstance(scope_check, dict) else None
-        condition_statuses = [
-            check.get("status") for check in condition_checks
-            if isinstance(check, dict)
-        ] if isinstance(condition_checks, list) else []
         review_statuses = [
             check.get("status") for check in review_condition_checks
             if isinstance(check, dict)
         ] if isinstance(review_condition_checks, list) else []
-        if scope_status == "NOT_MATCHED" or "NOT_SATISFIED" in condition_statuses:
-            applicability = "NOT_APPLICABLE"
-        elif (
-            scope_status == "UNDETERMINED"
-            or "UNDETERMINED" in condition_statuses
-            or any(status in {"TRIGGERED", "UNDETERMINED"} for status in review_statuses)
-        ):
-            applicability = "UNDETERMINED"
-        elif scope_status == "MATCHED" and all(
-            status == "SATISFIED" for status in condition_statuses
-        ) and all(status == "NOT_TRIGGERED" for status in review_statuses):
-            applicability = "APPLICABLE"
-        else:
-            # Preserve malformed legacy output so validation rejects it rather
-            # than silently inventing a gate result.
+        try:
+            applicability = aggregate_applicability(contract, scope_status, condition_checks)
+        except (KeyError, TypeError, ValueError):
+            # Preserve malformed output so validation rejects it rather than
+            # silently inventing a gate result.
             applicability = model_result.get("applicability")
+        if any(status in {"TRIGGERED", "UNDETERMINED"} for status in review_statuses):
+            applicability = "UNDETERMINED"
 
         old_app_ids, old_app_lines = expand_refs(
             model_result.get("applicability_evidence_refs")
@@ -633,7 +740,6 @@ def _expand_model_response(
         gate_lines = list(dict.fromkeys(gate_lines))
         gate_metadata = list(dict.fromkeys(gate_metadata))
 
-        rule = rules_by_id.get(str(item_id), {})
         invariant_compliance = _obligations_satisfy_unknown_exemptions(
             rule=rule,
             scope_status=scope_status,
@@ -660,7 +766,10 @@ def _expand_model_response(
                 applicability_basis = "CONFIRMED_METADATA"
             else:
                 applicability_basis = model_result.get("applicability_basis")
-            verdict = model_result.get("verdict")
+            try:
+                verdict = aggregate_obligations(contract, checks)
+            except (KeyError, TypeError, ValueError):
+                verdict = model_result.get("verdict")
 
         old_evidence_ids, old_evidence_lines = expand_refs(model_result.get("evidence_refs"))
         evidence_ids = list(dict.fromkeys([
@@ -673,6 +782,15 @@ def _expand_model_response(
             *(str(value) for check in checks if isinstance(check, dict)
               for value in (check.get("evidence_line_refs") or [])),
         ]))
+        reason = model_result.get("reason")
+        if applicability == "NOT_APPLICABLE" and closed_absence_facts:
+            labels = ", ".join(str(value.get("condition") or value["condition_ref"])
+                               for value in closed_absence_facts)
+            reason = (
+                "광고 전체 판독에서 긍정형 발동조건이 관찰되지 않아 적용되지 않습니다: "
+                + labels
+            )
+            metadata_fields = ["complete_ad_scan"]
         expanded.append({
             "item_id": item_id,
             "scope_check": scope_check,
@@ -687,9 +805,11 @@ def _expand_model_response(
             "evidence_ids": evidence_ids,
             "evidence_line_refs": evidence_lines,
             "requirement_checks": checks,
-            "reason": model_result.get("reason"),
+            "reason": reason,
             "confidence": model_result.get("confidence"),
             "needs_researcher_review": verdict in {"VIOLATION", "UNDETERMINED"},
+            **({"applicability_absence_closures": closed_absence_facts}
+               if closed_absence_facts else {}),
         })
     return {"ad_id": row["ad_id"], "results": expanded}
 
@@ -738,7 +858,22 @@ def _obligations_satisfy_unknown_exemptions(
         str(value.get("obligation_ref")) if isinstance(value, dict) else ""
         for value in requirement_checks
     ]
-    return actual == expected and all(
+    if actual != expected:
+        return False
+    if "obligation_logic" in contract:
+        supported = [
+            {**value, "status": "SATISFIED" if (
+                value.get("status") == "SATISFIED"
+                and value.get("finding_basis") == "OBSERVED"
+                and bool(value.get("evidence_ids") or value.get("evidence_line_refs"))
+            ) else "UNDETERMINED"}
+            for value in requirement_checks
+        ]
+        try:
+            return aggregate_obligations(contract, supported) == "COMPLIANT"
+        except ValueError:
+            return False
+    return all(
         value.get("status") == "SATISFIED"
         and value.get("finding_basis") == "OBSERVED"
         and bool(value.get("evidence_ids") or value.get("evidence_line_refs"))
@@ -827,6 +962,15 @@ def validate_condition_contract_result(
             errors.append(f"{item_id}: review_condition_checks[{index}] status enum")
 
     applicability = result.get("applicability")
+    try:
+        calculated_applicability = aggregate_applicability(contract, scope_status, checks)
+        if applicability != calculated_applicability:
+            errors.append(
+                f"{item_id}: applicability logic mismatch "
+                f"expected={calculated_applicability} actual={applicability}"
+            )
+    except (KeyError, TypeError, ValueError) as exc:
+        errors.append(f"{item_id}: applicability logic contract invalid: {exc}")
     obligations = contract.get("obligation_checks")
     invariant_compliance = _obligations_satisfy_unknown_exemptions(
         rule=rule,
@@ -844,14 +988,18 @@ def validate_condition_contract_result(
             errors.append(f"{item_id}: obligation_checks 누락/중복/순서 불일치 expected={expected_obligations} actual={actual_obligations}")
     if applicability == "APPLICABLE" and (
         scope_status != "MATCHED"
-        or any(status != "SATISFIED" for status in condition_statuses)
-        or any(status == "TRIGGERED" for status in review_statuses)
+        or (
+            contract.get("applicability_logic") is None
+            and any(status != "SATISFIED" for status in condition_statuses)
+        )
+        or any(status != "NOT_TRIGGERED" for status in review_statuses)
     ):
         errors.append(f"{item_id}: 미확정/불충족 조건에서 APPLICABLE 금지")
-    if applicability == "NOT_APPLICABLE" and not (
+    if (applicability == "NOT_APPLICABLE"
+        and contract.get("applicability_logic") is None and not (
         scope_status == "NOT_MATCHED"
         or "NOT_SATISFIED" in condition_statuses
-    ):
+    )):
         errors.append(f"{item_id}: 불충족 조건 없는 NOT_APPLICABLE 금지")
     if "TRIGGERED" in review_statuses and result.get("verdict") != "UNDETERMINED":
         errors.append(f"{item_id}: 사람 확인 조건에서 확정 verdict 금지")
@@ -1104,12 +1252,24 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                 errors.append(f"{item_id}: requirement_checks[{check_index}] status enum")
             else:
                 check_statuses.append(check_status)
-            if finding_basis not in {"OBSERVED", "ABSENCE", "UNKNOWN"}:
+            if finding_basis not in {"OBSERVED", "ABSENCE", "CONFIRMED_METADATA", "UNKNOWN"}:
                 errors.append(f"{item_id}: requirement_checks[{check_index}] finding_basis enum")
-            if check_status == "MISSING" and finding_basis != "ABSENCE":
-                errors.append(f"{item_id}: MISSING finding_basis는 ABSENCE여야 함")
+            if check_status == "MISSING" and finding_basis not in {"ABSENCE", "CONFIRMED_METADATA"}:
+                errors.append(f"{item_id}: MISSING finding_basis는 ABSENCE 또는 CONFIRMED_METADATA여야 함")
             if check_status == "VIOLATED" and finding_basis != "OBSERVED":
                 errors.append(f"{item_id}: VIOLATED finding_basis는 OBSERVED여야 함")
+            if (
+                request_row.get("category") == "PRESENCE"
+                and check_status == "VIOLATED"
+                and finding_basis == "OBSERVED"
+                and claims_disclosure_absence(
+                    check,
+                    str(row.get("reason") or "") if len(checks) == 1 else "",
+                )
+            ):
+                errors.append(
+                    f"{item_id}: 표시의무 누락을 VIOLATED+OBSERVED로 우회함"
+                )
             if check_status == "UNDETERMINED" and finding_basis != "UNKNOWN":
                 errors.append(f"{item_id}: UNDETERMINED finding_basis는 UNKNOWN이어야 함")
             if check_status == "SATISFIED" and finding_basis == "UNKNOWN":
@@ -1155,13 +1315,32 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                     reason=str(check.get("reason") or ""),
                     line_refs=check_refs if isinstance(check_refs, list) else [],
                     documents=payload["documents"],
+                    # Presence findings are especially vulnerable to a model
+                    # turning nearby page chrome into a disclosure that is not
+                    # actually present.  Make the claimed text auditable by
+                    # requiring a verbatim excerpt from the cited source line.
+                    # Numeric/prohibition checks retain their dedicated value
+                    # and polarity validators instead of forcing prose quotes
+                    # into deterministic arithmetic explanations.
+                    require_source_excerpt=request_row.get("category") == "PRESENCE",
                 ))
-        if verdict == "COMPLIANT" and any(
+        obligation_logic = (rule.get("condition_contract") or {}).get("obligation_logic")
+        if obligation_logic is not None and applicability == "APPLICABLE":
+            try:
+                expected_verdict = aggregate_obligations(rule["condition_contract"], checks)
+                if verdict != expected_verdict:
+                    errors.append(
+                        f"{item_id}: 구성요소 미충족/불명확 또는 택일 논리와 전체 verdict 불일치 "
+                        f"expected={expected_verdict} actual={verdict}"
+                    )
+            except (ValueError, KeyError, TypeError) as exc:
+                errors.append(f"{item_id}: obligation logic contract invalid: {exc}")
+        if obligation_logic is None and verdict == "COMPLIANT" and any(
             status in {"MISSING", "VIOLATED", "NOT_APPLICABLE", "UNDETERMINED"}
             for status in check_statuses
         ):
             errors.append(f"{item_id}: 구성요소 미충족/불명확인데 COMPLIANT")
-        if verdict == "VIOLATION" and not any(
+        if obligation_logic is None and verdict == "VIOLATION" and not any(
             status in {"MISSING", "VIOLATED"} for status in check_statuses
         ):
             errors.append(f"{item_id}: 위반 구성요소 없이 VIOLATION")
@@ -1174,6 +1353,7 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
         )
         if (
             applicability == "APPLICABLE"
+            and obligation_logic is None
             and obligation_failure
             and verdict != "VIOLATION"
         ):
@@ -1190,10 +1370,19 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             str(rule.get(name) or "")
             for name in ("title", "question", "criterion")
         )
+        review_number_missing = any(
+            isinstance(check, dict)
+            and check.get("status") == "MISSING"
+            and re.search(
+                r"심(?:의|사)(?:필)?\s*번호|심의번호",
+                str(check.get("requirement") or ""),
+            )
+            for check in row.get("requirement_checks")
+        ) if isinstance(row.get("requirement_checks"), list) else False
         if (
             deterministic_facts.get("review_number_present") is True
             and ("심의필" in rule_text or "심사필" in rule_text)
-            and "MISSING" in check_statuses
+            and review_number_missing
         ):
             errors.append(f"{item_id}: 심의필 번호 관측값과 MISSING 충돌")
         placeholder_only_violation = (
@@ -1497,6 +1686,12 @@ def retry_contract_instruction(
             "표시의무에서 내용이 없으면 범위 미적용은 SCOPE=NOT_MATCHED, "
             "범위 적용 후 누락은 MISSING+ABSENCE/VIOLATION으로 구분하라."
         )
+    if "표시의무 누락을 VIOLATED+OBSERVED로 우회함" in joined_errors:
+        repair_hints.append(
+            "표시의무 문구가 없다는 결론은 VIOLATED+OBSERVED와 주변 제목 인용으로 "
+            "표현하지 말라. 허용 원문에 동일 취지 문구가 있으면 SATISFIED+OBSERVED, "
+            "완전 스캔에도 없으면 MISSING+ABSENCE로 판정하라."
+        )
     if "완료된 텍스트 전체 스캔을 미완료로 판단함" in joined_errors:
         repair_hints.append(
             "complete_ad_scan=true인 텍스트 규칙이다. 스캔 미완료를 이유로 판단불가 처리하지 "
@@ -1508,6 +1703,24 @@ def retry_contract_instruction(
             "이유문에 쓴 금리·비율 수치는 네가 인용한 L 근거 안에 실제로 있어야 한다. "
             "그 수치가 있는 L 근거를 함께 인용하거나, 광고에서 확인되지 않는 수치라면 "
             "그 수치를 근거로 쓰지 말고 UNDETERMINED로 판정하라."
+        )
+    if "관찰 판정 사유에 인용한 원문 줄의 직접 인용이 없음" in joined_errors:
+        repair_hints.append(
+            "SATISFIED/VIOLATED+OBSERVED의 이유에는 실제 인용 L 줄에서 그대로 옮긴 "
+            "짧은 문구를 따옴표로 넣어라. 사유에서 주장하는 각 사실을 직접 지지하는 "
+            "L 줄만 선택하라. 공통 헤더·푸터·메뉴는 그 줄이 직접 표시한 회사명 같은 "
+            "사실 외의 상품·수수료·절차 의무를 증명하지 않는다."
+        )
+    if "규칙이 요구하는 외부 자료 대조 없이" in joined_errors:
+        repair_hints.append(
+            "규칙 원문이 상품설명서 대조나 원자료 확인을 요구하면 광고 문구만으로 위반을 "
+            "확정하지 말라. 필요한 외부 자료가 입력에 없으므로 UNDETERMINED로 판정하라."
+        )
+    if "단정적 판단 위반을 확정할 수 없음" in joined_errors:
+        repair_hints.append(
+            "한도·조건·비보장 안내 자체를 장래 불확실사항의 단정 표현으로 바꾸지 말라. "
+            "실제 인용 줄에 확실·반드시·무조건·보장·확정 등 확정 표현이 없으면 이 규칙의 "
+            "관찰 위반으로 판정하지 말라."
         )
     if "서로 다른 광고 파일의 수치" in joined_errors:
         repair_hints.append(
@@ -1695,14 +1908,23 @@ def call_with_retry_and_split(
 ) -> list[dict[str, Any]]:
     """Retry contract failures and recursively isolate oversized bad batches."""
     payload = json.loads(row['messages'][1]['content'])
-    computed = [calculate_loan_rates(payload, rule) for rule in payload.get('rules', [])]
+    computed = [
+        calculate_explicit_arithmetic(payload, rule) or calculate_loan_rates(payload, rule)
+        for rule in payload.get('rules', [])
+    ]
     if computed and all(computed):
         parsed = {'ad_id': row['ad_id'], 'results': computed}
         errors = validate(row, parsed)
         if not errors:
             return [{'request_id': row['request_id'], 'ad_id': row['ad_id'],
                      'category': row['category'], 'parsed': parsed, 'validation_errors': [],
-                     'decision_source': ARITHMETIC_METHOD, 'model_returned': None,
+                     'decision_source': (
+                         CANONICAL_ARITHMETIC_METHOD
+                         if any(any((o.get('deterministic_adapter') or {}).get('kind') == 'ADVERTISED_ARITHMETIC_CONSISTENCY'
+                                    for o in (r.get('condition_contract') or {}).get('obligation_checks') or [])
+                                for r in payload.get('rules', []))
+                         else ARITHMETIC_METHOD
+                     ), 'model_returned': None,
                      'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
                      'seconds': 0, 'call_history': [], 'attempts': 0,
                      'logical_request_id': row.get('logical_request_id', row['request_id']),
@@ -1760,7 +1982,7 @@ def focus_unresolved_source_checks(
     row: dict[str, Any], result: dict[str, Any], host: str | None,
     key: Path | None, model: str, max_tokens: int,
 ) -> dict[str, Any]:
-    """One isolated source check for a presence/arithmetic abstention.
+    """One isolated source check for an abstention or source-marked presence rule.
 
     Never re-read parser labels, waive uncertainty, supply a target verdict or
     retry a reading guard. Valid neighboring judgments stay byte-for-byte equal.
@@ -1779,8 +2001,21 @@ def focus_unresolved_source_checks(
             str(check.get('text') or '') for check in contract.get('obligation_checks') or [])))
         assessment = (payload.get('external_input_assessment') or {}).get(item) or {}
         scoped = (payload.get('evidence_scope') or {}).get(item) or {}
+        methodology = (
+            (rules.get(item) or {}).get('methodology_guide')
+            or ((rules.get(item) or {}).get('template_basis') or {}).get('methodology')
+            or {}
+        )
+        source_marked_presence = (
+            row.get('category') == 'PRESENCE'
+            and methodology.get('decision_mode') == 'PRESENCE_ONLY'
+        )
+        eligible_verdict = (
+            judgment.get('verdict') == 'UNDETERMINED'
+            or source_marked_presence and judgment.get('verdict') == 'VIOLATION'
+        )
         if ((row.get('category') == 'PRESENCE' or arithmetic)
-                and judgment.get('verdict') == 'UNDETERMINED'
+                and eligible_verdict
                 and judgment.get('applicability') == 'APPLICABLE'
                 and not judgment.get('reading_quality_review')
                 and contract.get('applicability_mode') in {'UNCONDITIONAL', 'SOURCE_SCOPED'}
@@ -1806,13 +2041,19 @@ def focus_unresolved_source_checks(
         isolated['messages'][1]['content'] = json.dumps(isolated_payload, ensure_ascii=False)
         isolated['messages'].append({'role': 'user', 'content': (
             '이 단일 항목의 허용 documents.lines를 줄마다 확인하십시오. 긍정 존재 판정은 '
-            '읽을 수 있는 해당 문구와 그 줄 ID를 함께 찾아야 합니다. PARTIAL은 전체 부재 '
+            '읽을 수 있는 해당 문구와 그 줄 ID를 함께 찾고, requirement_checks.reason에 '
+            '그 줄의 짧은 원문을 따옴표로 직접 인용해야 합니다. 공통 헤더·푸터·메뉴는 '
+            '그 자체가 직접 표시한 회사명 같은 사실만 입증하며 상품·수수료·광고 절차를 '
+            '입증하지 않습니다. PARTIAL은 전체 부재 '
             '확정을 제한하지만 읽힌 문구의 존재 확인까지 금지하지 않습니다. 예시 답안의 '
             '첫 줄 ID를 복사하지 마십시오. 충족 여부는 원문과 규칙으로 판단하고 근거가 '
             '부족하면 판단불가를 유지하십시오. 완전히 읽힌 범위에서는 원문이 명시적으로 '
             '요구하는 필수 문구의 부재도 확인하십시오. 산술 요건이면 원문이 같은 조건으로 '
             '주장한 합·차를 직접 검산하고 수치와 설명을 제시하십시오. 별도 최종 결과값이 '
-            '없는 조건부 가산에 새 합계 기재 의무를 만들지 마십시오.'
+            '없는 조건부 가산에 새 합계 기재 의무를 만들지 마십시오. 규칙의 업무 판단 '
+            '가이드가 [판정방식: 존재확인]으로 표시되어 있으면, 그 가이드가 정한 표시 '
+            '사실의 존재만 확인하십시오. 출처가 별도로 요구하지 않은 구체적 요율·산식·'
+            '부과시기·절차를 추가 충족요건으로 만들지 마십시오.'
         )})
         # No parent answer, expected status, or parser relabeling is sent.
         started = time.perf_counter()

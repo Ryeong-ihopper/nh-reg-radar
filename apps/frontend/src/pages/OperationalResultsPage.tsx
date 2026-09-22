@@ -2,10 +2,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { api, resolveApiUrl } from "../api/client";
-import { operationalRequest, type ParserLayout } from "../api/operational";
+import { api } from "../api/client";
+import { downloadOperationalResult, operationalRequest, type ParserLayout } from "../api/operational";
 import { useAuth } from "../auth/useAuth";
-import { legalBasisLines, missingSourceLabel, resultEvidenceBoxes, resultCounts, type ResultWorkspace } from "../components/operationalResultModel";
+import { legalBasisEntries, missingSourceLabel, resultChunkBoxes, resultEvidenceBoxes, resultCounts, type ResultRow, type ResultWorkspace } from "../components/operationalResultModel";
 import { ErrorState, LoadingState } from "../components/RequestState";
 
 type Verdict = "위반" | "판단불가" | "충족";
@@ -20,9 +20,8 @@ function isVerdict(value: string): value is Verdict {
   return VERDICTS.includes(value as Verdict);
 }
 
-function lawSearchHref(reference: string): string | undefined {
-  const name = reference.match(/^(.+?(?:법률|법|시행령|시행규칙))(?=\s*제\s*\d|$)/)?.[1];
-  return name ? `https://www.law.go.kr/lsSc.do?query=${encodeURIComponent(name.trim())}` : undefined;
+function isTemplateRow(row: ResultRow): boolean {
+  return row.rule_basis?.source_type === "INTERNAL_TEMPLATE" || row.item_id.startsWith("TPL-");
 }
 
 export function OperationalResultsPage() {
@@ -64,24 +63,23 @@ export function OperationalResultsPage() {
     .filter((row): row is typeof row & { verdict: Verdict } => isVerdict(row.verdict))
     .sort((left, right) => VERDICT_ORDER[left.verdict] - VERDICT_ORDER[right.verdict]), [workspace.data]);
   const counts = resultCounts(allRows);
-  const rows = filter === "ALL" ? allRows : allRows.filter((row) => row.verdict === filter);
-  const excludedRows = workspace.data?.excluded_rows ?? [];
+  const rows = filter === "ALL"
+    ? allRows
+    : allRows.filter((row) => row.verdict === filter);
   const omissions = workspace.data?.execution_omissions ?? [];
   const mapped = useMemo(() => new Map(allRows.map((row) => [row.row_id ?? row.item_id, resultEvidenceBoxes(row, layout.data)])), [allRows, layout.data]);
+  const mappedChunks = useMemo(() => new Map(allRows.map((row) => [row.row_id ?? row.item_id, resultChunkBoxes(row)])), [allRows]);
   const currentBoxes = mapped.get(active) ?? [];
+  const currentChunks = mappedChunks.get(active) ?? [];
 
   function highlight(id: string) {
     setActive(id);
-    const first = mapped.get(id)?.[0];
+    const first = mapped.get(id)?.[0] ?? mappedChunks.get(id)?.[0];
     if (first && followEvidence) setPageNo(first.pageNo);
   }
 
   async function downloadJson() {
-    const response = await fetch(resolveApiUrl(`/operational/reviews/${encodeURIComponent(reviewId)}/export.json`), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) throw new Error("결과 JSON을 만들지 못했습니다.");
-    const url = URL.createObjectURL(await response.blob());
+    const url = URL.createObjectURL(await downloadOperationalResult(token, reviewId));
     const link = document.createElement("a");
     link.href = url; link.download = `review-${reviewId}.json`; link.click();
     URL.revokeObjectURL(url);
@@ -93,16 +91,19 @@ export function OperationalResultsPage() {
 
   function locationLabel(rowId: string, verdict: Verdict, evidence: string) {
     const boxes = mapped.get(rowId) ?? [];
+    const chunks = mappedChunks.get(rowId) ?? [];
     const row = allRows.find(value => (value.row_id ?? value.item_id) === rowId);
     if (boxes.length) {
       const kind = row?.verdict === "판단불가" && !row.evidence_locations?.length ? "원본 확인 필요 위치" : "광고 원본 근거 위치";
-      return `${kind} ${boxes.length}곳 · ${[...new Set(boxes.map((box) => box.pageNo))].join(", ")}쪽${boxes.some(box => box.precision === "REGION") ? " · 영역 단위 연결 포함(정확한 줄 미확정)" : ""}`;
+      return `검색 청크 ${chunks.length}개 · ${kind} ${boxes.length}곳 · ${[...new Set(boxes.map((box) => box.pageNo))].join(", ")}쪽${boxes.some(box => box.precision === "REGION") ? " · 영역 단위 연결 포함(정확한 줄 미확정)" : ""}`;
     }
+    if (chunks.length) return `검색 청크 범위 ${chunks.length}곳 · 판정 인용 줄 없음`;
     return row ? missingSourceLabel(row) : missingSourceLabel({item_id:rowId,title:"",question:"",criterion:"",reason:"",verdict,evidence});
   }
 
   useEffect(() => {
-    const first = currentBoxes.find((box) => box.pageNo === pageNo);
+    const first = currentBoxes.find((box) => box.pageNo === pageNo)
+      ?? currentChunks.find((box) => box.pageNo === pageNo);
     const element = canvas.current;
     if (!first || !element || !followEvidence) return;
     const frame = requestAnimationFrame(() => {
@@ -110,7 +111,7 @@ export function OperationalResultsPage() {
       if (image) element.scrollTo({ top: Math.max(0, image.clientHeight * first.bbox[1] / first.height - element.clientHeight * 0.3), behavior: "instant" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [active, pageNo, previewUrl, currentBoxes, followEvidence, zoom]);
+  }, [active, pageNo, previewUrl, currentBoxes, currentChunks, followEvidence, zoom]);
 
   return <section className="single-review" aria-label="AI 검토 결과">
     <header className="single-review-header"><div><h2>{advertisement.data?.advertisementName ?? "광고 검토"}</h2>
@@ -134,6 +135,7 @@ export function OperationalResultsPage() {
         {layout.isError ? <p role="status" className="panel-note">근거 위치를 불러오지 못했습니다. 원본은 확인할 수 있습니다. <button onClick={() => void layout.refetch()}>다시 시도</button></p> : null}
         <div className="single-advertisement-scroll" ref={canvas}>
           {previewUrl && !preview.isPending ? <div className="single-advertisement-canvas" style={{width:zoom && naturalWidth ? `${naturalWidth * zoom}px` : "100%"}}><img src={previewUrl} alt="심의 광고 원본" onLoad={event => setNaturalWidth(event.currentTarget.naturalWidth)} />
+            {currentChunks.filter((box) => box.pageNo === pageNo).map((box) => <span data-testid="active-evidence-chunk" key={box.key} className="review-evidence-chunk" title="모델에 제공된 검색 청크 범위" style={{ left: `${box.bbox[0] / box.width * 100}%`, top: `${box.bbox[1] / box.height * 100}%`, width: `${(box.bbox[2] - box.bbox[0]) / box.width * 100}%`, height: `${(box.bbox[3] - box.bbox[1]) / box.height * 100}%` }} />)}
             {currentBoxes.filter((box) => box.pageNo === pageNo).map((box) => <span data-testid="active-evidence-box" key={box.key} className="review-evidence-highlight" style={{ left: `${box.bbox[0] / box.width * 100}%`, top: `${box.bbox[1] / box.height * 100}%`, width: `${(box.bbox[2] - box.bbox[0]) / box.width * 100}%`, height: `${(box.bbox[3] - box.bbox[1]) / box.height * 100}%` }} />)}
           </div> : null}
         </div>
@@ -142,24 +144,19 @@ export function OperationalResultsPage() {
         <div className="verdict-filter" aria-label="판정 상태 필터"><button type="button" aria-pressed={filter === "ALL"} onClick={() => setFilter("ALL")}>전체 {counts.total}</button>{VERDICTS.map((verdict) => <button key={verdict} type="button" data-verdict={verdict} aria-pressed={filter === verdict} onClick={() => setFilter(verdict)}>{verdict} {counts[COUNT_KEY[verdict]]}</button>)}</div>
         <div className="single-regulations-scroll" tabIndex={0} aria-label="규정별 판정 목록">
         {workspace.data?.template_coverage?.length ? <details className="template-coverage-details"><summary>템플릿 전체 항목 처리 내역</summary>{workspace.data.template_coverage.map((coverage, index) => <p key={index}>{coverage.template_section} · 전체 {coverage.rule_count}항목 · 자동 판정 요청 {coverage.requested_count} · 사람 확인 포함 {coverage.manual_review_count} · 처리 기록 누락 {coverage.missing_count}</p>)}</details> : null}
-        {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const isTemplate = row.rule_basis?.source_type === "INTERNAL_TEMPLATE" || row.item_id.startsWith("TPL-"); const basisLines = legalBasisLines(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
+        {rows.map((row) => { const rowId = row.row_id ?? row.item_id; const isTemplate = isTemplateRow(row); const basisEntries = legalBasisEntries(row.rule_basis?.legal_basis_refs ?? []); return <article key={rowId} tabIndex={0} data-active={rowId === active} className="single-regulation" onMouseEnter={() => highlight(rowId)} onFocus={() => highlight(rowId)} onClick={() => highlight(rowId)}>
           <header><strong>{row.title}</strong><span className="regulation-verdict" data-verdict={row.verdict}>{row.verdict}</span></header>
           {row.question ? <p className="regulation-question">{row.question}</p> : null}
           {isTemplate && row.template_appropriate_judgment ? <dl className="regulation-basis"><div><dt>적정 판단</dt><dd>{row.template_appropriate_judgment}</dd></div></dl> : null}
           {row.judgment_scope === "TEXT_ONLY" ? <p className="panel-note">텍스트 의무의 판정입니다. 배치·로고·원문 구조는 별도 사람 확인이 남아 있습니다.</p> : null}
           <p>{row.reading_quality_review?.issues.length || row.model_assessment ? <strong>시스템의 자동 확정 보류 사유: </strong> : null}{row.reason}</p>
           {row.model_assessment ? <details className="panel-note"><summary>보류 전 모델 판단 보기 · 최종 판정으로 채택되지 않음</summary><p><strong>{({VIOLATION:"위반",COMPLIANT:"충족",UNDETERMINED:"판단불가",NOT_APPLICABLE:"미해당"} as Record<string,string>)[row.model_assessment.verdict] ?? row.model_assessment.verdict}</strong> · {row.model_assessment.reason}</p></details> : null}
-          {basisLines.length ? <details className="regulation-basis"><summary>근거 법령·규정</summary>
-            <ul className="legal-basis-list">{basisLines.map(ref => <li key={ref}>{ref}{lawSearchHref(ref) ? <> · <a href={lawSearchHref(ref)} target="_blank" rel="noreferrer">현행 검색 ↗</a></> : null}</li>)}</ul>
-            <a href="https://www.law.go.kr/lsSc.do" target="_blank" rel="noreferrer">현행 법령 검색 ↗</a>
+          {basisEntries.length ? <details className="regulation-basis"><summary>근거 법령·규정</summary>
+            <ul className="legal-basis-list">{basisEntries.map(entry => <li key={entry.key}><span>{entry.label}</span>{entry.searchQuery ? <a href={`https://www.law.go.kr/lsSc.do?query=${encodeURIComponent(entry.searchQuery)}`} target="_blank" rel="noreferrer" aria-label={`${entry.searchQuery} 현행 법령 검색`}>{entry.searchQuery} 검색 ↗</a> : <small>내부 기준 · 외부 링크 없음</small>}</li>)}</ul>
           </details> : null}
           <small>{locationLabel(rowId, row.verdict, row.evidence)}</small>
         </article>; })}
         {!rows.length && workspace.data ? <p className="panel-note">이 상태의 판정 항목이 없습니다.</p> : null}
-        {excludedRows.length ? <details className="panel-note"><summary>적용 제외 내역 {excludedRows.length}건</summary>
-          <p>해당 광고에 적용되지 않는 것으로 판정한 항목입니다. 입력 부족이나 실행 누락은 이 목록에 포함하지 않습니다.</p>
-          <ul>{excludedRows.map((row) => <li key={row.row_id ?? row.item_id}><strong>{row.title}</strong><p>{row.reason}</p></li>)}</ul>
-        </details> : null}
         </div>
       </div>
     </div>

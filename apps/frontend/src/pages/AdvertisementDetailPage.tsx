@@ -30,12 +30,12 @@ export function AdvertisementDetailPage() {
   const reviews = useQuery({
     queryKey: ["advertisement-reviews", advertisementId],
     queryFn: () => api.listAdvertisementReviews(session?.accessToken ?? "", advertisementId),
-    enabled: Boolean(advertisementId && query.data),
+    enabled: Boolean(advertisementId && session?.accessToken),
     retry: false,
+    staleTime: 30_000,
   });
   const reviewHistory = Array.isArray(reviews.data) ? reviews.data : [];
   const activeReview = reviewHistory.find((review) => ["ANALYSIS_REQUESTED", "ANALYZING"].includes(review.reviewStatus));
-  const latestResult = reviewHistory.find((review) => ["CHECK_REQUIRED", "REVIEW_COMPLETED"].includes(review.reviewStatus));
   const deleteAdvertisement = useMutation({
     mutationFn: () => api.deleteAdvertisement(session?.accessToken ?? "", advertisementId),
     onSuccess: () => {
@@ -56,7 +56,7 @@ export function AdvertisementDetailPage() {
         <WorkflowSteps current={2} advertisementId={advertisementId} />
         <header className="advertisement-detail-hero">
           <div><p className="eyebrow">2단계 · 원본 확인</p><h2 id="advertisement-detail-heading">{query.data.advertisementName}</h2></div>
-          <div className="detail-hero-actions"><Link className="button-link button-secondary" to="/advertisements">목록으로</Link>{activeReview ? <Link className="button-link" to={`/reviews/${encodeURIComponent(activeReview.reviewId)}/status`}>검토 진행 화면으로 이동</Link> : latestResult ? <Link className="button-link" to={`/reviews/${encodeURIComponent(latestResult.reviewId)}/results`}>다음 단계: 결과 확인</Link> : <Link className="button-link" to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>AI 검토 요청</Link>}{isSystemAdmin ? <button className="button-danger" type="button" disabled={deleteAdvertisement.isPending} onClick={() => {
+          <div className="detail-hero-actions"><Link className="button-link button-secondary" to="/advertisements">목록으로</Link>{activeReview ? <Link className="button-link" to={`/reviews/${encodeURIComponent(activeReview.reviewId)}/status`}>검토 진행 화면으로 이동</Link> : <Link className="button-link" to={`/advertisements/${encodeURIComponent(advertisementId)}/reviews/new`}>AI 검토 요청</Link>}{isSystemAdmin ? <button className="button-danger" type="button" disabled={deleteAdvertisement.isPending} onClick={() => {
             if (window.confirm("광고 원본과 연결된 검토 결과를 목록에서 삭제합니다. 계속하시겠습니까?")) {
               deleteAdvertisement.mutate();
             }

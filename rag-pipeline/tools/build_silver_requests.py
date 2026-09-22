@@ -151,6 +151,7 @@ def load_cd_rules(*, include_layout: bool = False) -> list[dict[str, Any]]:
             "rule_summaries": item["규칙요약"],
             "basis_details": item["근거상세"],
             "v2_note": item["비고"],
+            "rule_relations": list(item.get("규칙관계") or []),
             "standard_examples": item.get("표준예시", ""),
             "standard_guidance": item.get("기재요령", ""),
             "template_sections": item.get("템플릿섹션", ""),

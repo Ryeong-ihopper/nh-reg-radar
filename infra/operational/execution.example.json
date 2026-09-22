@@ -13,12 +13,11 @@
   },
   "parser_root": "/opt/nh-parser",
   "parser_cwd": "/work",
-  "parser_python": "/opt/parser-venv/bin/python",
-  "parser_runner": "nh_ad_parser_cli",
+  "parser_python": "/opt/python313/bin/python3.13",
+  "parser_runner": "nh_parser_fin",
   "parser_env": {
-    "PYTHONPATH": "/opt/nh-parser/src:/opt/document-processor/src",
-    "REGION_READING_MODE": "shadow",
-    "PADDLEX_URL": "http://ocr.internal:8081/layout-parsing",
+    "PYTHONPATH": "/opt/document-processor/src",
+    "PADDLEX_URL": "http://127.0.0.1:8081/layout-parsing",
     "GEMMA_URL": "http://127.0.0.1:8102/v1/chat/completions",
     "GEMMA_MODEL": "gemma-4-26b-NVFP4-MTP"
   },

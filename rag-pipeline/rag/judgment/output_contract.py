@@ -59,7 +59,7 @@ def response_format(compact: dict[str, Any]) -> dict[str, Any]:
         **({"obligation_ref": enum(obligation_refs)} if obligation_refs else {}),
         "requirement": text,
         "status": enum(["SATISFIED", "MISSING", "VIOLATED", "UNDETERMINED"]),
-        "finding_basis": enum(["OBSERVED", "ABSENCE", "UNKNOWN"]),
+        "finding_basis": enum(["OBSERVED", "ABSENCE", "CONFIRMED_METADATA", "UNKNOWN"]),
         "evidence_refs": evidence, "reason": text})
     if obligation_refs and not all("requirement_checks" in (rule.get("output_check_refs") or {}) for rule in rules):
         # A mixed legacy/v2 batch must still allow a legacy check without O IDs.

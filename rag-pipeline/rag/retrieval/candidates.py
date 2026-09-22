@@ -2,11 +2,26 @@
 from __future__ import annotations
 
 
-def all_judgment_candidates(candidates, rules):
-    """Scheduling may batch candidates; it must never drop a discovered rule."""
-    selected, audit = balanced_candidates(candidates, rules, len(candidates))
-    audit.update(method="all_discovered_candidates_v1", limit=None, deferred_reason=None)
-    return selected, audit
+def audit_only_candidates(candidates, rules, *, reason):
+    """Preserve discovery without scheduling any candidate for judgment."""
+    _, audit = balanced_candidates(candidates, rules, 0)
+    audit.update(
+        method="discovery_audit_only_v1",
+        limit=0,
+        deferred_reason=reason,
+    )
+    return audit
+
+
+def formal_judgment_candidates(
+    *, template_primary, media_conditioned_v2, product_content_conditioned_v2=()
+):
+    """Return only tiers with a source-approved reason to execute."""
+    return [
+        *template_primary,
+        *media_conditioned_v2,
+        *product_content_conditioned_v2,
+    ]
 
 
 def balanced_candidates(candidates, rules, limit):

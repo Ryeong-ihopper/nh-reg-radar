@@ -7,7 +7,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 
-from rag.judgment.grounding import grounding_errors, ratio_values, ungrounded_source_quotes  # noqa: E402
+from rag.judgment.grounding import (  # noqa: E402
+    grounded_source_excerpt_present,
+    grounding_errors,
+    ratio_values,
+    ungrounded_source_quotes,
+)
 
 
 ASSET_A = "FILE-AAAA"
@@ -56,6 +61,25 @@ class NumericGroundingTests(unittest.TestCase):
                                         line_refs=['first'], documents=docs))
         self.assertEqual(grounding_errors(item_id='SYNTHETIC', location='O1', reason=reason,
                                          line_refs=['second'], documents=docs), [])
+
+    def test_observed_finding_requires_a_verbatim_excerpt_from_the_cited_line(self):
+        docs = [{'evidence_id': 'region', 'line_refs': ['footer', 'review'],
+                 'line_texts': {
+                     'footer': '계열사/관련사이트',
+                     'review': '준법감시인심의번호 2026-4847(2026.09.01 ~2027.08.31.)',
+                 }, 'text': '계열사/관련사이트\n준법감시인심의번호 2026-4847(2026.09.01 ~2027.08.31.)'}]
+        reason = '준법감시인 심의번호와 유효기간이 표시되어 있습니다.'
+        errors = grounding_errors(
+            item_id='SYNTHETIC', location='O1', reason=reason,
+            line_refs=['footer'], documents=docs, require_source_excerpt=True,
+        )
+        self.assertTrue(any('직접 인용이 없음' in error for error in errors))
+        quoted = "'준법감시인심의번호 2026-4847'이 표시되어 있습니다."
+        self.assertEqual(grounding_errors(
+            item_id='SYNTHETIC', location='O1', reason=quoted,
+            line_refs=['review'], documents=docs, require_source_excerpt=True,
+        ), [])
+        self.assertTrue(grounded_source_excerpt_present(quoted, docs[0]['line_texts']['review']))
 
     def test_rule_quote_absence_and_whitespace_are_not_false_source_claims(self):
         for reason, source in [("광고에 '가상 은행'이 기재되어 있습니다.", '가상은행'),

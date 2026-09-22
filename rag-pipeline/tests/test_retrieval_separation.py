@@ -54,6 +54,12 @@ class RetrievalSeparationTest(unittest.TestCase):
         self.assertEqual(row["discovery_method"], "SUPPLEMENTAL_SEARCH")
         self.assertEqual(row["request_state"], "BUDGET_DEFERRED")
 
+    def test_audit_only_discovery_is_not_reported_as_budget_deferral(self):
+        self.discovery["ads"][0]["candidate_budget"]["method"] = "discovery_audit_only_v1"
+        row = self.run_case(item="deferred")
+        self.assertEqual(row["discovery_method"], "SUPPLEMENTAL_SEARCH")
+        self.assertEqual(row["request_state"], "AUDIT_ONLY")
+
     def test_modified_predictions_rejected(self):
         self.run_case()
         (self.root / "01_discovery.json").write_text("{}")

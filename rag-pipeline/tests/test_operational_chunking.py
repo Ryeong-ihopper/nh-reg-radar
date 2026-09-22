@@ -12,6 +12,7 @@ from rag.parsing.prepare_inputs import (  # noqa: E402
     _fine_views,
     _is_table_region,
     _label_groups,
+    page_source_roles,
     _selected_text_line_refs,
     compact,
     search_docs,
@@ -79,6 +80,49 @@ class SelectedTextAlignmentTests(unittest.TestCase):
         self.assertNotIn({"label": "상품명"}, coarse[0]["labels"])
         self.assertTrue(all(view["line_spans"] for view in fine))
 
+    def test_parser_header_and_footer_roles_survive_search_projection(self):
+        for layout, expected in [("header", "PAGE_CHROME"), ("footer", "PAGE_CHROME"),
+                                 ("text", "ADVERTISEMENT_CONTENT")]:
+            with self.subTest(layout=layout):
+                source = self.make_region(["공통 또는 본문 문구"], "공통 또는 본문 문구")
+                source["layout"] = {"label": layout, "score": 0.9}
+                coarse, fine = self.search(source)
+                self.assertEqual(coarse[0]["source_role"], expected)
+                self.assertEqual(fine[0]["source_role"], expected)
+
+    def test_edge_position_alone_never_demotes_advertisement_content(self):
+        """A hero banner row is not navigation because it sits near an edge.
+
+        Full-page web captures place the product name and the principal-loss
+        notice inside the top fifth of the image. Only a parser layout label
+        may assign page chrome, because that evidence is removed from
+        body-rule retrieval.
+        """
+        banner = []
+        for index, (left, text) in enumerate(
+                ((100, "일임형ISA"), (350, "원금 비보장 상품"), (600, "일임형 ISA란?")), 1):
+            item = self.make_region([text], text)
+            item["region_id"] = f"banner-{index}"
+            item["bbox"] = [left, 200, left + 140, 300]
+            banner.append(item)
+        menu = []
+        for index, left in enumerate((100, 350, 600), 1):
+            item = self.make_region([f"메뉴 {index}"], f"메뉴 {index}")
+            item["region_id"] = f"menu-{index}"
+            item["bbox"] = [left, 820, left + 140, 845]
+            menu.append(item)
+        footer = self.make_region(["하단 안내"], "하단 안내")
+        footer["region_id"], footer["bbox"] = "footer", [100, 900, 300, 930]
+        footer["layout"] = {"label": "footer", "score": 0.9}
+        roles = page_source_roles({
+            "canvas_w": 1000, "canvas_h": 1000,
+            "regions": [*banner, *menu, footer],
+        })
+        for index in range(1, 4):
+            self.assertEqual(roles[f"banner-{index}"][0], "ADVERTISEMENT_CONTENT")
+            self.assertEqual(roles[f"menu-{index}"][0], "ADVERTISEMENT_CONTENT")
+        self.assertEqual(roles["footer"], ("PAGE_CHROME", "parser_layout:footer"))
+
     def test_changed_text_and_duplicate_text_do_not_inherit_original_labels(self):
         for texts, selected in [(["금리 3%"], "금리 4%"), (["같은 문장", "같은 문장"], "같은 문장")]:
             source = self.make_region(texts, selected)
@@ -111,6 +155,67 @@ class SelectedTextAlignmentTests(unittest.TestCase):
         self.assertEqual(views[0]["span_status"], "selected_text_line_aligned")
         self.assertEqual(views[0]["line_refs"], source["line_refs"][:1])
         self.assertEqual(views[1]["span_status"], "region_level_selected_text")
+
+    def test_confident_vlm_and_unique_ocr_line_agreement_is_locally_trusted(self):
+        source = self.make_region(
+            ["※ 원금손실은 투자자에게 귀속됩니다", "※ 다른 줄 오씨알 오류"],
+            "※ 원금손실은 투자자에게 귀속됩니다.\n※ 다른 줄 OCR 오류",
+        )
+        source["text_selection"] = {
+            "selection_status": "judge_selected_vlm_requires_review",
+            "needs_review": True,
+            "confidence": 1.0,
+            "reason": "다른 줄 보정 확인 필요",
+        }
+
+        _, fine = self.search(source)
+
+        first, second = fine
+        self.assertEqual(first["line_refs"], source["line_refs"][:1])
+        self.assertEqual(first["text_selection"]["selection_status"], "independent_line_agreement")
+        self.assertFalse(first["text_selection"]["needs_review"])
+        self.assertEqual(second["span_status"], "region_level_selected_text")
+        self.assertTrue(second["text_selection"]["needs_review"])
+
+    def test_explanation_duty_sentence_isolated_from_an_uncertain_neighbor(self):
+        wording = (
+            "※ 당행은 이 계좌에 관하여 충분히 설명할 의무가 있으며, 투자자는 투자에 앞서 "
+            "상품 등에 대한 충분한 설명을 들으신 후 신중하게 투자결정을 내리시기 바랍니다"
+        )
+        source = self.make_region(
+            [wording.replace(" ", ""), "※ 다른 줄 오씨알 오류"],
+            f"{wording}.\n※ 다른 줄 OCR 오류",
+        )
+        source["text_selection"] = {
+            "selection_status": "judge_selected_vlm_requires_review",
+            "needs_review": True,
+            "confidence": 1.0,
+            "reason": "다른 줄 보정 확인 필요",
+        }
+
+        _, fine = self.search(source)
+
+        explanation, uncertain = fine
+        self.assertEqual(explanation["line_refs"], source["line_refs"][:1])
+        self.assertEqual(
+            explanation["text_selection"]["selection_status"],
+            "independent_line_agreement",
+        )
+        self.assertFalse(explanation["text_selection"]["needs_review"])
+        self.assertTrue(uncertain["text_selection"]["needs_review"])
+
+    def test_line_agreement_does_not_clear_low_confidence_or_ambiguous_text(self):
+        for confidence, texts in ((0.9, ["같은 문장"]), (1.0, ["같은 문장", "같은 문장"])):
+            with self.subTest(confidence=confidence, texts=texts):
+                source = self.make_region(texts, "같은 문장.")
+                source["text_selection"] = {
+                    "selection_status": "judge_selected_vlm_requires_review",
+                    "needs_review": True,
+                    "confidence": confidence,
+                }
+                _, fine = self.search(source)
+                self.assertTrue(fine[0]["text_selection"]["needs_review"])
+
     def make_region(self, texts, selected):
         result = region([line(i, text, top=i * 10, bottom=i * 10 + 8)
                          for i, text in enumerate(texts)], layout="text")

@@ -205,6 +205,10 @@ async function refreshSession(): Promise<LoginResponse | null> {
   return refreshInFlight;
 }
 
+export function refreshAuthentication(): Promise<LoginResponse | null> {
+  return refreshSession();
+}
+
 async function fetchWithToken(path: string, accessToken: string | undefined, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   if (accessToken) {
@@ -265,6 +269,10 @@ export const api = {
 
   refresh(): Promise<LoginResponse> {
     return request<LoginResponse>("/auth/refresh", undefined, { method: "POST" }, false);
+  },
+
+  localSession(): Promise<LoginResponse> {
+    return request<LoginResponse>("/auth/local-session", undefined, {}, false);
   },
 
   logout(): Promise<void> {

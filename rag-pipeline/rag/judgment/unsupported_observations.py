@@ -54,6 +54,22 @@ def quarantine_unsupported_observations(request, response, validate):
         if match:
             affected.setdefault(match[1], set()).add(int(match[2]))
             continue
+        match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] 관찰 판정 사유에 인용한 원문 줄의 직접 인용이 없음; 실제 지지 문구를 따옴표로 제시하고 그 문구가 있는 줄만 인용해야 함", error)
+        if match:
+            affected.setdefault(match[1], set()).add(int(match[2]))
+            continue
+        match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] shared page chrome cannot establish an unrelated body disclosure", error)
+        if match:
+            affected.setdefault(match[1], set()).add(int(match[2]))
+            continue
+        match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] 규칙이 요구하는 외부 자료 대조 없이 광고 원문만으로 위반을 확정할 수 없음", error)
+        if match:
+            affected.setdefault(match[1], set()).add(int(match[2]))
+            continue
+        match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] 인용 원문에 불확실한 사항을 확정하는 표현이 없어 단정적 판단 위반을 확정할 수 없음", error)
+        if match:
+            affected.setdefault(match[1], set()).add(int(match[2]))
+            continue
         match = re.fullmatch(r"([^:]+): OBSERVED에는 직접 광고 근거가 필요", error)
         if not match:
             return response  # Never turn execution/schema/unknown-ID failures into judgments.

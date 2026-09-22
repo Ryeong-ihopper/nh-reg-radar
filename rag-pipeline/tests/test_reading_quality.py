@@ -83,7 +83,8 @@ class ReadingQualityTests(unittest.TestCase):
         row, payload, parsed = self.setup_case()
         answer = parsed['results'][0]
         answer['requirement_checks'].append({'requirement': 'independent', 'status': 'VIOLATED',
-            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'], 'reason': 'observed'})
+            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'],
+            'reason': "'독립적으로 판독된 근거'에서 위반을 관찰함"})
         apply_reading_guard(payload, parsed)
         self.assertEqual(answer['verdict'], 'VIOLATION')
         self.assertEqual(answer['evidence_ids'], ['E-2'])
@@ -128,10 +129,10 @@ class ReadingQualityTests(unittest.TestCase):
         doc = payload['documents'][0]
         doc.update(text='기본 1.0% 우대 5.0%', line_refs=['L-1', 'L-extra'],
             line_texts={'L-1': '기본 1.0%', 'L-extra': '우대 5.0%'})
-        parsed['results'][0]['requirement_checks'][0]['reason'] = '금리 5.0% 표기가 있음'
+        parsed['results'][0]['requirement_checks'][0]['reason'] = "'우대 5.0%' 표기가 있음"
         self.assertEqual(cited_window_text(['L-1'], [doc]), '기본 1.0%')
         self.assertTrue(any('5.0' in error for error in self.validate_case(row, payload, parsed)))
-        parsed['results'][0]['requirement_checks'][0]['reason'] = '금리 1.0% 표기가 있음'
+        parsed['results'][0]['requirement_checks'][0]['reason'] = "'기본 1.0%' 표기가 있음"
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
     def test_applicability_cannot_borrow_another_rule_evidence(self):
@@ -184,7 +185,10 @@ class ReadingQualityTests(unittest.TestCase):
         row, payload, parsed = self.setup_case()
         answer = parsed['results'][0]
         answer['evidence_ids'], answer['evidence_line_refs'] = ['E-2'], ['L-2']
-        answer['requirement_checks'][0].update(evidence_ids=['E-2'], evidence_line_refs=['L-2'])
+        answer['requirement_checks'][0].update(
+            evidence_ids=['E-2'], evidence_line_refs=['L-2'],
+            reason="'독립적으로 판독된 근거'가 확인됩니다.",
+        )
         self.assertEqual(apply_reading_guard(payload, parsed), [])
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
@@ -236,6 +240,21 @@ class ReadingQualityTests(unittest.TestCase):
         self.assertEqual(issue['evidence_ids'], ['E-1'])
         self.assertEqual(issue['line_refs'], ['L-1'])
 
+    def test_clean_aligned_line_is_not_contaminated_by_uncertain_region_fallback(self):
+        row, payload, parsed = self.setup_case()
+        payload['documents'][0].update(line_refs=['L-1', 'L-2'])
+        payload['documents'][1].update(line_refs=['L-1'], line_texts={'L-1': '독립 판독 근거'})
+        answer = parsed['results'][0]
+        answer['evidence_ids'], answer['evidence_line_refs'] = ['E-2'], ['L-1']
+        answer['requirement_checks'][0].update(evidence_ids=['E-2'], evidence_line_refs=['L-1'])
+
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+        self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+        answer['evidence_ids'], answer['evidence_line_refs'] = ['E-1'], ['L-1']
+        answer['requirement_checks'][0].update(evidence_ids=['E-1'], evidence_line_refs=['L-1'])
+        self.assertTrue(apply_reading_guard(payload, parsed))
+
     def test_partial_scan_allows_clean_presence_but_not_absence(self):
         row, payload, parsed = self.setup_case(uncertain=False, complete=False)
         payload['parser_coverage'] = 'PARTIAL'
@@ -272,7 +291,8 @@ class ReadingQualityTests(unittest.TestCase):
         answer['verdict'] = 'VIOLATION'
         answer['evidence_line_refs'].append('L-2')
         answer['requirement_checks'].append({'requirement': '별도 요건', 'status': 'VIOLATED',
-            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'], 'reason': '관찰 위반'})
+            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'],
+            'reason': "'독립적으로 판독된 근거'에서 위반을 관찰함"})
         self.assertTrue(apply_reading_guard(payload, parsed))
         self.assertEqual(answer['verdict'], 'VIOLATION')
         self.assertEqual(self.validate_case(row, payload, parsed), [])

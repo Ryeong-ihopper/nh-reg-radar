@@ -80,10 +80,13 @@ class TemplateCatalogTests(unittest.TestCase):
         sheet.append([])
         sheet.append([None, "구분", "예 시 문 구", "적정 판단", "부적정", None, "확인필요", None])
         sheet.append([None, None, None, None, "부적정 판단", "안내문구", "확인필요 판단", "안내문구"])
-        sheet.append([None, "수수료", "신탁형 연 0.00% / 일임형 연 0.00%", "수수료율 기재 시 적정",
+        sheet.append([None, "수수료", "신탁형 연 0.00% / 일임형 연 0.00%", "[판정방식: 존재확인] 수수료율 기재 시 적정",
                       "수수료율 또는 연 누락 시 부적정", "안내", None, None])
         book.save(methodology / "5. 투자성상품-ISA 일반 심의방법.xlsx")
         book.close()
+        (methodology / "~$6. 투자성상품-ISA 신탁형 심의방법.xlsx").write_bytes(
+            b"office lock file must stay unread"
+        )
         (methodology / "5. 투자성상품-ISA 일반(심의정답).hwpx").write_bytes(b"must stay unread")
 
         catalog = TemplateCatalog.from_hwpx(self.path, methodology_dir=methodology)
@@ -93,6 +96,8 @@ class TemplateCatalogTests(unittest.TestCase):
         self.assertIn("수수료율 기재 시 적정", rule["criterion"])
         self.assertIn("연 누락 시 부적정", rule["criterion"])
         self.assertTrue(rule["methodology_guide"])
+        self.assertEqual(rule["methodology_guide"]["decision_mode"], "PRESENCE_ONLY")
+        self.assertIn("구조화 판정방식: 존재확인", rule["criterion"])
         self.assertEqual(catalog.document["methodology"]["row_count"], 1)
         self.assertFalse(catalog.document["methodology"]["case_answers_loaded"])
         self.assertEqual(

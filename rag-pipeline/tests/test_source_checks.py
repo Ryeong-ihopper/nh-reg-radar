@@ -2,11 +2,130 @@ import unittest
 
 from rag.judgment.condition_contracts import compile_condition_contract
 from rag.judgment.source_checks import (source_claim_errors, has_arithmetic_mismatch_witness,
-                                       unresolved_applicability, template_heading_only_citation)
+                                       evidence_rows_for_rule, observed_grounding_errors,
+                                       page_chrome_only_citation,
+                                       unresolved_applicability,
+                                       template_heading_only_citation)
 from rag.judgment.manual_review import text_facet_claim_errors
 
 
 class SourceChecksTests(unittest.TestCase):
+    def test_presence_observation_must_quote_the_exact_cited_line(self):
+        payload = {'rules': [{'item_id': 'SYN', 'category': 'PRESENCE',
+                    'question': '표시되어 있는가?', 'criterion': '표시 확인'}],
+                   'documents': [{'line_refs': ['L'], 'line_texts': {
+                       'L': '신탁보수 연 0.2%'}}]}
+        result = {'item_id': 'SYN', 'requirement_checks': [{
+            'status': 'SATISFIED', 'finding_basis': 'OBSERVED',
+            'evidence_line_refs': ['L'],
+            'reason': '심의필 번호와 유효기간이 표시되어 있습니다.',
+        }]}
+        self.assertTrue(observed_grounding_errors(payload, result))
+        result['requirement_checks'][0]['reason'] = "'신탁보수 연 0.2%'가 표시되어 있습니다."
+        self.assertEqual(observed_grounding_errors(payload, result), [])
+
+    def test_prohibition_observation_must_quote_the_exact_cited_line(self):
+        payload = {'rules': [{'item_id': 'SYN', 'category': 'PROHIBIT',
+                    'question': '금지 표현을 사용하지 않았는가?', 'criterion': '금지 표현 확인'}],
+                   'documents': [{'line_refs': ['L'], 'line_texts': {
+                       'L': '주민등록번호 공개여부: 비공개'}}]}
+        result = {'item_id': 'SYN', 'requirement_checks': [{
+            'status': 'VIOLATED', 'finding_basis': 'OBSERVED',
+            'evidence_line_refs': ['L'],
+            'reason': "광고의 '횟수제한없이' 문구가 금지 표현입니다.",
+        }]}
+        self.assertTrue(observed_grounding_errors(payload, result))
+        result['requirement_checks'][0]['reason'] = "'주민등록번호 공개여부: 비공개' 문구를 확인했습니다."
+        self.assertEqual(observed_grounding_errors(payload, result), [])
+
+    def test_external_comparison_note_prevents_ad_text_only_violation(self):
+        for note in ('실제 제약조건은 상품설명서 대조가 필요해 보조 판정',
+                     '기간 대표성 판단에 원자료 확인이 필요해 보조 판정'):
+            with self.subTest(note=note):
+                payload = {'rules': [{'item_id': 'SYN', 'category': 'PROHIBIT',
+                            'v2_note': note, 'criterion': '표현 확인'}],
+                           'documents': [{'line_refs': ['L'], 'line_texts': {'L': '제한없이 이용'}}]}
+                result = {'item_id': 'SYN', 'requirement_checks': [{
+                    'status': 'VIOLATED', 'finding_basis': 'OBSERVED',
+                    'evidence_line_refs': ['L'], 'reason': "'제한없이 이용'은 위반입니다.",
+                }]}
+                self.assertTrue(any('외부 자료 대조 없이' in error
+                                    for error in observed_grounding_errors(payload, result)))
+
+    def test_factual_cap_and_non_guarantee_are_not_assertive_markers(self):
+        rule = {'item_id': 'SYN', 'category': 'PROHIBIT',
+                'question': '불확실한 사항에 대해 단정적 판단을 제공하지 않았는가?',
+                'criterion': "불확실한 사항을 확정적으로 단언하면 위반. '반드시'·'보장' 금지"}
+        check = {'status': 'VIOLATED', 'finding_basis': 'OBSERVED',
+                 'evidence_line_refs': ['L'], 'reason': ''}
+        result = {'item_id': 'SYN', 'requirement_checks': [check]}
+        for text in ('원금비보장상품', '최대 400만원 비과세'):
+            with self.subTest(text=text):
+                payload = {'rules': [rule], 'documents': [
+                    {'line_refs': ['L'], 'line_texts': {'L': text}}]}
+                check['reason'] = f"'{text}'가 단정 표현입니다."
+                self.assertTrue(any('단정적 판단 위반을 확정할 수 없음' in error
+                                    for error in observed_grounding_errors(payload, result)))
+        payload['documents'][0]['line_texts']['L'] = '수익을 반드시 보장합니다'
+        check['reason'] = "'수익을 반드시 보장합니다'라고 표시했습니다."
+        self.assertEqual(observed_grounding_errors(payload, result), [])
+
+    def test_shared_page_chrome_cannot_prove_unrelated_disclosure(self):
+        check = {'status': 'SATISFIED', 'finding_basis': 'OBSERVED',
+                 'evidence_ids': ['E'], 'evidence_line_refs': ['L']}
+        for question, text in [
+            ('광고 관련 절차 준수 사항을 표시하였는가?', '계열사/관련사이트'),
+            ('금융상품의 명칭과 내용을 표시하였는가?', 'NHBank금융상품몰'),
+            ('수수료 및 부대비용을 표시하였는가?', '전화상담'),
+        ]:
+            with self.subTest(question=question):
+                docs = [{'evidence_id': 'E', 'line_refs': ['L'],
+                         'line_texts': {'L': text}}]
+                self.assertTrue(page_chrome_only_citation(
+                    {'question': question}, check, docs))
+
+    def test_structural_page_chrome_is_rejected_without_keyword_matching(self):
+        check = {'status': 'SATISFIED', 'finding_basis': 'OBSERVED',
+                 'evidence_ids': ['E'], 'evidence_line_refs': ['L']}
+        docs = [{'evidence_id': 'E', 'source_role': 'PAGE_CHROME',
+                 'line_refs': ['L'], 'line_texts': {'L': '빠른 업무 바로가기'}}]
+        self.assertTrue(page_chrome_only_citation(
+            {'question': '상품의 주요 거래조건을 표시하였는가?'}, check, docs))
+        self.assertFalse(page_chrome_only_citation(
+            {'question': '웹사이트 링크를 표시하였는가?'}, check, docs))
+
+    def test_structural_page_chrome_is_filtered_before_body_rule_retrieval(self):
+        rows = [
+            {'doc_id': 'body', 'source_role': 'ADVERTISEMENT_CONTENT'},
+            {'doc_id': 'chrome', 'source_role': 'PAGE_CHROME'},
+        ]
+        body_rule = {'question': '상품의 주요 거래조건을 표시하였는가?'}
+        identity_rule = {'question': '금융회사의 명칭을 표시하였는가?'}
+        self.assertEqual(
+            [row['doc_id'] for row in evidence_rows_for_rule(body_rule, rows)],
+            ['body'],
+        )
+        self.assertEqual(
+            [row['doc_id'] for row in evidence_rows_for_rule(identity_rule, rows)],
+            ['body', 'chrome'],
+        )
+
+    def test_page_chrome_may_prove_the_identity_fact_it_states(self):
+        check = {'status': 'SATISFIED', 'finding_basis': 'OBSERVED',
+                 'evidence_ids': ['E'], 'evidence_line_refs': ['L']}
+        docs = [{'evidence_id': 'E', 'line_refs': ['L'],
+                 'line_texts': {'L': 'NHBank금융상품몰'}}]
+        rule = {'question': '금융상품을 판매하는 금융회사의 명칭을 표시하였는가?'}
+        self.assertFalse(page_chrome_only_citation(rule, check, docs))
+
+    def test_body_disclosure_is_not_classified_as_page_chrome(self):
+        check = {'status': 'SATISFIED', 'finding_basis': 'OBSERVED',
+                 'evidence_ids': ['E'], 'evidence_line_refs': ['L']}
+        docs = [{'evidence_id': 'E', 'line_refs': ['L'], 'line_texts': {
+            'L': '준법감시인심의번호 2026-4847(2026.09.01 ~2027.08.31.)'}}]
+        rule = {'question': '심의주체와 심의필 번호 및 유효기간을 표시하였는가?'}
+        self.assertFalse(page_chrome_only_citation(rule, check, docs))
+
     def test_template_body_requirement_cannot_be_proved_by_heading_alone(self):
         rule = {'item_id':'SYN', 'source_sheet':'HWPX_TEMPLATE', 'title':'해약 안내',
                 'example_text':'계약을 해지하면 제공하던 서비스 이용이 제한됩니다.'}
@@ -23,6 +142,58 @@ class SourceChecksTests(unittest.TestCase):
         docs = [{'line_refs':['L'], 'line_texts':{'L':'상품 해약 안내'}}]
         self.assertFalse(template_heading_only_citation({**rule, 'source_sheet':'V2'},check,docs))
         self.assertFalse(template_heading_only_citation(rule,{**check,'finding_basis':'UNKNOWN'},docs))
+
+    def test_example_defined_meaning_rejects_a_short_noun_fragment(self):
+        rule = {'item_id': 'SYN', 'source_sheet': 'HWPX_TEMPLATE', 'title': '유의사항',
+                'criterion': '예시문구와 유사한 문구 기재 시 적정',
+                'example_text': '가입 전에 상품설명서 및 약관을 반드시 읽어보시기 바랍니다.'}
+        check = {'obligation_ref': 'O1', 'status': 'SATISFIED',
+                 'finding_basis': 'OBSERVED', 'evidence_line_refs': ['L']}
+        short = [{'line_refs': ['L'], 'line_texts': {'L': '상품설명서'}}]
+        substantive = [{'line_refs': ['L'], 'line_texts': {
+            'L': '가입 전에 상품설명서 및 약관을 읽어보시기 바랍니다.'}}]
+        self.assertTrue(template_heading_only_citation(rule, check, short))
+        self.assertFalse(template_heading_only_citation(rule, check, substantive))
+
+    def test_example_defined_meaning_rejects_a_long_but_unrelated_sentence(self):
+        rule = {'item_id': 'SYN', 'source_sheet': 'HWPX_TEMPLATE', 'title': '지급제한',
+                'criterion': '예시문구와 유사한 의미 기재시 적정',
+                'example_text': '예금잔액증명서 발급 당일에는 입금·출금·이체 등 잔액 변동이 불가합니다.'}
+        check = {'obligation_ref': 'O1', 'status': 'SATISFIED',
+                 'finding_basis': 'OBSERVED', 'evidence_line_refs': ['L']}
+        unrelated = [{'line_refs': ['L'], 'line_texts': {
+            'L': '매년 넷째 토요일에 결산하여 다음 영업일에 이자를 지급합니다.'}}]
+        related = [{'line_refs': ['L'], 'line_texts': {
+            'L': '잔액증명서 발급 당일에는 계좌 잔액을 변경할 수 없습니다.'}}]
+        self.assertTrue(template_heading_only_citation(rule, check, unrelated))
+        self.assertFalse(template_heading_only_citation(rule, check, related))
+
+    def test_example_defined_meaning_reads_canonical_interpretation_hint(self):
+        rule = {'item_id': 'SYN', 'source_sheet': 'HWPX_TEMPLATE', 'title': '이자지급제한',
+                'criterion': '예시문구와 유사한 의미 기재시 적정',
+                'template_basis': {'canonical_plan': {'obligations': [{
+                    'interpretation_hints': [{
+                        'role': 'NON_BINDING_SOURCE_EXAMPLE',
+                        'text': '예금잔액증명서 발급 당일에는 입금·출금·이체 등 잔액 변동이 불가합니다.',
+                    }],
+                }]}}}
+        check = {'obligation_ref': 'O1', 'status': 'SATISFIED',
+                 'finding_basis': 'OBSERVED', 'evidence_line_refs': ['L']}
+        unrelated = [{'line_refs': ['L'], 'line_texts': {
+            'L': '매년 지정된 날짜에 결산하여 다음 영업일에 이자를 지급합니다.'}}]
+        self.assertTrue(template_heading_only_citation(rule, check, unrelated))
+
+    def test_disclosure_absence_cannot_be_reported_as_observed(self):
+        payload = {'rules': [{'item_id': 'SYN', 'criterion': '심의주체 명칭 표시'}],
+                   'documents': [{'line_refs': ['L'], 'line_texts': {'L': '2026-1234'}}]}
+        result = {'item_id': 'SYN', 'reason': '심의주체 명칭이 누락되었습니다.',
+                  'requirement_checks': [{'obligation_ref': 'O1', 'status': 'VIOLATED',
+                    'finding_basis': 'OBSERVED', 'evidence_line_refs': ['L'],
+                    'reason': '심의주체 명칭이 확인되지 않습니다.'}]}
+        self.assertTrue(source_claim_errors(payload, result))
+        result['requirement_checks'][0]['finding_basis'] = 'ABSENCE'
+        result['requirement_checks'][0]['evidence_line_refs'] = []
+        self.assertEqual(source_claim_errors(payload, result), [])
 
     def test_unknown_applicability_is_not_a_confirmed_exclusion(self):
         result = {'item_id': 'SYN', 'verdict': 'NOT_APPLICABLE',
@@ -109,6 +280,9 @@ class SourceChecksTests(unittest.TestCase):
         payload['documents'][0]['line_refs'].append('L3')
         payload['documents'][0]['line_texts']['L3'] = (
             '※ 설명을 받을 권리가 있습니다. ※ 계약 전 약관을 읽어야 합니다.'
+        )
+        result['requirement_checks'][0]['reason'] = (
+            "'설명을 받을 권리가 있습니다'와 '계약 전 약관을 읽어야 합니다'가 같은 줄에 있습니다."
         )
         self.assertEqual(source_claim_errors(payload, result), [])
 

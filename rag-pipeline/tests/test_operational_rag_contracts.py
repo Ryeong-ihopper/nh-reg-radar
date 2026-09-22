@@ -67,7 +67,7 @@ def result(item_id):
         "verdict": "COMPLIANT",
         "evidence_ids": ["E-1"],
         "evidence_line_refs": ["L-1"],
-        "reason": "근거 확인",
+        "reason": "'테스트 근거'가 확인됩니다.",
         "confidence": "HIGH",
         "needs_researcher_review": False,
         "requirement_checks": [{
@@ -76,12 +76,94 @@ def result(item_id):
             "finding_basis": "OBSERVED",
             "evidence_ids": ["E-1"],
             "evidence_line_refs": ["L-1"],
-            "reason": "근거 확인",
+            "reason": "'테스트 근거'가 확인됩니다.",
         }],
     }
 
 
 class WireEvidenceTests(unittest.TestCase):
+    def test_complete_scan_closes_uncited_positive_trigger_absence(self):
+        row = request_row(["D-X"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload.update(
+            parser_coverage="READY",
+            full_ad_text="일반 예금 상품 안내",
+            reading_quality={"global_scan_incomplete": False},
+            evidence_scope={
+                "D-X": {"evidence_ids": ["E-1"], "complete_ad_scan": True}
+            },
+        )
+        payload["rules"][0]["condition_contract"] = {
+            "scope_ref": "SCOPE",
+            "scope_owner": "RULE",
+            "scope_metadata_fields": ["product_group"],
+            "applicability_conditions": [
+                {
+                    "condition_id": "A1",
+                    "text": "추천 또는 보증 표현을 사용하는가",
+                    "condition_role": "FACT",
+                    "absence_policy": "NOT_SATISFIED_IF_COMPLETE_AD_SCAN",
+                },
+                {
+                    "condition_id": "A2",
+                    "text": "경제적 이해관계가 확인되는가",
+                    "condition_role": "FACT",
+                },
+            ],
+            "applicability_logic": {"all": [{"fact": "A1"}, {"fact": "A2"}]},
+            "review_conditions": [],
+            "obligation_checks": [{"obligation_id": "O1", "text": "관계 표시"}],
+            "obligation_logic": {"all": [{"ref": "O1"}]},
+        }
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        _, aliases = gemma._compact_model_request(row)
+        parsed = gemma._expand_model_response(row, {"results": [{
+            "rule_ref": "R1",
+            "scope_check": {"scope_ref": "SCOPE", "status": "UNDETERMINED",
+                            "evidence_refs": [], "metadata_fields": []},
+            "condition_checks": [
+                {"condition_ref": "A1", "status": "UNDETERMINED",
+                 "evidence_refs": [], "metadata_fields": []},
+                {"condition_ref": "A2", "status": "UNDETERMINED",
+                 "evidence_refs": [], "metadata_fields": []},
+            ],
+            "review_condition_checks": [],
+            "verdict": "UNDETERMINED",
+            "requirement_checks": [],
+            "reason": "확인할 수 없음",
+            "confidence": "LOW",
+        }]}, aliases)
+        value = parsed["results"][0]
+        self.assertEqual("NOT_SATISFIED", value["condition_checks"][0]["status"])
+        self.assertEqual("UNDETERMINED", value["condition_checks"][1]["status"])
+        self.assertEqual("NOT_APPLICABLE", value["verdict"])
+        self.assertEqual(["complete_ad_scan"], value["applicability_metadata_fields"])
+        self.assertEqual(gemma.validate(row, parsed), [])
+
+        # A model may already call the absent trigger NOT_SATISFIED. The
+        # runtime still has to attach the complete-scan basis so the
+        # unsupported-negative guard does not turn it back into uncertainty.
+        already_negative = gemma._expand_model_response(row, {"results": [{
+            "rule_ref": "R1",
+            "scope_check": {"scope_ref": "SCOPE", "status": "MATCHED",
+                            "evidence_refs": [], "metadata_fields": []},
+            "condition_checks": [
+                {"condition_ref": "A1", "status": "NOT_SATISFIED",
+                 "evidence_refs": [], "metadata_fields": []},
+                {"condition_ref": "A2", "status": "UNDETERMINED",
+                 "evidence_refs": [], "metadata_fields": []},
+            ],
+            "review_condition_checks": [],
+            "verdict": "NOT_APPLICABLE",
+            "requirement_checks": [],
+            "reason": "추천 표현이 없음",
+            "confidence": "HIGH",
+        }]}, aliases)["results"][0]
+        self.assertEqual("NOT_APPLICABLE", already_negative["verdict"])
+        self.assertEqual(["complete_ad_scan"],
+                         already_negative["applicability_metadata_fields"])
+        self.assertEqual(gemma.validate(row, {"ad_id": "AD-X", "results": [already_negative]}), [])
+
     def test_unknown_exemption_does_not_hide_observed_compliance(self):
         row = request_row(["C-1"])
         payload = json.loads(row["messages"][1]["content"])
@@ -113,7 +195,7 @@ class WireEvidenceTests(unittest.TestCase):
                 "status": "SATISFIED",
                 "finding_basis": "OBSERVED",
                 "evidence_refs": ["L1"],
-                "reason": "예상 수취 이자 문구가 확인됩니다.",
+                "reason": "'예상 수취 이자 10,000원' 문구가 확인됩니다.",
             }],
             "reason": "면제 여부와 관계없이 의무 문구가 확인됩니다.",
             "confidence": "HIGH",
@@ -825,8 +907,30 @@ class ModelContractTests(unittest.TestCase):
         invalid["verdict"] = "VIOLATION"
         invalid["requirement_checks"][0]["status"] = "MISSING"
         invalid["requirement_checks"][0]["finding_basis"] = "ABSENCE"
+        invalid["requirement_checks"][0]["requirement"] = "심의필 번호 표시"
         errors = gemma.validate(row, {"ad_id": "AD-X", "results": [invalid]})
         self.assertTrue(any("관측값" in error for error in errors))
+
+    def test_review_number_does_not_mask_missing_review_authority(self):
+        row = request_row(["C-1"])
+        payload = json.loads(row["messages"][1]["content"])
+        payload["rules"] = [{
+            "item_id": "C-1", "title": "심의필번호·유효기간",
+            "criterion": "심의주체, 심의필 번호, 유효기간 확인",
+        }]
+        payload["deterministic_facts"] = {"review_number_present": True}
+        row["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False)
+        value = result("C-1")
+        value["verdict"] = "VIOLATION"
+        value["requirement_checks"][0].update(
+            requirement="심의주체 명칭 표시",
+            status="MISSING",
+            finding_basis="ABSENCE",
+            evidence_ids=[],
+            evidence_line_refs=[],
+        )
+        errors = gemma.validate(row, {"ad_id": "AD-X", "results": [value]})
+        self.assertFalse(any("심의필 번호 관측값과 MISSING 충돌" in error for error in errors))
 
     def test_violated_requires_observed_evidence(self):
         row = request_row(["C-1"])
@@ -1100,9 +1204,9 @@ class ModelContractTests(unittest.TestCase):
             "requirement_checks": [{
                 "requirement": "필수 항목", "status": "SATISFIED",
                 "finding_basis": "OBSERVED", "evidence_refs": ["E1", "L1"],
-                "reason": "근거 확인",
+                "reason": "'테스트 근거'가 확인됩니다.",
             }],
-            "reason": "근거 확인", "confidence": "HIGH",
+            "reason": "'테스트 근거'가 확인됩니다.", "confidence": "HIGH",
             "needs_researcher_review": False,
         }]}, aliases)
         self.assertEqual(parsed["ad_id"], "AD-X")
@@ -1379,6 +1483,14 @@ class OperationalSelectionTests(unittest.TestCase):
         self.assertTrue(
             operational.automated_input_ready(
                 {"required_medium": "텍스트", "input_requirement": "광고물"}
+            )
+        )
+        routed_page = {"document": {"routing_metadata": {"media_type": {
+            "value": "WEB_PRODUCT_PAGE", "status": "provided"}}}}
+        self.assertTrue(
+            operational.automated_input_ready(
+                {"required_medium": "텍스트", "input_requirement": "광고물+랜딩캡처"},
+                routed_page,
             )
         )
 

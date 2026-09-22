@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-"""위반·충족 관찰 판정의 수치가 인용 근거에 접지돼 있는지 검사한다.
+"""위반·충족 관찰 판정의 설명이 인용 근거에 접지돼 있는지 검사한다.
 
-두 가지만 본다.
+세 가지만 본다.
 
-1. 수치 접지: 이유문의 비율·소수 수치는 인용한 줄에 실재해야 한다.
+1. 직접 인용: 관찰로 확정한 판정은 인용 줄에 실제로 있는 짧은 원문을 이유에
+   따옴표로 제시해야 한다. 이 제약은 모델이 다른 줄의 내용을 기억하거나 만들어
+   현재 좌표에 붙이는 오류를 막는다.
+2. 수치 접지: 이유문의 비율·소수 수치는 인용한 줄에 실재해야 한다.
    줄 텍스트가 없는 옛 계약에만 소유 문서 폴백을 사용한다. 산술 검산 규칙은 합계를 제시하는
    것이 정상이므로, 이유문이 계산 결과라고 밝힌 값(등호나 '합계' 뒤에 오는 값)이
    인용 창의 다른 수치들의 합과 맞으면 접지된 것으로 본다. 계산 결과라고 밝히지
    않은 값은 우연히 합과 맞아떨어져도 접지로 보지 않는다.
-2. 상품 경계: 서로 다른 상품의 수치를 묶지 않는다. 동일 광고/상품의 여러 파일은
+3. 상품 경계: 서로 다른 상품의 수치를 묶지 않는다. 동일 광고/상품의 여러 파일은
    함께 검토할 수 있으며 파일 경계만으로 유효한 근거를 거부하지 않는다.
 
 규칙 ID·사례별 예외는 두지 않는다. 의미 정확도 전체를 검증하는 모듈은 아니다.
@@ -32,6 +35,21 @@ _RATIO = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:%p|%|퍼센트|프로)|(?<!
 # are not assertions that the quoted wording occurs in the advertisement.
 _POSITIVE_QUOTE = re.compile(
     r"[‘'\"“]([^’'\"”\n]{2,100})[’'\"”]([^.!?\n]{0,100})")
+
+# A direct observed finding needs at least one auditable source excerpt.  Four
+# non-space characters avoids accepting punctuation or a one-letter token as
+# proof while still allowing short product and company names.
+_SOURCE_EXCERPT = re.compile(r"[‘'\"“]([^’'\"”\n]{2,160})[’'\"”]")
+
+
+def grounded_source_excerpt_present(reason: str, window: str) -> bool:
+    """Return whether ``reason`` contains a substantive verbatim cited excerpt."""
+    normalized_window = re.sub(r"\s+", "", str(window or ""))
+    for excerpt in _SOURCE_EXCERPT.findall(str(reason or "")):
+        normalized_excerpt = re.sub(r"\s+", "", excerpt).strip(".,:;()[]{}")
+        if len(normalized_excerpt) >= 4 and normalized_excerpt in normalized_window:
+            return True
+    return False
 
 
 def ungrounded_source_quotes(reason: str, window: str) -> list[str]:
@@ -131,6 +149,7 @@ def grounding_errors(
     reason: str,
     line_refs: Iterable[Any],
     documents: Iterable[dict[str, Any]],
+    require_source_excerpt: bool = False,
 ) -> list[str]:
     """위반 근거 한 건의 수치 접지와 자산 경계를 확인한다."""
     documents = list(documents or [])
@@ -139,6 +158,11 @@ def grounding_errors(
         return []
     errors: list[str] = []
     window = cited_window_text(refs, documents)
+    if require_source_excerpt and not grounded_source_excerpt_present(reason, window):
+        errors.append(
+            f"{item_id}: {location} 관찰 판정 사유에 인용한 원문 줄의 직접 인용이 없음; "
+            "실제 지지 문구를 따옴표로 제시하고 그 문구가 있는 줄만 인용해야 함"
+        )
     if ungrounded_source_quotes(reason, window):
         errors.append(f"{item_id}: {location} 원문에 있다고 설명한 인용 문구가 선택한 줄에 없음; 해당 문구의 실제 원본 줄을 인용해야 함")
     ungrounded = _ungrounded_values(reason, window)

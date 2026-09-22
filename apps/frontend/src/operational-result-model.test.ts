@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { legalBasisLines, evidenceBoxes, resultEvidenceBoxes, resultCounts, missingSourceLabel, type ResultRow } from "./components/operationalResultModel";
+import { legalBasisEntries, legalBasisLines, evidenceBoxes, resultChunkBoxes, resultEvidenceBoxes, resultCounts, missingSourceLabel, type ResultRow } from "./components/operationalResultModel";
 import type { ParserLayout } from "./api/operational";
 
 const layout: ParserLayout = {schema_version: "operational-parser-layout-v1", source: "test", coordinate_basis: "rendered_original_200dpi",
@@ -21,6 +21,25 @@ describe("single operational result", () => {
     expect(legalBasisLines(["실행_점검항목:C-052", "R-1583 · 금융소비자 보호에 관한 법률 제22조 제2항(명확·공정 전달)",
       "금융소비자 보호에 관한 법률 제22조 제3항\n가상 기준(특례) 제2조", ""])).toEqual([
       "금융소비자 보호에 관한 법률 제22조 제2항", "금융소비자 보호에 관한 법률 제22조 제3항", "가상 기준(특례) 제2조"]);
+  });
+  it("splits, expands, and deduplicates combined legal bases with explicit link targets", () => {
+    expect(legalBasisEntries([
+      "금융지주회사법 제48조 제4항, 동법 시행령 제27조 제9항, 금융지주회사감독규정 제24조",
+      "은행 광고심의 기준 제4장 공동광고시 준수사항",
+      "금융지주회사법 제48조 제4항", "동법 시행령 제27조 제9항", "감독규정 제24조",
+    ])).toEqual([
+      {key:"금융지주회사법제48조제4항",label:"금융지주회사법 제48조 제4항",searchQuery:"금융지주회사법"},
+      {key:"금융지주회사법시행령제27조제9항",label:"금융지주회사법 시행령 제27조 제9항",searchQuery:"금융지주회사법 시행령"},
+      {key:"금융지주회사감독규정제24조",label:"금융지주회사감독규정 제24조",searchQuery:"금융지주회사감독규정"},
+      {key:"은행광고심의기준제4장공동광고시준수사항",label:"은행 광고심의 기준 제4장 공동광고시 준수사항",searchQuery:null},
+    ]);
+  });
+  it("keeps chunk context separate from exact judgment evidence", () => {
+    const chunk = {key:"chunk",pageNo:1,bbox:[1,2,90,40],width:100,height:200,precision:"CHUNK" as const};
+    const line = {key:"line",pageNo:1,bbox:[3,4,80,20],width:100,height:200,precision:"LINE" as const};
+    const row = {evidence_locations:[line],chunk_locations:[chunk]} as unknown as ResultRow;
+    expect(resultChunkBoxes(row)).toEqual([chunk]);
+    expect(resultEvidenceBoxes(row, layout)).toEqual([line]);
   });
   it("withholds mismatched saved source quotations instead of displaying a valid bbox", () => {
     const row = {evidence: "", evidence_locations: [], model_assessment: {status: "WITHHELD_BY_GROUNDING_GUARD", verdict: "COMPLIANT", reason: "old result"}} as unknown as ResultRow;

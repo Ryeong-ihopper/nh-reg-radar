@@ -153,6 +153,16 @@ def build():
             "위반등급": S(r[ix["위반등급"]]),
             "근거법령": S(r[ix["근거법령"]]),
             "비고": S(r[ix.get("비고", 0)]) if "비고" in ix else "",
+            "규칙관계": ([{
+                "relation_type": S(r[ix["관계유형"]]),
+                "target_item_ids": [
+                    value.strip() for value in re.split(r"[,;]", S(r[ix["관계대상ID"]]))
+                    if value.strip()
+                ],
+                "join": (S(r[ix.get("관계결합", 0)]) if "관계결합" in ix else "ANY") or "ANY",
+                "description": S(r[ix.get("관계설명", 0)]) if "관계설명" in ix else "",
+                "source": "실행_점검항목",
+            }] if "관계유형" in ix and S(r[ix["관계유형"]]) else []),
             "대표규칙": rep,
             # 아래 값도 전부 같은 v2 파일의 `항목_규칙매핑`에서 온다.
             "근거규칙": [x["id"] for x in rules],
@@ -171,6 +181,20 @@ def build():
             # 템플릿 필수여부로 「무조건 적용」을 추론하지 않는다. 템플릿은
             # 출처·허용 예시이고 적용 조건은 점검문구·판정기준에서 만든다.
         })
+
+    known_item_ids = {item["id"] for item in items}
+    for item in items:
+        for relation in item["규칙관계"]:
+            if relation["relation_type"] not in {"SATISFIED_IF"}:
+                raise ValueError(f"{item['id']}: 지원하지 않는 관계유형 {relation['relation_type']}")
+            if relation["join"] not in {"ANY", "ALL"}:
+                raise ValueError(f"{item['id']}: 관계결합은 ANY 또는 ALL이어야 함")
+            if not relation["target_item_ids"]:
+                raise ValueError(f"{item['id']}: 관계대상ID가 비어 있음")
+            invalid = [target for target in relation["target_item_ids"]
+                       if target not in known_item_ids or target == item["id"]]
+            if invalid:
+                raise ValueError(f"{item['id']}: 잘못된 관계대상ID {invalid}")
 
     hold, hx = sheet(AGENT, "판정보류_항목")
     holds = [{

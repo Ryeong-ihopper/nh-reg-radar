@@ -8,6 +8,15 @@ COPY apps/frontend/ ./
 ENV VITE_OPERATIONAL_REVIEW=true
 RUN npm run build:operational
 
+# nh-parser-fin requires Python >=3.13. Keep it isolated from the canonical
+# application/RAG Python 3.11 environment instead of relaxing either runtime's
+# declared contract.
+FROM python:3.13-slim-trixie AS parser-runtime
+WORKDIR /parser-source
+COPY infra/operational/requirements-parser.txt /tmp/requirements-parser.txt
+COPY private/nh-parser/ ./
+RUN pip install --no-cache-dir -r /tmp/requirements-parser.txt .
+
 FROM python:3.11-slim-trixie
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 JAVA_HOME=/opt/java/openjdk \
     PATH=/opt/java/openjdk/bin:$PATH NH_LOCAL_SOFFICE=/usr/bin/soffice
@@ -18,10 +27,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=java /opt/java/openjdk /opt/java/openjdk
 WORKDIR /app
 COPY rag-pipeline/requirements-rag.txt rag-pipeline/
-COPY infra/operational/requirements-web.txt infra/operational/requirements-parser.txt infra/operational/
-RUN pip install --no-cache-dir -r infra/operational/requirements-web.txt \
-    && python -m venv /opt/parser-venv \
-    && /opt/parser-venv/bin/pip install --no-cache-dir -r infra/operational/requirements-parser.txt
+COPY infra/operational/requirements-web.txt infra/operational/
+RUN pip install --no-cache-dir -r infra/operational/requirements-web.txt
+COPY --from=parser-runtime /usr/local /opt/python313
 # Supplied private sources are frozen by the package manifest; no credentials or .env are copied.
 COPY private/nh-parser /opt/nh-parser
 COPY private/document-processor /opt/document-processor
