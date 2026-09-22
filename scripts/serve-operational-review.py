@@ -212,7 +212,7 @@ def build_operational_server(args):
         "DPT-LOCAL", "로컬 검토", ("PRODUCT_DEPARTMENT_USER", "COMPLIANCE_REVIEWER"),
     )
     services.repository.users[user.user_id] = user
-    services = replace(services, pdf_preview=LocalPdfPreview(), hwp_preview=LocalHwpPreview())
+    services = replace(services, pdf_preview=LocalPdfPreview(), hwp_preview=LocalHwpPreview(args.state_dir / "hwp-preview"))
     from operational_web_bridge import ExecutionBridge
     bridge = ExecutionBridge(services, args.state_dir, args.execution_config, project_results)
     backend = create_app(settings, services)

@@ -461,8 +461,23 @@ class ExecutionBridge:
         env["PYTHONIOENCODING"] = "utf-8"
         with Path(log_path).open("w", encoding="utf-8") as log:
             try:
+                command = self.parser_command(source_dir, output, template_id=template_id)
+                sources = list(Path(source_dir).iterdir())
+                if (self.parser_layout_config["runner"] == "nh_parser_fin" and len(sources) == 1
+                        and sources[0].suffix.lower() in {".hwp", ".hwpx"}):
+                    if not template_id:
+                        raise ValueError("PARSER_TEMPLATE_REQUIRED: native HWP requires the selected template")
+                    native = subprocess.run([
+                        self.config["parser_python"], str(ROOT / "scripts/parse_hwp_native.py"),
+                        "--source", str(sources[0].resolve()), "--output", str(Path(output).resolve()),
+                        "--parser-root", str(self.config["parser_root"]), "--template-id", str(template_id),
+                    ], cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
+                        stdout=log, stderr=subprocess.STDOUT, timeout=3600,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                    if native.returncode != 3:
+                        return native.returncode
                 return subprocess.run(
-                    self.parser_command(source_dir, output, template_id=template_id),
+                    command,
                     cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
                     stdout=log, stderr=subprocess.STDOUT, timeout=3600,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
@@ -1342,6 +1357,10 @@ class ExecutionBridge:
                 if ranges is None:
                     rows.extend(item[1] for item in evidence_by_asset.get(asset_id, []))
                     continue
+                if any(page.get("parse_route") == "native_hwp"
+                       and asset_pages[asset_id]["start"] <= page["page_no"] <= asset_pages[asset_id]["end"]
+                       for page in document["pages"]):
+                    raise ValueError("HWP_PHYSICAL_SCOPE_UNAVAILABLE: native text cannot be assigned to physical page ranges")
                 offset = asset_pages[asset_id]["start"] - 1
                 for start, end in ((item["start"], item["end"]) for item in ranges):
                     rows.extend(item[1] for item in evidence_by_asset.get(asset_id, []) if offset + start <= item[0] <= offset + end)
@@ -1411,6 +1430,16 @@ class ExecutionBridge:
             ):
                 return existing
         direct = parser_layout(integrated, source="P1+P3 integrated parser output")
+        if (source.suffix.lower() in {".hwp", ".hwpx"}
+                and len((integrated.get("diagnostics") or {}).get("asset_pages") or {}) == 1
+                and any(page.get("parse_route") == "native_hwp" for page in integrated.get("pages", []))):
+            from hwp_pdf_layout import load_or_render
+            layout = load_or_render(source, directory, self.services.hwp_preview)
+            asset_id = next(iter(integrated["diagnostics"]["asset_pages"]))
+            for page in layout["pages"]:
+                page["asset_id"] = asset_id
+            write_json_atomic(target, layout)
+            return layout
         if direct["counts"]["lines"] or direct["counts"]["regions"]:
             write_json_atomic(target, direct)
             return direct

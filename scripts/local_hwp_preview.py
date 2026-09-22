@@ -62,8 +62,11 @@ def convert_hwp_to_pdf(body: bytes, file_name: str) -> bytes:
 class LocalHwpPreview:
     """Render HWP/HWPX at the parser visual projection's 200-DPI basis."""
 
-    def __init__(self) -> None:
+    def __init__(self, cache_dir: Path | None = None) -> None:
         self._lock = threading.RLock()
+        self._cache_dir = cache_dir
+        if cache_dir is not None:
+            cache_dir.mkdir(parents=True, exist_ok=True)
         self._pdf_cache: dict[str, bytes] = {}
         self._page_cache: dict[tuple[str, int], HwpPreview] = {}
 
@@ -73,8 +76,22 @@ class LocalHwpPreview:
             cached = self._pdf_cache.get(key)
         if cached is not None:
             return cached
+        persisted = self._cache_dir / f"{key}.pdf" if self._cache_dir else None
+        if persisted is not None and persisted.is_file():
+            converted = persisted.read_bytes()
+            if not converted.startswith(b"%PDF-"):
+                raise HwpPreviewError("HWP_PREVIEW_FAILED")
+            with self._lock:
+                self._pdf_cache[key] = converted
+            return converted
         converted = convert_hwp_to_pdf(body, file_name)
         with self._lock:
+            if key in self._pdf_cache:
+                return self._pdf_cache[key]
+            if persisted is not None:
+                temporary = persisted.with_suffix(".pending")
+                temporary.write_bytes(converted)
+                temporary.replace(persisted)
             self._pdf_cache[key] = converted
         return converted
 

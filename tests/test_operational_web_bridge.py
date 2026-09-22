@@ -329,6 +329,35 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(self.bridge.parser_output_name_matches(p1s[0], Path("ad file.png")))
         self.assertTrue(self.bridge.parser_p3_matches(p1s[0], p3s[0]))
 
+    def test_native_hwp_never_assigns_logical_page_to_physical_scope(self):
+        document = {"document": {}, "diagnostics": {"asset_pages": {"FILE-test": {"start": 1, "end": 1}}},
+                    "pages": [{"page_no": 1, "parse_route": "native_hwp", "regions": [
+                        {"evidence_id": "ADV-test#asset:FILE-test:p1:r1"}]}]}
+        intake = {"schema_version": "operational-ad-intake-v1", "advertisement_name": "test", "media_codes": ["NOTICE"],
+                  "assets": [{"asset_id": "FILE-test", "file_name": "input.hwp"}],
+                  "products": [{"product_id": "P-1", "product_name": "test", "product_group": "예금성",
+                                "product_classification_code": "예금성상품-적립식",
+                                "asset_scopes": [{"asset_id": "FILE-test", "page_ranges": [{"start": 1, "end": 1}]}]}],
+                  "shared_asset_scopes": [], "follow_up": None}
+        with self.assertRaisesRegex(ValueError, "HWP_PHYSICAL_SCOPE_UNAVAILABLE"):
+            self.bridge.apply_intake_scopes(self.ad, document, intake)
+
+    def test_native_hwp_success_failure_and_image_fallback(self):
+        source = self.root / "native-source"
+        source.mkdir()
+        (source / "input.hwp").write_bytes(b"synthetic")
+        self.bridge.config.update(parser_runner="nh_parser_fin", parser_python="python",
+                                  parser_root=str(self.root), parser_cwd=str(self.root))
+        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        for code, expected_calls in ((0, 1), (1, 1), (3, 2)):
+            with patch("operational_web_bridge.subprocess.run", side_effect=[Mock(returncode=code), Mock(returncode=0)]) as run:
+                result = self.bridge.execute_parser(source, self.root / "output", self.root / "native.log", template_id="selected-template")
+                self.assertEqual(run.call_count, expected_calls)
+                self.assertEqual(result, 0 if code == 3 else code)
+                self.assertIn("parse_hwp_native.py", run.call_args_list[0].args[0][1])
+        with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_REQUIRED"):
+            self.bridge.execute_parser(source, self.root / "output", self.root / "native.log")
+
     def test_missing_asset_retries_individually_and_keeps_batch_output(self):
         parser_root = self.root / "parser"
         parser_root.mkdir()
