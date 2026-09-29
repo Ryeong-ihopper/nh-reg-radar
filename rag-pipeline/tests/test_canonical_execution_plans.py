@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 from rag.judgment.canonical_execution_plans import (
@@ -10,15 +11,18 @@ from rag.judgment.canonical_execution_plans import (
 from rag.judgment.family_prompts import make_batches, project_plan, prompt_for_family
 from rag.judgment.execution_plan_runtime import evaluate_execution_plan
 from rag.judgment.obligation_logic import validate_expression
+from rag.judgment.review_program import apply_programs, load_policies
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CONFIG = ROOT / "rag-pipeline/config"
+SOURCE = CONFIG / "canonical-source"
 
 
 def load_document():
-    routing = json.loads((ROOT / "temp/rule-execution-design-20260921/complete-rule-routing-305-v1.json").read_text(encoding="utf-8"))
-    methodologies = json.loads((ROOT / "temp/structured-methodology-20260921/structured-review-methodology-v1.json").read_text(encoding="utf-8"))
-    methodology_review = json.loads((ROOT / "temp/methodology-execution-review-20260921-v4/methodology-execution-review.json").read_text(encoding="utf-8"))
+    routing = json.loads((SOURCE / "complete-rule-routing-v1.json").read_text(encoding="utf-8"))
+    methodologies = json.loads((SOURCE / "structured-review-methodology-v1.json").read_text(encoding="utf-8"))
+    methodology_review = json.loads((SOURCE / "methodology-execution-review-v1.json").read_text(encoding="utf-8"))
     return compile_current_scope(routing, methodologies, methodology_review)
 
 
@@ -27,6 +31,16 @@ class CanonicalExecutionPlansTests(unittest.TestCase):
     def setUpClass(cls):
         cls.document = load_document()
         cls.plans = {p["plan_id"]: p for p in cls.document["plans"]}
+
+    def test_tracked_sources_reproduce_the_current_canonical_document(self):
+        generated = apply_programs(
+            deepcopy(self.document),
+            load_policies(CONFIG / "review-program-policies-v1.json"),
+        )
+        current = json.loads(
+            (CONFIG / "canonical-execution-plans-v2.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(current, generated)
 
     def test_scope_has_exactly_271_unique_candidates(self):
         self.assertEqual(271, len(self.plans))
