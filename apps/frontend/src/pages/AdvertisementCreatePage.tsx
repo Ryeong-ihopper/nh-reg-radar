@@ -9,6 +9,7 @@ import { advertisementTypeLabel, productGroupLabel } from "../components/display
 import { PageHeader } from "../components/PageHeader";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { WorkflowSteps } from "../components/WorkflowSteps";
+import { ReviewFlowGuide } from "../components/ReviewFlowGuide";
 
 const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "pdf", "hwp", "hwpx"]);
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -26,14 +27,23 @@ type OperationalAdvertisementDraft = {
   productGroup: ProductGroup | "";
   advertisementType: AdvertisementType | "";
   productClassificationCode: string;
+  underlyingProducts: string[];
+  underlyingSelection: "" | "MENTIONED" | "NONE" | "UNKNOWN";
   files: File[];
   created?: AdvertisementCreateResponse;
+};
+
+type OperationalClassificationChoice = {
+  value: string;
+  label: string;
+  productClassificationCode: string;
+  underlyingProduct?: string;
 };
 
 let draftSequence = 0;
 function createOperationalDraft(): OperationalAdvertisementDraft {
   draftSequence += 1;
-  return { key: `advertisement-draft-${draftSequence}`, advertisementName: "", productGroup: "", advertisementType: "", productClassificationCode: "", files: [] };
+  return { key: `advertisement-draft-${draftSequence}`, advertisementName: "", productGroup: "", advertisementType: "", productClassificationCode: "", underlyingProducts: [], underlyingSelection: "", files: [] };
 }
 
 function operationalProductGroup(productGroup: ProductGroup): "예금성" | "대출성" | "투자성" {
@@ -73,6 +83,47 @@ export function AdvertisementCreatePage() {
     setOperationalDrafts((current) => current.map((draft) => draft.key === key ? { ...draft, [field]: value } : draft));
   }
 
+  function classificationChoices(productGroup: OperationalAdvertisementDraft["productGroup"]): OperationalClassificationChoice[] {
+    if (!productGroup || !capabilities.data) return [];
+    const group = productGroup === "LOAN" ? "LOAN" : productGroup === "INVESTMENT" ? "INVESTMENT" : "DEPOSIT";
+    const contexts = capabilities.data.productContexts ?? [];
+    return capabilities.data.productClassifications
+      .filter((item) => item.productGroup === group && !contexts.some((context) => context.restricted_standalone_templates.includes(item.code)))
+      .flatMap((item) => {
+        const choices: OperationalClassificationChoice[] = [{ value: item.code, label: item.label, productClassificationCode: item.code }];
+        const context = contexts.find((candidate) => candidate.base_template === item.code);
+        if (context) {
+          choices.push(...context.components.map((component) => ({
+            value: JSON.stringify([context.code, component.code]),
+            label: `${context.label} — ${component.label} 운용상품`,
+            productClassificationCode: item.code,
+            underlyingProduct: component.code,
+          })));
+        }
+        return choices;
+      });
+  }
+
+  function classificationChoiceValue(draft: OperationalAdvertisementDraft): string {
+    const choice = draft.underlyingSelection === "MENTIONED" && draft.underlyingProducts.length === 1
+      ? classificationChoices(draft.productGroup).find((item) => item.productClassificationCode === draft.productClassificationCode
+        && item.underlyingProduct === draft.underlyingProducts[0])
+      : undefined;
+    return choice?.value ?? draft.productClassificationCode;
+  }
+
+  function selectClassification(key: string, value: string) {
+    const draft = operationalDrafts.find((item) => item.key === key);
+    const choice = draft && classificationChoices(draft.productGroup).find((item) => item.value === value);
+    if (!choice) return;
+    setOperationalDrafts((current) => current.map((item) => item.key === key ? {
+      ...item,
+      productClassificationCode: choice.productClassificationCode,
+      underlyingProducts: choice.underlyingProduct ? [choice.underlyingProduct] : [],
+      underlyingSelection: choice.underlyingProduct ? "MENTIONED" : "",
+    } : item));
+  }
+
   async function registerOperationalAdvertisement(draft: OperationalAdvertisementDraft): Promise<string> {
     const productGroup = draft.productGroup as ProductGroup;
     const advertisementType = draft.advertisementType as AdvertisementType;
@@ -94,6 +145,8 @@ export function AdvertisementCreatePage() {
       products: [{ product_id: "P-1", product_name: draft.advertisementName.trim(),
         product_group: normalizedProductGroup,
         product_classification_code: draft.productClassificationCode,
+        underlying_products: draft.underlyingProducts,
+        underlying_products_status: draft.underlyingSelection === "UNKNOWN" ? "UNCONFIRMED" : "CONFIRMED",
         asset_scopes: advertisementAssets.map((file) => ({ asset_id: file.fileId, page_ranges: null })) }],
       shared_asset_scopes: [], follow_up: null,
     });
@@ -112,6 +165,10 @@ export function AdvertisementCreatePage() {
       if (!draft.advertisementName.trim()) errors.push(`${prefix}: 광고명을 입력해 주세요.`);
       if (!PRODUCT_GROUPS.has(draft.productGroup as ProductGroup)) errors.push(`${prefix}: 상품군을 선택해 주세요.`);
       if (!draft.productClassificationCode) errors.push(`${prefix}: 상세 상품군을 선택해 주세요.`);
+      if (capabilities.data?.productContexts?.some((context) => context.base_template === draft.productClassificationCode)) {
+        if (!draft.underlyingSelection) errors.push(`${prefix}: 퇴직연금 운용상품의 언급 여부를 선택해 주세요.`);
+        if (draft.underlyingSelection === "MENTIONED" && draft.underlyingProducts.length === 0) errors.push(`${prefix}: 광고에 언급된 운용상품을 선택해 주세요.`);
+      }
       if (!ADVERTISEMENT_TYPES.has(draft.advertisementType as AdvertisementType)) errors.push(`${prefix}: 광고 형식·매체를 선택해 주세요.`);
       if (draft.files.length === 0) errors.push(`${prefix}: 광고 원본을 선택해 주세요.`);
       if (draft.files.length > MAX_FILES_PER_AD) errors.push(`${prefix}: 동일 광고 파일은 최대 ${MAX_FILES_PER_AD}개까지 첨부할 수 있습니다.`);
@@ -172,6 +229,7 @@ export function AdvertisementCreatePage() {
     <WorkflowSteps current={1} />
     <PageHeader headingId="advertisement-create-heading" eyebrow="1단계 · 광고 등록" title="광고물 등록"
       description={operationalMode ? "광고별로 기본정보와 원본 파일을 묶어 한 번에 등록하고 독립적으로 자동심의를 시작합니다." : "검토할 광고 원본을 필수로 등록하고, 상품설명서·약관을 함께 첨부하면 정합성 검토 정확도를 높일 수 있습니다."} />
+    {operationalMode ? <ReviewFlowGuide capabilities={capabilities.data} /> : null}
     {codesPending ? <LoadingState label="등록 선택값을 불러오는 중입니다." /> : null}
     {codesError ? <ErrorState error={codesError} /> : null}
     {!codesPending && !codesError ? <form className="form-layout" onSubmit={submit} noValidate>
@@ -182,8 +240,16 @@ export function AdvertisementCreatePage() {
           <div className="form-field-grid">
             <label htmlFor={`${draft.key}-name`}><span>광고명 *</span><input id={`${draft.key}-name`} disabled={Boolean(draft.created)} value={draft.advertisementName} onChange={(event) => updateDraft(draft.key, "advertisementName", event.target.value)} /></label>
             <label htmlFor={`${draft.key}-type`}><span>광고 형식·매체 *</span><select id={`${draft.key}-type`} disabled={Boolean(draft.created)} value={draft.advertisementType} onChange={(event) => updateDraft(draft.key, "advertisementType", event.target.value as AdvertisementType)}><option value="" disabled>선택</option>{advertisementTypes.data?.filter((item) => item.enabled).map((item) => <option key={item.code} value={item.code}>{advertisementTypeLabel(item.code)}</option>)}</select><small>문자·앱 푸시 등 매체별 심의 기준을 고르는 데 사용합니다.</small></label>
-            <label htmlFor={`${draft.key}-group`}><span>상품군 *</span><select id={`${draft.key}-group`} disabled={Boolean(draft.created)} value={draft.productGroup} onChange={(event) => { updateDraft(draft.key, "productGroup", event.target.value as ProductGroup); updateDraft(draft.key, "productClassificationCode", ""); }}><option value="" disabled>선택</option>{productGroups.data?.filter((item) => item.enabled && ["DEPOSIT", "LOAN", "INVESTMENT"].includes(item.code)).map((item) => <option key={item.code} value={item.code}>{item.code === "DEPOSIT" ? "예금성상품" : item.code === "LOAN" ? "대출성상품" : "투자성상품"}</option>)}</select><small>세부 상품군은 아래에서 선택합니다.</small></label>
-            <label htmlFor={`${draft.key}-classification`}><span>상세 상품군 *</span><select id={`${draft.key}-classification`} disabled={Boolean(draft.created)} value={draft.productClassificationCode} onChange={(event) => updateDraft(draft.key, "productClassificationCode", event.target.value)}><option value="" disabled>선택</option>{capabilities.data?.productClassifications.filter((item) => draft.productGroup && item.productGroup === (draft.productGroup === "LOAN" ? "LOAN" : draft.productGroup === "INVESTMENT" ? "INVESTMENT" : "DEPOSIT")).map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</select><small>선택값은 이 카드에 첨부한 모든 파일에 공통 적용됩니다.</small></label>
+            <label htmlFor={`${draft.key}-group`}><span>상품군 *</span><select id={`${draft.key}-group`} disabled={Boolean(draft.created)} value={draft.productGroup} onChange={(event) => { updateDraft(draft.key, "productGroup", event.target.value as ProductGroup); updateDraft(draft.key, "productClassificationCode", ""); updateDraft(draft.key, "underlyingProducts", []); updateDraft(draft.key, "underlyingSelection", ""); }}><option value="" disabled>선택</option>{productGroups.data?.filter((item) => item.enabled && ["DEPOSIT", "LOAN", "INVESTMENT"].includes(item.code)).map((item) => <option key={item.code} value={item.code}>{item.code === "DEPOSIT" ? "예금성상품" : item.code === "LOAN" ? "대출성상품" : "투자성상품"}</option>)}</select><small>세부 상품군은 아래에서 선택합니다.</small></label>
+            <label htmlFor={`${draft.key}-classification`}><span>상세 상품군 *</span><select id={`${draft.key}-classification`} disabled={Boolean(draft.created)} value={classificationChoiceValue(draft)} onChange={(event) => selectClassification(draft.key, event.target.value)}><option value="" disabled>선택</option>{classificationChoices(draft.productGroup).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>퇴직연금의 펀드·ETF·ELB를 바로 선택할 수 있습니다. 여러 운용상품이 언급되면 아래에서 함께 선택해 주세요. 선택값은 첨부한 모든 파일에 공통 적용됩니다.</small></label>
+            {capabilities.data?.productContexts?.filter((context) => context.base_template === draft.productClassificationCode).map((context) => <fieldset className="underlying-product-selection" key={context.code} disabled={Boolean(draft.created)}>
+              <legend>광고에 언급된 퇴직연금 운용상품 *</legend>
+              <label htmlFor={`${draft.key}-underlying-status`}><span>언급 여부</span><select id={`${draft.key}-underlying-status`} value={draft.underlyingSelection} onChange={(event) => { updateDraft(draft.key, "underlyingSelection", event.target.value as OperationalAdvertisementDraft["underlyingSelection"]); updateDraft(draft.key, "underlyingProducts", []); }}>
+                <option value="" disabled>선택</option><option value="MENTIONED">펀드·ETF·ELB가 언급됨</option><option value="NONE">펀드·ETF·ELB의 별도 언급 없음</option><option value="UNKNOWN">원문을 확인해야 함</option>
+              </select></label>
+              {draft.underlyingSelection === "MENTIONED" ? <div className="underlying-product-options">{context.components.map((component) => <label key={component.code}><input type="checkbox" checked={draft.underlyingProducts.includes(component.code)} onChange={(event) => updateDraft(draft.key, "underlyingProducts", event.target.checked ? [...draft.underlyingProducts, component.code] : draft.underlyingProducts.filter((code) => code !== component.code))} />{component.label}</label>)}</div> : null}
+              {draft.underlyingSelection === "UNKNOWN" ? <p>운용상품을 확인할 수 없어 적용 범위 확인이 필요합니다.</p> : draft.underlyingSelection === "MENTIONED" ? <p>위에서 고른 상품이 자동 반영됩니다. 함께 광고하는 상품이 있으면 추가로 선택하세요.</p> : null}
+            </fieldset>)}
           </div>
           <label className="file-input-card" data-required="true" htmlFor={`${draft.key}-files`}><span>동일 광고 원본 *</span><small>한 광고를 구성하는 파일을 함께 선택 · 파일당 50MB</small><input id={`${draft.key}-files`} type="file" multiple disabled={Boolean(draft.created)} aria-label={`광고 ${index + 1} 원본 파일`} accept=".jpg,.jpeg,.png,.pdf,.hwp,.hwpx" onChange={(event) => updateDraft(draft.key, "files", Array.from(event.target.files ?? []))} /></label>
           {draft.files.length > 0 ? <p className="operational-file-summary">{draft.files.length}개 파일을 하나의 광고로 처리: {draft.files.map((file) => file.name).join(" · ")}</p> : null}

@@ -49,6 +49,29 @@ def load_catalog(legacy_overrides=None):
 
 
 class OperationalCanonicalCatalogTests(unittest.TestCase):
+    def test_authored_criteria_survive_the_actual_compact_model_request(self):
+        from rag.judgment.condition_contracts import compile_canonical_condition_contract
+        from run_gemma_exhaustive_dgx import _compact_model_request
+        from run_operational_e2e import model_rule_view
+        for rule in self.catalog.template_rules:
+            with self.subTest(rule=rule["item_id"]):
+                fields = self.catalog.plans[rule["item_id"]]["source"]["source_fields"]
+                expected = {key: str(fields[key]).strip()
+                            for key in ("satisfied", "violated", "review", "violation_guidance", "review_guidance")
+                            if str(fields.get(key) or "").strip()}
+                projected = model_rule_view({**rule, "condition_contract": compile_canonical_condition_contract(rule)})
+                payload = {"rules": [projected], "documents": [], "evidence_scope": {}}
+                messages, _ = _compact_model_request({
+                    "request_id": "synthetic", "ad_id": "synthetic", "category": "PRESENCE",
+                    "requested_item_ids": [rule["item_id"]],
+                    "messages": [{"role": "system", "content": "test"},
+                                 {"role": "user", "content": json.dumps(payload)}],
+                })
+                wire = json.loads(messages[1]["content"])["rules"][0]
+                self.assertEqual(expected, wire["condition_contract"]["source_criteria"])
+                self.assertNotIn("example", wire["condition_contract"]["source_criteria"])
+                self.assertEqual(rule["template_required"], rule["template_basis"]["requirement_mode"])
+
     def test_alias_does_not_restore_obsolete_modality_or_source_text(self):
         from run_operational_e2e import automated_input_ready
         catalog = load_catalog({"required_medium": "레이아웃", "input_requirement": "랜딩캡처 원본형식",

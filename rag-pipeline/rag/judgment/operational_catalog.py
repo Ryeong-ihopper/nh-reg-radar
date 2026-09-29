@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from rag.judgment.family_prompts import project_plan
+from rag.judgment.review_program import digest, execution_digest
 
 
 PLAN_SCHEMA = "canonical-execution-plans-v2"
@@ -35,12 +36,15 @@ class OperationalCatalog:
 
 def audit_canonical_template_coverage(
     catalog: OperationalCatalog,
-    section: str,
+    section: str | list[str],
     requested_ids: Iterable[str],
     deferred: Iterable[dict[str, Any]],
 ) -> dict[str, Any]:
+    sections = [section] if isinstance(section, str) else section
+    if not sections or set(sections) - {r.get("product_subtype") for r in catalog.template_rules}:
+        raise ValueError("selected template has no canonical execution plans")
     selected = [rule for rule in catalog.template_rules
-                if rule.get("product_subtype") == section]
+                if rule.get("product_subtype") in sections]
     if not selected:
         raise ValueError("selected template has no canonical execution plans")
     requested = set(requested_ids)
@@ -53,6 +57,7 @@ def audit_canonical_template_coverage(
     return {
         "policy": "canonical-selected-template-coverage-v2",
         "template_section": section,
+        "template_sections": sections,
         "plan_count": len(expected),
         "requested_count": len(expected & requested),
         "manual_or_input_review_count": len(expected & deferred_ids),
@@ -102,6 +107,26 @@ def load_operational_catalog(
         raise ValueError("rule dispositions are not bound to the canonical source snapshot")
 
     plans = _unique(document.get("plans"), "plan_id", "canonical plan")
+    policies = _load(plans_path.parent / 'review-program-policies-v1.json', 'review-program-v1')
+    if digest(policies) != (document.get('review_program_source_binding') or {}).get('policies_sha256'):
+        raise ValueError('review policy snapshot differs from canonical source binding')
+    policies_by_id = _unique(policies.get('plans'), 'plan_id', 'review policy')
+    for plan_id, plan in plans.items():
+        if (plan.get("source") or {}).get("source_kind") == "TEMPLATE":
+            program = plan.get("review_program") or {}
+            policy = policies_by_id.get(plan_id)
+            if not policy or program.get('program_sha256') != digest({'policy': policy, 'source': plan.get('source_sha256')}):
+                raise ValueError(f'{plan_id}: reviewed program policy hash differs')
+            actual_policy = {key: value for key, value in program.items() if key not in {
+                'schema_version', 'source_sha256', 'program_sha256', 'execution_sha256'}}
+            if actual_policy != policy['program']:
+                raise ValueError(f'{plan_id}: reviewed evidence/decision policy differs')
+            if (program.get("schema_version") != "review-program-v1"
+                    or program.get("source_sha256") != plan.get("source_sha256")
+                    or plan.get("source_sha256") != digest(plan.get("source"))
+                    or program.get("execution_sha256") != execution_digest(plan)
+                    or not program.get("program_sha256")):
+                raise ValueError(f"{plan_id}: source-bound review program is required")
     migration_rows = _unique(migration.get("rows"), "plan_id", "migration row")
     if set(plans) != set(migration_rows):
         raise ValueError("canonical plans and migration rows have different IDs")
@@ -313,9 +338,10 @@ def _replace_template_basis(rule: dict[str, Any], plan: dict[str, Any]) -> None:
         "source_ref": f"CANONICAL_PLAN:{plan['plan_id']}",
         "template_section": source.get("product_template"),
         "structure_status": "STRUCTURED",
+        "requirement_mode": rule["template_required"],
         "text_review_ready": automatic,
         "text_facet_only": visual and automatic,
-        "manual_review_required": visual,
+        "manual_review_required": visual or (plan.get('review_program') or {}).get('mode') == 'REVIEW_ONLY',
         "canonical_plan": project_plan(plan),
         "legal_basis_refs": legal_refs,
     })
@@ -329,6 +355,8 @@ def _template_rule(plan: dict[str, Any]) -> dict[str, Any]:
     if not _groups(template):
         raise ValueError(f"{plan['plan_id']}: unsupported template scope")
     automatic = any(not atom["owners"].get("human") for atom in plan["obligations"])
+    review_only = (plan.get('review_program') or {}).get('mode') == 'REVIEW_ONLY'
+    scope_facts = [f for f in plan['applicability_inputs'] if f.get('purpose') != 'DECISION_BRANCH']
     rule = {
         "item_id": plan["plan_id"],
         "source_sheet": "HWPX_TEMPLATE",
@@ -337,7 +365,7 @@ def _template_rule(plan: dict[str, Any]) -> dict[str, Any]:
         "product_groups": _groups(template),
         "product_subtype": template,
         "template_source_status": template_status,
-        "template_required": "CONDITIONAL" if len(plan["applicability_inputs"]) > 1 else "REQUIRED",
+        "template_required": 'REVIEW_ONLY' if review_only else 'CONDITIONAL' if len(scope_facts) > 1 else 'REQUIRED',
         "title": source.get("label") or plan["plan_id"],
         "question": source.get("label") or plan["plan_id"],
         "criterion": _criterion(plan),
@@ -345,7 +373,7 @@ def _template_rule(plan: dict[str, Any]) -> dict[str, Any]:
                            if str(fields.get(key) or "").strip()),
         "example_text": "",
         "example_policy": "예시는 비구속 검색 힌트이며 광고 증거가 아님",
-        "input_requirement": "광고물" if automatic else "원본형식",
+        "input_requirement": "검토 질문 확인" if review_only else "광고물" if automatic else "원본형식",
         "judgment_type": "LLM" if automatic else "사람검토",
         "required_medium": "텍스트" if automatic else "원본형식",
         "canonical_execution_plan": project_plan(plan),

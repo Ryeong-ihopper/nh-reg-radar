@@ -61,6 +61,54 @@ def region(lines, *, labels=None, layout="table"):
     }
 
 
+class LogicalBlockChunkingTests(unittest.TestCase):
+    def test_long_newline_block_keeps_char_spans_and_original_source_id(self):
+        text = '\n'.join(('서로 다른 문단 내용 ' * 20) + str(i) for i in range(12))
+        raw = line(1, text, top=10, bottom=900)
+        source = region([raw], layout='text')
+        chunks = _fine_views(source)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(c['text_canonical']) <= 700 for c in chunks))
+        self.assertEqual(compact(''.join(c['text_canonical'] for c in chunks)), compact(text))
+        offset = 0
+        for chunk in chunks:
+            self.assertEqual(chunk['line_refs'], [raw['line_ref']])
+            pieces = []
+            for span in chunk['line_spans']:
+                self.assertEqual(span['line_ref'], raw['line_ref'])
+                self.assertEqual(span['char_start'], offset)
+                offset = span['char_end']
+                pieces.append(text[span['char_start']:offset])
+            self.assertEqual(compact(''.join(pieces)), compact(chunk['text_canonical']))
+        self.assertEqual(offset, len(text))
+        self.assertEqual(source['lines'], [raw])
+        self.assertEqual(raw['bbox'], [260, 10, 520, 900])
+
+    def test_selected_region_block_splits_without_fabricated_exact_spans(self):
+        raw = line(1, '선택 전 원문', top=10, bottom=900)
+        source = region([raw], layout='text')
+        source['final_text'] = '\n'.join('다른 선택 문단 ' * 20 for _ in range(12))
+        chunks = _fine_views(source)
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(compact(''.join(c['text_canonical'] for c in chunks)), compact(source['final_text']))
+        for chunk in chunks:
+            self.assertEqual(chunk['span_status'], 'region_level_selected_text')
+            self.assertEqual(chunk['line_spans'], [])
+            self.assertEqual(chunk['line_refs'], [raw['line_ref']])
+
+    def test_long_unbroken_statement_and_table_row_remain_atomic(self):
+        for layout, changed in (('text', False), ('table', False), ('table', True)):
+            with self.subTest(layout=layout, changed=changed):
+                text = ('표 항목과 값\n' * 130) if layout == 'table' else ('연속된 문장' * 160)
+                raw = line(1, text, top=10, bottom=900)
+                source = region([raw], layout=layout)
+                if changed:
+                    source['final_text'] = '선택된 다른 표 내용\n' * 130
+                chunks = _fine_views(source)
+                self.assertEqual(len(chunks), 1)
+                self.assertEqual(compact(chunks[0]['text_canonical']), compact(source['final_text']))
+
+
 class SelectedTextAlignmentTests(unittest.TestCase):
     def search(self, source):
         source["assignment_status"] = "assigned"

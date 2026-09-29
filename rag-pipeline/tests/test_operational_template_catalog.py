@@ -311,10 +311,12 @@ class TemplateCatalogTests(unittest.TestCase):
             return np.ones((len(rows), 2), dtype=np.float32), False, 0.0
 
         with mock.patch.object(sys, "argv", args), \
+             mock.patch.object(runner, "freeze_manifest", wraps=runner.freeze_manifest) as freeze_call, \
              mock.patch.object(runner.v2_source, "set_agent_path", side_effect=AssertionError("v2 access")), \
              mock.patch.object(runner.discovery, "load_scope", side_effect=AssertionError("v2 access")), \
              mock.patch.object(runner.judgment_input, "load_cd_rules", side_effect=AssertionError("v2 access")), \
-             mock.patch.object(runner.discovery, "load_model"), \
+             mock.patch.object(runner.discovery, "load_model", return_value=mock.Mock(
+                 encode=lambda texts, **kwargs: np.ones((len(texts), 2), dtype=np.float32))), \
              mock.patch.object(runner.discovery, "load_or_encode", side_effect=encoded), \
              mock.patch.object(runner.discovery, "ensure_rule_index", side_effect=AssertionError("v2 index")), \
              mock.patch.object(runner.discovery, "discover_prohibitions", side_effect=AssertionError("v2 search")):
@@ -333,3 +335,29 @@ class TemplateCatalogTests(unittest.TestCase):
         self.assertIn(str(self.path.resolve()), [entry["path"] for entry in freeze["inputs"]])
         self.assertNotIn(str(regulation.resolve()), [entry["path"] for entry in freeze["inputs"]])
         self.assertEqual(freeze["configuration"]["source_policy"], "template-only")
+        code_hashes = {entry["path"]: entry["sha256"] for entry in freeze["code"]}
+        original_sha256 = runner.sha256
+        for dependency in ("output_contract.py", "unsupported_observations.py"):
+            with self.subTest(dependency=dependency):
+                original = (runner.ROOT / "rag/judgment" / dependency).resolve()
+                self.assertIn(str(original), code_hashes)
+                self.assertEqual(code_hashes[str(original)], original_sha256(original))
+                # Redirect only this dependency to an isolated changed copy.
+                # The real freeze function and byte hashing remain in use;
+                # repository files and synthetic request inputs stay intact.
+                changed = root / dependency
+                changed.write_bytes(original.read_bytes() + b"\n# Synthetic dependency change\n")
+
+                def code_sha256(path):
+                    return original_sha256(changed if Path(path).resolve() == original else path)
+
+                with mock.patch.object(runner, "sha256", side_effect=code_sha256):
+                    refrozen = runner.freeze_manifest(*freeze_call.call_args.args,
+                                                     **freeze_call.call_args.kwargs)
+                updated = {entry["path"]: entry["sha256"] for entry in refrozen["code"]}
+                self.assertEqual(set(updated), set(code_hashes))
+                self.assertEqual({path for path in updated if updated[path] != code_hashes[path]},
+                                 {str(original)})
+                self.assertEqual(updated[str(original)], original_sha256(changed))
+                self.assertEqual(refrozen["inputs"], freeze["inputs"])
+                self.assertEqual(refrozen["configuration"], freeze["configuration"])

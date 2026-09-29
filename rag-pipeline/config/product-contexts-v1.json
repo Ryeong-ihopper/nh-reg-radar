@@ -1,0 +1,19 @@
+{
+  "schema_version": "product-contexts-v1",
+  "decision_date": "2026-09-28",
+  "basis": "사용자 승인: 퇴직연금 공통 기준과 광고에 언급된 운용상품 기준을 함께 적용",
+  "contexts": [
+    {
+      "code": "RETIREMENT",
+      "label": "퇴직연금",
+      "base_template": "투자성상품-퇴직연금 일반",
+      "components": [
+        {"code": "FUND", "label": "펀드", "template": "투자성상품-펀드"},
+        {"code": "ETF", "label": "ETF", "template": "투자성상품-ETF"},
+        {"code": "ELB", "label": "ELB", "template": "투자성상품-ELB"}
+      ],
+      "source_policy": "공통 기준 + 실제 언급된 운용상품 기준. 예금자 비보호 문구와 로고 예외는 별도 검사. IRP는 기존 별도 템플릿을 사용.",
+      "restricted_standalone_templates": ["투자성상품-펀드", "투자성상품-ETF", "투자성상품-ELB"]
+    }
+  ]
+}

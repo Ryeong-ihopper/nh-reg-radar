@@ -25,6 +25,10 @@
     "source_role": {"enum": ["ADVERTISEMENT_CONTENT", "PAGE_CHROME"]},
     "source_role_basis": {"type": "string", "minLength": 1},
     "labels": {"type": "array", "items": {"type": "object"}},
+    "parser_label_hints": {"type": "array", "items": {"type": "string"}},
+    "kind": {"enum": ["text", "table"]},
+    "parser_observations": {"type": "object"},
+    "text_source": {"type": ["string", "null"]},
     "assignment_status": {"enum": ["assigned", "mixed", "unassigned"]},
     "doc_id": {"type": "string", "minLength": 1},
     "parent_doc_id": {"type": ["string", "null"]},
@@ -32,7 +36,7 @@
     "view_type": {"enum": ["canonical_region", "fine_text"]},
     "text_canonical": {"type": "string", "minLength": 1},
     "text_search": {"type": "string", "minLength": 1},
-    "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 0},
     "span_status": {"type": "string"},
     "line_texts": {"type": "object", "additionalProperties": {"type": "string"}},
     "line_bboxes": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}},
@@ -40,6 +44,16 @@
     "line_spans": {"type": "array", "items": {"type": "object"}}
   },
   "additionalProperties": false,
+  "allOf": [{
+    "if": {"properties": {"line_refs": {"maxItems": 0}}, "required": ["line_refs"]},
+    "then": {
+      "required": ["bbox", "region_id"],
+      "properties": {
+        "bbox": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+        "region_id": {"type": "string", "minLength": 1}
+      }
+    }
+  }],
   "$defs": {
     "text_selection": {
       "type": "object",

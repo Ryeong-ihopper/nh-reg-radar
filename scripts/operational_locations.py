@@ -266,14 +266,16 @@ def local_reading_review(document):
 
     def append(page, value, key, precision, codes):
         width, height, box = page.get("canvas_w"), page.get("canvas_h"), value.get("bbox")
-        if not valid_box(box, width, height) or key in seen:
+        if key in seen:
             return
         seen.add(key)
+        issues.extend({"location": key, "code": code} for code in codes)
+        if not valid_box(box, width, height):
+            return
         asset, source_page = page_asset(document, page)
         locations.append({"key": key, "pageNo": page["page_no"], "bbox": box,
                           "width": width, "height": height, "asset_id": asset,
                           "source_page_no": source_page, "precision": precision})
-        issues.extend({"location": key, "code": code} for code in codes)
 
     for page in document.get("pages") or []:
         for number, region in enumerate(page.get("regions") or []):
@@ -288,12 +290,11 @@ def local_reading_review(document):
                     codes.append("UNCERTAIN_LOCAL_READING")
                 append(page, region, f"reading-region:{page['page_no']}:{region_id}", "REGION", codes)
             elif uncertain:
-                before = len(locations)
                 for line_number, line in enumerate(region.get("lines") or []):
                     line_ref = line.get("line_ref") or line_number
                     append(page, line, f"reading-line:{page['page_no']}:{line_ref}", "LINE",
                            ["UNCERTAIN_LOCAL_READING"])
-                if len(locations) == before:
+                if not region.get("lines"):
                     append(page, region, f"reading-region:{page['page_no']}:{region_id}", "REGION",
                            ["UNCERTAIN_LOCAL_READING"])
         for number, line in enumerate(page.get("unassigned_lines") or []):
@@ -302,6 +303,92 @@ def local_reading_review(document):
                 append(page, line, f"reading-line:{page['page_no']}:{line_ref}", "LINE",
                        ["UNCERTAIN_LOCAL_READING"])
     return locations, issues
+
+
+def extraction_status(document, files=None, failure=None):
+    """Read-only file/page observations; extraction is never verified accuracy."""
+    document, failure = document or {}, failure or {}
+    provenance = (document.get("diagnostics") or {}).get("assets") or []
+    assets = files or provenance
+    if not assets and document.get("pages"):
+        assets = [{"file_id": None, "file_name": (document.get("document") or {}).get("source_file")}]
+    failed = {row.get("file_id") for row in failure.get("failed_assets") or []}
+    rows = []
+    for asset in assets:
+        asset_id = asset.get("file_id")
+        source = next((row for row in provenance if row.get("file_id") == asset_id), {})
+        pages = []
+        for page in document.get("pages") or []:
+            page_id = page.get("asset_id")
+            if page_id is None:
+                page_id = page_asset(document, page)[0]
+            if page_id != asset_id and not (page_id is None and len(assets) == 1):
+                continue
+            codes = []
+            parse_status = str(page.get("parse_status") or "").lower()
+            if parse_status in {"failed", "error", "unreadable"}:
+                codes.append("PAGE_EXTRACTION_FAILED")
+            elif parse_status and parse_status not in {"ok", "success", "completed"}:
+                codes.append("PAGE_STATUS_REVIEW")
+            if page.get("unread_regions"):
+                codes.append("UNREAD_REGIONS")
+            regions = page.get("regions") or []
+            lines = list(page_lines(page))
+            text_present = any(str(region.get("final_text") or "").strip() for region in regions) or any(
+                str(line.get("text") or line.get("parser_text") or "").strip() for line in lines)
+            if not text_present:
+                codes.append("EMPTY_PAGE")
+            if any("final_text" in region and not str(region.get("final_text") or "").strip() for region in regions):
+                codes.append("EMPTY_LOCAL_REGION")
+            if any(needs_reading_review(value) for value in [*regions, *lines]):
+                codes.append("UNCERTAIN_LOCAL_READING")
+            width, height = page.get("canvas_w"), page.get("canvas_h")
+            if text_present and (not regions and not lines or any(
+                not valid_box(value.get("bbox"), width, height)
+                for value in [*regions, *lines]
+                if str(value.get("final_text") or value.get("text") or value.get("parser_text") or "").strip())):
+                codes.append("SOURCE_GEOMETRY_MISSING")
+            if any(candidate.get("page_no") == page.get("page_no")
+                   for candidate in document.get("unverified_recovery_candidates") or []):
+                codes.append("UNVERIFIED_RECOVERY_CANDIDATE")
+            pages.append({"page_no": page.get("source_page_no") or page_asset(document, page)[1],
+                          "evidence_page_no": page["page_no"], "parse_status": page.get("parse_status"),
+                          "status": "FAILED" if "PAGE_EXTRACTION_FAILED" in codes else "CHECK_REQUIRED" if codes else "EXTRACTED",
+                          "issues": list(dict.fromkeys(codes))})
+        codes = []
+        if asset_id in failed and not pages:
+            codes.append("FILE_EXTRACTION_FAILED")
+        if source.get("complete_document_read") is False or (len(assets) == 1 and (document.get("quality") or {}).get("complete_document_read") is False):
+            codes.append("PARTIAL_EXTRACTION")
+        state = ("FAILED" if "FILE_EXTRACTION_FAILED" in codes or any(page["status"] == "FAILED" for page in pages)
+                 else "CHECK_REQUIRED" if codes or any(page["issues"] for page in pages)
+                 else "EXTRACTED" if pages else "UNRECORDED")
+        rows.append({"asset_id": asset_id, "file_name": asset.get("file_name"), "status": state,
+                     "issues": codes, "pages": pages})
+    states = {row["status"] for row in rows}
+    overall = ("FAILED" if "FAILED" in states else "CHECK_REQUIRED" if "CHECK_REQUIRED" in states
+               else "UNRECORDED" if not states or "UNRECORDED" in states else "EXTRACTED")
+    return {"version": "operational-extraction-status-v1", "status": overall,
+            "accuracy_verified": False, "files": rows}
+
+
+def display_condition_checks(rule, prediction):
+    """Attach frozen request wording for display without altering saved checks."""
+    declared = (rule.get('condition_contract') or {}).get('obligation_checks') or []
+    recorded = prediction.get('requirement_checks') or []
+    if not declared:
+        return [{'text': check.get('requirement') or f'점검 {index + 1}',
+                 'status': check.get('status') or 'UNRECORDED', 'reason': check.get('reason') or ''}
+                for index, check in enumerate(recorded)]
+    rows = []
+    for index, definition in enumerate(declared):
+        ref = definition.get('obligation_id')
+        check = next((row for row in recorded if ref is not None
+                      and row.get('obligation_ref') == ref), {})
+        rows.append({'text': definition.get('text') or f'점검 {index + 1}',
+                     'status': check.get('status') or 'UNRECORDED',
+                     'reason': check.get('reason') or ''})
+    return rows
 
 
 def saved_workspace(raw, requests, document, advertisement_id, discovery=None, reading_audits=None, rule_metadata=None):
@@ -414,21 +501,36 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                 location_status = "MAPPED" if locations else "NO_CITATION"
                 if not locations and text:
                     location_status = "UNRESOLVED_REFERENCE"
-                    if not any(page.get("canvas_w", 0) > 0 and page.get("canvas_h", 0) > 0
+                    if not any(all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                                   and math.isfinite(value) and value > 0
+                                   for value in (page.get("canvas_w"), page.get("canvas_h")))
                                for page in document.get("pages", [])):
                         location_status = "SOURCE_GEOMETRY_MISSING"
                 target.append({
                     "row_id": f"{key}:{kind}:{item_id}:{number}", "scope_id": key, "item_id": item_id,
                     "title": title, "question": rule.get("question", ""),
+                    "item_title": rule.get("title") or title,
+                    "source_product": ad.get("product_name") or "",
+                    "template_guidance": (
+                        (((rule.get("canonical_execution_plan") or {}).get("source") or {}).get("source_fields") or {})
+                    ).get("violated") or (rule.get("template_basis") or {}).get("manual_guidance") or "",
                     "criterion": rule.get("criterion") or rule.get("guide", ""),
                     "template_example": rule.get("example_text", "") if rule.get("source_sheet") == "HWPX_TEMPLATE" else "",
                     "template_appropriate_judgment": (
-                        rule.get("appropriate_judgment", "")
+                        rule.get("appropriate_judgment")
+                        or ((rule.get("canonical_execution_plan") or {}).get("source_criteria") or {}).get("satisfied", "")
                         if rule.get("source_sheet") == "HWPX_TEMPLATE" else ""
                     ),
                     "template_section": (candidate.get("template_basis") or {}).get("template_section"),
                     "template_requirement": (candidate.get("template_basis") or {}).get("requirement_mode"),
                     "requirement_checks": prediction.get("requirement_checks", []),
+                    "display_checks": display_condition_checks(rule, prediction),
+                    "template_violation_guidance": (
+                        ((rule.get("canonical_execution_plan") or {}).get("source_criteria") or {}).get("violation_guidance", "")
+                    ),
+                    "template_review_guidance": (
+                        ((rule.get("canonical_execution_plan") or {}).get("source_criteria") or {}).get("review_guidance", "")
+                    ),
                     "verdict": {"VIOLATION": "위반", "COMPLIANT": "충족",
                                 "UNDETERMINED": "판단불가", "NOT_APPLICABLE": "미해당"}.get(prediction["verdict"], prediction["verdict"]),
                     "reason": prediction.get("reason", ""), "evidence": text,
@@ -494,7 +596,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
         rows, review_rows, deferred, scoped, coverage, document=document
     )
     reading_locations, reading_issues = local_reading_review(document)
-    if reading_locations:
+    if reading_issues:
         rows.append({
             "row_id": f"{advertisement_id}:local-reading-review",
             "scope_id": advertisement_id,
@@ -503,8 +605,9 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
             "question": "판독이 확정되지 않은 영역을 원본에서 확인했는가?",
             "criterion": "",
             "verdict": "판단불가",
-            "reason": (f"광고 파일과 페이지 스캔은 완료됐지만 텍스트 판독이 확정되지 않은 "
-                       f"위치 {len(reading_locations)}곳이 있습니다. 표시된 위치만 원본에서 확인해야 합니다."),
+            "reason": (f"텍스트 판독 확인 대상 {len({issue['location'] for issue in reading_issues})}곳이 있습니다. "
+                       f"좌표가 확인된 {len(reading_locations)}곳은 원문 위치를 표시하며, "
+                       "좌표 없는 대상도 해당 파일과 페이지의 원본에서 확인해야 합니다."),
             "evidence": "",
             "evidence_ids": [],
             "evidence_line_refs": [],

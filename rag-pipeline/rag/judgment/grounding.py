@@ -150,6 +150,7 @@ def grounding_errors(
     line_refs: Iterable[Any],
     documents: Iterable[dict[str, Any]],
     require_source_excerpt: bool = False,
+    verified_calculated_values: Iterable[str] = (),
 ) -> list[str]:
     """위반 근거 한 건의 수치 접지와 자산 경계를 확인한다."""
     documents = list(documents or [])
@@ -165,7 +166,11 @@ def grounding_errors(
         )
     if ungrounded_source_quotes(reason, window):
         errors.append(f"{item_id}: {location} 원문에 있다고 설명한 인용 문구가 선택한 줄에 없음; 해당 문구의 실제 원본 줄을 인용해야 함")
-    ungrounded = _ungrounded_values(reason, window)
+    # Only the caller's independently recomputed, source-bound results qualify.
+    # A model-authored trace or an arbitrary number is never sufficient.
+    calculated = {Decimal(value) for value in verified_calculated_values}
+    ungrounded = [value for value in _ungrounded_values(reason, window)
+                  if Decimal(value) not in calculated]
     if ungrounded:
         errors.append(
             f"{item_id}: {location} 인용한 근거 줄에 없는 수치로 위반 판정 "

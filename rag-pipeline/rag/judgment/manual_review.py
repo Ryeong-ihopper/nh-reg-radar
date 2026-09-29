@@ -55,6 +55,8 @@ def text_facet_claim_errors(payload, result):
 
 def requires_visual_review(rule):
     canonical = rule.get('canonical_execution_plan') or {}
+    if (canonical.get('review_program') or {}).get('mode') == 'REVIEW_ONLY':
+        return True
     if canonical:
         atoms = canonical.get('obligations') or []
         # The reviewed canonical plan owns the modality split. Legacy
@@ -85,6 +87,9 @@ def requires_visual_review(rule):
 
 
 def deferred_input_reason(rule):
+    program = (rule.get('canonical_execution_plan') or {}).get('review_program') or {}
+    if program.get('mode') == 'REVIEW_ONLY':
+        return program.get('review_question') or '출처에서 적정·부적정을 판단하지 않도록 지정한 확인전용 항목입니다.'
     if requires_visual_review(rule):
         return '시인성은 사람 검토 대상입니다. 좌표는 위치 확인용이며 색상·폰트·글자 크기·배치는 자동 판정하지 않습니다.'
     return '필요한 외부 자료 또는 원문 구조를 확인할 수 없어 사람 검토가 필요합니다.'
@@ -108,7 +113,7 @@ def partition_visual_review_candidates(item_ids, rules):
             'item_id': item_id,
             'title': rule.get('title', item_id),
             'question': rule.get('question', ''),
-            'facet': 'VISUAL_OR_STRUCTURE',
+            'facet': ('REVIEW_ONLY' if ((rule.get('canonical_execution_plan') or {}).get('review_program') or {}).get('mode') == 'REVIEW_ONLY' else 'VISUAL_OR_STRUCTURE'),
             'required_medium': rule.get('required_medium'),
             'input_requirement': rule.get('input_requirement'),
             'reason': deferred_input_reason(rule),

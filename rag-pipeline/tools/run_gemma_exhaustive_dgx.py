@@ -30,10 +30,12 @@ from rag.judgment.reading_quality import (  # noqa: E402
     claims_disclosure_absence,
     needs_reading_review,
     reading_issues,
+    unresolved_scope_readings,
 )
 from rag.judgment.temporal import basis_date_observations, temporal_claim_errors  # noqa: E402
 from rag.judgment.manual_review import text_facet_claim_errors  # noqa: E402
 from rag.judgment.source_checks import source_claim_errors  # noqa: E402
+from rag.judgment.review_program import computed_check, program_trace, refresh_program_trace, verified_calculated_values  # noqa: E402
 from rag.judgment.arithmetic import calculate_loan_rates, METHOD as ARITHMETIC_METHOD  # noqa: E402
 from rag.judgment.canonical_arithmetic import (  # noqa: E402
     calculate_explicit_arithmetic, METHOD as CANONICAL_ARITHMETIC_METHOD,
@@ -90,7 +92,8 @@ the gate rules below for whether obligation checks are required.
   }]
 }
 
-Evaluate gates strictly in SCOPE -> A -> U -> obligation order. SCOPE must match
+For legacy contracts without review_program, evaluate gates strictly in
+SCOPE -> A -> U -> obligation order. SCOPE must match
 every person, product, situation, medium, and procedure qualifier in the complete
 scope_text for the same advertisement context. If the rule's triggering expression
 or situation is absent, use NOT_MATCHED, not MATCHED. Return every A/U reference
@@ -102,6 +105,18 @@ still belong to SCOPE. evidence_scope lists allowed E and L aliases per rule;
 an alias allowed for another rule is not available to this rule. Q aliases are
 reading metadata, never citation IDs. The full transcript is context, not an
 additional citable source. Never borrow a nearby line to cite a transcript claim.
+For canonical review_program contracts, only applicability_logic defines the
+whole-rule gates. decision_fact_ids are branch observations, not whole-rule
+gates: a false or unknown branch fact does not cancel independent O checks.
+Observe every listed O exactly once in source order, including alternatives
+not chosen. An unchosen alternative is not automatically unknown: report its
+actual predicate as satisfied, missing, contradicted, or genuinely unresolved.
+Only a missing necessary input or ambiguous reading/meaning warrants UNKNOWN.
+The code evaluates the authored ALL/ANY/IF expression. Do not
+abstain from independent advertisement observations because an external fact
+needed only by another branch is unknown. A missing required disclosure in
+complete readable scope is MISSING/ABSENCE; uncertain reading or unclear
+meaning is UNDETERMINED/UNKNOWN. These are different observations.
 For v2 contracts, requirement_checks must return every listed obligation_ref
 exactly once, in source order, after gates pass. Do not merge multiple O checks
 into a generic "all mandatory disclosures present" check. Each O check needs its
@@ -111,15 +126,25 @@ Check every required meaning, benefit and restriction against its own cited
 body text; a different disclosed restriction does not establish this one.
 Source
 notes narrow the criterion; an umbrella rule is not a substitute for all other
-rules. Preserve source exceptions and ANY_OF choices. Never split examples into
-mandatory items. If the applicable set of elements cannot be established, use
+rules. Preserve source exceptions and ANY_OF choices. Never invent extra duties
+from examples; authored obligation_checks may already express reviewed example
+meanings and must be observed as supplied without exact wording requirements.
+If the applicable set of elements cannot be established, use
 UNDETERMINED rather than asserting complete compliance.
 Search facets are retrieval hints, not additional obligations or proof of absence.
-Resolve each O against its source conditions, exceptions and alternatives before
-assigning its status. Unless source obligation_logic explicitly declares ANY
-alternatives, a definitive failed mandatory O remains an overall VIOLATION
-even when another O is UNDETERMINED. Do not mark an O VIOLATED while its own
-applicability or exception remains unresolved.
+For legacy contracts without review_program, resolve each O against its source
+conditions, exceptions and alternatives before assigning its status. For a
+review_program, observe each supplied O predicate independently; the authored
+expression applies its branch conditions and exceptions afterwards. Never wait
+for a branch to be selected before observing content named by an O. A presentation
+method fact is about the advertised presentation, not whether every duty of that
+method has passed. Observe ADVERTISEMENT_OBSERVATION facts from readable source
+text; they do not require prior metadata confirmation. The complete authored
+expression determines which
+failed mandatory conjuncts or successful alternatives are decisive. An ANY
+elsewhere in a mixed expression does not waive a separate mandatory conjunct.
+Do not infer an observed contradiction from missing external data or uncertain
+reading. Unknown external or human inputs remain UNKNOWN for their own nodes.
 MATCHED SCOPE requires a supporting allowed evidence reference or a confirmed
 metadata field. Do not leave both empty when claiming a match. Before returning
 each rule, check every cited alias against that rule's allowlist. If the supplied
@@ -146,8 +171,12 @@ One caution sentence on one L line does not violate that rule. Return VIOLATED
 only when the same cited L line contains at least two distinct caution notices;
 name both notices in the reason. Separate L lines and a single notice are compliant.
 For every SATISFIED/VIOLATED OBSERVED check, cite the specific supporting L aliases
-when exact lines are supplied and include at least one short verbatim excerpt from
-those exact L lines in the check reason, enclosed in quotation marks. An E region
+when exact lines are supplied and include at least one brief verbatim excerpt with
+at least 4 non-whitespace source characters from those exact L lines in the check
+reason. Include the original surrounding context of a short word, value or date,
+rather than quoting only a short token. Enclose the excerpt in single quotation marks
+('verbatim source excerpt') inside the JSON string. Never finish the reason
+before including the excerpt. An E region
 alone is insufficient: select the actual source sentence, not all lines in the region.
 Every factual element used to establish the finding must be supported by the cited
 lines. A website header, footer, menu, related-site link or other common navigation
@@ -167,12 +196,25 @@ products, variants, dates or conditions into one arithmetic comparison. First
 establish the same scope from readable source evidence. Cell text outside the
 canonical lines is not supplied as evidence. Unknown unit, date, rate basis or
 visual measurement requires UNDETERMINED for the dependent obligation.
+An arithmetic or calendar finding calculated using an advertised value or basis
+date is OBSERVED: cite the actual supporting advertisement L aliases and quote
+the original value/date with its source context. A trusted review_context.review_date
+can be a comparison input, but it does not prove that a value, date or disclosure
+is printed in the advertisement. Do not use CONFIRMED_METADATA for such an
+advertisement-based finding merely because the other comparison input is trusted
+metadata. If the advertisement input cannot be cited, use UNDETERMINED/UNKNOWN.
+Every OBSERVED reason must quote at least four non-whitespace source characters
+verbatim in quotation marks from its cited line. A shorter word, number or date
+must include neighboring original context; never pad it with invented text.
 An arithmetic VIOLATED check must include a reproducible source-based witness
-in its Korean reason: "검산: a+b-c != d", replacing variables with actual cited
-numbers. The sum/difference must really differ from the advertised result.
-Equal values are not violations. Complex or unresolved formulas need human
+in its Korean reason using the authored operator and actual cited numbers.
+For an equality use "검산: a+b-c != d"; for an upper bound show the maximum
+and complete sum with the <= comparison. Equality at an inclusive boundary
+is compliant. Do not substitute an equality formula for a source inequality.
+Complex or unresolved formulas need human
 review; do not invent a mismatch or sum alternative benefit conditions together.
-For a displayed range, test the full same-condition formula for membership,
+Unless an authored deterministic adapter explicitly requires endpoint equality,
+for a displayed range test the full same-condition formula for membership,
 not equality to an arbitrary endpoint. Use "범위 검산: a+b-c not in [low,high]"
 only when the cited calculation is outside the cited interval. An ordinary
 notice that rates vary does not invalidate a fully specified example.
@@ -194,10 +236,19 @@ rules whose complete_ad_scan remains true.
 span_status=region_level_selected_text means the refs cover a source region,
 not an exact alignment of selected text. Cite an individual line only when its
 provided text directly supports the claim. Unknown precision is not line-exact.
+parser_observations records extraction provenance, not a verified judgment.
+source_line_shape.physical_line_verification=NOT_ATTESTED means physical
+rendered lines are unverified. A line-exact character span, a search chunk,
+or a paragraph bbox alone does not prove rendered line or notice boundaries.
 
-If SCOPE is NOT_MATCHED or any A is NOT_SATISFIED, set requirement_checks=[]. If
+For legacy contracts without review_program only: if SCOPE is NOT_MATCHED or
+any A is NOT_SATISFIED, set requirement_checks=[]. If
 any gate is UNDETERMINED or a U condition is TRIGGERED, use verdict=UNDETERMINED
 and requirement_checks=[]. Do not judge the obligation before those gates pass.
+For review_program contracts, use applicability_logic for that gate decision;
+never apply this legacy shortcut to decision_fact_ids. Once the applicability
+expression passes, return the complete O checklist even when some branch
+facts or alternatives remain unknown.
 If every gate passes but the obligation itself cannot be determined, keep SCOPE
 MATCHED, use verdict=UNDETERMINED, and return the listed obligation checks with
 unresolved ones marked UNDETERMINED/UNKNOWN. Never omit a required O check.
@@ -212,15 +263,27 @@ PARTIAL. Do not demand an entire-ad scan to confirm that such a phrase exists.
 If that obligation depends on unread text, missing layout or external input,
 use UNKNOWN and UNDETERMINED. Empty arrays must be [], never
 null. For an applicable prohibition with no prohibited content in a complete scan,
-return COMPLIANT with one SATISFIED+ABSENCE requirement check; never omit the check.
+return a SATISFIED+ABSENCE requirement check; never omit the check. For a legacy
+single obligation this gives COMPLIANT; a review_program verdict comes from its expression.
 For a required presence rule, SATISFIED+ABSENCE is impossible: if its triggering
 scope does not apply use SCOPE=NOT_MATCHED; if it applies and the required content
-is absent from a complete scan use MISSING+ABSENCE and verdict=VIOLATION. A
+is absent from a complete readable scan use MISSING+ABSENCE for that O. A legacy
+single mandatory obligation gives VIOLATION; review_program alternatives and
+branches are combined by the code, not by a flat missing-item rule. A
 MISSING+ABSENCE finding proves absence with complete_ad_scan and therefore must not
 invent an L line reference. Only OBSERVED/VIOLATED findings require a direct L ref.
-When complete_ad_scan=true for a text-only rule, do not claim that the scan is
-incomplete. Decide the source scope first; if it matches, absence of the required
-text is MISSING, while an absent triggering situation is SCOPE=NOT_MATCHED.
+complete_ad_scan=true records visited input; explicitly unreadable local text
+still prevents a definitive absence finding. Independently readable aligned
+lines may establish an observation. In complete readable scope a missing
+required meaning is MISSING. A trigger's absence affects only the expression
+that references that fact; a decision branch is not a whole-rule scope failure.
+When an O asks whether a notice is expressed, examine the advertisement's
+disclosure, not the truth of the real-world contract or product fact described
+by that notice. Unless its owner/input contract explicitly calls for external
+verification, no external proof is needed to observe the notice. In complete
+readable scope, unrelated text that does not express a required meaning means
+MISSING/ABSENCE; an ambiguous possible equivalent means UNDETERMINED/UNKNOWN.
+Do not infer one required notice from a separate notice about another subject.
 SATISFIED+UNKNOWN is invalid. Examples are aids, not exact phrases or new rules.
 """.strip()
 
@@ -336,6 +399,10 @@ def _compact_model_request(row: dict[str, Any]) -> tuple[list[dict[str, str]], d
             "line_refs": compact_line_refs,
             "text": document.get("text") or "",
             "span_status": document.get("span_status") or "unknown",
+            "parser_label_hints": document.get("parser_label_hints") or [],
+            "kind": document.get("kind", "text"),
+            "parser_observations": document.get("parser_observations") or {},
+            "text_source": document.get("text_source"),
             "text_selection": document.get("text_selection") or {},
             "source_role": document.get("source_role") or "ADVERTISEMENT_CONTENT",
         }
@@ -645,6 +712,11 @@ def _expand_model_response(
                 })
                 continue
             adapter = obligation.get("deterministic_adapter") or {}
+            computed = computed_check(adapter, check or {}, payload, str(item_id))
+            if computed is not None:
+                if check is not None:
+                    check.update(computed)
+                continue
             if adapter.get("kind") != "CONFIRMED_BOOLEAN":
                 continue
             field = str(adapter.get("field") or "")
@@ -695,6 +767,7 @@ def _expand_model_response(
             and item_scope.get("complete_ad_scan") is True
             and reading_quality.get("global_scan_incomplete") is not True
             and bool(payload.get("full_ad_text"))
+            and not unresolved_scope_readings(payload, str(item_id))
         )
         conditions_by_id = {
             str(value.get("condition_id")): value
@@ -711,7 +784,7 @@ def _expand_model_response(
                     # This wire carries advertisement evidence only. A model
                     # assertion cannot stand in for a verified external input.
                     check["status"] = "UNDETERMINED"
-        if complete_ad_scan and isinstance(condition_checks, list):
+        if isinstance(condition_checks, list):
             for check in condition_checks:
                 if not isinstance(check, dict):
                     continue
@@ -722,12 +795,14 @@ def _expand_model_response(
                     and condition.get("absence_policy")
                     == "NOT_SATISFIED_IF_COMPLETE_AD_SCAN"
                 ):
-                    check["status"] = "NOT_SATISFIED"
-                    closed_absence_facts.append({
-                        "condition_ref": check.get("condition_ref"),
-                        "condition": condition.get("text"),
-                        "basis": "COMPLETE_AD_SCAN_NO_POSITIVE_TRIGGER",
-                    })
+                    if complete_ad_scan:
+                        closed_absence_facts.append({
+                            "condition_ref": check.get("condition_ref"),
+                            "condition": condition.get("text"),
+                            "basis": "COMPLETE_AD_SCAN_NO_POSITIVE_TRIGGER",
+                        })
+                    else:
+                        check["status"] = "UNDETERMINED"
             if closed_absence_facts:
                 gate_metadata.append("complete_ad_scan")
         if isinstance(condition_checks, list):
@@ -789,7 +864,7 @@ def _expand_model_response(
             else:
                 applicability_basis = model_result.get("applicability_basis")
             try:
-                verdict = aggregate_obligations(contract, checks)
+                verdict = aggregate_obligations(contract, checks, condition_checks)
             except (KeyError, TypeError, ValueError):
                 verdict = model_result.get("verdict")
 
@@ -805,6 +880,15 @@ def _expand_model_response(
               for value in (check.get("evidence_line_refs") or [])),
         ]))
         reason = model_result.get("reason")
+        program = contract.get('review_program') or {}
+        if program and verdict != model_result.get('verdict'):
+            labels = {'COMPLIANT': '적정', 'VIOLATION': '부적정', 'UNDETERMINED': '확인 필요', 'NOT_APPLICABLE': '적용 제외'}
+            reason = '원문 판단식과 검증된 입력으로 종합한 결과: ' + labels.get(verdict, str(verdict)) + '.'
+            relevant = [c for c in checks if c.get('status') in
+                        ({'VIOLATED', 'MISSING'} if verdict == 'VIOLATION' else {'UNDETERMINED'} if verdict == 'UNDETERMINED' else set())]
+            reason += ' ' + ' / '.join(str(c.get('reason') or '') for c in relevant)
+        if verdict == 'UNDETERMINED' and 'VIOLATION' not in program.get('allowed_outcomes', ['VIOLATION']):
+            reason = '출처가 자동 부적정 확정을 허용하지 않습니다. 확인 항목을 사람이 검토해야 합니다.'
         if applicability == "NOT_APPLICABLE" and closed_absence_facts:
             labels = ", ".join(str(value.get("condition") or value["condition_ref"])
                                for value in closed_absence_facts)
@@ -830,6 +914,8 @@ def _expand_model_response(
             "reason": reason,
             "confidence": model_result.get("confidence"),
             "needs_researcher_review": verdict in {"VIOLATION", "UNDETERMINED"},
+            **({"review_program_trace": program_trace(contract, checks, condition_checks, verdict)}
+               if contract.get("review_program") else {}),
             **({"applicability_absence_closures": closed_absence_facts}
                if closed_absence_facts else {}),
         })
@@ -1239,6 +1325,8 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                 reason=str(row.get("reason") or ""),
                 line_refs=evidence_refs if isinstance(evidence_refs, list) else [],
                 documents=payload["documents"],
+                verified_calculated_values=verified_calculated_values(
+                    rule.get('condition_contract') or {}, row.get('requirement_checks'), payload, str(item_id)),
             ))
         reason_text = " ".join([
             str(row.get("reason") or ""),
@@ -1271,10 +1359,16 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
             errors.append(f"{item_id}: requirement_checks 없음")
             continue
         check_statuses = []
+        authored_checks = {o['obligation_id']: o for o in
+                           (rule.get('condition_contract') or {}).get('obligation_checks') or []}
         for check_index, check in enumerate(checks):
             if not isinstance(check, dict):
                 errors.append(f"{item_id}: requirement_checks[{check_index}] 객체 아님")
                 continue
+            adapter = (authored_checks.get(check.get('obligation_ref')) or {}).get('deterministic_adapter') or {}
+            computed = computed_check(adapter, check, payload, str(item_id))
+            if computed is not None and (check.get('status'), check.get('finding_basis')) != (computed['status'], computed['finding_basis']):
+                errors.append(f'{item_id}: deterministic source comparison differs from observed evidence')
             if not str(check.get("requirement") or "").strip():
                 errors.append(f"{item_id}: requirement_checks[{check_index}] requirement 없음")
             check_status = check.get("status")
@@ -1291,10 +1385,15 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                 errors.append(f"{item_id}: MISSING finding_basis는 ABSENCE 또는 CONFIRMED_METADATA여야 함")
             if check_status == "VIOLATED" and finding_basis != "OBSERVED":
                 errors.append(f"{item_id}: VIOLATED finding_basis는 OBSERVED여야 함")
+            authored_evidence = (authored_checks.get(check.get('obligation_ref')) or {}).get('evidence') or {}
+            if (check_status in {'SATISFIED', 'MISSING'} and finding_basis == 'CONFIRMED_METADATA'
+                    and authored_evidence.get('advertisement_direct_quote_required') is True):
+                errors.append(f'{item_id}: requirement_checks[{check_index}] metadata cannot establish an advertisement-only obligation')
             if (
                 request_row.get("category") == "PRESENCE"
                 and check_status == "VIOLATED"
                 and finding_basis == "OBSERVED"
+                and computed is None
                 and claims_disclosure_absence(
                     check,
                     str(row.get("reason") or "") if len(checks) == 1 else "",
@@ -1356,11 +1455,13 @@ def validate(request_row: dict[str, Any], parsed: dict[str, Any], *, check_readi
                     # and polarity validators instead of forcing prose quotes
                     # into deterministic arithmetic explanations.
                     require_source_excerpt=request_row.get("category") == "PRESENCE",
+                    verified_calculated_values=verified_calculated_values(
+                        rule.get('condition_contract') or {}, [check], payload, str(item_id)),
                 ))
         obligation_logic = (rule.get("condition_contract") or {}).get("obligation_logic")
         if obligation_logic is not None and applicability == "APPLICABLE":
             try:
-                expected_verdict = aggregate_obligations(rule["condition_contract"], checks)
+                expected_verdict = aggregate_obligations(rule["condition_contract"], checks, row.get("condition_checks"))
                 if verdict != expected_verdict:
                     errors.append(
                         f"{item_id}: 구성요소 미충족/불명확 또는 택일 논리와 전체 verdict 불일치 "
@@ -1488,6 +1589,11 @@ def call_once(row: dict[str, Any], host: str | None, key: Path | None, model: st
     structural_errors = validate(row, parsed, check_reading=False)
     reading_quality_guards = [] if structural_errors else apply_reading_guard(
         json.loads(row["messages"][1]["content"]), parsed)
+    source_rules = {r['item_id']: r for r in json.loads(row['messages'][1]['content']).get('rules', [])}
+    if isinstance(parsed, dict):
+        for value in parsed.get('results') or []:
+            refresh_program_trace((source_rules.get(value.get('item_id')) or {}).get('condition_contract') or {},
+                                  value, 'validated_model_observations')
     result = {
         "request_id": row["request_id"],
         "ad_id": row["ad_id"],
@@ -1727,9 +1833,15 @@ def retry_contract_instruction(
         )
     if "완료된 텍스트 전체 스캔을 미완료로 판단함" in joined_errors:
         repair_hints.append(
-            "complete_ad_scan=true인 텍스트 규칙이다. 스캔 미완료를 이유로 판단불가 처리하지 "
-            "말고, 선행 상황이 없으면 SCOPE=NOT_MATCHED, 적용 후 필수 문구가 없으면 "
-            "MISSING+ABSENCE/VIOLATION으로 판정하라."
+            "complete_ad_scan=true는 범위 방문 완료 정보이며 판독 불확실이 해소됐다는 뜻은 아니다. "
+            "판독 불확실을 스캔 미완료와 동일시하거나 완료된 방문을 미완료로 바꾸지 말라. "
+            "정본 review_program에서는 실제 부재가 확인된 상황을 해당 fact의 NOT_SATISFIED로 "
+            "관찰하고, 전체 applicability_logic가 NOT_APPLICABLE로 계산될 때만 제외하라. "
+            "decision_fact_ids는 전체 적용성 게이트가 아니므로 분기 사실이 거짓이거나 미확정이어도 "
+            "독립 의무는 계속 관찰하라. review_program이 없는 legacy 계약에서만 선행 상황의 "
+            "실제 부재를 SCOPE=NOT_MATCHED로 처리할 수 있다. 적용 후 완전하고 읽을 수 있는 "
+            "범위에 필수 문구가 없을 때만 MISSING+ABSENCE로 관찰하고, 해당 의무에 필요한 "
+            "판독이 불확실하면 UNDETERMINED+UNKNOWN으로 남겨라."
         )
     if "인용한 근거 줄에 없는 수치" in joined_errors:
         repair_hints.append(
@@ -1740,7 +1852,9 @@ def retry_contract_instruction(
     if "관찰 판정 사유에 인용한 원문 줄의 직접 인용이 없음" in joined_errors:
         repair_hints.append(
             "SATISFIED/VIOLATED+OBSERVED의 이유에는 실제 인용 L 줄에서 그대로 옮긴 "
-            "짧은 문구를 따옴표로 넣어라. 사유에서 주장하는 각 사실을 직접 지지하는 "
+            "공백을 제외한 원문 최소 4자 이상의 문구를 따옴표로 넣어라. 짧은 단어만 "
+            "인용하지 말고 그 단어·수치·날짜를 설명하는 주변 원문 맥락을 포함하라. "
+            "사유에서 주장하는 각 사실을 직접 지지하는 "
             "L 줄만 선택하라. 공통 헤더·푸터·메뉴는 그 줄이 직접 표시한 회사명 같은 "
             "사실 외의 상품·수수료·절차 의무를 증명하지 않는다."
         )
@@ -1765,6 +1879,13 @@ def retry_contract_instruction(
     return (
         "이전 응답의 계약 오류만 고쳐 전체 JSON을 다시 출력하라. "
         "입력의 rule_ref 순서와 E/L 참조를 그대로 사용하고 없는 참조를 만들지 말라. "
+        "관찰 확정의 reason에는 공백을 제외한 원문 최소 4자 이상의 직접 인용을 "
+        "따옴표로 넣고, 짧은 단어·수치·날짜의 주변 원문 맥락을 포함하라. "
+        "광고에 표시된 수치나 기준일을 사용한 산술·날짜 계산도 OBSERVED이며, "
+        "실제 광고 L 줄의 수치·기준일 원문을 직접 인용해야 한다. trusted review_date는 "
+        "비교 입력일 뿐 광고에 날짜·수치·안내가 기재되었다는 증거가 아니다. "
+        "심의일 metadata를 함께 사용했다는 이유로 광고 관찰을 CONFIRMED_METADATA로 "
+        "바꾸지 말라. 광고 입력의 직접 근거가 없으면 UNDETERMINED+UNKNOWN으로 남겨라. "
         f"원본 규칙={requested_item_ids}\n검증 오류:\n{errors}{hints}"
     )
 
@@ -2021,7 +2142,7 @@ def focus_unresolved_source_checks(
     retry a reading guard. Valid neighboring judgments stay byte-for-byte equal.
     If the isolated answer is invalid or still unknown, the original survives.
     """
-    if not row.get('requested_item_ids'):
+    if not row.get('requested_item_ids') or result.get('validation_errors'):
         return result
     payload = json.loads(row['messages'][1]['content'])
     rules = {r['item_id']: r for r in payload.get('rules') or []}
@@ -2047,13 +2168,33 @@ def focus_unresolved_source_checks(
             judgment.get('verdict') == 'UNDETERMINED'
             or source_marked_presence and judgment.get('verdict') == 'VIOLATION'
         )
-        if ((row.get('category') == 'PRESENCE' or arithmetic)
+        authored = {check.get('obligation_id'): check for check in contract.get('obligation_checks') or []}
+        canonical_observation = (
+            bool(contract.get('review_program'))
+            and contract['review_program'].get('kinds') == ['PRESENCE']
+            and not contract.get('decision_fact_ids')
+            and not any(any(atom.get('owners', {}).get(key) for key in ('human', 'external_input'))
+                        or atom.get('deterministic_adapter') for atom in authored.values())
+            and judgment.get('verdict') == 'UNDETERMINED'
+            and not contract.get('review_conditions')
+            and any(check.get('status') == 'UNDETERMINED'
+                    and (authored.get(check.get('obligation_ref')) or {}).get('owners', {}).get('llm')
+                    and not any((authored.get(check.get('obligation_ref')) or {}).get('owners', {}).get(key)
+                                for key in ('human', 'external_input'))
+                    and not (authored.get(check.get('obligation_ref')) or {}).get('deterministic_adapter')
+                    for check in judgment.get('requirement_checks') or [])
+        )
+        legacy_observation = (
+            not contract.get('review_program')
+            and (row.get('category') == 'PRESENCE' or arithmetic)
+            and contract.get('applicability_mode') in {'UNCONDITIONAL', 'SOURCE_SCOPED'}
+            and not contract.get('applicability_conditions') and not contract.get('review_conditions')
+            and assessment.get('input_mode') not in {'PARTIAL', 'EXTERNAL'}
+        )
+        if ((canonical_observation or legacy_observation)
                 and eligible_verdict
                 and judgment.get('applicability') == 'APPLICABLE'
                 and not judgment.get('reading_quality_review')
-                and contract.get('applicability_mode') in {'UNCONDITIONAL', 'SOURCE_SCOPED'}
-                and not contract.get('applicability_conditions') and not contract.get('review_conditions')
-                and assessment.get('input_mode') not in {'PARTIAL', 'EXTERNAL'}
                 and any(not needs_reading_review(documents[eid]) and documents[eid].get('line_texts')
                         for eid in scoped.get('evidence_ids') or [] if eid in documents)):
             targets.append(item)
@@ -2068,7 +2209,9 @@ def focus_unresolved_source_checks(
             isolated = next(child for child in split_request_row(isolated)
                             if item in child['requested_item_ids'])
         isolated_payload = json.loads(isolated['messages'][1]['content'])
-        isolated_payload.pop('full_ad_text', None)
+        canonical = bool((rules[item].get('condition_contract') or {}).get('review_program'))
+        if not canonical:
+            isolated_payload.pop('full_ad_text', None)
         for document in isolated_payload.get('documents') or []:
             document.pop('labels', None)
         isolated['messages'][1]['content'] = json.dumps(isolated_payload, ensure_ascii=False)
@@ -2087,6 +2230,14 @@ def focus_unresolved_source_checks(
             '가이드가 [판정방식: 존재확인]으로 표시되어 있으면, 그 가이드가 정한 표시 '
             '사실의 존재만 확인하십시오. 출처가 별도로 요구하지 않은 구체적 요율·산식·'
             '부과시기·절차를 추가 충족요건으로 만들지 마십시오.'
+            + (' 정본 review_program에서는 각 원자를 분기 선택과 독립적으로 관찰하십시오. '
+               '표기 방식 사실은 광고의 형식이고 해당 방식의 모든 의무 충족 여부가 아닙니다. '
+               '사용하지 않는 대안도 내용의 존재·부재·반대 표현을 관찰하십시오. '
+               '필수 안내의 기재 여부는 그 안내가 설명하는 실제 외부 사실의 진위를 묻지 않습니다. '
+               '읽힌 원문이 별개 주제만 설명하며 필수 의미를 표현하지 않으면 MISSING/ABSENCE, '
+               '동등한 표현인지 모호하거나 필요한 입력을 읽을 수 없으면 UNKNOWN입니다. '
+               '사람·외부 담당 입력의 UNKNOWN을 그대로 보존하고 전체 AND/OR는 코드에 맡기십시오.'
+               if canonical else '')
         )})
         # No parent answer, expected status, or parser relabeling is sent.
         started = time.perf_counter()

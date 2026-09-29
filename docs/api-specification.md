@@ -1,5 +1,42 @@
 # API 명세서
 
+## 운영 추출 상태 조회·내보내기 — 2026-09-29
+
+저장된 파서 관찰에서 파일·페이지별 추출 상태를 읽기 전용으로 표시한다. 처리 완료와 추출 정확성을 구별하며 confidence를 신뢰도 백분율로 변환하지 않는다. 완전 실패/파일 실패, 부분 판독·빈 영역, 불확실 판독, 좌표 없음, 미검증 복구 후보, 기록 없음과 모델 출력 실패를 구분한다. 좌표 없는 판독 확인 대상도 숨기지 않고 파일·페이지의 원본 대조 대상으로 남긴다. 원본 P1/P3·저장 예측·법령 판본·상태는 변경하지 않는다.
+
+인증된 GET /operational/reviews/{review_id}/workspace와 완료 결과의 export.json에 extraction_status를 추가한다. version=operational-extraction-status-v1, status=FAILED/CHECK_REQUIRED/EXTRACTED/UNRECORDED, accuracy_verified=false, files[].asset_id/file_name/status/issues/pages, pages[].page_no(원본 파일 페이지)/evidence_page_no(통합 참조)/parse_status/status/issues를 반환한다. 실패 회차도 parser-failure.json을 읽어 파일 실패를 표시한다. 내부 실패 경로·원문 복구 후보·raw confidence는 이 요약에 노출하지 않는다. 기존 상태/예측 필드는 보존하며 DB 계약은 변경하지 않는다.
+
+
+## 운영 workspace의 기준표 표시 확장 — 2026-09-29
+
+인증된 workspace GET과 JSON 내보내기 공통 projection에 선택 필드 item_title, source_product, template_guidance, display_checks, template_violation_guidance, template_review_guidance를 추가한다. item_title은 상품명 접두어를 추가하기 전 동결 rule 제목이며 기존 title은 보존한다. template_guidance와 안내문구는 요청에 저장된 canonical 원문 또는 기존 template_basis에서 읽는다. display_checks는 동결 condition_contract의 obligation_id/text와 저장 requirement_checks의 obligation_ref를 조인한 text/status/reason 목록이다. 기록이 없는 원자는 UNRECORDED로 표시하고 MISSING 판정이나 새 결과를 만들지 않는다. 원본 요청·예측·판정·인용은 변경하지 않는다.
+
+수정 초안은 workspace를 읽는 임시 UI이며 생성/채택 저장 API를 가장하지 않는다. 법령·규정 탐색은 기존 review-worklist의 현재 템플릿 매핑 투영이며 보완32/추가34를 활성화하지 않는다. 신규 OpenAPI/DB 계약 변경은 없다. 기존 제품 API의 실제 추천 생성·결정 이력 계약은 유지하며 운영 경로 연동은 후속 작업이다.
+
+## HWP HTML 원문 보기 — 2026-09-28
+
+[ADR-0088](adr/ADR-0088-hwp-html-review-display.md)에 따라 HWP/HWPX 결과의 기본 원문 보기는 심의에 사용한 파서 이미지이며 정적 HTML 본문 읽기를 함께 제공한다. 사용자에게는 “심의 화면 · 근거 위치”와 “본문 읽기 · HTML”로 안내한다. 2026-09-28 사용자가 표시 방식 결정을 위임했고, 심의와 근거 좌표의 일치를 우선했다. 인증된 GET `/operational/reviews/{review_id}/hwp-html/{asset_id}`는 해당 심의·광고 파일 소유권과 원본 체크섬·HTML 해시를 확인한다. 저장된 파서 HTML을 우선 사용하고 과거 결과에 없으면 동일 원본에서 HTML만 생성·보관한다. 이 조회는 파싱·검색·판정을 재실행하지 않는다. HTML은 스크립트·외부 요청을 차단한 격리 iframe으로 표시하며 실제 원문에 유일하게 대응하는 인용만 문구 강조한다. 반복 문구·위치 불명은 임의로 강조하지 않는다. HTML 위에 P1 bbox를 그리지 않고 별도 파서 이미지 보기에서 기존 좌표를 확인한다. 이미지·이미지 PDF 경로와 기존 저장 판단은 유지한다.
+
+## 최신 파서 계약 연결 — 2026-09-28
+
+[최신 파서 계약](parser-schema-current-2026-09-28.md)에 따라 nh-parser-fin main 9733d9f의 P1 v4/P3 v9를 명시적으로 지원한다. 영역 라벨은 parser_label_hints로 검색·모델 입력에 전달하며 줄 증거로 승격하지 않는다. kind·text_source·품질 경고·표 셀과 미배정 줄을 보존한다. 최신 CLI는 --compact-output이며 HWP는 upstream run.py를 사용한다. parser_revision을 intake에 포함해 이전 파서의 부모 캐시를 재사용하지 않는다.
+
+결과 화면의 preview_path는 인증된 GET `/operational/reviews/{review_id}/parser-page/{page_no}`다. 해당 심의·파일 소유권·원본 체크섬·P1/P3 해시·canvas와 페이지 이미지 해시를 검사하며 실패 시 독립 변환 화면으로 대체하지 않는다. 새 HWP 화면은 실제 파서 렌더 좌표계이며 한컴 원본 조판과 같다는 주장을 하지 않는다. 제품 PostgreSQL·NormalizedDocument 계약은 변경하지 않는 loopback 운영 경계다.
+
+## 심의 흐름·상품 관계·근거 정책 — 2026-09-28
+
+[흐름과 구조화 기준](review-flow-and-structuring-2026-09-28.md), [ADR-0087](adr/ADR-0087-product-composition-and-evidence-policy.md)에 따라 퇴직연금 공통 + 복수 운용상품 선택을 입력부터 정본 전개·확정 사실·coverage까지 연결한다. ETF·ELB 비보호2항목의 본문/로고 예외와 줄 배치33항목을 분리한다. 239개 프로그램에 검사별 라벨/어휘 또는 어휘 근거 정책을 연결하고 정책 해시도 검증한다.
+
+사이트 `/review-criteria`에239+32+34 작업대장을 연결했다. 보완32·추가34는 의미·범위·판본·예외·입력 확인이 필요한 구조화 작업 대상이며 자동 판정에 일괄 활성화하지 않는다. 추가34는 잔여19·공유3·시각7·정책1·범위 보류2·판본 보류2다. 기존 상태·결과와 P1/P3·정답 격리를 유지한다.
+
+`operational-ad-intake-v1`의 product에 선택적인 `underlying_products`(FUND/ETF/ELB 고유 배열), `underlying_products_status`(CONFIRMED/UNCONFIRMED)를 추가한다. 지원하지 않는 조합은422다. `/operational/capabilities`는 productContexts를, `GET /operational/review-worklist`는 출처 해시가 일치한 읽기 전용 작업대장을 반환한다. 불일치는503이며 기존 필드 계약은 유지한다.
+
+## 로컬 광고 단위 삭제 — 2026-09-23
+
+`DELETE /operational/advertisements/{advertisement_id}`는 loopback 운영 어댑터의 준법 검토자·시스템 관리자 전용 광고 단위 삭제 API다. 광고에 속한 모든 종료 심의 회차와 result/decision/실행 연결, runs 및 rag-jobs 파일, 라우팅, 원본 파일과 상태 원천의 광고 행을 함께 삭제한다. 진행 중 회차가 있으면409로 거부하며 성공 응답은204다.
+
+작업별 evidence-fine/query-context 벡터 캐시는 동일 입력을 참조하는 다른 작업이 없을 때 삭제한다. 정본 규칙 벡터와 Elasticsearch 규칙 인덱스는 유지한다. 기존 최신 심의 단건 삭제 경로는 내부 호환 경로로 남지만 광고물 목록 버튼에서는 사용하지 않는다. 제품 OpenAPI 계약에는 포함하지 않는다.
+
 ## 원문 줄 구조 판정 표시 — 2026-09-17
 
 로컬 workspace/export 결과 행은 정확 렌더링 줄로 확인한 동일 줄 배치 판정에 선택 필드 `line_structure_assessment`를 제공한다. `method=EXACT_RENDERED_TEXT_LINES`, 확인한 원문 줄 참조와 줄 수를 보존한다. 저장 모델 응답은 변경하지 않으며 표시 결과에서만 무조건적인 구조 사람 확인 보류를 해제한다. 공개 제품 OpenAPI·DB 스키마 변경은 없다.
@@ -29,8 +66,8 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.41 |
-| 기준일 | 2026-09-17 |
+| 현행 버전 | v1.48 |
+| 기준일 | 2026-09-29 |
 
 ## 로컬 운영 결과 확장 계약
 
@@ -53,6 +90,13 @@
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.48 | 2026-09-29 | 운영 추출 상태 조회·내보내기 |
+| v1.47 | 2026-09-29 | workspace 동결 조건 표시 필드와 기존 읽기 API를 활용한 수정 초안·매핑 근거 검색 경계 |
+| v1.46 | 2026-09-28 | HWP 심의 이미지 기본 보기·HTML 본문 읽기 선택 보기 |
+| v1.45 | 2026-09-28 | HWP HTML 원문 표시·동일 원본 캐시·격리·인용 강조 계약 |
+| v1.44 | 2026-09-28 | 최신 파서 v4/v9·판본 재사용·영역 힌트·실제 렌더 좌표 연결 |
+| v1.43 | 2026-09-28 | 심의 흐름·복수 운용상품·근거 정책·구조화 작업대장 연결 |
+| v1.42 | 2026-09-23 | 로컬 광고 단위 삭제와 전 심의·원본·작업별 임베딩 정리 계약 추가 |
 | v1.41 | 2026-09-17 | ProductGroup·공통 코드와 운영 상세 상품군에 투자성 등록·심의 지원 추가 |
 | v1.40 | 2026-09-17 | 정확 렌더링 줄에 근거한 동일 줄 배치 판정 감사 필드 추가 |
 | v1.39 | 2026-09-17 | 운영 capabilities의 템플릿 우선·규제목록 v2 보완 정책 표시 |

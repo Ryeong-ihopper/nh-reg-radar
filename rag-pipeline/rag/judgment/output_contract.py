@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from rag.judgment.obligation_logic import aggregate_applicability
+
 
 def response_mode() -> str:
     mode = os.environ.get("NH_JUDGE_RESPONSE_FORMAT", "json_schema")
@@ -64,6 +66,31 @@ def response_format(compact: dict[str, Any]) -> dict[str, Any]:
     if obligation_refs and not all("requirement_checks" in (rule.get("output_check_refs") or {}) for rule in rules):
         # A mixed legacy/v2 batch must still allow a legacy check without O IDs.
         requirement["required"].remove("obligation_ref")
+    requirement_checks = {"type": "array", "items": requirement}
+    if len(rules) == 1:
+        rule = rules[0]
+        contract = rule.get("condition_contract") or {}
+        if (contract.get("canonical_plan_ref") and contract.get("review_program")
+                and contract.get("scope_owner") == "RULE"
+                and contract.get("applicability_logic")
+                and not contract.get("review_conditions")):
+            confirmed = {str(value.get("fact_id")): value.get("value")
+                         for value in (compact.get("canonical_confirmed_facts") or {}).get(rule["rule_ref"], [])
+                         if isinstance(value, dict)}
+            checks = [{"condition_ref": condition["condition_id"],
+                       "status": "SATISFIED" if confirmed.get(condition["condition_id"]) is True else
+                                 "NOT_SATISFIED" if confirmed.get(condition["condition_id"]) is False else
+                                 "UNDETERMINED"}
+                      for condition in contract.get("applicability_conditions") or []]
+            try:
+                applicable = aggregate_applicability(contract, "MATCHED", checks) == "APPLICABLE"
+            except (KeyError, TypeError, ValueError):
+                applicable = False
+            if applicable:
+                # Require every authored atom, including unresolved decision
+                # branches. The schema still cannot choose its status/verdict.
+                count = len(contract.get("obligation_checks") or [])
+                requirement_checks.update(minItems=count, maxItems=count)
     result = obj({
         "rule_ref": enum([rule["rule_ref"] for rule in rules]),
         "scope_check": obj({"scope_ref": enum(["SCOPE"]),
@@ -72,7 +99,7 @@ def response_format(compact: dict[str, Any]) -> dict[str, Any]:
         "condition_checks": gate_checks("condition_checks", ["SATISFIED", "NOT_SATISFIED", "UNDETERMINED"]),
         "review_condition_checks": gate_checks("review_condition_checks", ["TRIGGERED", "NOT_TRIGGERED", "UNDETERMINED"]),
         "verdict": enum(["COMPLIANT", "VIOLATION", "UNDETERMINED"]),
-        "requirement_checks": {"type": "array", "items": requirement},
+        "requirement_checks": requirement_checks,
         "reason": text, "confidence": enum(["LOW", "MEDIUM", "HIGH"])})
     schema = obj({"results": {"type": "array", "items": result,
                               "minItems": len(rules), "maxItems": len(rules)}})

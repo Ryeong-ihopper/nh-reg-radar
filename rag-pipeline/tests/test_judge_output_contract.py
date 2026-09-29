@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from test_operational_rag_contracts import gemma, request_row, result
+from rag.judgment.grounding import grounded_source_excerpt_present, grounding_errors
 from rag.judgment.output_contract import response_format
 
 
@@ -122,6 +123,59 @@ class OutputContractTests(unittest.TestCase):
                 updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
             self.assertEqual(call.call_count, 1)
             self.assertEqual(updated['parsed'], batch['parsed'])
+
+    def test_canonical_focus_observes_unknown_leaf_without_reopening_scope(self):
+        row, payload, batch = self.focused_fixture()
+        contract = payload['rules'][0]['condition_contract']
+        contract.update(review_program={'mode': 'AUTOMATIC', 'kinds': ['PRESENCE']},
+            applicability_conditions=[{'condition_id': 'A1'}],
+            obligation_checks=[{'obligation_id': 'O1', 'owners': {'llm': True}}])
+        batch['parsed']['results'][0]['requirement_checks'][0].update(
+            obligation_ref='O1', status='UNDETERMINED')
+        payload['external_input_assessment'] = {'TEST-A': {'input_mode': 'EXTERNAL'}}
+        row['messages'][1]['content'] = json.dumps(payload)
+        original = copy.deepcopy(batch)
+        retry = {'parsed': {}, 'validation_errors': []}
+        with patch.object(gemma, 'call_with_retry', return_value=retry) as call:
+            updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+        call.assert_called_once()
+        focused = json.loads(call.call_args.args[0]['messages'][1]['content'])
+        self.assertEqual('허용 근거 밖 전문', focused['full_ad_text'])
+        self.assertEqual(contract, focused['rules'][0]['condition_contract'])
+        self.assertNotIn('labels', focused['documents'][0])
+        self.assertEqual(original['parsed'], updated['parsed'])
+        self.assertEqual([], updated['source_focus_applied'])
+        self.assertEqual(batch, original)
+
+    def test_canonical_focus_skips_human_external_calculation_and_guarded_unknowns(self):
+        for kind in ('human', 'external_input', 'computed', 'reading', 'inapplicable', 'invalid', 'branch', 'semantic'):
+            with self.subTest(kind=kind):
+                row, payload, batch = self.focused_fixture()
+                atom = {'obligation_id': 'O1', 'owners': {'llm': True}}
+                payload['rules'][0]['condition_contract'].update(
+                    review_program={'mode': 'AUTOMATIC', 'kinds': ['PRESENCE']},
+                    applicability_conditions=[{'condition_id': 'A1'}], obligation_checks=[atom])
+                judgment = batch['parsed']['results'][0]
+                judgment['requirement_checks'][0].update(obligation_ref='O1', status='UNDETERMINED')
+                if kind in {'human', 'external_input'}:
+                    atom['owners'][kind] = True
+                elif kind == 'computed':
+                    atom['deterministic_adapter'] = {'kind': 'BASIS_DATE_WITHIN'}
+                elif kind == 'reading':
+                    judgment['reading_quality_review'] = {'status': 'REVIEW'}
+                elif kind == 'inapplicable':
+                    judgment['applicability'] = 'UNDETERMINED'
+                elif kind == 'branch':
+                    payload['rules'][0]['condition_contract']['decision_fact_ids'] = ['B1']
+                elif kind == 'semantic':
+                    payload['rules'][0]['condition_contract']['review_program']['kinds'] = ['SEMANTIC']
+                else:
+                    batch['validation_errors'] = ['invalid evidence reference']
+                row['messages'][1]['content'] = json.dumps(payload)
+                with patch.object(gemma, 'call_with_retry') as call:
+                    updated = gemma.focus_unresolved_source_checks(row, batch, None, None, 'test', 100)
+                call.assert_not_called()
+                self.assertIs(updated, batch)
 
     def test_source_marked_presence_violation_gets_isolated_source_recheck(self):
         row, payload, batch = self.focused_fixture()
@@ -344,6 +398,68 @@ class OutputContractTests(unittest.TestCase):
             self.assertIn(basis, checks["finding_basis"]["enum"])
             self.assertEqual(checks["obligation_ref"]["enum"], ["O1"])
 
+    def test_compact_and_repair_prompts_match_existing_source_quote_minimum(self):
+        source = "표시 조건은 세전 기준입니다."
+        short = "'세전'이 표시되어 있습니다."
+        contextual = "'세전 기준'이 표시되어 있습니다."
+        self.assertFalse(grounded_source_excerpt_present(short, source))
+        self.assertTrue(grounded_source_excerpt_present(contextual, source))
+        errors = grounding_errors(item_id="TEST-A", location="O1", reason=short,
+            line_refs=["L-1"], documents=[{"line_refs": ["L-1"], "line_texts": {"L-1": source}}],
+            require_source_excerpt=True)
+        self.assertTrue(any("직접 인용이 없음" in error for error in errors))
+        messages, _ = gemma._compact_model_request(self.row)
+        system = " ".join(messages[0]["content"].split())
+        self.assertIn("at least 4 non-whitespace source characters", system)
+        self.assertIn("original surrounding context of a short word, value or date", system)
+        for failure in (errors, ["계약 오류"]):
+            instruction = gemma.retry_contract_instruction(self.row, failure)
+            self.assertIn("공백을 제외한 원문 최소 4자 이상", instruction)
+            self.assertIn("주변 원문 맥락", instruction)
+
+    def test_date_comparison_prompt_keeps_advertisement_proof_separate_from_metadata(self):
+        payload = json.loads(self.row["messages"][1]["content"])
+        source = "기준일 2026.04.01."
+        payload["review_context"] = {"review_date": "2026-04-15"}
+        payload["documents"][0].update(text=source, line_texts={"L-1": source})
+        payload["rules"][0]["condition_contract"]["obligation_checks"][0]["evidence"] = {
+            "advertisement_direct_quote_required": True}
+        self.row["messages"][1]["content"] = json.dumps(payload)
+        judgment = result("TEST-A")
+        judgment.update(scope_check={"scope_ref": None, "status": "MATCHED",
+                                     "evidence_ids": ["E-1"], "evidence_line_refs": ["L-1"]},
+                        condition_checks=[], review_condition_checks=[])
+        judgment["reason"] = "'기준일 2026.04.01.'을 심의일과 비교했습니다."
+        check = judgment["requirement_checks"][0]
+        check.update(obligation_ref="O1", finding_basis="CONFIRMED_METADATA",
+                     evidence_ids=[], evidence_line_refs=[], reason=judgment["reason"])
+        parsed = {"ad_id": self.row["ad_id"], "results": [judgment]}
+        errors = gemma.validate(self.row, parsed)
+        self.assertTrue(any("metadata cannot establish an advertisement-only obligation" in error for error in errors))
+        messages, _ = gemma._compact_model_request(self.row)
+        system = " ".join(messages[0]["content"].split())
+        self.assertIn("date is OBSERVED", system)
+        self.assertIn("review_context.review_date can be a comparison input", system)
+        self.assertIn("does not prove that a value, date or disclosure is printed", system)
+        instruction = gemma.retry_contract_instruction(self.row, errors)
+        self.assertIn("산술·날짜 계산도 OBSERVED", instruction)
+        self.assertIn("trusted review_date는 비교 입력일 뿐", instruction)
+        self.assertIn("광고 관찰을 CONFIRMED_METADATA로 바꾸지 말라", instruction)
+        check.update(finding_basis="OBSERVED", evidence_ids=["E-1"], evidence_line_refs=["L-1"])
+        self.assertEqual(gemma.validate(self.row, parsed), [])
+
+    def test_complete_scan_repair_preserves_canonical_branches_and_reading_uncertainty(self):
+        instruction = gemma.retry_contract_instruction(self.row, ["완료된 텍스트 전체 스캔을 미완료로 판단함"])
+        self.assertIn("범위 방문 완료 정보이며 판독 불확실이 해소됐다는 뜻은 아니다", instruction)
+        self.assertIn("정본 review_program", instruction)
+        self.assertIn("해당 fact의 NOT_SATISFIED", instruction)
+        self.assertIn("전체 applicability_logic가 NOT_APPLICABLE로 계산될 때만 제외", instruction)
+        self.assertIn("decision_fact_ids는 전체 적용성 게이트가 아니므로", instruction)
+        self.assertIn("독립 의무는 계속 관찰", instruction)
+        self.assertIn("review_program이 없는 legacy 계약에서만", instruction)
+        self.assertIn("판독이 불확실하면 UNDETERMINED+UNKNOWN", instruction)
+        self.assertNotIn("선행 상황이 없으면 SCOPE=NOT_MATCHED", instruction)
+
     def test_unknown_alias_and_invented_condition_rejected(self):
         props = self.result_schema["properties"]
         self.assertEqual(props["scope_check"]["properties"]["evidence_refs"]["items"]["enum"], ["E1", "L1"])
@@ -420,3 +536,112 @@ class OutputContractTests(unittest.TestCase):
         schema = response_format(compact)["json_schema"]["schema"]
         checks = schema["properties"]["results"]["items"]["properties"]["review_condition_checks"]
         self.assertEqual((checks["minItems"], checks["maxItems"]), (2, 2))
+
+    def canonical_compact(self, count=8, confirmed=True, decision_branch=False):
+        payload = json.loads(self.row["messages"][1]["content"])
+        conditions = [{"condition_id": "A1", "owner": "RULE"}]
+        if decision_branch:
+            conditions.append({"condition_id": "A2", "owner": "LLM"})
+        obligations = [{"obligation_id": f"O{i + 1}", "text": "Synthetic source atom"}
+                       for i in range(count)]
+        payload["rules"][0]["condition_contract"] = {
+            "canonical_plan_ref": "synthetic-plan", "scope_owner": "RULE",
+            "review_program": {"mode": "AUTOMATIC", "allowed_outcomes": [
+                "COMPLIANT", "VIOLATION", "UNDETERMINED"]},
+            "applicability_conditions": conditions, "applicability_logic": {"fact": "A1"},
+            "decision_fact_ids": ["A2"] if decision_branch else [],
+            "review_conditions": [], "obligation_checks": obligations,
+            "obligation_logic": {"all": [{"ref": value["obligation_id"]} for value in obligations]},
+        }
+        if decision_branch:
+            payload["rules"][0]["condition_contract"]["obligation_logic"] = {"if": [
+                {"fact": "A2"}, {"ref": obligations[0]["obligation_id"]},
+                {"all": [{"ref": value["obligation_id"]} for value in obligations[1:]]},
+            ]}
+        payload["canonical_confirmed_facts"] = {"TEST-A": [
+            {"fact_id": "A1", "value": confirmed, "basis": "template_id"}]}
+        row = copy.deepcopy(self.row)
+        row["messages"][1]["content"] = json.dumps(payload)
+        messages, _ = gemma._compact_model_request(row)
+        return json.loads(messages[1]["content"])
+
+    def canonical_properties(self, compact):
+        return response_format(compact)["json_schema"]["schema"]["properties"]["results"]["items"]["properties"]
+
+    def test_single_confirmed_canonical_requires_all_atoms_without_deciding_status(self):
+        for count in (1, 8, 9):
+            with self.subTest(count=count):
+                compact = self.canonical_compact(count=count)
+                frozen = copy.deepcopy(compact)
+                props = self.canonical_properties(compact)
+                checks = props["requirement_checks"]
+                self.assertEqual((checks["minItems"], checks["maxItems"]), (count, count))
+                self.assertEqual(checks["items"]["properties"]["obligation_ref"]["enum"],
+                                 [f"O{i + 1}" for i in range(count)])
+                self.assertEqual(checks["items"]["properties"]["status"]["enum"],
+                                 ["SATISFIED", "MISSING", "VIOLATED", "UNDETERMINED"])
+                self.assertIn("UNKNOWN", checks["items"]["properties"]["finding_basis"]["enum"])
+                self.assertEqual(props["verdict"]["enum"], ["COMPLIANT", "VIOLATION", "UNDETERMINED"])
+                self.assertEqual(compact, frozen)
+
+    def test_unknown_decision_branch_does_not_open_confirmed_applicability_gate(self):
+        compact = self.canonical_compact(decision_branch=True)
+        props = self.canonical_properties(compact)
+        self.assertEqual((props["requirement_checks"]["minItems"], props["requirement_checks"]["maxItems"]), (8, 8))
+        self.assertEqual(props["condition_checks"]["minItems"], 2)
+        self.assertIn("UNDETERMINED", props["condition_checks"]["items"]["properties"]["status"]["enum"])
+
+    def test_unknown_or_inapplicable_canonical_gate_keeps_empty_requirements_legal(self):
+        for value in (None, False, "true", "false"):
+            with self.subTest(value=value):
+                compact = self.canonical_compact(confirmed=value)
+                checks = self.canonical_properties(compact)["requirement_checks"]
+                self.assertEqual(checks.get("minItems", 0), 0)
+                self.assertNotIn("maxItems", checks)
+        compact = self.canonical_compact()
+        compact["canonical_confirmed_facts"] = {}
+        checks = self.canonical_properties(compact)["requirement_checks"]
+        self.assertEqual(checks.get("minItems", 0), 0)
+        self.assertNotIn("maxItems", checks)
+
+    def test_any_gate_uses_aggregate_applicability_with_unknown_neighbor(self):
+        compact = self.canonical_compact()
+        contract = compact["rules"][0]["condition_contract"]
+        contract["applicability_conditions"].append({"condition_id": "A2", "owner": "LLM"})
+        contract["applicability_logic"] = {"any": [{"fact": "A1"}, {"fact": "A2"}]}
+        checks = self.canonical_properties(compact)["requirement_checks"]
+        self.assertEqual((checks["minItems"], checks["maxItems"]), (8, 8))
+        contract["applicability_logic"] = {"all": [{"fact": "A1"}, {"fact": "A2"}]}
+        checks = self.canonical_properties(compact)["requirement_checks"]
+        self.assertEqual(checks.get("minItems", 0), 0)
+        self.assertNotIn("maxItems", checks)
+
+    def test_multi_rule_confirmed_canonical_does_not_restrict_shared_requirements(self):
+        compact = self.canonical_compact()
+        second = copy.deepcopy(compact["rules"][0])
+        second["rule_ref"] = "R2"
+        compact["rules"].append(second)
+        compact["evidence_scope"]["R2"] = copy.deepcopy(compact["evidence_scope"]["R1"])
+        compact["canonical_confirmed_facts"]["R2"] = copy.deepcopy(compact["canonical_confirmed_facts"]["R1"])
+        checks = self.canonical_properties(compact)["requirement_checks"]
+        self.assertEqual(checks.get("minItems", 0), 0)
+        self.assertNotIn("maxItems", checks)
+
+    def test_review_condition_or_noncanonical_scope_keeps_empty_requirements_legal(self):
+        for mode in ("review_condition", "model_scope", "no_program", "legacy", "malformed_logic"):
+            with self.subTest(mode=mode):
+                compact = self.canonical_compact()
+                contract = compact["rules"][0]["condition_contract"]
+                if mode == "review_condition":
+                    contract["review_conditions"] = [{"condition_id": "C1"}]
+                elif mode == "model_scope":
+                    contract["scope_owner"] = "LLM"
+                elif mode == "no_program":
+                    contract["review_program"] = {}
+                elif mode == "legacy":
+                    contract.pop("canonical_plan_ref")
+                else:
+                    contract["applicability_logic"] = {"fact": "unknown-fact"}
+                checks = self.canonical_properties(compact)["requirement_checks"]
+                self.assertEqual(checks.get("minItems", 0), 0)
+                self.assertNotIn("maxItems", checks)

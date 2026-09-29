@@ -28,14 +28,16 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from nh_ad_backend.domain import Advertisement, AdvertisementFile
 from nh_ad_backend.results import ResultAnnotation, ResultEvidence, ResultItem
 from nh_ad_backend.reviews import Review, ReviewBundle, ReviewJob, ReviewStep
 from nh_ad_backend.services import ServiceError
 
 from local_hwp_preview import convert_hwp_to_pdf
-from operational_locations import (frozen_rule_metadata, load_template_appropriate_judgments,
+from operational_hwp_html import HTML_CSP, static_hwp_html
+from operational_locations import (extraction_status, frozen_rule_metadata, load_template_appropriate_judgments,
                                    page_asset, saved_workspace, valid_box, with_rendered_line_locations)
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +46,7 @@ from rag.parsing.prepare_inputs import combine  # noqa: E402
 from rag.parsing.source_structure import namespace_structure  # noqa: E402
 from rag.templates.catalog import TemplateCatalog  # noqa: E402
 from rag.contracts.validation import validate_ad_intake, validate_integrated_input  # noqa: E402
+from rag.judgment.product_context import product_contexts, resolve_product_templates  # noqa: E402
 from rag.api.service import (  # noqa: E402
     OperationalReviewService, ServiceConfig, TERMINAL_STATES, write_json_atomic,
 )
@@ -174,7 +177,11 @@ def parser_runner_layout(config: dict) -> dict[str, str]:
     if runner == "nh_ad_parser_cli":
         return {"runner": runner, "p1_dir": "evidence", "p3_dir": "review-input", "raw_dir": "parse"}
     if runner == "nh_parser_fin":
-        return {"runner": runner, "p1_dir": "final", "p3_dir": "final", "raw_dir": "raw"}
+        profile = config.get("parser_contract_profile", "region-v6")
+        if profile not in {"region-v6", "region-v9"}:
+            raise ValueError("unsupported parser_contract_profile")
+        return {"runner": runner, "p1_dir": "final", "p3_dir": "final", "raw_dir": "raw",
+                "contract_profile": profile}
     raise ValueError(f"unsupported parser_runner: {runner!r}")
 
 
@@ -352,9 +359,10 @@ class ExecutionBridge:
         original_request = services.reviews.request
 
         def request(actor, advertisement_id, **kwargs):
-            ad = services.advertisements.get(actor, advertisement_id, kwargs["trace_id"])
-            self.validate_request(ad, kwargs)
-            return original_request(actor, advertisement_id, **kwargs)
+            with self.lock:
+                ad = services.advertisements.get(actor, advertisement_id, kwargs["trace_id"])
+                self.validate_request(ad, kwargs)
+                return original_request(actor, advertisement_id, **kwargs)
 
         services.reviews.request = request
 
@@ -375,8 +383,11 @@ class ExecutionBridge:
                 command.extend(["--template-id", template_id])
             return command
         if runner == "nh_parser_fin":
-            return [self.config["parser_python"], "-u", str(root / "run.py"),
-                    "--input", str(source_dir), "--run-name", output.name, "--with-vlm"]
+            command = [self.config["parser_python"], "-u", str(root / "run.py"),
+                       "--input", str(source_dir), "--run-name", output.name]
+            command.append("--compact-output" if self.parser_layout_config.get("contract_profile") == "region-v9"
+                           else "--with-vlm")
+            return command
         if not visual:
             raise ValueError("PARSER_TEMPLATE_UNSUPPORTED: 사용자 템플릿을 받는 nh_ad_parser_cli가 필요합니다")
         scope = "visual" if visual else "upload"
@@ -458,12 +469,16 @@ class ExecutionBridge:
         if self.parser_layout_config["runner"] == "nh_parser_fin":
             env["NH_OUTPUT_ROOT"] = str(Path(output).resolve().parent)
             env.setdefault("NH_MEDIA_DIR", str((Path(output).resolve().parent / "media")))
+            if self.parser_layout_config.get("contract_profile") == "region-v9":
+                env["HWP_RENDER_DIR"] = str(Path(output).resolve() / "render")
+                env["HWP_REVIEW_DIR"] = str(Path(output).resolve() / "review-html")
         env["PYTHONIOENCODING"] = "utf-8"
         with Path(log_path).open("w", encoding="utf-8") as log:
             try:
                 command = self.parser_command(source_dir, output, template_id=template_id)
                 sources = list(Path(source_dir).iterdir())
-                if (self.parser_layout_config["runner"] == "nh_parser_fin" and len(sources) == 1
+                if (self.parser_layout_config["runner"] == "nh_parser_fin"
+                        and self.parser_layout_config.get("contract_profile") == "region-v6" and len(sources) == 1
                         and sources[0].suffix.lower() in {".hwp", ".hwpx"}):
                     if not template_id:
                         raise ValueError("PARSER_TEMPLATE_REQUIRED: native HWP requires the selected template")
@@ -508,6 +523,7 @@ class ExecutionBridge:
             found, still_missing = self.parsed_assets([file], {file_id: retry_copy}, retry_output)
             if file_id in found:
                 recovered[file_id] = found[file_id]
+                self.capture_parser_page_images(file, found[file_id][0], found[file_id][1], directory)
             attempts.append({
                 "file_id": file_id,
                 "file_name": file.original_file_name,
@@ -555,6 +571,7 @@ class ExecutionBridge:
                 file, returncode, pair, reason = future.result()
                 if pair:
                     completed[file.file_id] = pair
+                    self.capture_parser_page_images(file, pair[0], pair[1], directory)
                     for path, directory_name in zip(pair, (self.parser_layout_config["p1_dir"], self.parser_layout_config["p3_dir"])):
                         destination = canonical_output / directory_name / path.name
                         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -581,6 +598,205 @@ class ExecutionBridge:
             encoding="utf-8",
         )
         return completed, missing, 0 if all(row["returncode"] == 0 for row in attempts) else 1
+
+    def save_hwp_html(self, file, raw, directory, *, basis, parser_hashes=None):
+        destination = Path(directory) / 'hwp-html'
+        destination.mkdir(parents=True, exist_ok=True)
+        if not re.fullmatch(r'FILE-[\w-]+', file.file_id):
+            raise ValueError('invalid HWP asset identity')
+        path = destination / f'{file.file_id}.html'
+        temporary = path.with_suffix('.pending')
+        temporary.write_bytes(raw)
+        temporary.replace(path)
+        write_json_atomic(path.with_suffix('.json'), {
+            'version': 'operational-hwp-html-v1', 'asset_id': file.file_id,
+            'source_sha256': file.checksum, 'html_sha256': hashlib.sha256(raw).hexdigest(),
+            'basis': basis, 'parser_hashes': parser_hashes or {},
+            'coordinate_policy': 'HTML_TEXT_MATCH_ONLY',
+        })
+
+    def capture_parser_hwp_html(self, file, p1_path, p3_path, directory):
+        if Path(file.original_file_name).suffix.lower() not in {'.hwp', '.hwpx'}:
+            return
+        output = Path(p1_path).parent.parent.resolve()
+        p1 = read_json(p1_path)
+        paths = {str((((page.get('origin') or {}).get('render') or {}).get('review_surface') or {}).get('html_path') or '')
+                 for page in p1.get('pages', [])}
+        paths.discard('')
+        if len(paths) != 1:
+            return
+        path = Path(paths.pop()).resolve()
+        if not path.is_relative_to((output / 'review-html').resolve()) or path.suffix.lower() != '.html':
+            raise ValueError('parser HWP HTML escaped its output directory')
+        with self.layout_lock:
+            self.save_hwp_html(file, path.read_bytes(), directory, basis='PARSER_AUTHORED_HTML',
+                parser_hashes={'p1_sha256': hashlib.sha256(Path(p1_path).read_bytes()).hexdigest(),
+                               'p3_sha256': hashlib.sha256(Path(p3_path).read_bytes()).hexdigest()})
+
+    def hwp_review_html(self, review_id, asset_id):
+        bundle = self.services.reviews.repository.get(review_id)
+        ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+        files = [file for file in ad.files if file.file_id == asset_id and file.file_type == 'ADVERTISEMENT']
+        if len(files) != 1 or not re.fullmatch(r'FILE-[\w-]+', asset_id):
+            raise ServiceError(404, 'HWP_HTML_NOT_FOUND', '해당 광고의 HWP 원본이 없습니다.')
+        file = files[0]
+        if Path(file.original_file_name).suffix.lower() not in {'.hwp', '.hwpx'}:
+            raise ServiceError(422, 'HWP_HTML_UNSUPPORTED', 'HTML 본문 표시는 HWP/HWPX 원본에서 사용합니다.')
+        directory = self.root / 'runs' / review_id
+        with self.layout_lock:
+            path = directory / 'hwp-html' / f'{asset_id}.html'
+            metadata = path.with_suffix('.json')
+            if not metadata.is_file():
+                if self.parser_layout_config['runner'] != 'nh_parser_fin' or not self.config.get('parser_python'):
+                    raise ServiceError(503, 'HWP_HTML_UNAVAILABLE', '현재 파서의 HTML 본문 생성을 사용할 수 없습니다.')
+                # Older reviews have no saved parser HTML. Materialize the same
+                # immutable original and create only its HTML, never a new verdict.
+                output = directory / 'hwp-html' / asset_id
+                output.mkdir(parents=True, exist_ok=True)
+                source = output / (asset_id + Path(file.original_file_name).suffix.lower())
+                with self.services.advertisements.storage.open(file.storage_key) as stream, source.open('wb') as target:
+                    shutil.copyfileobj(stream, target)
+                if hashlib.sha256(source.read_bytes()).hexdigest() != file.checksum:
+                    raise ServiceError(409, 'HWP_HTML_MISMATCH', '저장 원본의 체크섬을 확인할 수 없습니다.')
+                env = dict(os.environ)
+                env.update(self.config.get('parser_env', {}))
+                env['PYTHONIOENCODING'] = 'utf-8'
+                with (output / 'html.log').open('w', encoding='utf-8') as log:
+                    result = subprocess.run([self.config['parser_python'], str(ROOT / 'scripts/render_hwp_review_html.py'),
+                        '--source', str(source.resolve()), '--output', str(output.resolve()),
+                        '--parser-root', str(Path(self.config['parser_root']).resolve())],
+                        cwd=self.config.get('parser_cwd') or self.config['parser_root'], env=env,
+                        stdout=log, stderr=subprocess.STDOUT, timeout=120,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                generated = list(output.glob('*.review.html'))
+                if result.returncode or len(generated) != 1:
+                    raise ServiceError(503, 'HWP_HTML_UNAVAILABLE', 'HWP HTML 본문을 생성하지 못했습니다.')
+                self.save_hwp_html(file, generated[0].read_bytes(), directory, basis='DISPLAY_ONLY_SOURCE_HTML')
+            binding = read_json(metadata)
+            raw = path.read_bytes()
+            if (binding.get('version') != 'operational-hwp-html-v1'
+                    or binding.get('asset_id') != asset_id or binding.get('source_sha256') != file.checksum
+                    or binding.get('html_sha256') != hashlib.sha256(raw).hexdigest()):
+                raise ServiceError(409, 'HWP_HTML_MISMATCH', '저장 원본과 HTML 본문의 연결이 일치하지 않습니다.')
+            return static_hwp_html(raw.decode('utf-8-sig'))
+
+    def capture_parser_page_images(self, file, p1_path, p3_path, directory):
+        """Keep the exact compact-output PNG used to establish each v9 canvas."""
+        p3 = read_json(p3_path)
+        if (p3.get("contract") or {}).get("version") != "nh-ad-region-review-input-v9":
+            return
+        from PIL import Image
+        output = Path(p1_path).parent.parent
+        destination = Path(directory) / "parser-page-images"
+        destination.mkdir(parents=True, exist_ok=True)
+        try:
+            self.capture_parser_hwp_html(file, p1_path, p3_path, directory)
+        except (OSError, ValueError, KeyError) as exc:
+            write_json_atomic(destination / f'{file.file_id}-html-error.json',
+                              {'code': 'HWP_HTML_UNAVAILABLE', 'detail': str(exc)})
+        try:
+            p1 = read_json(p1_path)
+            rows = read_json(output / "media-index.json")
+            pages = {page["page_no"]: page for page in p1["pages"]}
+            captured = []
+            for number, page in pages.items():
+                matches = [row for row in rows if row.get("source_file") == p1.get("source_file")
+                           and row.get("page_no") == number]
+                if len(matches) != 1:
+                    raise ValueError("parser page image ownership is ambiguous")
+                name = matches[0]["image_name"]
+                if not isinstance(name, str) or Path(name).name != name:
+                    raise ValueError("invalid parser image filename")
+                image = (output / "images" / name).resolve()
+                if not image.is_relative_to((output / "images").resolve()):
+                    raise ValueError("parser page image escaped its output directory")
+                with Image.open(image) as loaded:
+                    if loaded.format != "PNG" or list(loaded.size) != page.get("canvas"):
+                        raise ValueError("parser page image does not match its P1 canvas")
+                target = destination / f"{file.file_id}-p{number}.png"
+                shutil.copyfile(image, target)
+                captured.append({"asset_id": file.file_id, "source_page_no": number,
+                    "path": str(target.relative_to(directory)).replace("\\", "/"),
+                    "canvas": page["canvas"], "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+                    "source_sha256": file.checksum,
+                    "p1_sha256": hashlib.sha256(Path(p1_path).read_bytes()).hexdigest(),
+                    "p3_sha256": hashlib.sha256(Path(p3_path).read_bytes()).hexdigest()})
+            with self.layout_lock:
+                manifest = destination / "manifest.json"
+                previous = read_json(manifest).get("pages", []) if manifest.is_file() else []
+                write_json_atomic(manifest, {"version": "operational-parser-page-images-v1",
+                    "pages": [row for row in previous if row["asset_id"] != file.file_id] + captured})
+        except (OSError, ValueError, KeyError) as exc:
+            # Valid semantic evidence survives a presentation failure. Its v9
+            # preview URL fails explicitly instead of showing another render.
+            write_json_atomic(destination / f"{file.file_id}-error.json",
+                              {"code": "PARSER_PAGE_IMAGE_UNAVAILABLE", "detail": str(exc)})
+
+    @staticmethod
+    def with_parser_preview_paths(review_id, layout, integrated):
+        current_assets = {row["file_id"] for row in (integrated.get("diagnostics") or {}).get("assets", [])
+                          if (row.get("source_parser_contracts") or {}).get("source_p3_contract")
+                          == "nh-ad-region-review-input-v9"}
+        value = copy.deepcopy(layout)
+        for page in value.get("pages", []):
+            if page.get("asset_id") in current_assets:
+                page["preview_path"] = f"/operational/reviews/{review_id}/parser-page/{page['page_no']}"
+        return value
+
+    def parser_page_image(self, review_id, page_no):
+        """Resolve a review-owned, hash-bound image; never trust a URL file path."""
+        directory = self.root / "runs" / review_id
+        integrated = read_json(directory / "integrated.json")
+        pages = [row for row in integrated.get("pages", []) if row["page_no"] == page_no]
+        if len(pages) != 1:
+            raise ServiceError(404, "PARSER_PAGE_NOT_FOUND", "해당 심의의 원문 페이지가 없습니다.")
+        page = pages[0]
+        asset_id = page.get("asset_id")
+        source_page = page.get("source_page_no", page_no)
+        assets = [row for row in (integrated.get("diagnostics") or {}).get("assets", [])
+                  if row.get("file_id") == asset_id]
+        if len(assets) != 1:
+            raise ServiceError(409, "PARSER_PAGE_MISMATCH", "원문 근거의 출처를 확인할 수 없습니다.")
+        expected = assets[0]
+        bundle = self.services.reviews.repository.get(review_id)
+        advertisement_id = bundle.review.advertisement_id
+        ad = self.services.repository.get_advertisement(advertisement_id)
+        files = [file for file in ad.files if file.file_id == asset_id and file.file_type == "ADVERTISEMENT"]
+        if len(files) != 1:
+            raise ServiceError(404, "PARSER_PAGE_NOT_FOUND", "원문 파일 소유권을 확인할 수 없습니다.")
+        seen = set()
+        for _ in range(16):
+            if directory in seen:
+                break
+            seen.add(directory)
+            manifest_path = directory / "parser-page-images" / "manifest.json"
+            if manifest_path.is_file():
+                candidates = [row for row in read_json(manifest_path).get("pages", [])
+                              if row["asset_id"] == asset_id and row["source_page_no"] == source_page]
+                if len(candidates) == 1:
+                    row = candidates[0]
+                    path = (directory / row["path"]).resolve()
+                    if (not path.is_relative_to((directory / "parser-page-images").resolve())
+                            or row.get("source_sha256") != files[0].checksum
+                            or row.get("p1_sha256") != expected.get("p1_sha256")
+                            or row.get("p3_sha256") != expected.get("p3_sha256")
+                            or row.get("canvas") != [page.get("canvas_w"), page.get("canvas_h")]
+                            or not path.is_file()
+                            or hashlib.sha256(path.read_bytes()).hexdigest() != row.get("sha256")):
+                        raise ServiceError(409, "PARSER_PAGE_MISMATCH", "저장 원문과 파서 좌표의 연결이 일치하지 않습니다.")
+                    return path
+            reuse = directory / "parser-reuse.json"
+            if not reuse.is_file():
+                break
+            value = read_json(reuse)
+            parent_id = value.get("parser_source_review_id")
+            parent = self.services.reviews.repository.get(parent_id) if isinstance(parent_id, str) else None
+            if (value.get("version") != "validated-parent-parser-reuse-v1"
+                    or value.get("advertisement_id") != advertisement_id or parent is None
+                    or parent.review.advertisement_id != advertisement_id):
+                break
+            directory = self.root / "runs" / parent_id
+        raise ServiceError(503, "PARSER_PAGE_IMAGE_UNAVAILABLE", "파서가 사용한 원문 화면을 확인할 수 없습니다.")
 
     def validate_request(self, ad, options):
         if ad.product_group not in PRODUCTS:
@@ -667,6 +883,92 @@ class ExecutionBridge:
         if not reviews:
             raise ServiceError(404, "NOT_FOUND", "삭제할 심의 결과가 없습니다.")
         return self.delete_review(current, reviews[0].review_id)
+
+    def delete_advertisement(self, current, advertisement_id):
+        """Delete one local advertisement and every advertisement-owned artifact."""
+        if not set(current.roles).intersection({"COMPLIANCE_REVIEWER", "SYSTEM_ADMIN"}):
+            raise ServiceError(403, "FORBIDDEN", "준법 검토자 또는 시스템 관리자만 광고를 삭제할 수 있습니다.")
+        advertisement = self.services.repository.get_advertisement(advertisement_id)
+        if advertisement is None:
+            raise ServiceError(404, "NOT_FOUND", "삭제할 광고가 없습니다.")
+        reviews = [
+            bundle for bundle in self.services.reviews.repository._items.values()
+            if bundle.review.advertisement_id == advertisement_id
+        ]
+        review_ids = {bundle.review.review_id for bundle in reviews}
+        if any(
+            bundle.job.status in {"PENDING", "RUNNING", "RETRY_PENDING", "STALE"}
+            or bundle.review.review_id in self.active
+            for bundle in reviews
+        ):
+            raise ServiceError(409, "REVIEW_IN_PROGRESS", "진행 중인 심의는 중단이 완료된 뒤 광고를 삭제할 수 있습니다.")
+
+        with self.lock:
+            reviews = [
+                bundle for bundle in self.services.reviews.repository._items.values()
+                if bundle.review.advertisement_id == advertisement_id
+            ]
+            review_ids = {bundle.review.review_id for bundle in reviews}
+            if any(
+                bundle.job.status in {"PENDING", "RUNNING", "RETRY_PENDING", "STALE"}
+                or bundle.review.review_id in self.active
+                for bundle in reviews
+            ):
+                raise ServiceError(409, "REVIEW_IN_PROGRESS", "진행 중인 심의는 중단이 완료된 뒤 광고를 삭제할 수 있습니다.")
+            rag_job_ids = {
+                str((self.links.get(review_id) or {}).get("rag_job_id") or "")
+                for review_id in review_ids
+            } - {""}
+            fine_hashes = set()
+            for rag_job_id in rag_job_ids:
+                fine_path = self.root / "rag-jobs" / rag_job_id / "input" / "evidence_fine.jsonl"
+                if fine_path.is_file():
+                    fine_hashes.add(hashlib.sha256(fine_path.read_bytes()).hexdigest())
+
+            remaining_fine_hashes = set()
+            for review_id, link in self.links.items():
+                if review_id in review_ids:
+                    continue
+                rag_job_id = str((link or {}).get("rag_job_id") or "")
+                fine_path = self.root / "rag-jobs" / rag_job_id / "input" / "evidence_fine.jsonl"
+                if fine_path.is_file():
+                    remaining_fine_hashes.add(hashlib.sha256(fine_path.read_bytes()).hexdigest())
+
+            targets = [self.root / "runs" / review_id for review_id in review_ids]
+            targets.extend(self.root / "rag-jobs" / rag_job_id for rag_job_id in rag_job_ids)
+            for target in targets:
+                resolved = target.resolve()
+                if target.is_dir() and self.root.resolve() in resolved.parents:
+                    shutil.rmtree(resolved)
+
+            cache_dir = self.rag.config.vector_cache_dir
+            if cache_dir:
+                cache_root = Path(cache_dir).resolve()
+                for fine_hash in fine_hashes - remaining_fine_hashes:
+                    for pattern in (
+                        f"evidence-fine-{fine_hash}.*",
+                        f"query-context-{fine_hash}-*.*",
+                    ):
+                        for cache_file in cache_root.glob(pattern):
+                            if cache_file.is_file() and cache_file.resolve().parent == cache_root:
+                                cache_file.unlink(missing_ok=True)
+
+            for review_id in review_ids:
+                self.links.pop(review_id, None)
+                self.decisions.pop(review_id, None)
+                self.services.reviews.repository._items.pop(review_id, None)
+            self.services.results.repository._items = [
+                item for item in self.services.results.repository._items
+                if item.review_id not in review_ids
+            ]
+            files = self.services.repository.delete_advertisement(advertisement_id)
+            if files is None:
+                raise ServiceError(404, "NOT_FOUND", "삭제할 광고가 없습니다.")
+            for file in files:
+                self.services.advertisements.storage.delete(file.storage_key)
+            self.routes.pop(advertisement_id, None)
+            self.persist(results_changed=True)
+        return advertisement_id
 
     def restore(self):
         path = self.root / "web-state.json"
@@ -1048,8 +1350,10 @@ class ExecutionBridge:
                 "file_id": file.file_id,
                 "file_name": file.original_file_name,
                 "parser_doc_id": parser_ad_id,
+                "source_parser_contracts": copy.deepcopy((integrated.get("diagnostics") or {}).get("parser_contract_adapter") or {}),
                 "p1_sha256": integrated["contract"]["sources"]["p1_sha256"],
                 "p3_sha256": integrated["contract"]["sources"]["p3_sha256"],
+                "complete_document_read": (integrated.get("quality") or {}).get("complete_document_read"),
             })
             for page in integrated["pages"]:
                 page_no += 1
@@ -1112,12 +1416,24 @@ class ExecutionBridge:
         validate_integrated_input(result)
         return result
 
-    @staticmethod
-    def parser_intake(template_id):
-        return {"version": "user-template-labeling-v5", "template_id": template_id}
+    def parser_intake(self, template_id):
+        intake = {"version": "user-template-labeling-v5", "template_id": template_id}
+        if self.parser_layout_config.get("contract_profile") == "region-v9":
+            revision = self.config.get("parser_revision")
+            if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+                raise ValueError("PARSER_REVISION_REQUIRED: region-v9 requires a pinned upstream commit")
+            intake.update(version="user-template-labeling-v6", parser_contract_profile="region-v9",
+                          parser_revision=revision)
+        return intake
 
     def validate_parser_template(self, p1_path, p3_path, template_id):
         if self.parser_layout_config["runner"] == "nh_parser_fin":
+            if self.parser_layout_config.get("contract_profile") == "region-v9":
+                p1, p3 = read_json(p1_path), read_json(p3_path)
+                if ((p1.get("contract") or {}).get("version"), (p3.get("contract") or {}).get("version")) != (
+                    "nh-ad-parse-evidence-v4", "nh-ad-region-review-input-v9"
+                ):
+                    raise ValueError("PARSER_CONTRACT_MISMATCH: region-v9 requires P1 v4/P3 v9")
             p1_template = read_json(p1_path).get("template") or {}
             p3_template = (read_json(p3_path).get("document") or {}).get("template") or {}
             if p1_template != p3_template:
@@ -1369,6 +1685,7 @@ class ExecutionBridge:
         products = []
         for product in intake["products"]:
             classification = product["product_classification_code"]
+            selected, context, complete = resolve_product_templates(product, available_templates=self.templates)
             products.append({
                 "product_id": product["product_id"],
                 "product_name": product.get("product_name") or product["product_id"],
@@ -1376,6 +1693,9 @@ class ExecutionBridge:
                     "product_group": {"value": product["product_group"], "source": "web_user", "status": "provided"},
                     "product_subtype": {"value": classification, "source": "web_user", "status": "provided"},
                     "template_id": {"value": classification, "source": "product_classification_mapping", "status": "verified"},
+                    "selected_templates": {"value": selected, "source": "web_user_product_composition", "status": "provided"},
+                    "product_context": {"value": context or "STANDALONE", "source": "product_classification_mapping", "status": "verified"},
+                    "underlying_products_complete": {"value": complete, "source": "web_user", "status": "provided"},
                 },
                 "evidence_ids": evidence(product["asset_scopes"]),
             })
@@ -1718,6 +2038,8 @@ class ExecutionBridge:
                                    self.rag.config.source_policy == "template-plus-v2" else
                                    "내부 심의 템플릿"),
                     "sourcePolicy": self.rag.config.source_policy,
+                    "productContexts": product_contexts(),
+                    "evidencePolicy": "LABEL_LEXICAL_AND_LEXICAL_BASELINE",
                     "progressMeaning": "완료한 단계 비율이며 남은 시간의 비율이 아닙니다."}
 
         @backend.put("/operational/advertisements/{advertisement_id}/routing")
@@ -1741,6 +2063,20 @@ class ExecutionBridge:
                 self.persist()
             return {"saved": True}
 
+        @backend.get("/operational/review-worklist")
+        async def review_worklist(request: Request):
+            actor(request)
+            plans_path = self.rag.config.canonical_plans_path
+            if not plans_path:
+                raise ServiceError(503, 'REVIEW_WORKLIST_UNAVAILABLE', '정본 기준 설정을 확인해야 합니다.')
+            worklist_path = Path(plans_path).parent / 'review-worklist-v1.json'
+            if not worklist_path.is_file():
+                raise ServiceError(503, 'REVIEW_WORKLIST_UNAVAILABLE', '구조화 작업대장이 아직 연결되지 않았습니다.')
+            value = read_json(worklist_path)
+            if value.get('canonical_source_binding_sha256') != read_json(Path(plans_path)).get('source_binding_sha256'):
+                raise ServiceError(503, 'REVIEW_WORKLIST_SOURCE_CHANGED', '정본 변경에 맞춰 작업대장을 갱신해야 합니다.')
+            return {**value, 'sourcePolicy': self.rag.config.source_policy}
+
         @backend.put("/operational/advertisements/{advertisement_id}/intake")
         async def intake(advertisement_id: str, request: Request):
             current = actor(request)
@@ -1759,6 +2095,10 @@ class ExecutionBridge:
                 prefix = product["product_group"]
                 if code not in self.templates or not code.startswith(prefix):
                     raise ServiceError(422, "INVALID_PRODUCT_CLASSIFICATION", "상품군에 맞는 상세 상품군을 선택해 주세요.")
+                try:
+                    resolve_product_templates(product, available_templates=self.templates)
+                except ValueError as exc:
+                    raise ServiceError(422, "INVALID_PRODUCT_CONTEXT", str(exc)) from exc
             with self.lock:
                 current_route = dict(self.routes.get(advertisement_id, {}))
                 current_route["intake"] = value
@@ -1797,6 +2137,7 @@ class ExecutionBridge:
                 "deferred_rules": workspace["deferred_rules"],
                 "excluded_rows": workspace["excluded_rows"],
                 "execution_omissions": workspace["execution_omissions"],
+                "extraction_status": workspace["extraction_status"],
                 "source_results": [row for row in raw_result.get("ads", [])
                                    if row["ad_id"] == ad.advertisement_id],
                 "execution": {
@@ -1846,16 +2187,47 @@ class ExecutionBridge:
             self.delete_latest_review(actor(request), advertisement_id)
             return None
 
+        @backend.delete("/operational/advertisements/{advertisement_id}", status_code=204)
+        async def delete_advertisement(advertisement_id: str, request: Request):
+            self.delete_advertisement(actor(request), advertisement_id)
+            return None
+
         @backend.get("/operational/reviews/{review_id}/parser-layout")
         async def review_parser_layout(review_id: str, request: Request):
             actor(request)
             self.services.reviews.status(actor(request), review_id, "local-parser-layout")
             try:
-                return self.review_parser_layout(review_id)
+                layout = self.review_parser_layout(review_id)
+                integrated_path = self.root / "runs" / review_id / "integrated.json"
+                integrated = read_json(integrated_path) if integrated_path.is_file() else {}
+                return self.with_parser_preview_paths(review_id, layout, integrated)
             except ServiceError:
                 raise
             except Exception as exc:
                 raise ServiceError(503, "PARSER_LAYOUT_UNAVAILABLE", str(exc)[:300]) from exc
+
+        @backend.get("/operational/reviews/{review_id}/parser-page/{page_no}")
+        async def review_parser_page(review_id: str, page_no: int, request: Request):
+            self.services.reviews.status(actor(request), review_id, "local-parser-page")
+            try:
+                path = self.parser_page_image(review_id, page_no)
+                return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+            except ServiceError:
+                raise
+            except (OSError, ValueError, KeyError) as exc:
+                raise ServiceError(503, "PARSER_PAGE_IMAGE_UNAVAILABLE", "파서 원문 화면을 읽을 수 없습니다.") from exc
+
+        @backend.get('/operational/reviews/{review_id}/hwp-html/{asset_id}')
+        async def review_hwp_html(review_id: str, asset_id: str, request: Request):
+            self.services.reviews.status(actor(request), review_id, 'local-hwp-html')
+            try:
+                html = await run_in_threadpool(self.hwp_review_html, review_id, asset_id)
+                return HTMLResponse(html, headers={'Cache-Control': 'no-store',
+                    'Content-Security-Policy': HTML_CSP, 'X-Content-Type-Options': 'nosniff'})
+            except ServiceError:
+                raise
+            except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+                raise ServiceError(503, 'HWP_HTML_UNAVAILABLE', 'HWP HTML 본문을 읽을 수 없습니다.') from exc
 
         @backend.get("/operational/reviews/{review_id}/workspace")
         async def result_workspace(review_id: str, request: Request):
@@ -1923,6 +2295,17 @@ class ExecutionBridge:
                         integrated = with_rendered_line_locations(
                             integrated, read_json(layout_path), files[0].file_id)
             value = saved_workspace(raw, payloads, integrated, bundle.review.advertisement_id, discovery, reading_audits, rule_metadata)
+            # Extraction diagnostics also exist on parser failures without a
+            # judgment result. Never replay parsing or infer success for them.
+            directory = self.root / "runs" / review_id
+            if not integrated and (directory / "integrated.json").is_file():
+                integrated = read_json(directory / "integrated.json")
+            ad = self.services.repository.get_advertisement(bundle.review.advertisement_id)
+            failure_path = directory / "parser-failure.json"
+            value["extraction_status"] = extraction_status(integrated,
+                [{"file_id": file.file_id, "file_name": file.original_file_name}
+                 for file in ad.files if file.file_type == "ADVERTISEMENT"],
+                read_json(failure_path) if failure_path.is_file() else None)
             value.pop("source_ads", None)
             return {"available": True, "source_type": "GEMMA", "is_model_output": True,
                     "source_policy": (raw.get("audit", {}).get("rule_sources", {}).get("policy")
@@ -1978,6 +2361,7 @@ class ExecutionBridge:
                     re.fullmatch(r"/operational/reviews/REV-[\w-]+/decision", path)) or
                 request.method == "DELETE" and (
                     re.fullmatch(r"/operational/reviews/REV-[\w-]+", path) or
+                    re.fullmatch(r"/operational/advertisements/ADV-[\w-]+", path) or
                     re.fullmatch(r"/operational/advertisements/ADV-[\w-]+/latest-review", path)))
             if request.method not in {"GET", "HEAD", "OPTIONS"} and not allowed:
                 return JSONResponse({"code": "NOT_CONNECTED", "message": "현재 로컬 실행은 광고 등록·자동심의·재분석만 연결되어 있습니다."}, status_code=409)

@@ -115,6 +115,24 @@ def confirmed_metadata_facts(
         if (fact.get("owner") != "RULE"
                 or fact.get("type") == "DETERMINISTIC_ADAPTER"):
             continue
+        if fact.get("metadata_key") == "media_type":
+            output.append({"fact_id": fact["fact_id"], "value": media == fact["equals"] if media else None,
+                           "basis": "media_type"})
+            continue
+        if fact.get("metadata_key") == "product_context":
+            context = _confirmed_value(routing.get("product_context"))
+            output.append({"fact_id": fact["fact_id"], "value": context == fact["equals"] if context else None,
+                           "basis": "product_context"})
+            continue
+        if fact["name"] == "selected_template":
+            from .policy import confirmed_templates
+            selected = confirmed_templates(routing)
+            # Older callers pass an already confirmed template separately.
+            selected = selected or ([template_id] if template_id else [])
+            output.append({"fact_id": fact["fact_id"],
+                           "value": _template_identity(expected_template) in {_template_identity(v) for v in selected} if selected else None,
+                           "basis": "selected_templates" if len(selected) > 1 else "template_id"})
+            continue
         value, basis = _metadata_fact(
             str(fact["name"]), groups=groups, template_id=template_id, media=media,
             routing=routing, layout_available=layout_available,
@@ -176,3 +194,10 @@ def activate_retrieved(
             "execution_tier": "PRODUCT_CONTENT_CONDITIONED_V2",
         })
     return output
+
+
+def visual_exemption_confirmed(rule, routing):
+    program = (rule.get('canonical_execution_plan') or {}).get('review_program') or {}
+    exemption = program.get('visual_exemption') or {}
+    key = exemption.get('metadata_key')
+    return bool(key and _confirmed_value(routing.get(key)) == exemption.get('equals'))

@@ -33,7 +33,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("review deletion is next to detail on the advertisement list and requires confirmation", async () => {
+test("advertisement deletion is next to detail on the advertisement list and requires confirmation", async () => {
   const deleted: string[] = [];
   const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
   vi.stubGlobal("confirm", confirm);
@@ -68,11 +68,11 @@ test("review deletion is next to detail on the advertisement list and requires c
   expect(within(newRow!).queryByRole("button", { name: "심의 결과 삭제" })).not.toBeInTheDocument();
 
   fireEvent.click(deleteButton);
-  expect(confirm).toHaveBeenCalledWith("이 광고의 최신 심의 결과를 삭제하시겠습니까? 삭제 후 되돌릴 수 없습니다.");
+  expect(confirm).toHaveBeenCalledWith("이 광고와 모든 심의 결과·원본·처리 데이터를 삭제합니다. 목록에서도 사라지며 되돌릴 수 없습니다. 계속하시겠습니까?");
   expect(deleted).toEqual([]);
 
   fireEvent.click(deleteButton);
   await waitFor(() => expect(deleted).toEqual([
-    "/api/v1/operational/advertisements/ADV-DONE/latest-review",
+    "/api/v1/operational/advertisements/ADV-DONE",
   ]));
 });

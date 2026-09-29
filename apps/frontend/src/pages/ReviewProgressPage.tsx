@@ -9,7 +9,9 @@ import { PageHeader } from "../components/PageHeader";
 import { ReviewOriginalPanel } from "../components/ReviewOriginalPanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { WorkflowSteps } from "../components/WorkflowSteps";
-import { cancelOperationalReview, operationalMode } from "../api/operational";
+import { cancelOperationalReview, operationalMode, operationalRequest } from "../api/operational";
+import { ExtractionStatusPanel } from "../components/ExtractionStatusPanel";
+import type { ResultWorkspace } from "../components/operationalResultModel";
 
 const TERMINAL_JOB_STATUSES = new Set<ReviewProgress["jobStatus"]>(["COMPLETED", "FAILED", "FAILED_FINAL", "CANCELED"]);
 
@@ -110,6 +112,12 @@ export function ReviewProgressPage() {
     setTerminalProgress((current) => current?.reviewId === reviewId ? current : progress.data);
   }, [progress.data, reviewId]);
   const displayedProgress = terminalProgress?.reviewId === reviewId ? terminalProgress : progress.data;
+  const extraction = useQuery({
+    queryKey: ["operational-workspace", reviewId],
+    queryFn: () => operationalRequest<ResultWorkspace>(session?.accessToken ?? "", `reviews/${reviewId}/workspace`),
+    enabled: operationalMode && Boolean(displayedProgress && TERMINAL_JOB_STATUSES.has(displayedProgress.jobStatus)),
+    retry: false,
+  });
   const advertisement = useQuery({
     queryKey: ["advertisement", displayedProgress?.advertisementId],
     queryFn: () => api.getAdvertisement(session?.accessToken ?? "", displayedProgress?.advertisementId ?? ""),
@@ -143,6 +151,11 @@ export function ReviewProgressPage() {
         <div className="review-workspace review-workspace--execution">
           <div>
           <StatusNotice progress={displayedProgress} />
+          {operationalMode && TERMINAL_JOB_STATUSES.has(displayedProgress.jobStatus) ? <>
+            {extraction.isPending ? <LoadingState label="파일별 추출 상태를 확인하는 중입니다." /> : null}
+            {extraction.isError ? <ErrorState error={extraction.error} onRetry={() => void extraction.refetch()} /> : null}
+            {extraction.data ? <ExtractionStatusPanel value={extraction.data.extraction_status} /> : null}
+          </> : null}
           {operationalMode ? <p className="fieldset-description">진행률은 완료한 단계 수 기준이며 남은 시간 비율이 아닙니다. 파싱·Gemma 판정 중에는 같은 단계에서 수 분 머무를 수 있습니다.</p> : null}
           <div className="progress-overview">
             <div><strong>현재 단계</strong><span>{currentStepLabel(displayedProgress)}</span></div>

@@ -8,6 +8,41 @@ from operational_locations import (load_template_appropriate_judgments, resolve_
                                    local_reading_review, resolve_review_locations,
                                    resolve_chunk_locations, saved_workspace, valid_box, with_rendered_line_locations,
                                    verified_separate_notice_lines)
+from operational_locations import display_condition_checks
+
+
+def test_display_checks_use_frozen_wording_and_do_not_invent_missing_verdicts():
+    rule = {'condition_contract': {'obligation_checks': [
+        {'obligation_id': 'O1', 'text': 'Synthetic disclosure'},
+        {'obligation_id': 'O2', 'text': 'Synthetic eligibility'}]}}
+    prediction = {'requirement_checks': [
+        {'obligation_ref': 'O1', 'status': 'SATISFIED', 'reason': 'Synthetic cited text'}]}
+    original = copy.deepcopy((rule, prediction))
+    assert display_condition_checks(rule, prediction) == [
+        {'text': 'Synthetic disclosure', 'status': 'SATISFIED', 'reason': 'Synthetic cited text'},
+        {'text': 'Synthetic eligibility', 'status': 'UNRECORDED', 'reason': ''}]
+    assert (rule, prediction) == original
+
+
+def test_display_checks_preserve_legacy_recorded_wording_without_current_rule_lookup():
+    assert display_condition_checks({}, {'requirement_checks': [
+        {'requirement': 'Legacy wording', 'status': 'UNDETERMINED'}]}) == [
+        {'text': 'Legacy wording', 'status': 'UNDETERMINED', 'reason': ''}]
+
+
+def test_display_source_fields_remain_bound_to_the_saved_request():
+    raw = {'ads': [{'ad_id': 'ADV', 'product_name': 'Synthetic package', 'candidates': [
+        {'item_id': 'SYNTHETIC', 'judgment': {'verdict': 'UNDETERMINED', 'reason': 'Synthetic uncertainty',
+            'evidence_ids': [], 'evidence_line_refs': [], 'requirement_checks': []}}]}]}
+    requests = [{'ad_id': 'ADV', 'documents': [], 'rules': [{'item_id': 'SYNTHETIC', 'title': 'Criterion label',
+        'canonical_execution_plan': {'source': {'source_fields': {'violated': 'Frozen source guidance'}}}}]}]
+    original = copy.deepcopy((raw, requests))
+    row = saved_workspace(raw, requests, source(), 'ADV')['rows'][0]
+    assert row['item_title'] == 'Criterion label'
+    assert row['source_product'] == 'Synthetic package'
+    assert row['template_guidance'] == 'Frozen source guidance'
+    assert row['title'] == 'Synthetic package · Criterion label'
+    assert (raw, requests) == original
 
 
 def rendered_fixture():
@@ -301,6 +336,10 @@ def test_coordinate_free_source_is_not_presented_as_whole_ad_judgment():
     row = saved_workspace(raw, requests, document, "ADV")["rows"][0]
     assert row["evidence_location_status"] == "SOURCE_GEOMETRY_MISSING"
     assert row["evidence_locations"] == [] and row["evidence"] == "specific source"
+    document['pages'][0].update(canvas_w=None, canvas_h=None)
+    row = saved_workspace(raw, requests, document, "ADV")["rows"][0]
+    assert row["evidence_location_status"] == "SOURCE_GEOMETRY_MISSING"
+    assert row["evidence_locations"] == [] and row["evidence"] == "specific source"
     row = saved_workspace(raw, requests, source(), "ADV")["rows"][0]
     assert row["evidence_location_status"] == "UNRESOLVED_REFERENCE"
 
@@ -488,3 +527,15 @@ def test_same_template_title_keeps_distinct_source_examples_and_missing_checks()
     assert [row["template_example"] for row in rows] == ["First source meaning", "Second source meaning"]
     assert all(row["requirement_checks"] == checks for row in rows)
     assert all(row["verdict"] == "위반" for row in rows)
+
+
+def test_canonical_appropriate_criterion_uses_frozen_request_without_legacy_catalog():
+    raw = {"ads": [{"ad_id": "ADV", "candidates": [{"item_id": "CANON", "judgment": {
+        "verdict": "UNDETERMINED", "reason": "확인 필요", "evidence_ids": [], "evidence_line_refs": []}}]}]}
+    rule = {"item_id": "CANON", "source_sheet": "HWPX_TEMPLATE", "canonical_execution_plan": {
+        "source_criteria": {"satisfied": "해당 사항 표시 시 적정", "review": "외부 확인 필요"}}}
+    requests = [{"ad_id": "ADV", "rules": [rule], "documents": []}]
+    row = saved_workspace(raw, requests, source(), "ADV")["rows"][0]
+    assert row["template_appropriate_judgment"] == "해당 사항 표시 시 적정"
+    assert row["verdict"] == "판단불가"
+    assert raw["ads"][0]["candidates"][0]["judgment"]["verdict"] == "UNDETERMINED"

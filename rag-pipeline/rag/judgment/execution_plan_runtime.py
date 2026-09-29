@@ -1,4 +1,8 @@
-"""Validate and combine observations for canonical execution plans."""
+"""Offline reference evaluator for canonical execution plans.
+
+Operational judgments use run_gemma_exhaustive_dgx and obligation_logic.
+Passing this evaluator alone does not prove an operational route was executed.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -136,4 +140,4 @@ def _walk(node: dict[str, Any], values: dict[str, bool | None]) -> bool | None:
 def _out(plan: dict[str, Any], verdict: str, checks: list, human_queue: list) -> dict[str, Any]:
     return {"plan_id": plan["plan_id"], "verdict": verdict,
             "obligation_results": checks, "human_review_queue": human_queue,
-            "source_sha256": plan["source_sha256"], "operationally_connected": True}
+            "source_sha256": plan["source_sha256"], "execution_context": "OFFLINE_REFERENCE"}

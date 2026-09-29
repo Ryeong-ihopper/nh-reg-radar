@@ -259,6 +259,9 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
                 "line_refs": refs,
                 "lines": lines,
                 "labels": labels,
+                "parser_label_hints": copy.deepcopy(region_p3.get("parser_label_hints") or []),
+                "kind": region_p3.get("kind", "table" if region.get("table") else "text"),
+                "parser_observations": copy.deepcopy(region_p3.get("parser_observations") or {}),
                 "assignment_status": (
                     "unassigned" if not lines
                     else
@@ -370,6 +373,14 @@ def _split_parts(
         sorted({0, *(match.start() for match in BULLET_START.finditer(text) if match.start() > 0)})
         if split_bullets else [0]
     )
+    if split_bullets and len(text) > TARGET_FINE_CHARS:
+        # A logical source block may contain many newline-delimited paragraphs
+        # under one bbox. Split search text at those *source* boundaries while
+        # retaining the original line ID, character offsets and block bbox.
+        # These offsets do not manufacture physical rendered lines. Never cut
+        # an atomic table row or invent boundaries inside an unbroken sentence.
+        starts = sorted({*starts, *(match.end() for match in re.finditer(r"\r?\n", text)
+                                   if match.end() < len(text))})
     parts = []
     for idx, start in enumerate(starts):
         end = starts[idx + 1] if idx + 1 < len(starts) else len(text)
@@ -381,7 +392,7 @@ def _split_parts(
 
 def _is_table_region(region: dict[str, Any]) -> bool:
     label = str(((region.get("layout") or {}).get("label") or "")).lower()
-    return "table" in label
+    return region.get("kind") == "table" or bool(region.get("table")) or "table" in label
 
 
 def _same_visual_row(previous: Any, current: Any) -> bool:
@@ -661,17 +672,7 @@ def _fine_views(region: dict[str, Any]) -> list[dict[str, Any]]:
         # split the selected canonical text itself while retaining all source
         # line references as region-level evidence.
         text = region["final_text"]
-        starts = sorted({0, *(match.start() for match in BULLET_START.finditer(text) if match.start() > 0)})
-        raw_parts = []
-        for idx, start in enumerate(starts):
-            end = starts[idx + 1] if idx + 1 < len(starts) else len(text)
-            if text[start:end].strip():
-                raw_parts.append({
-                    "text": text[start:end],
-                    "line_ref": None,
-                    "char_start": start,
-                    "char_end": end,
-                })
+        raw_parts = _split_parts({"text": text, "line_ref": None}, split_bullets=not is_table)
         parts = raw_parts
         evidence_refs = selected_refs or region["line_refs"]
         span_status = (
@@ -850,6 +851,10 @@ def search_docs(ad: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
                 "source_role": evidence_role,
                 "source_role_basis": role_basis,
                 "labels": region["labels"],
+                "parser_label_hints": copy.deepcopy(region.get("parser_label_hints") or []),
+                "kind": region.get("kind", "text"),
+                "parser_observations": copy.deepcopy(region.get("parser_observations") or {}),
+                "text_source": region.get("text_source"),
                 "assignment_status": region["assignment_status"],
                 "text_selection": copy.deepcopy(region.get("text_selection") or {}),
             }

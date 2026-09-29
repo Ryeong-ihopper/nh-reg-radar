@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { Link } from "react-router-dom";
 
 import { api } from "../api/client";
-import { deleteLatestOperationalReview, operationalMode } from "../api/operational";
+import { deleteOperationalAdvertisement, operationalMode } from "../api/operational";
 import { useAuth } from "../auth/useAuth";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { PageHeader } from "../components/PageHeader";
@@ -72,8 +72,8 @@ export function AdvertisementListPage() {
     onSuccess: () => setSelectedIds(new Set()),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["advertisements"] }),
   });
-  const deleteLatestReview = useMutation({
-    mutationFn: (advertisementId: string) => deleteLatestOperationalReview(token, advertisementId),
+  const deleteAdvertisement = useMutation({
+    mutationFn: (advertisementId: string) => deleteOperationalAdvertisement(token, advertisementId),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["advertisements"] }),
   });
 
@@ -129,7 +129,7 @@ export function AdvertisementListPage() {
             </button>
           </div> : null}
           {deleteSelected.isError ? <ErrorState error={deleteSelected.error} onRetry={() => deleteSelected.mutate(visibleIds.filter((id) => selectedIds.has(id)))} /> : null}
-          {deleteLatestReview.isError ? <ErrorState error={deleteLatestReview.error} /> : null}
+          {deleteAdvertisement.isError ? <ErrorState error={deleteAdvertisement.error} /> : null}
           <div className="table-scroll">
           <table className="advertisement-table">
             <thead><tr>{isSystemAdmin ? <th className="selection-column"><input ref={selectAllRef} type="checkbox" aria-label="현재 페이지 전체 선택" checked={allVisibleSelected} onChange={(event) => toggleAllVisible(event.target.checked)} /></th> : null}<th>광고물</th><th>상품군</th><th>형식·매체</th><th>등록자</th><th>등록일시</th><th className="advertisement-review-column"><div className="advertisement-review-controls"><span>검토 상태</span><span className="visually-hidden">상세 보기</span><span className="visually-hidden">심의 결과 삭제</span></div></th></tr></thead>
@@ -139,9 +139,9 @@ export function AdvertisementListPage() {
                 <td><div className="table-primary"><strong>{item.advertisementName}</strong></div></td>
                 <td>{productGroupLabel(item.productGroup)}</td><td>{advertisementTypeLabel(item.advertisementType)}</td>
                 <td>{item.registeredBy}</td><td>{new Date(item.registeredAt).toLocaleString("ko-KR")}</td>
-                <td className="advertisement-review-column"><div className="advertisement-review-controls"><StatusBadge status={item.reviewStatus} /><Link className="table-row-link" to={`/advertisements/${encodeURIComponent(item.advertisementId)}`}>상세 보기</Link>{canDeleteReview && DELETABLE_REVIEW_STATUSES.has(item.reviewStatus) ? <button type="button" className="table-row-link table-row-delete" disabled={deleteLatestReview.isPending} onClick={() => {
-                  if (window.confirm("이 광고의 최신 심의 결과를 삭제하시겠습니까? 삭제 후 되돌릴 수 없습니다.")) deleteLatestReview.mutate(item.advertisementId);
-                }}>{deleteLatestReview.isPending ? "삭제 중..." : "심의 결과 삭제"}</button> : null}</div></td>
+                <td className="advertisement-review-column"><div className="advertisement-review-controls"><StatusBadge status={item.reviewStatus} /><Link className="table-row-link" to={`/advertisements/${encodeURIComponent(item.advertisementId)}`}>상세 보기</Link>{canDeleteReview && DELETABLE_REVIEW_STATUSES.has(item.reviewStatus) ? <button type="button" className="table-row-link table-row-delete" disabled={deleteAdvertisement.isPending} onClick={() => {
+                  if (window.confirm("이 광고와 모든 심의 결과·원본·처리 데이터를 삭제합니다. 목록에서도 사라지며 되돌릴 수 없습니다. 계속하시겠습니까?")) deleteAdvertisement.mutate(item.advertisementId);
+                }}>{deleteAdvertisement.isPending ? "삭제 중..." : "심의 결과 삭제"}</button> : null}</div></td>
               </tr>
             ))}</tbody>
           </table>

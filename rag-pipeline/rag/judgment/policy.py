@@ -89,6 +89,15 @@ def confirmed_template(routing: dict[str, Any]) -> str | None:
     return None
 
 
+def confirmed_templates(routing: dict[str, Any]) -> list[str]:
+    from .product_context import validate_selected_templates
+    primary = confirmed_template(routing)
+    if not primary:
+        return []
+    selected = confirmed_value(routing.get("selected_templates"))
+    return validate_selected_templates(primary, selected if selected is not None else [primary])
+
+
 def parser_visibility_facts(ad: dict[str, Any] | None) -> dict[str, Any]:
     """Pass parser/OCR visibility and line-style measurements through unchanged."""
     pages = []

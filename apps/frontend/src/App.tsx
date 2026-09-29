@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { Link, NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import { AuthProvider } from "./auth/AuthProvider";
 import type { AuthSession } from "./auth/context";
@@ -13,6 +13,10 @@ import { LoginPage } from "./pages/LoginPage";
 import { ComparisonPage, M6SupportPage } from "./pages/M6SupportPage";
 import { ComplianceQaPage } from "./pages/ComplianceQaPage";
 import { ReviewProgressPage } from "./pages/ReviewProgressPage";
+import { ReviewCriteriaPage } from "./pages/ReviewCriteriaPage";
+import { LegalReferencePage } from "./pages/LegalReferencePage";
+import { OperationalReviewHubPage } from "./pages/OperationalReviewHubPage";
+import { OperationalSuggestionsPage } from "./pages/OperationalSuggestionsPage";
 import { ReviewRequestPage } from "./pages/ReviewRequestPage";
 import { ReviewAnnotationsPage, ReviewItemsPage, ReviewSummaryPage } from "./pages/ReviewResultsPage";
 import { StandardManagementPage } from "./pages/StandardManagementPage";
@@ -42,7 +46,7 @@ function ProtectedRoute({ allowedRoles }: { allowedRoles: Set<string> }) {
   return <Outlet />;
 }
 
-type NavigationIconKind = "list" | "create" | "standards" | "quality";
+type NavigationIconKind = "list" | "create" | "standards" | "quality" | "suggestions" | "law";
 
 function NavigationIcon({ kind }: { kind: NavigationIconKind }) {
   const paths = {
@@ -50,6 +54,8 @@ function NavigationIcon({ kind }: { kind: NavigationIconKind }) {
     create: <><path d="M12 5v14M5 12h14" /><rect x="3" y="3" width="18" height="18" rx="3" /></>,
     standards: <><path d="M6 4h12v16H6z" /><path d="M9 8h6M9 12h6M9 16h4" /></>,
     quality: <><path d="M4 5h16v14H4z" /><path d="m8 12 2.5 2.5L16 9" /></>,
+    suggestions: <><path d="m16 3 5 5-12 12-6 1 1-6zM13 6l5 5" /></>,
+    law: <><path d="M12 3v18M6 21h12M4 7h16M6 7l-4 8h8zM18 7l-4 8h8z" /></>,
   } satisfies Record<NavigationIconKind, ReactNode>;
 
   return <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{paths[kind]}</svg>;
@@ -57,6 +63,9 @@ function NavigationIcon({ kind }: { kind: NavigationIconKind }) {
 
 function Shell() {
   const { session, logout } = useAuth();
+  const { pathname } = useLocation();
+  const inReview = pathname.startsWith("/reviews/");
+  const inSuggestions = inReview && pathname.endsWith("/suggestions");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const canCreate = session?.user.roles.some((role) => CREATE_ROLES.has(role));
   const canManageStandards = session?.user.roles.some((role) => STANDARD_ROLES.has(role));
@@ -68,7 +77,7 @@ function Shell() {
         <div className="header-partners">{session ? <div className="account-context"><span><strong>{session.user.userName}</strong><small>{session.user.departmentName}</small></span>{!localAuthBypass ? <button type="button" className="header-button" onClick={() => void logout()}>로그아웃</button> : null}</div> : null}<img className="partner-mark" src={cgInsideLogo} alt="씨지인사이드" /></div>
       </header>
       <div className={session ? "app-workspace" : "app-workspace app-workspace--public"} data-sidebar-collapsed={session ? sidebarCollapsed : undefined} data-operational={session && operationalMode ? "true" : undefined}>
-        {session && !operationalMode ? <aside className="app-sidebar">
+        {session ? <aside className="app-sidebar">
           <button
             type="button"
             className="sidebar-toggle"
@@ -82,14 +91,19 @@ function Shell() {
           <p className="nav-group-label">광고 심의</p>
           <NavLink to="/advertisements" end aria-label="광고물 목록" title="광고물 목록"><NavigationIcon kind="list" /><span className="nav-copy"><span>광고물 목록</span><small>등록·진행 현황</small></span></NavLink>
           {canCreate ? <NavLink to="/advertisements/new" aria-label="광고물 등록" title="광고물 등록"><NavigationIcon kind="create" /><span className="nav-copy"><span>광고물 등록</span><small>파일과 기본정보 등록</small></span></NavLink> : null}
+          {operationalMode ? <><NavLink to="/review-results" className={({isActive}) => isActive || (inReview && !inSuggestions) ? "active" : undefined} aria-label="심의 결과" title="심의 결과"><NavigationIcon kind="quality" /><span className="nav-copy"><span>심의 결과</span><small>항목별 판정·원문 확인</small></span></NavLink><NavLink to="/recommendations" className={({isActive}) => isActive || inSuggestions ? "active" : undefined} aria-label="추천 문구" title="추천 문구"><NavigationIcon kind="suggestions" /><span className="nav-copy"><span>추천 문구</span><small>확인·수정 초안</small></span></NavLink><p className="nav-group-label">심의 기준·참고자료</p><NavLink to="/review-criteria" aria-label="심의 기준표" title="심의 기준표"><NavigationIcon kind="standards" /><span className="nav-copy"><span>심의 기준표</span><small>템플릿 원문·검사 기준</small></span></NavLink><NavLink to="/legal-references" aria-label="법령·규정 검색" title="법령·규정 검색"><NavigationIcon kind="law" /><span className="nav-copy"><span>법령·규정 검색</span><small>템플릿에 연결된 근거</small></span></NavLink></> : <>
           {canManageStandards || canValidate ? <p className="nav-group-label">운영 도구</p> : null}
           {canManageStandards ? <NavLink to="/standards" aria-label="기준자료 관리" title="기준자료 관리"><NavigationIcon kind="standards" /><span className="nav-copy"><span>기준자료 관리</span><small>규정·근거 최신화</small></span></NavLink> : null}
-          {canValidate ? <NavLink to="/validation/datasets" aria-label="검토 품질 관리" title="검토 품질 관리"><NavigationIcon kind="quality" /><span className="nav-copy"><span>검토 품질 관리</span><small>검증 데이터·평가</small></span></NavLink> : null}
+          {canValidate ? <NavLink to="/validation/datasets" aria-label="검토 품질 관리" title="검토 품질 관리"><NavigationIcon kind="quality" /><span className="nav-copy"><span>검토 품질 관리</span><small>검증 데이터·평가</small></span></NavLink> : null}</>}
         </nav><p className="sidebar-note"><strong>담당자 판단 원칙</strong>AI 결과는 검토를 지원하며 최종 결정을 대신하지 않습니다.</p></aside> : null}
       <main><Routes>
         <Route path="/login" element={session ? <Navigate to={homePath(session.user.roles)} replace /> : <LoginPage />} />
         <Route element={<ProtectedRoute allowedRoles={ADVERTISEMENT_ROLES} />}>
           <Route path="/advertisements" element={<AdvertisementListPage />} />
+          <Route path="/review-criteria" element={operationalMode ? <ReviewCriteriaPage /> : <Navigate to="/advertisements" replace />} />
+          <Route path="/review-results" element={operationalMode ? <OperationalReviewHubPage /> : <Navigate to="/advertisements" replace />} />
+          <Route path="/recommendations" element={operationalMode ? <OperationalReviewHubPage key="suggestions" suggestions /> : <Navigate to="/advertisements" replace />} />
+          <Route path="/legal-references" element={operationalMode ? <LegalReferencePage /> : <Navigate to="/advertisements" replace />} />
           <Route path="/advertisements/:advertisementId" element={<AdvertisementDetailPage />} />
           {/* 검토 화면은 모두 이 경계 아래에 둔다. 경계 밖에 두면 검토 전환 시 이전 검토의
               화면 상태가 남는다. */}
@@ -100,6 +114,7 @@ function Shell() {
             <Route path="results/annotations" element={operationalMode ? <Navigate to="../results" replace /> : <ReviewAnnotationsPage />} />
             <Route path="results/qa" element={<ComplianceQaPage />} />
             <Route path="support" element={<M6SupportPage />} />
+            <Route path="suggestions" element={operationalMode ? <OperationalSuggestionsPage /> : <M6SupportPage />} />
           </Route>
           <Route path="/advertisements/:advertisementId/comparisons" element={<ComparisonPage />} />
         </Route>

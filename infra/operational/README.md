@@ -14,6 +14,24 @@ Spark arm64와 H200 amd64에 같은 Dockerfile/Compose를 사용하며 모델·O
 
 ## 패키징과 설치
 
+애플리케이션 파일 포함 범위는 `runtime-files.json`의 명시 목록을 정본으로 사용한다.
+`scripts/operational_runtime.py`가 파일 존재·경로·심볼릭 링크·저장소 import 및
+문자열로 지정된 subprocess/해시 파일 의존성을 검사하고 파일별 SHA를 남긴다.
+Docker의 `application-source` 단계에서 선별하며 최종 이미지의 `/app`에는 이 산출물과
+프런트엔드 `dist`만 복사한다. 프런트엔드 빌드 입력과 private 파서/처리기 소스는
+기존 경계를 유지한다. 실행 목록은 Python106·config/schema19의125파일이다.
+requirements 두 파일은 의존성 설치용 빌드 입력으로만 사용하고 최종 이미지에서 제거한다.
+서버별 예시 설정·제안 schema는 저장소에 보존하되 실행 목록에 포함하지 않는다.
+
+생성·평가·테스트·DB 마이그레이션·CI 도구는 저장소에 보존하고 독립 작업에서 사용한다.
+공유 요청 생성에 쓰이는 `build_silver_requests.py`와 운영 복구 도구는 이미지에 남긴다.
+정적 목록 검사는 동적 경로 실행이나 파싱 정확도를 보장하지 않는다. 목록 변경 시
+`tests/test_operational_runtime.py`의 격리 import/CLI 검사와 포장 SHA 검사도 실행한다.
+새 후보의 실제 이미지 검증과 운영 교체는 구분하며 마지막 적용 상태는 인수인계 상단을 따른다.
+화면 배포에서는 현재 HTML·JS·CSS가 참조하는 파일만 남긴다. 과거 해시 이름의 화면
+파일이나 대체된 설계 코드를 새 이미지에 누적 복사하지 않는다. 상태·동결 결과·
+원문·Accepted ADR·이행에 필요한 호환 코드는 별도 보존한다.
+
 1. `scripts/package_operational_server.py --parser-root ... --document-processor-root ... --output ...`
    로 private 의존성을 포함한 소스 묶음을 생성한다. Git/환경파일/실행물은 제외하고
    파일별 SHA를 포함한다. 묶음은 고객 원문과 분리해 비공개로 전달한다.

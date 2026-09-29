@@ -1,5 +1,46 @@
 # 화면-API 매핑표
 
+## 운용상품 선택 표시 정리 — 2026-09-29
+
+등록 화면의 상세 상품군 직접 선택과 아래 복수 체크는 같은 운용상품 상태를 표시한다. 추가 선택만으로 한 광고의 복수 상품을 구성한다. CSS 선택칸 표시와 안내를 정리하며 기존 capabilities·routing·intake 연결을 사용한다. 비보호 안내문구/로고 판단은 등록 안내문에서 새로 결정하지 않는다.
+
+## 추출 상태의 진행·결과 연결 — 2026-09-29
+
+저장된 파서 관찰에서 파일·페이지별 추출 상태를 읽기 전용으로 표시한다. 처리 완료와 추출 정확성을 구별하며 confidence를 신뢰도 백분율로 변환하지 않는다. 완전 실패/파일 실패, 부분 판독·빈 영역, 불확실 판독, 좌표 없음, 미검증 복구 후보, 기록 없음과 모델 출력 실패를 구분한다. 좌표 없는 판독 확인 대상도 숨기지 않고 파일·페이지의 원본 대조 대상으로 남긴다. 원본 P1/P3·저장 예측·법령 판본·상태는 변경하지 않는다.
+
+진행 화면의 종료 상태와 결과 화면은 동일한 인증 workspace의 extraction_status를 사용한다. 출력 계약 실패 건수는 별도 기존 경고로 유지한다. JSON 다운로드는 같은 projection을 포함하고 별도 파싱/모델 호출을 하지 않는다.
+
+
+## Showcase 화면의 운영 API 연결 — 2026-09-29
+
+`/review-results`·`/recommendations`는 기존 광고 목록과 광고별 심의 이력 조회로 실제 회차를 선택한다. 완료 회차는 결과 또는 수정 초안으로, 진행/실패 회차는 진행 기록으로 이동한다. `/reviews/:reviewId/suggestions`는 다른 검토 화면과 같은 ReviewScopedBoundary 아래에 둔다.
+
+결과 표와 상세·초안은 인증된 workspace GET을 공유한다. 판정 저장값·집계·인용 계약은 유지하며 표시용 item_title/source_product/template_guidance/display_checks/template_violation_guidance/template_review_guidance를 동결 요청에서 제공한다. 원문 보기만 기존 parser-layout/preview/hwp-html GET을 추가 호출한다. 초안 편집·예시 가져오기·복사는 클라이언트 상태이며 추천 생성/채택 API를 호출하지 않는다.
+
+`/legal-references`는 기존 review-worklist GET의 TEMPLATE 행에서 source.legal_basis.statute/association을 투영한다. 현재 매핑 자료 내 검색·템플릿 필터는 클라이언트에서 처리한다. 선택 근거의 항목은 `/review-criteria?item=...`으로 이동한다. 외부 공식 법령명 검색 URL은 화면 링크이며 신규 법령 검색 서버 API나 판단 경로가 아니다. 결과 법령 링크는 각 저장 row.rule_basis.legal_basis_refs에서만 만든다.
+
+## HWP HTML 원문 보기 — 2026-09-28
+
+[ADR-0088](adr/ADR-0088-hwp-html-review-display.md)에 따라 HWP/HWPX 결과의 기본 원문 보기는 심의에 사용한 파서 이미지이며 정적 HTML 본문 읽기를 함께 제공한다. 사용자에게는 “심의 화면 · 근거 위치”와 “본문 읽기 · HTML”로 안내한다. 2026-09-28 사용자가 표시 방식 결정을 위임했고, 심의와 근거 좌표의 일치를 우선했다. 인증된 GET `/operational/reviews/{review_id}/hwp-html/{asset_id}`는 해당 심의·광고 파일 소유권과 원본 체크섬·HTML 해시를 확인한다. 저장된 파서 HTML을 우선 사용하고 과거 결과에 없으면 동일 원본에서 HTML만 생성·보관한다. 이 조회는 파싱·검색·판정을 재실행하지 않는다. HTML은 스크립트·외부 요청을 차단한 격리 iframe으로 표시하며 실제 원문에 유일하게 대응하는 인용만 문구 강조한다. 반복 문구·위치 불명은 임의로 강조하지 않는다. HTML 위에 P1 bbox를 그리지 않고 별도 파서 이미지 보기에서 기존 좌표를 확인한다. 이미지·이미지 PDF 경로와 기존 저장 판단은 유지한다.
+
+## 최신 파서 계약 연결 — 2026-09-28
+
+[최신 파서 계약](parser-schema-current-2026-09-28.md)에 따라 nh-parser-fin main 9733d9f의 P1 v4/P3 v9를 명시적으로 지원한다. 영역 라벨은 parser_label_hints로 검색·모델 입력에 전달하며 줄 증거로 승격하지 않는다. kind·text_source·품질 경고·표 셀과 미배정 줄을 보존한다. 최신 CLI는 --compact-output이며 HWP는 upstream run.py를 사용한다. parser_revision을 intake에 포함해 이전 파서의 부모 캐시를 재사용하지 않는다.
+
+결과 화면의 preview_path는 인증된 GET `/operational/reviews/{review_id}/parser-page/{page_no}`다. 해당 심의·파일 소유권·원본 체크섬·P1/P3 해시·canvas와 페이지 이미지 해시를 검사하며 실패 시 독립 변환 화면으로 대체하지 않는다. 새 HWP 화면은 실제 파서 렌더 좌표계이며 한컴 원본 조판과 같다는 주장을 하지 않는다. 제품 PostgreSQL·NormalizedDocument 계약은 변경하지 않는 loopback 운영 경계다.
+
+## 심의 흐름·상품 관계·근거 정책 — 2026-09-28
+
+[흐름과 구조화 기준](review-flow-and-structuring-2026-09-28.md), [ADR-0087](adr/ADR-0087-product-composition-and-evidence-policy.md)에 따라 퇴직연금 공통 + 복수 운용상품 선택을 입력부터 정본 전개·확정 사실·coverage까지 연결한다. ETF·ELB 비보호2항목의 본문/로고 예외와 줄 배치33항목을 분리한다. 239개 프로그램에 검사별 라벨/어휘 또는 어휘 근거 정책을 연결하고 정책 해시도 검증한다.
+
+사이트 `/review-criteria`에239+32+34 작업대장을 연결했다. 보완32·추가34는 의미·범위·판본·예외·입력 확인이 필요한 구조화 작업 대상이며 자동 판정에 일괄 활성화하지 않는다. 추가34는 잔여19·공유3·시각7·정책1·범위 보류2·판본 보류2다. 기존 상태·결과와 P1/P3·정답 격리를 유지한다.
+
+등록 화면 → PUT routing → PUT intake(운용상품 선택 포함) → POST review 순서를 유지한다. 퇴직연금 펀드·ETF·ELB 직접 선택지의 화면 값은 API 상품코드로 보내지 않고 `product_classification_code`를 퇴직연금 일반, `underlying_products`를 선택한 운용상품 코드로 전달한다. 다른 상세 상품군으로 변경하면 운용상품 선택을 비운다. 구조화 작업대장 `/review-criteria` → GET `/operational/review-worklist`, 등록 선택지 → GET `/operational/capabilities`다. 작업대장은 판정 요청에 전송하지 않는다.
+
+## 광고 단위 삭제 연결 — 2026-09-23
+
+S-002 광고물 목록의 종료 상태 행에서 `심의 결과 삭제`는 사용자 확인 후 `DELETE /api/v1/operational/advertisements/{advertisementId}`를 호출한다. 이 요청은 해당 광고와 모든 심의 회차·결과·원본·처리 데이터의 삭제 요청이다. 취소 시 호출하지 않으며,204 성공 시 목록을 다시 조회해 행을 제거한다. 진행 중 심의의409와 권한·대상·서버 오류는 목록에 표시한다. 결과 화면에는 이 action을 연결하지 않는다.
+
 ## 결과 필터와 적용 제외 데이터 — 2026-09-22
 
 S-006은 기존 workspace `rows`의 전체 판정을 기본 표시하고 `전체·위반·판단불가·충족` 네 필터로 같은 응답을 다시 요청하지 않고 전환한다. 우선 검토·규제목록 확인 버튼과 출처별 필터는 제거한다. `excluded_rows`는 응답과 JSON 내보내기에 보존하지만 화면에서는 렌더링하지 않는다. 헤더 로고는 번들 정적 자산이다. API 경로·응답 스키마·저장 결과는 변경하지 않는다.
@@ -16,9 +57,9 @@ S-003의 투자성 선택은 제품 API `productGroup=INVESTMENT`, intake `produ
 
 S-006은 workspace 행의 `line_structure_assessment`가 있으면 정확 렌더링 줄로 확인한 결과 사유를 표시한다. 동일 줄 복수 문구 규칙은 `evidence_line_refs`와 완전일치 렌더링 좌표를 사용하며, 서로 다른 줄이나 한 문장을 위반 근거로 합치지 않는다. 저장 모델 응답과 원본 좌표는 변경하지 않는다.
 
-## 심의 결과 삭제 연결 — 2026-09-17
+## 이전 최신 심의 단건 삭제 연결 — 2026-09-17
 
-S-002 광고물 목록의 종료 상태 행에서 `상세 보기` 옆 `심의 결과 삭제`는 사용자 확인 후 `DELETE /api/v1/operational/advertisements/{advertisementId}/latest-review`를 호출한다. 취소 시 호출하지 않으며,204 성공 시 목록을 다시 조회한다. 결과 화면에는 이 action을 연결하지 않는다.403·404·409 및 서버 오류는 목록에 표시한다. 이 경로는 로컬 opt-in 전용이며 제품 OpenAPI에는 추가하지 않는다.
+당시 S-002 광고물 목록의 `심의 결과 삭제`는 `DELETE /api/v1/operational/advertisements/{advertisementId}/latest-review`를 호출했다. 2026-09-23부터 목록 버튼은 상단의 광고 단위 삭제 경로를 사용한다. 최신 심의 단건 경로는 내부 호환용으로만 유지한다.
 
 S-003 운영 등록에서 `광고 형식·매체`로 표시하는 기존 `advertisementType`은 intake `media_codes[]`로 전달되고 통합 판정 문서의 `routing_metadata.media_type`으로 주입된다. 상세 상품군의 템플릿 선택과 별개이며, 둘 중 하나로 다른 값을 추정하거나 덮어쓰지 않는다.
 
@@ -70,8 +111,8 @@ S-003 운영 등록에서 `광고 형식·매체`로 표시하는 기존 `advert
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.86 |
-| 기준일 | 2026-09-22 |
+| 현행 버전 | v1.95 |
+| 기준일 | 2026-09-29 |
 
 ## 현행 시인성·판독 불확실성 처리 범위
 
@@ -87,6 +128,15 @@ operational workspace 결과 행은 활성 판정 근거를 `evidence_locations`
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.95 | 2026-09-29 | 운용상품 선택 표시 정리 |
+| v1.94 | 2026-09-29 | 추출 상태의 진행·결과 연결 |
+| v1.93 | 2026-09-29 | 운영 사이드바·결과 표/선택 상세·추천 초안·TEMPLATE 근거 검색의 기존 읽기 API 연결 |
+| v1.92 | 2026-09-28 | 퇴직연금 펀드·ETF·ELB 직접 선택지와 기존 입력 계약·초기화 회귀 반영 |
+| v1.91 | 2026-09-28 | HWP 심의 이미지 기본 보기·HTML 본문 읽기 선택 보기 |
+| v1.90 | 2026-09-28 | HWP HTML 원문 표시·동일 원본 캐시·격리·인용 강조 계약 |
+| v1.89 | 2026-09-28 | 최신 파서 v4/v9·판본 재사용·영역 힌트·실제 렌더 좌표 연결 |
+| v1.88 | 2026-09-28 | 심의 흐름·복수 운용상품·근거 정책·구조화 작업대장 연결 |
+| v1.87 | 2026-09-23 | 목록의 심의 결과 삭제를 광고 전체 삭제 API와 연결 |
 | v1.86 | 2026-09-22 | 결과 전체 기본·판정별 네 필터와 정적 로고 연결 |
 | v1.85 | 2026-09-18 | workspace 행 출처로 우선 검토와 규제목록 판단불가 필터를 클라이언트에서 분리 |
 | v1.84 | 2026-09-18 | workspace 결과의 확인 필요 기본 필터와 excluded_rows 화면 비노출 연결 |

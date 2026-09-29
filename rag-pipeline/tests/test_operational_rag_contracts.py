@@ -1528,6 +1528,10 @@ class OperationalSelectionTests(unittest.TestCase):
             "input_requirement": "광고물+원문줄구조",
         }
         self.assertFalse(operational.automated_input_ready(line_rule, structured))
+        structured['pages'][0]['regions'][0]['lines'] = [
+            {'bbox': [0, 0, 10, 10], 'text': '첫 문단\n다음 문단'}
+        ]
+        self.assertFalse(operational.automated_input_ready(line_rule, structured))
         structured.setdefault("diagnostics", {})["rendered_line_projection"] = {"verified": True}
         self.assertTrue(operational.automated_input_ready(line_rule, structured))
         self.assertFalse(

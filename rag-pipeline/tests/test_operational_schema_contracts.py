@@ -14,6 +14,7 @@ from rag.contracts.validation import (  # noqa: E402
     validate_integrated_input,
     validate_operational_result,
     validate_search_collections,
+    validate_search_document,
 )
 
 
@@ -131,6 +132,27 @@ def judgment():
 
 
 class IntegratedInputContractTests(unittest.TestCase):
+    def test_bbox_only_selected_region_is_valid_without_inventing_lines(self):
+        value = integrated_input()
+        value['pages'][0]['regions'][0].update(line_refs=[], lines=[])
+        value['quality']['line_count'] = 0
+        self.assertEqual(validate_integrated_input(value)['quality']['line_count'], 0)
+        row = {
+            'schema_version': 'ad-evidence-search-v1', 'ad_id': 'AD-1', 'doc_id': 'region-only',
+            'view_type': 'canonical_region', 'text_canonical': '선택 본문', 'text_search': '선택 본문',
+            'region_id': 'r1', 'bbox': [0, 0, 100, 20], 'line_refs': [], 'labels': [], 'routing_metadata': {},
+        }
+        self.assertEqual(validate_search_document(row)['line_refs'], [])
+        for bbox in (None, [0, 0, 0, 20], [0, 0, 100, float('nan')], [False, 0, 100, 20]):
+            with self.subTest(bbox=bbox):
+                value['pages'][0]['regions'][0]['bbox'] = bbox
+                with self.assertRaises(ContractError):
+                    validate_integrated_input(value)
+                with self.assertRaises(ContractError):
+                    validate_search_document({**row, 'bbox': bbox})
+        with self.assertRaises(ContractError):
+            validate_search_document({**row, 'region_id': None})
+
     def test_valid_integrated_input(self):
         self.assertEqual(validate_integrated_input(integrated_input())["document"]["ad_id"], "AD-1")
 

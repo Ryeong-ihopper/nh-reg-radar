@@ -13,8 +13,8 @@ STATUSES = {"SATISFIED", "MISSING", "VIOLATED", "UNDETERMINED", "NOT_APPLICABLE"
 FACT_STATUSES = {"SATISFIED", "NOT_SATISFIED", "UNDETERMINED"}
 
 
-def validate_expression(expression: Any, obligation_ids: list[str]) -> None:
-    if not obligation_ids or len(set(obligation_ids)) != len(obligation_ids):
+def validate_expression(expression: Any, obligation_ids: list[str], fact_ids: list[str] | None = None) -> None:
+    if (not obligation_ids and fact_ids is None) or len(set(obligation_ids)) != len(obligation_ids):
         raise ValueError("obligation logic needs unique non-empty obligation IDs")
     seen: set[str] = set()
     nodes = 0
@@ -31,6 +31,15 @@ def validate_expression(expression: Any, obligation_ids: list[str]) -> None:
             if not isinstance(value, str) or value not in obligation_ids:
                 raise ValueError("obligation logic references an unknown obligation")
             seen.add(value)
+        elif operator == "fact" and fact_ids is not None and value in fact_ids:
+            pass
+        elif operator == "unknown" and fact_ids is not None and isinstance(value, str) and value:
+            pass
+        elif operator == "not" and fact_ids is not None:
+            visit(value, depth + 1)
+        elif operator == "if" and fact_ids is not None and isinstance(value, list) and len(value) == 3:
+            for child in value:
+                visit(child, depth + 1)
         elif operator in {"all", "any"} and isinstance(value, list) and value:
             for child in value:
                 visit(child, depth + 1)
@@ -42,7 +51,7 @@ def validate_expression(expression: Any, obligation_ids: list[str]) -> None:
         raise ValueError("obligation logic omits source obligations")
 
 
-def aggregate_obligations(contract: dict[str, Any], checks: Any) -> str:
+def aggregate_obligations(contract: dict[str, Any], checks: Any, condition_checks: Any = None) -> str:
     """Return the verdict forced by a complete, ordered source checklist.
 
     An unknown leaf stays unknown. ALL fails on a proven failed conjunct;
@@ -51,7 +60,9 @@ def aggregate_obligations(contract: dict[str, Any], checks: Any) -> str:
     """
     expression = contract["obligation_logic"]
     expected = [value["obligation_id"] for value in contract["obligation_checks"]]
-    validate_expression(expression, expected)
+    program = contract.get("review_program") or {}
+    decision_facts = contract.get("decision_fact_ids") or []
+    validate_expression(expression, expected, decision_facts if program else None)
     if not isinstance(checks, list) or any(not isinstance(c, dict) for c in checks):
         raise ValueError("obligation checks must be objects")
     if [c.get("obligation_ref") for c in checks] != expected:
@@ -68,6 +79,19 @@ def aggregate_obligations(contract: dict[str, Any], checks: Any) -> str:
     def evaluate(node: dict[str, Any]) -> bool | None:
         if "ref" in node:
             return states[node["ref"]]
+        if "fact" in node:
+            values = {row.get("condition_ref"): row.get("status") for row in condition_checks or []}
+            value = values.get(node["fact"])
+            return True if value == "SATISFIED" else False if value == "NOT_SATISFIED" else None
+        if "unknown" in node:
+            return None
+        if "not" in node:
+            value = evaluate(node["not"])
+            return None if value is None else not value
+        if "if" in node:
+            condition, yes, no = node["if"]
+            value = evaluate(condition)
+            return None if value is None else evaluate(yes if value else no)
         operator, children = next(iter(node.items()))
         values = [evaluate(child) for child in children]
         decisive = operator == "any"
@@ -78,7 +102,9 @@ def aggregate_obligations(contract: dict[str, Any], checks: Any) -> str:
         return not decisive
 
     result = evaluate(expression)
-    return "COMPLIANT" if result is True else "VIOLATION" if result is False else "UNDETERMINED"
+    verdict = "COMPLIANT" if result is True else "VIOLATION" if result is False else "UNDETERMINED"
+    allowed = program.get("allowed_outcomes")
+    return verdict if not allowed or verdict in allowed else "UNDETERMINED"
 
 
 def validate_applicability_expression(expression: Any, fact_ids: list[str]) -> None:
@@ -132,7 +158,8 @@ def aggregate_applicability(
         expression = {"all": [{"fact": value} for value in expected]} if expected else {"all": [{"fact": "__SCOPE__"}]}
     if not expected:
         return "APPLICABLE"
-    validate_applicability_expression(expression, expected)
+    decision_facts = set(contract.get("decision_fact_ids") or [])
+    validate_applicability_expression(expression, [key for key in expected if key not in decision_facts])
     if not isinstance(checks, list) or any(not isinstance(value, dict) for value in checks):
         raise ValueError("applicability checks must be objects")
     if [value.get("condition_ref") for value in checks] != expected:
@@ -174,6 +201,11 @@ Evaluate scope and conditions first. An O whose own conditions or exceptions
 are unresolved is UNDETERMINED, not MISSING or VIOLATED. Unsupported inputs
 remain unknown. Keep each O's own source wording and exception boundaries.
 The runtime independently validates the overall verdict using this expression.
+For review programs, fact refers to a decision fact rather than a whole-rule
+applicability condition. if selects the true/false branch only when its fact is
+known; unknown leaves the branch unresolved. not negates a known fact only.
+The review program's allowed_outcomes limits the final decision. REVIEW_ONLY
+does not permit automatic compliance or violation and has no invented duty.
 A failed alternative does not force VIOLATION when a complete allowed method
 is SATISFIED. A failed mandatory conjunct does force VIOLATION even if another
 independent conjunct is unknown, after applicability/exception gates pass.

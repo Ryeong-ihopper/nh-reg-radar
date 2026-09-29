@@ -7,11 +7,26 @@ from typing import Any
 
 BASE = """Return structured fact observations only. Use each obligation's allowed
 advertisement evidence and confirmed metadata. Keep applicability, exceptions,
-and obligations separate. UNKNOWN is required when a necessary input is absent.
+and obligations separate. UNKNOWN is required when a necessary input is absent
+or unreadable. A required disclosure absent from a complete readable advertisement
+is MISSING/ABSENCE, not an unknown input. Decision facts affect only branches
+in the authored expression; unknown external facts in another branch do not
+prevent independent advertisement observations. Return every listed O once,
+including alternatives not chosen, without deciding the overall rule early.
+Observe each alternative's actual predicate; do not turn an observed absence
+or contradiction into UNKNOWN merely because another branch may be selected.
+Observe presentation-method facts independently from the duties for that method.
+A required notice is an advertisement meaning check, not proof of the real-world
+fact described by the notice, unless its owner/input contract requires external
+verification. Missing unrelated notices cannot be inferred from another notice.
 Never use a rule, example, guidance, or another rule's evidence as advertisement
 proof. A NON_BINDING_SOURCE_EXAMPLE may clarify meaning and retrieval vocabulary,
-but it is never an exact-match requirement. A retrieval miss is not proof of absence. Give a short direct citation
-for every semantic observation; do not provide hidden or extended reasoning.
+but it is never an exact-match requirement. A retrieval miss is not proof of absence.
+Give a direct quote of at least four non-whitespace source characters for every
+OBSERVED semantic finding, including original context around a shorter value.
+MISSING/ABSENCE
+and UNKNOWN use empty references when no supporting text exists; never invent
+a citation to absent text. Do not provide hidden or extended reasoning.
 The caller calculates AND/OR/NOT, numeric results, and the overall verdict."""
 
 FAMILY = {
@@ -45,9 +60,25 @@ def prompt_for_family(family: str) -> str:
 
 
 def project_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Project only role-tagged fields; display examples are never included."""
+    """Preserve authored criteria through the model's compact wire projection.
+
+    Generated atoms are not a lossless replacement for source criteria. Keep
+    criterion roles separate from response guidance and non-binding examples.
+    """
+    fields = (plan.get("source") or {}).get("source_fields") or {}
     return {
         "plan_ref": plan["plan_id"],
+        "review_program": plan.get("review_program") or {},
+        "source_criteria": {
+            key: str(fields[key]).strip()
+            for key in ("satisfied", "violated", "review", "violation_guidance", "review_guidance")
+            if str(fields.get(key) or "").strip()
+        },
+        "source_criteria_policy": (
+            "Authored criteria constrain interpretation of the compiled checks. "
+            "Guidance fields describe follow-up messages, not additional duties. "
+            "A conflict with compiled logic requires review, not an invented exception."
+        ),
         "applicability_inputs": plan["applicability_inputs"],
         "applicability_logic": plan["applicability_logic"],
         "obligations": [{
@@ -59,6 +90,7 @@ def project_plan(plan: dict[str, Any]) -> dict[str, Any]:
             "retrieval_queries": atom.get("retrieval_queries") or [atom["text"]],
             **({"deterministic_adapter": atom["deterministic_adapter"]}
                if atom.get("deterministic_adapter") else {}),
+            **({'required_terms': atom['required_terms']} if atom.get('required_terms') else {}),
         } for atom in plan["obligations"]],
         "obligation_logic": plan["obligation_logic"],
         "source_hash": plan["source_sha256"],
@@ -101,5 +133,5 @@ def _batch(family: str, plans: list[dict[str, Any]], weight: int) -> dict[str, A
         "prompt": prompt_for_family(family),
         "complexity": weight,
         "plans": [project_plan(plan) for plan in plans],
-        "operationally_connected": True,
+        "execution_stage": "REQUEST_PREPARED",
     }

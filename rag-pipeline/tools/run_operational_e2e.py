@@ -26,7 +26,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
-from rag.retrieval.evidence_bundle import search_terms, supplement_evidence  # noqa: E402
+from rag.retrieval.evidence_bundle import (  # noqa: E402
+    search_terms, supplement_evidence, program_nodes, retrieve_program_nodes,
+)
 from rag.judgment.manual_review import (  # noqa: E402
     attach_visual_retrieval_evidence,
     deferred_input_reason,
@@ -49,6 +51,8 @@ from rag.contracts.validation import (  # noqa: E402
 )
 from rag.judgment.policy import (  # noqa: E402
     confirmed_template,
+    confirmed_templates,
+    confirmed_value,
     deterministic_facts,
     enforce_review_policy,
     require_confirmed_product_group,
@@ -78,6 +82,7 @@ from rag.judgment.operational_catalog import (  # noqa: E402
     load_operational_catalog,
 )
 from rag.judgment.operational_selection import (  # noqa: E402
+    visual_exemption_confirmed,
     activate_retrieved,
     confirmed_metadata_facts,
     select_supplemental_plans,
@@ -109,7 +114,8 @@ OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다.
 사용하고, 사례 정답이나 외부 규칙을 만들지 말라.
 
 1. 각 rule은 독립적으로 판정하되 광고의 공통 사실은 일관되게 적용한다.
-2. 적용성과 판정을 분리한다. 외부자료나 미확정 메타데이터가 필요하면 UNDETERMINED다.
+2. 적용성과 판정을 분리한다. 필요한 외부자료나 미확정 메타데이터가 없으면 해당 사실·검사를
+   UNDETERMINED로 보존한다. 정본의 독립 충족 대안·확정 실패를 규칙 전체의 미확정으로 덮지 않는다.
 3. routing은 confirmed|verified|provided인 값만 확정 사실로 쓴다. null을 본문 부재로 간주하지 않는다.
 4. documents는 규칙별 근거 창이다. evidence_scope 밖 근거를 쓰지 말라.
 5. parser_coverage=PARTIAL 또는 complete_ad_scan=false이면 문구 부재를 확정하지 말라.
@@ -118,7 +124,8 @@ OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다.
 6. 표시의무의 누락은 complete_ad_scan=true일 때만 MISSING이다. 금지 표현이 실제 근거에
    관찰된 경우만 VIOLATED다. 누락 주장을 VIOLATED/OBSERVED로 우회하지 말라.
    전체 광고의 다른 위치에 있는 필수 요소도 확인하고, 일부 인용문에 없다는 이유로 누락이라 하지 말라.
-7. PARTIAL 입력의 미확인 구성요소는 UNDETERMINED며 전체 COMPLIANT로 확정하지 않는다.
+7. PARTIAL 입력에서 판독에 의존하는 미확인 구성요소는 UNDETERMINED다. 독립적으로 확인된
+   요소는 관찰하고 정본 AND/OR가 최종 판정을 계산하도록 한다.
 8. 수치는 실제 입력값·산식·결과를 확인한 때만 판정하고 조건이 비면 UNDETERMINED다.
 9. 예시의 숫자·상품명·기호·날짜 표면형식은 완전일치 의무가 아니다. 의미상 동등 표현을 인정한다.
    '또는/택일'은 허용 방식 중 하나면 충족하는 대안이다. 허용 방식 A를 확인하고도 B가 없어서
@@ -143,22 +150,37 @@ OPERATIONAL_SYSTEM = """당신은 NH 금융광고의 운영 심의 판정기다.
 18. condition_contract를 의무 판정보다 먼저 검사한다. scope_text의 대상자·상품·상황·매체·절차
     한정은 모두 같은 광고 맥락에서 성립해야 MATCHED다. 예를 들어 넓은 '담당자' 표현만으로
     더 좁은 모집인·특정 영업주체 조건을 충족했다고 추정하지 않는다. 조건이 불명확하면
-    의무를 충족·위반으로 확정하지 말고 UNDETERMINED로 둔다.
+    해당 조건·의무는 UNDETERMINED로 둔다. 정본 scope_owner=RULE이면 제공된 확정 범위를
+    사용하고 decision_fact_ids의 미확정을 전체 적용성에 섞지 않는다.
 19. review_context.review_date는 전달된 심의일이다. 서비스에서는 광고 최초 등록일로 고정한다.
 광고에 인쇄된 금리 기준일과 구분하고,
     원문 규칙이 심의시점과의 기간 비교를 요구하면 두 날짜를 대조한다. 검토일이 없으면 추정하지 않는다.
 20. template_basis.text_facet_only=true이면 읽을 수 있는 텍스트 의무만 판정한다.
     시인성·로고·중첩 구조의 충족 여부는 별도 사람 검토에 남아 있으며 텍스트 판정으로 확정하지 않는다.
 21. '조건 성립 시 생략 가능'은 면제 조건이다. 면제를 확인하지 못한 것을 미해당으로 바꾸지 않는다.
-    의무가 적용되는 조건과 생략이 허용되는 조건을 구분하고, 미확정이면 UNDETERMINED다.
-22. canonical_execution_plan이 있으면 applicability_inputs를 의무보다 먼저 각각 확인하고,
+    의무가 적용되는 조건과 생략이 허용되는 조건을 구분한다. 미확정 면제는 해당 분기에만
+    남기며 별도로 충족된 대안이나 면제 여부와 무관하게 충족된 안내를 지우지 않는다.
+22. canonical_execution_plan이 있으면 applicability_inputs의 사실을 각각 관찰하고,
     obligations의 원자 의무를 빠짐없이 requirement_checks에 대응시킨다. RULE 소유 조건과 계산은
     제공된 확정값을 그대로 사용하고, HUMAN 소유 원자는 자동 충족·위반으로 판정하지 않는다.
-    전체 판정은 하나의 키워드가 아니라 applicability_logic과 obligation_logic에 맞춰 작성한다.
+    전체 적용조건은 applicability_logic에 들어 있는 사실만이다. decision_fact_ids는 판정 분기
+    사실이며 미확정·거짓이라는 이유로 다른 원자의 관찰을 중단하지 않는다. 분기에 쓰이지 않는
+    대안도 체크 목록에서 생략하지 않는다. 그 대안의 내용 충족·부재·반대 표현이 확인되면
+    실제 관찰 상태를 반환하며, 선택되지 않았다는 이유만으로 미확정으로 바꾸지 않는다.
+    필요한 입력·판독·의미가 불명확할 때만 미확정이다. 코드는 obligation_logic을 종합한다.
 23. 광고 원문 전체 판독이 완료됐고 긍정형 내용 발동조건(추천·보증, 계산 결과, 후기, 비교,
     수익률 등)을 뒷받침하는 직접 문구가 어디에도 없으면 그 조건은 UNDETERMINED가 아니라
-    NOT_MATCHED다. AND 조건 하나가 NOT_MATCHED이면 다른 외부 조건이 미확정이어도 적용성은
-    NOT_APPLICABLE이다. 단순 숫자 하나나 주제가 비슷한 문장을 발동 근거로 사용하지 않는다.
+    legacy SCOPE는 NOT_MATCHED, 별도 광고 관찰 사실은 NOT_SATISFIED다. 정본에서는
+    applicability_logic에 사용된 광고 발동조건만 적용성에 반영한다. 분기 사실의 부재나
+    외부 사실의 미확정을 규칙 전체의 적용 제외로 바꾸지 않는다. 단순 숫자 하나나 주제가
+    비슷한 문장을 발동 근거로 사용하지 않는다.
+24. 원자 의무가 안내문구의 기재 여부를 묻는다면 광고에 그 의미가 표현됐는지를 관찰한다.
+    owner/input 계약이 외부 대조를 요구하지 않는 한, 안내가 설명하는 실제 계약·상품 사실을
+    외부에서 증명할 필요는 없다. 완전히 판독 가능한 광고에 필수 안내 의미가 없으면 MISSING,
+    동등한 표현인지 모호하면 UNDETERMINED다. 별개 주제의 안내로 다른 필수 안내를 추정하지 않는다.
+25. 표기 방식에 관한 ADVERTISEMENT_OBSERVATION 사실은 광고에 그 형식이 나타났는지 관찰한다.
+    해당 방식의 모든 의무가 충족됐는지를 사실 확인의 전제조건으로 삼지 않는다. 분기 선택을
+    기다리며 독립된 문구·수치의 관찰을 보류하지 않는다. 외부자료·사람 담당의 미확정은 유지한다.
 """
 
 
@@ -176,6 +198,9 @@ ROUTING_OVERRIDE_FIELDS = {
     "product_group",
     "product_subtype",
     "template_id",
+    "selected_templates",
+    "product_context",
+    "underlying_products_complete",
     "ad_type",
     "product_name_shown",
     "media_type",
@@ -441,6 +466,8 @@ def decision_trace(result: dict[str, Any] | None, source: str | None) -> dict[st
     }
     if (result or {}).get("relation_resolution"):
         trace["relation_resolution"] = result["relation_resolution"]
+    if (result or {}).get("review_program_trace"):
+        trace["review_program"] = result["review_program_trace"]
     return trace
 
 def write_json(path: Path, value: Any) -> None:
@@ -666,6 +693,10 @@ def evidence_documents(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "region_id": row.get("region_id"),
             "product_id": row.get("product_id"),
             "labels": row.get("labels") or [],
+            "parser_label_hints": row.get("parser_label_hints") or [],
+            "kind": row.get("kind", "text"),
+            "parser_observations": row.get("parser_observations") or {},
+            "text_source": row.get("text_source"),
             "line_refs": row.get("line_refs") or [],
             "bbox": row.get("bbox"),
             "layout": row.get("layout"),
@@ -834,6 +865,7 @@ def top_rule_evidence(
     k: int,
     rule_text: str = "",
     rule_label: str = "",
+    evidence_mode: str = "HYBRID",
 ) -> list[str]:
     """Select a small auditable evidence window for one rule.
 
@@ -843,14 +875,16 @@ def top_rule_evidence(
     nearby but unrelated line merely because the actual line was omitted from
     ``documents``.
     """
-    vector = rule_vector_by_id[item_id]
+    if evidence_mode not in {"LABEL_LEXICAL", "LEXICAL", "HYBRID"}:
+        raise ValueError("unknown evidence retrieval mode")
+    vector = rule_vector_by_id[item_id] if evidence_mode == "HYBRID" else None
     scored = sorted(
         (
             (
                 float(np.dot(vector, fine_vector_by_id[row["doc_id"]])),
                 str(row["doc_id"]),
             )
-            for row in ad_fine_rows
+            for row in ad_fine_rows if vector is not None
         ),
         reverse=True,
     )
@@ -860,9 +894,9 @@ def top_rule_evidence(
     # for unlabeled evidence and prefer readable observations among label hits.
     label_hits = [row for row in ad_fine_rows if rule_label and any(
         isinstance(label, dict) and str(label.get('label') or '').strip() == rule_label.strip()
-        for label in row.get('labels') or [])]
+        for label in row.get('labels') or []) or rule_label and rule_label.strip() in (row.get('parser_label_hints') or [])]
     dense_position = {doc_id: rank for rank, doc_id in enumerate(vector_ranked)}
-    label_hits.sort(key=lambda row: (needs_reading_review(row), dense_position[str(row['doc_id'])]))
+    label_hits.sort(key=lambda row: (needs_reading_review(row), dense_position.get(str(row['doc_id']), len(ad_fine_rows)), str(row['doc_id'])))
     label_ranked = [str(row['doc_id']) for row in label_hits]
 
     terms = search_terms(rule_text)
@@ -962,7 +996,11 @@ def automated_input_ready(
         pages = ad.get("pages") or []
         lines = [line for page in pages for region in (page.get("regions") or [])
                  for line in (region.get("lines") or [])]
-        direct_geometry = bool(lines) and all(line.get("bbox") is not None for line in lines)
+        direct_geometry = bool(lines) and all(
+            line.get("bbox") is not None
+            and len(str(line.get("text") or line.get("parser_text") or "").splitlines()) <= 1
+            for line in lines
+        )
         return bool(
             quality.get("line_partition_exact") is True
             and all(page.get("parse_status") in {None, "ok"} for page in pages)
@@ -1089,6 +1127,8 @@ def freeze_manifest(
         ROOT / "rag/judgment/applicability.py",
         ROOT / "rag/judgment/policy.py",
         ROOT / "rag/judgment/reading_quality.py",
+        ROOT / "rag/judgment/output_contract.py",
+        ROOT / "rag/judgment/unsupported_observations.py",
         ROOT / "rag/judgment/temporal.py",
         ROOT / "rag/judgment/source_checks.py",
         ROOT / "rag/judgment/grounding.py",
@@ -1099,6 +1139,13 @@ def freeze_manifest(
         ROOT / "rag/judgment/operational_selection.py",
         ROOT / "rag/judgment/family_prompts.py",
         ROOT / "rag/judgment/obligation_logic.py",
+        ROOT / "rag/judgment/review_program.py",
+        ROOT / "rag/judgment/product_context.py",
+        ROOT / "rag/judgment/review_program_extensions.py",
+        ROOT / "rag/judgment/bonus_evidence.py",
+        ROOT / "rag/judgment/loan_rate_evidence.py",
+        ROOT / "rag/judgment/loan_amount_evidence.py",
+        ROOT / "rag/judgment/basis_date_evidence.py",
         ROOT / "rag/judgment/manual_review.py",
         ROOT / "rag/templates/catalog.py",
         ROOT / "rag/templates/methodology.py",
@@ -1129,6 +1176,9 @@ def freeze_manifest(
     for path in (args.canonical_plans, args.catalog_migration, args.rule_dispositions):
         if path:
             input_paths.append(path)
+    if args.canonical_plans:
+        input_paths.append(args.canonical_plans.parent / 'review-program-policies-v1.json')
+        input_paths.append(ROOT / 'config/product-contexts-v1.json')
     if getattr(args, "template_hwpx", None):
         input_paths.append(args.template_hwpx)
     if getattr(args, "template_methodology_dir", None):
@@ -1523,6 +1573,7 @@ def main() -> None:
     ]
     started_at = time.perf_counter()
     model = discovery.load_model()
+    node_query_vectors = {}
     args.vector_cache_dir.mkdir(parents=True, exist_ok=True)
     rule_source = args.template_hwpx if template_only else args.regulation
     canonical_variant = canonical_catalog.source_sha256 if canonical_catalog else ""
@@ -1752,7 +1803,8 @@ def main() -> None:
             )
         ]
         template_value = confirmed_template(route_context)
-        if template_only and template_value not in {rule.get("product_subtype") for rule in t_rules}:
+        selected_templates = confirmed_templates(route_context)
+        if not selected_templates or set(selected_templates) - {rule.get("product_subtype") for rule in t_rules}:
             raise ValueError("selected template is missing from the authoritative template source")
         template_candidates = [
             {
@@ -1764,7 +1816,7 @@ def main() -> None:
             for rule in t_rules
             if template_value
             and t_rule_applies(rule, candidate_groups)
-            and rule.get("product_subtype") == template_value
+            and rule.get("product_subtype") in selected_templates
             and (not rule.get("template_basis") or rule["template_basis"]["structure_status"] == "STRUCTURED"
                  or rule["template_basis"].get("text_review_ready"))
             and automated_input_ready(rule, ads[ad_id])
@@ -1774,7 +1826,7 @@ def main() -> None:
              "required_medium": rule.get("required_medium"),
              "input_requirement": rule.get("input_requirement")}
             for rule in t_rules
-            if rule.get("product_subtype") == template_value
+            if rule.get("product_subtype") in selected_templates
             and (not rule.get("template_basis") or rule["template_basis"]["structure_status"] == "STRUCTURED")
             and not automated_input_ready(rule, ads[ad_id])
         )
@@ -1782,7 +1834,7 @@ def main() -> None:
             {"item_id": rule["item_id"], "reason": "template source structure requires review",
              "template_basis": rule["template_basis"]}
             for rule in t_rules
-            if rule.get("product_subtype") == template_value and rule.get("template_basis")
+            if rule.get("product_subtype") in selected_templates and rule.get("template_basis")
             and rule["template_basis"]["structure_status"] != "STRUCTURED"
             and not rule["template_basis"].get("text_review_ready")
         )
@@ -1790,14 +1842,15 @@ def main() -> None:
             {"item_id": rule["item_id"], "title": rule["title"], "facet": "VISUAL_OR_STRUCTURE",
              "reason": "텍스트 의무는 별도 판정하며 배치·로고·중첩 원문 구조는 사람 확인 필요",
              "template_basis": rule["template_basis"]}
-            for rule in t_rules if rule.get("product_subtype") == template_value
+            for rule in t_rules if rule.get("product_subtype") in selected_templates
             and (rule.get("template_basis") or {}).get("manual_review_required")
+            and not visual_exemption_confirmed(rule, route_context)
         )
         deferred_template_rules = [
             rule["item_id"]
             for rule in t_rules
             if t_rule_applies(rule, candidate_groups)
-            and rule.get("product_subtype") != template_value
+            and rule.get("product_subtype") not in selected_templates
         ]
         # Policy rows must remain searchable even if a broad source-shape rule
         # also classifies them as mapped/general. Their advertisement-content
@@ -2054,22 +2107,39 @@ def main() -> None:
                 rule_text=judgment_rule_text(rule_by_id[item_id]),
                 rule_label=(str(rule_by_id[item_id].get('title') or '')
                             if rule_by_id[item_id].get('source_sheet') == 'HWPX_TEMPLATE' else ''),
+                evidence_mode=((rule_by_id[item_id].get('condition_contract') or {}).get('review_program', {})
+                               .get('evidence_policy', {}).get('mode', 'LEXICAL')),
             )
             for item_id in candidate_ids
         }
         context_audit = {}
+        node_queries = list(dict.fromkeys(node['query'] for item_id in candidate_ids
+            for node in program_nodes(rule_by_id[item_id])
+            if node['mode'] == 'HYBRID' and node['query'] not in node_query_vectors))
+        if node_queries:
+            encoded = model.encode(node_queries, batch_size=4, convert_to_numpy=True,
+                                   normalize_embeddings=True, show_progress_bar=False)
+            if len(encoded) != len(node_queries):
+                raise RuntimeError('node embedding count mismatch')
+            node_query_vectors.update(zip(node_queries, encoded))
         for item_id, seed_ids in evidence_by_item.items():
+            selected, node_audit = retrieve_program_nodes(
+                seed_ids, evidence_rows_by_item[item_id], rule_by_id[item_id],
+                node_query_vectors, fine_vector_by_id, char_budget=args.context_char_budget // 2)
             selected, source_audit = expand_source_context(
-                seed_ids, evidence_rows_by_item[item_id], char_budget=args.context_char_budget)
-            remaining = args.context_char_budget - source_audit["added_chars"]
+                selected, evidence_rows_by_item[item_id],
+                char_budget=args.context_char_budget - node_audit['added_chars'])
+            remaining = args.context_char_budget - source_audit["added_chars"] - node_audit['added_chars']
             selected, facet_audit = supplement_evidence(
                 selected, evidence_rows_by_item[item_id], rule_by_id[item_id], char_budget=remaining)
             remaining -= facet_audit["added_chars"]
             evidence_by_item[item_id], followup_audit = expand_source_context(
                 selected, evidence_rows_by_item[item_id], char_budget=remaining)
             context_audit[item_id] = {**source_audit, "source_facets": facet_audit,
+                "evidence_policy": (rule_by_id[item_id].get('condition_contract') or {}).get('review_program', {}).get('evidence_policy', {}),
+                "program_nodes": node_audit,
                 "followup_context": followup_audit,
-                "total_added_chars": source_audit["added_chars"] + facet_audit["added_chars"] + followup_audit["added_chars"]}
+                "total_added_chars": node_audit['added_chars'] + source_audit["added_chars"] + facet_audit["added_chars"] + followup_audit["added_chars"]}
         # Keep a short advertisement complete without repeating 200+ region
         # records (including long evidence IDs and line refs) in every rule
         # request.  The transcript is context only; retrieved fine documents
@@ -2167,7 +2237,7 @@ def main() -> None:
             "routing": route_context,
             "template_coverage": (
                 audit_canonical_template_coverage(
-                    canonical_catalog, template_value, candidate_ids,
+                    canonical_catalog, selected_templates, candidate_ids,
                     [*deferred_input_rules, *applicability_pending],
                 )
                 if canonical_catalog and template_value else
@@ -2382,6 +2452,9 @@ def main() -> None:
         candidates = []
         for pair in sorted((pair for pair in requested_pairs if pair[0] == ad_id), key=lambda pair: pair[1]):
             result = ad_results.get(pair[1])
+            if result:
+                from rag.judgment.review_program import refresh_program_trace
+                refresh_program_trace(rule_by_id[pair[1]]['condition_contract'], result, 'operational_final')
             candidates.append({
                 "item_id": pair[1],
                 "rule_basis": rule_basis_by_id[pair[1]],
@@ -2404,6 +2477,9 @@ def main() -> None:
             "parser_coverage": discovery_by_ad[ad_id]["parser_coverage"],
             "template_coverage": discovery_by_ad[ad_id].get("template_coverage"),
             "deferred_rules": [
+                *([{"item_id": "PRODUCT-CONTEXT", "title": "퇴직연금 운용상품 적용 범위", "facet": "SCOPE_REVIEW",
+                    "reason": "광고에 언급된 운용상품이 미확정이므로 퇴직연금 공통 기준만 적용했습니다. 펀드·ETF·ELB의 추가 적용 여부를 사람이 확인해야 합니다."}]
+                  if confirmed_value(discovery_by_ad[ad_id]['routing'].get('underlying_products_complete')) is False else []),
                 *discovery_by_ad[ad_id].get("template_scope_deferred", []),
                 *discovery_by_ad[ad_id]["deferred_input_rules"],
                 *discovery_by_ad[ad_id].get("applicability_pending", []),
@@ -2433,7 +2509,7 @@ def main() -> None:
                 "temperature": 0,
             },
             "search": {
-                "engine": ("Template enumeration + BGE-M3 evidence retrieval" if template_only else
+                "engine": ("Template enumeration + label/lexical evidence; dense by check policy" if template_only else
                            "Elasticsearch BM25 + BGE-M3 + RRF + bge-reranker-v2-m3"),
                 "index": None if template_only else args.es_index,
                 "rule_search_text_variant": args.rule_search_text_variant,

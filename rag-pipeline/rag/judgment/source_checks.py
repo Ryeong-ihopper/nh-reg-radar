@@ -243,19 +243,23 @@ def observed_grounding_errors(payload, result):
     rule_text = ' '.join(str(rule.get(key) or '') for key in (
         'title', 'question', 'criterion', 'v2_note'))
     errors = []
-    for index, check in enumerate(result.get('requirement_checks') or []):
+    checks = result.get('requirement_checks') or []
+    authored = {o.get('obligation_id'): o for o in (rule.get('condition_contract') or {}).get('obligation_checks') or []}
+    for index, check in enumerate(checks):
         if (not isinstance(check, dict) or check.get('finding_basis') != 'OBSERVED'
                 or check.get('status') not in {'SATISFIED', 'VIOLATED'}):
             continue
         refs = check.get('evidence_line_refs') or []
         text = cited_window_text(refs, documents)
-        if (claims_disclosure_absence(check, str(result.get('reason') or ''))
+        numeric = bool((authored.get(check.get('obligation_ref')) or {}).get('deterministic_adapter'))
+        absence_claim = claims_disclosure_absence(check, str(result.get('reason') or '') if len(checks) == 1 else '')
+        if (not numeric and absence_claim
                 and check.get('finding_basis') != 'ABSENCE'):
             errors.append(
                 f"{result.get('item_id')}: requirement_checks[{index}] 누락 주장은 "
                 "OBSERVED가 아니라 ABSENCE 근거와 전체 판독을 사용해야 함"
             )
-        if (refs and not claims_disclosure_absence(check, str(result.get('reason') or ''))
+        if (refs and not absence_claim
                 and not requires_arithmetic_consistency(rule.get('criterion', ''))
                 and not grounded_source_excerpt_present(str(check.get('reason') or ''), text)):
             errors.append(
@@ -297,6 +301,11 @@ def source_claim_errors(payload, result):
                 "cannot establish an unrelated body disclosure"
             )
         obligation = next((o for o in obligations if o.get('obligation_id') == check.get('obligation_ref')), {})
+        if obligation.get('required_terms') and check.get('status') == 'SATISFIED':
+            window = cited_window_text(check.get('evidence_line_refs') or [], documents)
+            for term in obligation['required_terms']:
+                if not isinstance(term, str) or not term or term not in window:
+                    errors.append(f"{result.get('item_id')}: source explicitly requires the quoted term; cited text cannot establish SATISFIED for {check.get('obligation_ref')}")
         match = QUOTED_REQUIRED.fullmatch(obligation.get('text', ''))
         if match and check.get('status') == 'SATISFIED':
             refs = check.get('evidence_line_refs') or []
@@ -307,7 +316,9 @@ def source_claim_errors(payload, result):
                 errors.append(f"{result.get('item_id')}: source explicitly requires the quoted term; cited text cannot establish SATISFIED for {check.get('obligation_ref')}")
         reason = str(check.get('reason') or '')
         if check.get('status') in {'VIOLATED', 'MISSING'}:
-            if required_observation_medium(str(rule.get('guide') or rule.get('criterion') or ''))[2] == '원문줄구조':
+            program = (rule.get('condition_contract') or {}).get('review_program') or {}
+            if (not program.get('line_structure_policy')
+                    and required_observation_medium(str(rule.get('guide') or rule.get('criterion') or ''))[2] == '원문줄구조'):
                 refs = list(dict.fromkeys(check.get('evidence_line_refs') or []))
                 text = cited_window_text(refs, documents)
                 marker_count = len(re.findall(r'(?:^|\s)(?:※|\*|•|●)\s*\S', text))
@@ -321,8 +332,15 @@ def source_claim_errors(payload, result):
                         "containing at least two distinct notice statements; separate lines or one statement "
                         "cannot establish a violation"
                     )
-            arithmetic_required = requires_arithmetic_consistency(
-                obligation.get('text') or rule.get('criterion', ''))
+            # Canonical atoms declare their numeric adapter explicitly. Prose
+            # saying that additional arithmetic is *not* required must not
+            # turn a semantic disclosure's absence into a calculation error.
+            arithmetic_required = (
+                (obligation.get('deterministic_adapter') or {}).get('kind')
+                == 'ADVERTISED_ARITHMETIC_CONSISTENCY'
+                if program else requires_arithmetic_consistency(
+                    obligation.get('text') or rule.get('criterion', ''))
+            )
             if arithmetic_required:
                 text = cited_window_text(check.get('evidence_line_refs') or [], documents)
                 if not has_arithmetic_mismatch_witness(reason, text):

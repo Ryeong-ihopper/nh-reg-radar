@@ -259,8 +259,10 @@ def compile_canonical_condition_contract(rule: dict[str, Any]) -> dict[str, Any]
         for value in plan.get("applicability_inputs") or []
     ]
     fact_ids = [value["condition_id"] for value in facts]
+    decision_fact_ids = [value["fact_id"] for value in plan.get("applicability_inputs") or []
+                         if value.get("purpose") == "DECISION_BRANCH"]
     applicability_logic = plan.get("applicability_logic")
-    validate_applicability_expression(applicability_logic, fact_ids)
+    validate_applicability_expression(applicability_logic, [key for key in fact_ids if key not in decision_fact_ids])
     obligations = [
         {
             "obligation_id": value["obligation_ref"],
@@ -269,14 +271,16 @@ def compile_canonical_condition_contract(rule: dict[str, Any]) -> dict[str, Any]
             "owners": value["owners"],
             "evidence": value["evidence_contract"],
             "interpretation_hints": value.get("interpretation_hints") or [],
+            "retrieval_queries": value.get("retrieval_queries") or [value["text"]],
             **({"deterministic_adapter": value["deterministic_adapter"]}
                if value.get("deterministic_adapter") else {}),
+            **({'required_terms': value['required_terms']} if value.get('required_terms') else {}),
         }
         for value in plan.get("obligations") or []
     ]
     obligation_ids = [value["obligation_id"] for value in obligations]
     obligation_logic = plan.get("obligation_logic")
-    validate_expression(obligation_logic, obligation_ids)
+    validate_expression(obligation_logic, obligation_ids, decision_fact_ids if plan.get("review_program") else None)
     source_fields = {
         "plan_ref": plan["plan_ref"],
         "source_hash": plan["source_hash"],
@@ -284,6 +288,9 @@ def compile_canonical_condition_contract(rule: dict[str, Any]) -> dict[str, Any]
         "applicability_logic": applicability_logic,
         "obligations": obligations,
         "obligation_logic": obligation_logic,
+        "source_criteria": plan.get("source_criteria") or {},
+        "review_program": plan.get("review_program") or {},
+        "decision_fact_ids": decision_fact_ids,
     }
     source_bytes = json.dumps(
         source_fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -293,6 +300,10 @@ def compile_canonical_condition_contract(rule: dict[str, Any]) -> dict[str, Any]
         "schema_version": VERSION,
         "canonical_plan_ref": plan["plan_ref"],
         "canonical_source_hash": plan["source_hash"],
+        "review_program": plan.get("review_program") or {},
+        "decision_fact_ids": decision_fact_ids,
+        "source_criteria": plan.get("source_criteria") or {},
+        "source_criteria_policy": plan.get("source_criteria_policy") or "",
         "scope_ref": "SCOPE",
         "scope_text": str(rule.get("question") or rule.get("title") or plan["plan_ref"]),
         "scope_source_sha256": hashlib.sha256(source_bytes).hexdigest(),
@@ -338,7 +349,8 @@ def audit_compiled_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
         seen.add(item_id)
         contract = rule["condition_contract"]
         obligations = contract["obligation_checks"]
-        validate_expression(contract["obligation_logic"], [o["obligation_id"] for o in obligations])
+        validate_expression(contract["obligation_logic"], [o["obligation_id"] for o in obligations],
+                            contract.get("decision_fact_ids", []) if contract.get("review_program") else None)
         rows.append({
             "item_id": item_id,
             "source_sheet": rule.get("source_sheet"),

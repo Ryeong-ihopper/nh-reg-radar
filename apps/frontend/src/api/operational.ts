@@ -18,6 +18,15 @@ export interface OperationalCapabilities {
   regulation: string;
   sourcePolicy: "template-only" | "template-plus-v2";
   progressMeaning: string;
+  productContexts?: Array<{
+    code: string;
+    label: string;
+    base_template: string;
+    components: Array<{ code: string; label: string; template: string }>;
+    restricted_standalone_templates: string[];
+  }>;
+  templatePlanCounts?: Record<string, number>;
+  evidencePolicy?: string;
 }
 
 export interface ParserLayoutLine {
@@ -44,6 +53,7 @@ export interface ParserLayout {
     page_no: number;
     asset_id?: string | null;
     source_page_no?: number;
+    preview_path?: string;
     canvas_w: number;
     canvas_h: number;
     regions: ParserLayoutRegion[];
@@ -87,13 +97,13 @@ export async function cancelOperationalReview(token: string, reviewId: string): 
   }
 }
 
-export async function deleteLatestOperationalReview(token: string, advertisementId: string): Promise<void> {
-  const response = await fetchOperational(token, `/operational/advertisements/${encodeURIComponent(advertisementId)}/latest-review`, {
+export async function deleteOperationalAdvertisement(token: string, advertisementId: string): Promise<void> {
+  const response = await fetchOperational(token, `/operational/advertisements/${encodeURIComponent(advertisementId)}`, {
     method: "DELETE",
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
-    throw new Error(body.message ?? "심의 결과 삭제에 실패했습니다.");
+    throw new Error(body.message ?? "광고와 심의 결과 삭제에 실패했습니다.");
   }
 }
 
@@ -101,4 +111,17 @@ export async function downloadOperationalResult(token: string, reviewId: string)
   const response = await fetchOperational(token, `/operational/reviews/${encodeURIComponent(reviewId)}/export.json`, {});
   if (!response.ok) throw new Error("결과 JSON을 만들지 못했습니다.");
   return response.blob();
+}
+
+export async function getOperationalParserPreview(token: string, path: string): Promise<{ blob: Blob }> {
+  const response = await fetchOperational(token, path, {});
+  if (!response.ok) throw new Error("파서가 사용한 원문 화면을 불러올 수 없습니다.");
+  return { blob: await response.blob() };
+}
+
+export async function getOperationalHwpHtml(token: string, reviewId: string, assetId: string): Promise<string> {
+  const response = await fetchOperational(token,
+    `/operational/reviews/${encodeURIComponent(reviewId)}/hwp-html/${encodeURIComponent(assetId)}`, {});
+  if (!response.ok) throw new Error('HWP HTML 본문을 불러올 수 없습니다.');
+  return response.text();
 }

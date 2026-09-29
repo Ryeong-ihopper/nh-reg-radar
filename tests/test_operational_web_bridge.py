@@ -1,8 +1,10 @@
 """Provider-free adapter tests; these fixtures are never runtime judgments."""
+import hashlib
 import json
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -200,6 +202,7 @@ class BridgeTests(unittest.TestCase):
             "template_source_path": str(self.root / "template.hwpx"),
             "regulation_path": str(self.root / "rules.xlsx"),
             "es_url": "http://localhost:9", "es_index": "test-only", "model": "test-only",
+            "vector_cache_dir": str(self.root / "vector-cache"),
         }), encoding="utf-8")
         self.settings = Settings(app_env="test", private_storage_path=self.root / "private")
         self.services = build_services(self.settings)
@@ -341,6 +344,141 @@ class BridgeTests(unittest.TestCase):
                   "shared_asset_scopes": [], "follow_up": None}
         with self.assertRaisesRegex(ValueError, "HWP_PHYSICAL_SCOPE_UNAVAILABLE"):
             self.bridge.apply_intake_scopes(self.ad, document, intake)
+
+    def test_parser_fin_current_command_runs_native_hwp_through_upstream_and_pins_reuse(self):
+        self.bridge.config.update(parser_runner='nh_parser_fin', parser_python='python',
+                                  parser_root=str(self.root), parser_cwd=str(self.root),
+                                  parser_contract_profile='region-v9', parser_revision='a'*40)
+        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        source = self.root/'current-source'
+        source.mkdir()
+        (source/'input.hwp').write_bytes(b'test input')
+        output = self.root/'output'
+        command = self.bridge.parser_command(source, output, template_id='예금성상품-적립식')
+        self.assertIn('--compact-output', command)
+        self.assertNotIn('--with-vlm', command)
+        with patch('operational_web_bridge.subprocess.run', return_value=Mock(returncode=0)) as run:
+            self.assertEqual(self.bridge.execute_parser(source,output,self.root/'current.log',
+                                                        template_id='예금성상품-적립식'),0)
+        self.assertEqual(run.call_count,1)
+        self.assertNotIn('parse_hwp_native.py', ' '.join(run.call_args.args[0]))
+        self.assertEqual(run.call_args.kwargs['env']['HWP_RENDER_DIR'],str(output/'render'))
+        intake = self.bridge.parser_intake('예금성상품-적립식')
+        self.assertEqual(intake['version'],'user-template-labeling-v6')
+        self.assertEqual(intake['parser_revision'],'a'*40)
+        self.bridge.config['parser_revision']='b'*40
+        self.assertNotEqual(intake,self.bridge.parser_intake('예금성상품-적립식'))
+        self.bridge.config.pop('parser_revision')
+        with self.assertRaisesRegex(ValueError,'PARSER_REVISION_REQUIRED'):
+            self.bridge.parser_intake('예금성상품-적립식')
+
+    def test_parser_fin_current_profile_rejects_previous_contract_and_unknown_profile(self):
+        self.bridge.config.update(parser_runner='nh_parser_fin',parser_contract_profile='region-v9')
+        self.bridge.parser_layout_config=parser_runner_layout(self.bridge.config)
+        first,third = self.write_parser_pair(self.root/'old-pair','ad.json')
+        with self.assertRaisesRegex(ValueError,'PARSER_CONTRACT_MISMATCH'):
+            self.bridge.validate_parser_template(first,third,'예금성상품-적립식')
+        with self.assertRaisesRegex(ValueError,'unsupported parser_contract_profile'):
+            parser_runner_layout({'parser_runner':'nh_parser_fin','parser_contract_profile':'guess-latest'})
+
+    def test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
+        from PIL import Image
+        file=self.ad.files[0]
+        bundle=self.request()
+        directory=self.bridge.root/'runs'/bundle.review.review_id
+        directory.mkdir(parents=True,exist_ok=True)
+        output=directory/'parser-initial'/file.file_id/'output'
+        (output/'final').mkdir(parents=True)
+        (output/'images').mkdir()
+        Image.new('RGB',(30,40),'white').save(output/'images'/'render.png')
+        p1=output/'final'/'input.p1.json'
+        p3=output/'final'/'input.p3.json'
+        p1.write_text(json.dumps({'source_file':'input.hwp','pages':[{'page_no':1,'canvas':[30,40]}]}),encoding='utf-8')
+        p3.write_text(json.dumps({'contract':{'version':'nh-ad-region-review-input-v9'}}),encoding='utf-8')
+        (output/'media-index.json').write_text(json.dumps([{'source_file':'input.hwp','page_no':1,'image_name':'render.png'}]))
+        self.bridge.capture_parser_page_images(file,p1,p3,directory)
+        integrated={'pages':[{'page_no':1,'asset_id':file.file_id,'source_page_no':1,'canvas_w':30,'canvas_h':40}],
+                    'diagnostics':{'assets':[{'file_id':file.file_id,
+                       'p1_sha256':hashlib.sha256(p1.read_bytes()).hexdigest(),
+                       'p3_sha256':hashlib.sha256(p3.read_bytes()).hexdigest(),
+                       'source_parser_contracts':{'source_p3_contract':'nh-ad-region-review-input-v9'}}]}}
+        (directory/'integrated.json').write_text(json.dumps(integrated))
+        image=self.bridge.parser_page_image(bundle.review.review_id,1)
+        self.assertEqual(image.read_bytes(),(output/'images'/'render.png').read_bytes())
+        layout=self.bridge.with_parser_preview_paths(bundle.review.review_id, {'pages':integrated['pages']},integrated)
+        self.assertIn('/parser-page/1',layout['pages'][0]['preview_path'])
+        app=create_app(self.settings,self.services)
+        self.bridge.install(app)
+        token,_,_=self.services.auth.login(self.user.email,'test-password','local','test','test')
+        with TestClient(app) as client:
+            path=f'/operational/reviews/{bundle.review.review_id}/parser-page/1'
+            self.assertEqual(client.get(path).status_code,401)
+            response=client.get(path,headers={'Authorization':f'Bearer {token}'})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.content,image.read_bytes())
+            self.assertEqual(response.headers['content-type'],'image/png')
+        image.write_bytes(b'changed bytes')
+        with self.assertRaises(ServiceError) as changed:
+            self.bridge.parser_page_image(bundle.review.review_id,1)
+        self.assertEqual(changed.exception.code,'PARSER_PAGE_MISMATCH')
+
+    def test_hwp_html_is_authenticated_owned_hash_bound_and_static(self):
+        from operational_hwp_html import static_hwp_html
+        self.ad.files[0] = replace(self.ad.files[0], original_file_name='input.hwp')
+        file = self.ad.files[0]
+        bundle = self.request()
+        directory = self.bridge.root / 'runs' / bundle.review.review_id
+        raw = b'<html><head><meta http-equiv="refresh" content="0;url=https://outside.invalid"></head><body><p onclick="alert(1)">review text</p><script>fetch("https://outside.invalid")</script><img src="https://outside.invalid/a.png"><a href="javascript:alert(1)">link</a></body></html>'
+        self.bridge.save_hwp_html(file,raw,directory,basis='PARSER_AUTHORED_HTML')
+        html = self.bridge.hwp_review_html(bundle.review.review_id,file.file_id)
+        self.assertIn('review text',html)
+        self.assertNotIn('<script',html)
+        self.assertNotIn('onclick',html)
+        self.assertNotIn('outside.invalid',html)
+        self.assertNotIn('javascript:',html)
+        self.assertIn("script-src &#x27;none&#x27;",html)
+        self.assertIn('text',static_hwp_html('<p>text</p>'))
+        with self.assertRaises(ServiceError) as wrong:
+            self.bridge.hwp_review_html(bundle.review.review_id,'FILE-other')
+        self.assertEqual(wrong.exception.status_code,404)
+        app=create_app(self.settings,self.services)
+        self.bridge.install(app)
+        token,_,_=self.services.auth.login(self.user.email,'test-password','local','test','test')
+        path=f'/operational/reviews/{bundle.review.review_id}/hwp-html/{file.file_id}'
+        with TestClient(app) as client:
+            self.assertEqual(client.get(path).status_code,401)
+            response=client.get(path,headers={'Authorization':f'Bearer {token}'})
+            self.assertEqual(response.status_code,200)
+            self.assertIn('text/html',response.headers['content-type'])
+            self.assertIn("script-src 'none'",response.headers['content-security-policy'])
+        (directory/'hwp-html'/f'{file.file_id}.html').write_bytes(b'changed')
+        with self.assertRaises(ServiceError) as changed:
+            self.bridge.hwp_review_html(bundle.review.review_id,file.file_id)
+        self.assertEqual(changed.exception.code,'HWP_HTML_MISMATCH')
+
+    def test_hwp_html_for_past_review_generates_only_html_and_reuses_it(self):
+        raw=b'synthetic HWP'
+        key=self.services.advertisements.storage.put(raw)
+        self.ad.files[0]=replace(self.ad.files[0],original_file_name='past.hwp',storage_key=key,
+                                 checksum=hashlib.sha256(raw).hexdigest())
+        file=self.ad.files[0]
+        bundle=self.request()
+        self.bridge.config.update(parser_runner='nh_parser_fin',parser_python='python',
+                                 parser_root=str(self.root),parser_cwd=str(self.root))
+        self.bridge.parser_layout_config=parser_runner_layout(self.bridge.config)
+        previous_links = json.loads(json.dumps(self.bridge.links))
+        def render(command,**kwargs):
+            output=Path(command[command.index('--output')+1])
+            (output/'past.review.html').write_text('<html><head></head><body><p>past source</p></body></html>')
+            return Mock(returncode=0)
+        with patch('operational_web_bridge.subprocess.run',side_effect=render) as run:
+            self.assertIn('past source',self.bridge.hwp_review_html(bundle.review.review_id,file.file_id))
+            self.assertIn('past source',self.bridge.hwp_review_html(bundle.review.review_id,file.file_id))
+        self.assertEqual(run.call_count,1)
+        self.assertTrue(run.call_args.args[0][1].endswith('render_hwp_review_html.py'))
+        self.assertNotIn('run.py',run.call_args.args[0])
+        self.assertFalse((self.bridge.root/'runs'/bundle.review.review_id/'integrated.json').exists())
+        self.assertEqual(self.bridge.links, previous_links)
 
     def test_native_hwp_success_failure_and_image_fallback(self):
         source = self.root / "native-source"
@@ -532,6 +670,102 @@ class BridgeTests(unittest.TestCase):
         self.assertIsNone(self.services.reviews.repository.get(bundle.review.review_id))
         self.assertEqual(self.ad.review_status, "UPLOADED")
 
+    def test_delete_advertisement_removes_all_owned_state_files_and_embeddings(self):
+        storage_key = self.services.advertisements.storage.put(b"original advertisement")
+        self.ad.files[0] = replace(self.ad.files[0], storage_key=storage_key)
+        first = self.request()
+        first.job.status = "COMPLETED"
+        first.review.status = "REVIEW_COMPLETED"
+        self.bridge.active.discard(first.review.review_id)
+        second = self.request()
+        second.job.status = "FAILED"
+        second.review.status = "REVIEW_FAILED"
+        self.bridge.active.discard(second.review.review_id)
+        fine_body = b'{"doc_id":"evidence-1","text_search":"advertisement text"}\n'
+        fine_hash = hashlib.sha256(fine_body).hexdigest()
+        cache_root = Path(self.bridge.rag.config.vector_cache_dir)
+        cache_root.mkdir(parents=True)
+        evidence_cache = cache_root / f"evidence-fine-{fine_hash}.f16.npy"
+        context_cache = cache_root / f"query-context-{fine_hash}-scope.f16.npy"
+        rule_cache = cache_root / "rules-shared.f16.npy"
+        for path in (evidence_cache, context_cache, rule_cache):
+            path.write_bytes(b"cache")
+        for bundle, rag_job_id in ((first, "rag-first"), (second, "rag-second")):
+            run_dir = self.bridge.root / "runs" / bundle.review.review_id
+            fine_path = self.bridge.root / "rag-jobs" / rag_job_id / "input" / "evidence_fine.jsonl"
+            run_dir.mkdir(parents=True)
+            fine_path.parent.mkdir(parents=True)
+            fine_path.write_bytes(fine_body)
+            self.bridge.links[bundle.review.review_id] = {"rag_job_id": rag_job_id}
+            self.bridge.decisions[bundle.review.review_id] = {"decision": "REJECTED"}
+        self.bridge.routes[self.ad.advertisement_id] = {"product_group": "SAVINGS"}
+
+        advertisement_id = self.bridge.delete_advertisement(self.actor, self.ad.advertisement_id)
+
+        self.assertEqual(advertisement_id, self.ad.advertisement_id)
+        self.assertIsNone(self.services.repository.get_advertisement(self.ad.advertisement_id))
+        self.assertFalse(any(
+            bundle.review.advertisement_id == self.ad.advertisement_id
+            for bundle in self.services.reviews.repository._items.values()
+        ))
+        self.assertNotIn(self.ad.advertisement_id, self.bridge.routes)
+        self.assertFalse(any(review_id in self.bridge.links for review_id in (first.review.review_id, second.review.review_id)))
+        self.assertFalse(any(review_id in self.bridge.decisions for review_id in (first.review.review_id, second.review.review_id)))
+        self.assertFalse((self.bridge.root / "runs" / first.review.review_id).exists())
+        self.assertFalse((self.bridge.root / "rag-jobs" / "rag-second").exists())
+        self.assertFalse(evidence_cache.exists())
+        self.assertFalse(context_cache.exists())
+        self.assertTrue(rule_cache.exists())
+        with self.assertRaises(FileNotFoundError):
+            self.services.advertisements.storage.open(storage_key)
+        persisted = json.loads((self.bridge.root / "web-state.json").read_text(encoding="utf-8"))
+        self.assertFalse(any(row["advertisement_id"] == self.ad.advertisement_id for row in persisted["advertisements"]))
+
+    def test_delete_advertisement_preserves_shared_evidence_cache_and_rejects_active_review(self):
+        bundle = self.request()
+        with self.assertRaises(ServiceError) as active:
+            self.bridge.delete_advertisement(self.actor, self.ad.advertisement_id)
+        self.assertEqual(active.exception.code, "REVIEW_IN_PROGRESS")
+        bundle.job.status = "FAILED"
+        bundle.review.status = "REVIEW_FAILED"
+        self.bridge.active.discard(bundle.review.review_id)
+        fine_body = b'{"doc_id":"evidence-1","text_search":"same text"}\n'
+        fine_hash = hashlib.sha256(fine_body).hexdigest()
+        cache_root = Path(self.bridge.rag.config.vector_cache_dir)
+        cache_root.mkdir(parents=True)
+        evidence_cache = cache_root / f"evidence-fine-{fine_hash}.f16.npy"
+        evidence_cache.write_bytes(b"cache")
+        for review_id, rag_job_id in ((bundle.review.review_id, "rag-target"), ("REV-other", "rag-other")):
+            fine_path = self.bridge.root / "rag-jobs" / rag_job_id / "input" / "evidence_fine.jsonl"
+            fine_path.parent.mkdir(parents=True)
+            fine_path.write_bytes(fine_body)
+            self.bridge.links[review_id] = {"rag_job_id": rag_job_id}
+
+        with patch.object(self.services.advertisements.storage, "delete"):
+            self.bridge.delete_advertisement(self.actor, self.ad.advertisement_id)
+
+        self.assertTrue(evidence_cache.exists())
+        self.assertTrue((self.bridge.root / "rag-jobs" / "rag-other").exists())
+
+    def test_delete_advertisement_http_route_removes_row_source(self):
+        app = create_app(self.settings, self.services)
+        self.bridge.install(app)
+        bundle = self.request()
+        bundle.job.status = "FAILED"
+        bundle.review.status = "REVIEW_FAILED"
+        self.bridge.active.discard(bundle.review.review_id)
+        with patch.object(self.services.advertisements.storage, "delete"), TestClient(app) as client:
+            token, _, _ = self.services.auth.login(
+                self.user.email, "test-password", "local", "test", "test"
+            )
+            response = client.delete(
+                f"/operational/advertisements/{self.ad.advertisement_id}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(self.services.repository.get_advertisement(self.ad.advertisement_id))
+
     def test_unsupported_options_do_not_silently_run(self):
         for key, value in [("include_suggestion", True), ("include_opinion_draft", True),
                            ("review_types", ("REQUIRED_PHRASE",)), ("standard_effective_date", date(2000, 1, 1))]:
@@ -701,6 +935,14 @@ class BridgeTests(unittest.TestCase):
             self.assertNotIn("templates", capabilities)
             self.assertEqual(capabilities["sourcePolicy"], "template-only")
             self.assertEqual(capabilities["regulation"], "내부 심의 템플릿")
+            worklist_response = client.get('/operational/review-worklist', headers=headers)
+            self.assertEqual(worklist_response.status_code, 200)
+            worklist = worklist_response.json()
+            self.assertEqual(305, len(worklist['rows']))
+            self.assertEqual(239, worklist['counts']['templates'])
+            self.assertEqual(32, worklist['counts']['supplement_32'])
+            self.assertEqual(34, worklist['counts']['additional_34'])
+            self.assertFalse(worklist['operationally_connected'])
             labels = {row["label"] for row in capabilities["productClassifications"]}
             self.assertEqual(len(labels), 17)
             self.assertTrue({"예금성상품-적립식", "대출성상품-상품명 노출",
@@ -857,12 +1099,37 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(view.status_code, 200)
         self.assertEqual(export.status_code, 200)
         self.assertEqual(export.json()["results"], view.json()["rows"])
+        self.assertEqual(export.json()["extraction_status"], view.json()["extraction_status"])
         self.assertEqual([r["verdict"] for r in view.json()["rows"]], ["판단불가"])
         self.assertEqual([r['verdict'] for r in view.json()['excluded_rows']], ['미해당'])
         self.assertEqual(export.json()['excluded_rows'], view.json()['excluded_rows'])
         self.assertEqual(export.json()["execution"]["output_failure_count"], 1)
         self.assertEqual(export.json()["execution"]["output_failure_pairs"][0]["reason"], "invalid JSON")
         self.assertNotIn("source_ads", view.json())
+
+    def test_parser_failure_workspace_exposes_failed_file_without_result(self):
+        bundle = self.request()
+        bundle.review.status, bundle.job.status = "REVIEW_FAILED", "FAILED"
+        directory = self.bridge.root / "runs" / bundle.review.review_id
+        directory.mkdir(parents=True)
+        (directory / "parser-failure.json").write_text(json.dumps({
+            "failed_assets": [{"file_id": "FILE-test", "reason": "internal path omitted"}]
+        }), encoding="utf-8")
+        before = (directory / "parser-failure.json").read_bytes()
+        app = create_app(self.settings, self.services)
+        self.bridge.install(app)
+        token, _, _ = self.services.auth.login(self.user.email, "test-password", "local", "test", "test")
+        with TestClient(app) as client:
+            path = f"/operational/reviews/{bundle.review.review_id}/workspace"
+            self.assertEqual(client.get(path).status_code, 401)
+            response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, 200)
+        summary = response.json()["extraction_status"]
+        self.assertEqual(summary["status"], "FAILED")
+        self.assertEqual(summary["files"][0]["asset_id"], "FILE-test")
+        self.assertEqual(summary["files"][0]["issues"], ["FILE_EXTRACTION_FAILED"])
+        self.assertNotIn("internal path omitted", str(summary))
+        self.assertEqual((directory / "parser-failure.json").read_bytes(), before)
 
     def test_layout_page_with_only_unassigned_lines_keeps_asset_identity(self):
         from test_operational_locations import source

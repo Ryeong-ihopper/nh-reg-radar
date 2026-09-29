@@ -17,7 +17,7 @@ test("declares every review route under the review-scoped boundary", () => {
   expect(boundaryRoute).not.toBeNull();
 
   const children = [...boundaryRoute![1].matchAll(/<Route path="([^"]+)"/g)].map((match) => match[1]);
-  expect(children).toEqual(["status", "results", "results/items", "results/annotations", "results/qa", "support"]);
+  expect(children).toEqual(["status", "results", "results/items", "results/annotations", "results/qa", "support", "suggestions"]);
   // 하위 경로는 상대 경로여야 경계 아래에 놓인다.
   for (const child of children) expect(child.startsWith("/")).toBe(false);
 });

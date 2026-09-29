@@ -109,8 +109,13 @@ ADR은 다음 원칙으로 관리한다.
 | [ADR-0082](ADR-0082-development-default-branch-dev.md) | Accepted | 개발 기간 GitHub 기본 브랜치 dev 운영 정책 | ADR 후보 047 (Q76) |
 | [ADR-0083](ADR-0083-development-notion-sync-source-dev.md) | Accepted | 개발 기간 Notion 동기화 원천 dev 확장 정책 | ADR 후보 047 (Q76 후속·ADR-0077 개정) |
 | [ADR-0084](ADR-0084-python-311-dual-gpu-runtime-profiles.md) | Accepted | Python 3.11 및 DGX·H200 이중 GPU 실행 프로필 | 고객사 DAP 반입 환경 확정 |
-| [ADR-0084](ADR-0084-python-311-dual-gpu-runtime-profiles.md) | Accepted | Python 3.11 및 DGX·H200 이중 GPU 실행 프로필 | 고객사 DAP 반입 환경 확정 |
 | [ADR-0085](ADR-0085-source-structure-and-evidence-bundles.md) | Accepted | 원문 구조 보존과 규칙별 근거 묶음 검색 | 후보048·Q78 사용자 실행 승인 |
+
+| [ADR-0086](ADR-0086-source-bound-review-program-runtime.md) | Accepted | 출처 결합 판단 절차의 공통 운영 실행 | 후보049·Q79 사용자 구현·배포 승인 |
+
+| [ADR-0087](ADR-0087-product-composition-and-evidence-policy.md) | Accepted | 상품 관계와 검사별 근거 확보 정책 | 후보050·Q80 사용자 구현 승인 |
+
+| [ADR-0088](ADR-0088-hwp-html-review-display.md) | Accepted | HWP HTML 검토 본문 직접 표시 | 후보051·Q81 사용자 사이트 적용 요청 |
 
 ## 결정 대기 질문지
 

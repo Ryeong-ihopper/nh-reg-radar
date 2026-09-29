@@ -6,6 +6,7 @@ cleanly, such as unique line references and count consistency.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Iterable
 
@@ -24,6 +25,13 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 class ContractError(ValueError):
     """Raised when a pipeline artifact violates its versioned contract."""
+
+
+def _require_region_bbox(value: Any, location: str) -> None:
+    if (not isinstance(value, list) or len(value) != 4
+            or any(type(number) not in (int, float) or not math.isfinite(number) for number in value)
+            or value[0] >= value[2] or value[1] >= value[3]):
+        raise ContractError(f"{location} needs a finite, non-empty region bbox when source lines are absent")
 
 
 def _mapping(value: Any, location: str) -> dict[str, Any]:
@@ -109,6 +117,13 @@ def validate_ad_intake(value: Any) -> dict[str, Any]:
         if product.get("product_group") not in {"예금성", "대출성", "투자성"}:
             raise ContractError(f"products[{index}].product_group is unsupported")
         _text(product.get("product_classification_code"), f"products[{index}].product_classification_code")
+        if "underlying_products" in product:
+            codes = _list(product["underlying_products"], f"products[{index}].underlying_products")
+            _unique((_text(code, "underlying_products[]") for code in codes), "underlying_products")
+            if set(codes) - {"FUND", "ETF", "ELB"}:
+                raise ContractError("unsupported underlying product")
+        if product.get("underlying_products_status", "UNCONFIRMED") not in {"CONFIRMED", "UNCONFIRMED"}:
+            raise ContractError("unsupported underlying product confirmation")
         collect(product.get("asset_scopes"), f"products[{index}]")
     collect(root.get("shared_asset_scopes"), "shared")
     missing = sorted(known_assets - set(occupied))
@@ -184,6 +199,8 @@ def validate_integrated_input(value: Any) -> dict[str, Any]:
             ]
             if refs != line_refs:
                 raise ContractError(f"{location}.line_refs must exactly match lines order")
+            if not refs and str(region.get("final_text") or "").strip():
+                _require_region_bbox(region.get("bbox"), location)
             all_refs.extend(refs)
         for line in _list(page.get("unassigned_lines"), f"pages[{page_index}].unassigned_lines"):
             all_refs.append(
@@ -288,7 +305,10 @@ def validate_search_document(value: Any) -> dict[str, Any]:
         )
     for field in ("ad_id", "doc_id", "view_type", "text_canonical", "text_search"):
         _text(row.get(field), field)
-    _list(row.get("line_refs"), "line_refs")
+    refs = _list(row.get("line_refs"), "line_refs")
+    if not refs:
+        _text(row.get("region_id"), "region_id")
+        _require_region_bbox(row.get("bbox"), "search document")
     _list(row.get("labels"), "labels")
     _mapping(row.get("routing_metadata"), "routing_metadata")
     if row.get("source_role") not in (None, "ADVERTISEMENT_CONTENT", "PAGE_CHROME"):

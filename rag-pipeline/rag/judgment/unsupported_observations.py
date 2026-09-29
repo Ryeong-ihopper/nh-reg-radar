@@ -1,6 +1,9 @@
 """Quarantine unsupported observations after bounded model contract repair."""
 import copy
+import json
 import re
+from rag.judgment.obligation_logic import aggregate_obligations
+from rag.judgment.review_program import refresh_program_trace
 
 
 def abstain_unresolved_applicability(request, response, validate):
@@ -19,6 +22,7 @@ def abstain_unresolved_applicability(request, response, validate):
     if not affected or not isinstance(response.get('parsed'), dict):
         return response
     guarded = copy.deepcopy(response)
+    rules = {r['item_id']: r for r in json.loads(request['messages'][1]['content']).get('rules', [])}
     for value in guarded['parsed'].get('results') or []:
         if value.get('item_id') not in affected:
             continue
@@ -32,6 +36,7 @@ def abstain_unresolved_applicability(request, response, validate):
                       *(value.get('review_condition_checks') or [])]:
             if isinstance(check, dict):
                 check.update(status='UNDETERMINED', evidence_ids=[], evidence_line_refs=[])
+        refresh_program_trace((rules.get(value['item_id']) or {}).get('condition_contract') or {}, value, 'applicability_guard')
     if validate(request, guarded['parsed']):
         return response
     guarded['applicability_quality_review'] = {'policy': 'unresolved-applicability-review-v1',
@@ -46,6 +51,10 @@ def quarantine_unsupported_observations(request, response, validate):
         return response
     affected = {}
     for error in errors:
+        match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] metadata cannot establish an advertisement-only obligation", error)
+        if match:
+            affected.setdefault(match[1], set()).add(int(match[2]))
+            continue
         match = re.fullmatch(r"([^:]+): requirement_checks\[(\d+)\] template heading alone cannot establish the required body disclosure", error)
         if match:
             affected.setdefault(match[1], set()).add(int(match[2]))
@@ -80,6 +89,7 @@ def quarantine_unsupported_observations(request, response, validate):
                     if check.get("finding_basis") == "OBSERVED"
                     and not (check.get("evidence_ids") or check.get("evidence_line_refs")))
     guarded = copy.deepcopy(response)
+    rules = {r['item_id']: r for r in json.loads(request['messages'][1]['content']).get('rules', [])}
     reason = "모델이 제시한 관찰 내용과 인용한 원문 줄을 검증하지 못했습니다. 해당 요건은 사람이 원본을 확인해야 합니다."
     for result in guarded["parsed"].get("results", []):
         indexes = affected.get(result.get("item_id"))
@@ -98,6 +108,15 @@ def quarantine_unsupported_observations(request, response, validate):
         result.update(verdict="VIOLATION" if violations else "UNDETERMINED", confidence="LOW",
                       needs_researcher_review=True,
                       reason=" / ".join([c.get("reason", "") for c in violations]+[reason]))
+        contract = (rules.get(result['item_id']) or {}).get('condition_contract') or {}
+        if contract.get('obligation_logic') and result.get('applicability') == 'APPLICABLE':
+            result['verdict'] = aggregate_obligations(contract, checks, result.get('condition_checks'))
+            result['needs_researcher_review'] = result['verdict'] != 'COMPLIANT'
+            if result['verdict'] == 'COMPLIANT':
+                result['reason'] = '검증되지 않은 대안은 미확정으로 남기고, 별도의 충족된 대안을 판단식으로 확인했습니다.'
+            elif result['verdict'] == 'UNDETERMINED':
+                result['reason'] = reason
+        refresh_program_trace(contract, result, 'grounding_guard')
     if validate(request, guarded["parsed"]):
         return response
     guarded["unsupported_observation_review"] = {

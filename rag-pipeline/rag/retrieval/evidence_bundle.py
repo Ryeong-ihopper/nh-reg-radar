@@ -39,6 +39,72 @@ def source_facets(rule):
     return facets
 
 
+def program_nodes(rule):
+    contract = rule.get('condition_contract') or {}
+    if not contract.get('review_program'):
+        return []
+    mode = (contract['review_program'].get('evidence_policy') or {}).get('mode', 'HYBRID')
+    if mode not in {'HYBRID', 'LEXICAL', 'LABEL_LEXICAL'}:
+        raise ValueError('unknown program evidence policy')
+    return [{'source_ref': node[id_key], 'query': node['text'], 'mode': mode,
+             'queries': list(dict.fromkeys([node['text'], *(node.get('retrieval_queries') or [])]))}
+            for key, id_key in [('applicability_conditions', 'condition_id'), ('obligation_checks', 'obligation_id')]
+            for node in contract.get(key) or []
+            if node.get('text') and node.get('owner') != 'RULE']
+
+
+def retrieve_program_nodes(seed_ids, rows, rule, query_vectors, document_vectors, *, char_budget):
+    """Retrieve each authored check with dense/lexical RRF; never infer absence."""
+    if char_budget < 0:
+        raise ValueError('negative node evidence budget')
+    by_id = {row['doc_id']: row for row in rows}
+    if len(by_id) != len(rows) or any(key not in by_id for key in seed_ids):
+        raise ValueError('invalid node evidence identifiers')
+    scopes = {(row.get('ad_id'), row.get('product_id')) for row in rows}
+    seed_scopes = {(by_id[key].get('ad_id'), by_id[key].get('product_id')) for key in seed_ids}
+    if len(seed_scopes) > 1 or (not seed_ids and len(scopes) > 1):
+        raise ValueError('node evidence crosses advertisement/product scope')
+    eligible = [r for r in rows if not seed_scopes or (r.get('ad_id'), r.get('product_id')) in seed_scopes]
+    selected, added, events, remaining = list(dict.fromkeys(seed_ids)), [], [], char_budget
+    for node in program_nodes(rule):
+        vector = query_vectors[node['query']] if node['mode'] == 'HYBRID' else None
+        terms = set().union(*(search_terms(query) for query in node['queries']))
+        dense, lexical = {}, {}
+        for row in eligible:
+            key = row['doc_id']
+            if vector is not None:
+                doc_vector = document_vectors[key]
+                if len(vector) != len(doc_vector):
+                    raise ValueError('node vector dimension mismatch')
+                score = sum(float(a) * float(b) for a, b in zip(vector, doc_vector))
+                if score > 0:
+                    dense[key] = score
+            score = sum(term in str(row.get('text_canonical') or row.get('text_search') or '').lower() for term in terms)
+            if score:
+                lexical[key] = score
+        fused = {}
+        for scores in (dense, lexical):
+            for rank, key in enumerate(sorted(scores, key=lambda k: (-scores[k], k)), 1):
+                fused[key] = fused.get(key, 0) + 1 / (60 + rank)
+        hits = sorted(fused, key=lambda k: (-fused[k], k))[:2]
+        retained, deferred = [], []
+        for key in hits:
+            size = len(str(by_id[key].get('text_canonical') or by_id[key].get('text_search') or ''))
+            if key not in selected:
+                if size > remaining or char_budget == 0:
+                    deferred.append(key)
+                    continue
+                selected.append(key)
+                added.append(key)
+                remaining -= size
+            retained.append(key)
+        events.append({**node, 'evidence_ids': retained, 'budget_deferred_ids': deferred,
+                       'status': 'CANDIDATES_RETRIEVED' if retained else 'BUDGET_DEFERRED' if hits else 'NO_CANDIDATES'})
+    return selected, {'method': 'review_program_nodes_policy_v2', 'nodes': events,
+                      'added_ids': added, 'added_chars': char_budget - remaining,
+                      'char_budget': char_budget, 'semantic_dependencies_complete': False}
+
+
 def supplement_evidence(seed_ids, rows, rule, *, char_budget):
     """One lexical candidate per source facet under a shared addition budget.
 

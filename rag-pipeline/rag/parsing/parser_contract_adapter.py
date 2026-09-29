@@ -8,6 +8,8 @@ record its hashes before this in-memory projection is consumed.
 from __future__ import annotations
 
 import copy
+import math
+import re
 from typing import Any
 
 
@@ -17,6 +19,10 @@ EXTERNAL_P1 = "nh-ad-parse-evidence-v1"
 EXTERNAL_P3 = "nh-ad-region-review-input-v1"
 PARSER_FIN_P1 = "nh-ad-parse-evidence-v3"
 PARSER_FIN_P3 = "nh-ad-region-review-input-v6"
+PARSER_FIN_CURRENT_P1 = "nh-ad-parse-evidence-v4"
+PARSER_FIN_CURRENT_P3 = "nh-ad-region-review-input-v9"
+PARSER_FIN_PAIRS = {(PARSER_FIN_P1, PARSER_FIN_P3),
+                    (PARSER_FIN_CURRENT_P1, PARSER_FIN_CURRENT_P3)}
 
 
 def adapt_p1_p3(p1: dict[str, Any], p3: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -32,7 +38,7 @@ def adapt_p1_p3(p1: dict[str, Any], p3: dict[str, Any]) -> tuple[dict[str, Any],
         return p1, p3
     if p1_version == EXTERNAL_P1 and p3_version == EXTERNAL_P3:
         return _adapt_external_pair(p1, p3)
-    if p1_version == PARSER_FIN_P1 and p3_version == PARSER_FIN_P3:
+    if (p1_version, p3_version) in PARSER_FIN_PAIRS:
         return _adapt_parser_fin_pair(p1, p3)
     raise ValueError(
         "unsupported parser contract pair: "
@@ -97,7 +103,7 @@ def _adapt_external_pair(source_p1: dict[str, Any], source_p3: dict[str, Any]) -
 def _adapt_parser_fin_pair(
     source_p1: dict[str, Any], source_p3: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Project nh-parser-fin P1 v3/P3 v6 without inventing geometry.
+    """Project explicitly supported nh-parser-fin pairs without inventing geometry.
 
     P3 v6 intentionally addresses evidence by ``region_id`` and omits line
     references.  The references below are copied from the matching P1 region;
@@ -106,6 +112,11 @@ def _adapt_parser_fin_pair(
     the compact P3 projection cannot silently delete source text.
     """
     p3_document = source_p3.get("document") or {}
+    source_p1_version = (source_p1.get("reading_evidence_contract") or source_p1.get("contract") or {}).get("version")
+    source_p3_version = source_p3["contract"]["version"]
+    current = source_p3_version == PARSER_FIN_CURRENT_P3
+    if current:
+        _validate_parser_fin_current_geometry(source_p1, source_p3)
     if source_p1.get("doc_id") != p3_document.get("doc_id"):
         raise ValueError("nh-parser-fin P1/P3 doc_id mismatch")
 
@@ -123,9 +134,11 @@ def _adapt_parser_fin_pair(
         for page in pages for region in page.get("regions") or []
     }
     p1_pages = {page.get("page_no"): page for page in pages}
+    source_pages = {page.get("page_no"): page for page in source_p1.get("pages") or []}
     p3_pages = []
     for page in source_p3.get("pages") or []:
         page_no = page.get("page_no")
+        source_page = source_pages.get(page_no) or {}
         regions = []
         for region in page.get("regions") or []:
             region_id = str(region.get("region_id") or "")
@@ -145,10 +158,42 @@ def _adapt_parser_fin_pair(
                 # authoritative, so do not promote inferred labels to exact
                 # line evidence here.
                 "labels": [],
+                "parser_label_hints": copy.deepcopy(region.get("labels") or []),
+                "kind": region.get("kind", "text"),
+                "parser_observations": {
+                    "product_id": region.get("product_id"),
+                    "label_scope": "REGION_HINT_ONLY",
+                    "review_reasons": copy.deepcopy(source_region.get("review_reasons") or []),
+                    "text_source_detail": source_region.get("text_source"),
+                    "layout_observation": copy.deepcopy(source_region.get("layout_observation") or {}),
+                    "bbox_source": source_region.get("bbox_source"),
+                    "bbox_quality": source_region.get("bbox_quality"),
+                    "structured": copy.deepcopy(source_region.get("structured") or {}),
+                    "source_line_shape": {
+                        "records": len(source_region.get("lines") or []),
+                        "multiline_records": sum(
+                            len(str(line.get("parser_text") or line.get("text") or "").splitlines()) > 1
+                            for line in source_region.get("lines") or []
+                        ),
+                        "bboxless_records": sum(
+                            line.get("bbox") is None for line in source_region.get("lines") or []
+                        ),
+                        # Character alignment is distinct from proving a
+                        # physical rendered line or a notice meaning boundary.
+                        "physical_line_verification": "NOT_ATTESTED",
+                    },
+                    "page_processing_route": (
+                        source_page.get("processing_route") or (source_page.get("origin") or {}).get("processing_route")
+                        or source_page.get("parse_route")
+                    ),
+                    "coordinate_surface": (source_page.get("structure_probe") or {}).get("coordinate_surface"),
+                    "render_engine": ((source_page.get("origin") or {}).get("render") or {}).get("engine"),
+                },
                 "text_selection": {
                     "needs_review": bool(region.get("needs_review")),
                     "selection_status": "needs_review" if region.get("needs_review") else "selected",
-                    "reason": "nh-parser-fin region evidence verification",
+                    "reason": "; ".join(["nh-parser-fin region evidence verification",
+                                          *(str(value) for value in source_region.get("review_reasons") or [])]),
                 },
             })
         canonical_page = p1_pages.get(page_no)
@@ -178,7 +223,7 @@ def _adapt_parser_fin_pair(
             "parser_primary_text_sources": ["digital", "ocr", "hybrid"],
             "vlm_region_reading_mode": "external_parser_observation",
             "parser_mutates_primary_text_from_vlm": False,
-            "adapter_source_contract": PARSER_FIN_P1,
+            "adapter_source_contract": source_p1_version,
         },
         "pages": pages,
         "notes": copy.deepcopy(source_p1.get("notes") or []),
@@ -186,9 +231,9 @@ def _adapt_parser_fin_pair(
         "quality": copy.deepcopy(source_p1.get("quality") or {}),
         "relations": copy.deepcopy(source_p1.get("relations") or []),
         "_adapter_provenance": {
-            "adapter": "nh-parser-fin-contract-adapter-v1",
-            "source_p1_contract": PARSER_FIN_P1,
-            "source_p3_contract": PARSER_FIN_P3,
+            "adapter": "nh-parser-fin-contract-adapter-v2",
+            "source_p1_contract": source_p1_version,
+            "source_p3_contract": source_p3_version,
             "bbox_policy": "P1 OCR/PDF/layout coordinates only; never VLM-generated",
         },
     }
@@ -198,7 +243,7 @@ def _adapt_parser_fin_pair(
             "source_evidence_version": CANONICAL_P1,
             "review_unit": "region",
             "text_policy": "nh-parser-fin P3 selected_text; original P1 preserved",
-            "label_policy": "v6 region labels remain P1 audit observations; no invented line spans",
+            "label_policy": "region labels are retrieval hints only; no invented line spans",
         },
         "document": {
             "doc_id": p3_document.get("doc_id"),
@@ -218,6 +263,47 @@ def _adapt_parser_fin_pair(
     return p1, p3
 
 
+def _validate_parser_fin_current_geometry(p1: dict[str, Any], p3: dict[str, Any]) -> None:
+    """v9 geometry is a projection of the same P1 page, not a second source."""
+    if p3["contract"].get("source_evidence_version") != PARSER_FIN_CURRENT_P1:
+        raise ValueError("nh-parser-fin P3 source evidence version mismatch")
+    document = p3.get("document") or {}
+    if any(p1.get(key) != document.get(key) for key in ("doc_id", "source_file", "file_type")):
+        raise ValueError("nh-parser-fin P1/P3 document identity mismatch")
+    pages = {page.get("page_no"): page for page in p1.get("pages") or []}
+    for page in p3.get("pages") or []:
+        number = page.get("page_no")
+        source = pages.get(number)
+        canvas = page.get("canvas")
+        if (type(number) is not int or source is None or canvas != source.get("canvas")
+                or not isinstance(canvas, list) or len(canvas) != 2
+                or any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+                       for value in canvas)):
+            raise ValueError("nh-parser-fin P1/P3 canvas mismatch or invalid canvas")
+        regions = {row.get("region_id"): row for row in source.get("regions") or []}
+        for row in page.get("regions") or []:
+            region_id = row.get("region_id")
+            original = regions.get(region_id)
+            bbox = row.get("bbox")
+            if (not isinstance(region_id, str) or re.fullmatch(rf"p{number}_r\d{{3,}}", region_id) is None
+                    or original is None or bbox != original.get("bbox")
+                    or row.get("product_id") != original.get("product_id")):
+                raise ValueError("nh-parser-fin P1/P3 region identity, ownership or bbox mismatch")
+            if bbox is not None and (
+                not isinstance(bbox, list) or len(bbox) != 4
+                or any(type(value) not in (int, float) or not math.isfinite(value) for value in bbox)
+                or not 0 <= bbox[0] < bbox[2] <= canvas[0]
+                or not 0 <= bbox[1] < bbox[3] <= canvas[1]
+            ):
+                raise ValueError("nh-parser-fin region bbox outside canvas")
+            if (row.get("kind") not in {"text", "table"}
+                    or row.get("text_source") not in {"hwp", "digital", "ocr", "vlm"}
+                    or type(row.get("needs_review")) is not bool
+                    or not isinstance(row.get("labels"), list)
+                    or any(not isinstance(label, str) for label in row["labels"])):
+                raise ValueError("nh-parser-fin invalid v9 region fields")
+
+
 def _adapt_parser_fin_p1_page(page: dict[str, Any]) -> dict[str, Any]:
     canvas = page.get("canvas") or [page.get("canvas_w"), page.get("canvas_h")]
     canvas_w = canvas[0] if isinstance(canvas, (list, tuple)) and len(canvas) == 2 else None
@@ -225,9 +311,10 @@ def _adapt_parser_fin_p1_page(page: dict[str, Any]) -> dict[str, Any]:
     regions = []
     for region in page.get("regions") or []:
         value = copy.deepcopy(region)
+        observed_layout = region.get("layout_observation") or {}
         value["layout"] = {
-            "label": region.get("label"),
-            "score": region.get("layout_score"),
+            "label": observed_layout.get("label") or region.get("label"),
+            "score": observed_layout.get("score", region.get("layout_score")),
             "role": region.get("role"),
         }
         for line in value.get("lines") or []:
@@ -245,7 +332,8 @@ def _adapt_parser_fin_p1_page(page: dict[str, Any]) -> dict[str, Any]:
         "canvas_w": canvas_w,
         "canvas_h": canvas_h,
         "dpi": page.get("dpi") or (page.get("origin") or {}).get("dpi_used"),
-        "parse_route": page.get("parse_route"),
+        "parse_route": (page.get("parse_route") or page.get("processing_route")
+                        or (page.get("origin") or {}).get("processing_route")),
         "parse_status": page.get("parse_status"),
         "unread_regions": copy.deepcopy(page.get("unread_regions") or []),
         "relations": copy.deepcopy(page.get("relations") or []),

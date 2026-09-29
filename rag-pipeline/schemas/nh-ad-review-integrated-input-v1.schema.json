@@ -79,6 +79,7 @@
       "required": ["line_count", "line_partition_exact", "region_count", "empty_region_count"],
       "properties": {
         "line_count": {"type": "integer", "minimum": 0},
+        "complete_document_read": {"type": "boolean"},
         "line_partition_exact": {"const": true},
         "region_count": {"type": "integer", "minimum": 0},
         "empty_region_count": {"type": "integer", "minimum": 0}
@@ -125,15 +126,28 @@
         "layout": {"type": ["object", "string", "null"]},
         "final_text": {"type": "string"},
         "text_source": {"type": ["string", "null"]},
-        "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
-        "lines": {"type": "array", "items": {"$ref": "#/$defs/line"}, "minItems": 1},
+        "line_refs": {"type": "array", "items": {"type": "string"}, "minItems": 0, "uniqueItems": true},
+        "lines": {"type": "array", "items": {"$ref": "#/$defs/line"}, "minItems": 0},
         "labels": {"type": "array", "items": {"type": "object"}},
+        "parser_label_hints": {"type": "array", "items": {"type": "string"}},
+        "kind": {"enum": ["text", "table"]},
+        "parser_observations": {"type": "object"},
         "assignment_status": {"enum": ["assigned", "mixed", "unassigned"]},
         "visibility": {"type": ["object", "null"]},
         "text_selection": {"$ref": "#/$defs/text_selection"},
         "table": {"type": ["object", "null"]}
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [{
+        "if": {
+          "properties": {"line_refs": {"maxItems": 0}, "final_text": {"minLength": 1}},
+          "required": ["line_refs", "final_text"]
+        },
+        "then": {
+          "required": ["bbox"],
+          "properties": {"bbox": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}}
+        }
+      }]
     },
     "page": {
       "type": "object",
@@ -151,6 +165,7 @@
         "physical_height_mm": {"type": ["number", "null"], "exclusiveMinimum": 0},
         "parse_route": {"type": ["string", "null"]},
         "parse_status": {"type": ["string", "null"]},
+        "unread_regions": {"type": "array"},
         "regions": {"type": "array", "items": {"$ref": "#/$defs/region"}},
         "unassigned_lines": {"type": "array", "items": {"$ref": "#/$defs/line"}}
       },

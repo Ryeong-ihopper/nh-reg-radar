@@ -193,10 +193,12 @@ class ReadingQualityTests(unittest.TestCase):
         self.assertEqual(self.validate_case(row, payload, parsed), [])
 
     def test_uncertain_absence_including_prohibition_compliance(self):
-        for category, verdict, status in [('PRESENCE', 'VIOLATION', 'MISSING'),
-                                          ('PROHIBIT', 'COMPLIANT', 'SATISFIED')]:
-            with self.subTest(category=category):
-                row, payload, parsed = self.setup_case(complete=False)
+        for complete, category, verdict, status in [
+            (complete, *values) for complete in (False, True)
+            for values in [('PRESENCE', 'VIOLATION', 'MISSING'),
+                           ('PROHIBIT', 'COMPLIANT', 'SATISFIED')]]:
+            with self.subTest(category=category, complete=complete):
+                row, payload, parsed = self.setup_case(complete=complete)
                 row['category'] = category
                 answer = parsed['results'][0]
                 answer.update(verdict=verdict, evidence_ids=[], evidence_line_refs=[])
@@ -206,6 +208,42 @@ class ReadingQualityTests(unittest.TestCase):
                 self.assertEqual(gemma.validate(row, parsed, check_reading=False), [])
                 self.assertTrue(apply_reading_guard(payload, parsed))
                 self.assertEqual(self.validate_case(row, payload, parsed), [])
+
+    def test_absence_only_depends_on_uncertain_text_in_this_item_scope(self):
+        row, payload, parsed = self.setup_case()
+        payload['evidence_scope']['X-1']['evidence_ids'] = ['E-2']
+        answer = parsed['results'][0]
+        answer.update(verdict='VIOLATION', evidence_ids=[], evidence_line_refs=[])
+        answer['requirement_checks'][0].update(status='MISSING', finding_basis='ABSENCE',
+            evidence_ids=[], evidence_line_refs=[])
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+
+    def test_clean_aligned_lines_cover_uncertain_fallback_for_absence(self):
+        row, payload, parsed = self.setup_case()
+        payload['documents'][1]['line_refs'] = ['L-1']
+        answer = parsed['results'][0]
+        answer.update(verdict='VIOLATION', evidence_ids=[], evidence_line_refs=[])
+        answer['requirement_checks'][0].update(status='MISSING', finding_basis='ABSENCE',
+            evidence_ids=[], evidence_line_refs=[])
+        self.assertEqual(apply_reading_guard(payload, parsed), [])
+
+    def test_reading_guard_reaggregates_alternatives_instead_of_flattening_to_and(self):
+        row, payload, parsed = self.setup_case()
+        answer = parsed['results'][0]
+        answer['requirement_checks'][0]['obligation_ref'] = 'O1'
+        answer['requirement_checks'].append({'obligation_ref': 'O2', 'status': 'SATISFIED',
+            'finding_basis': 'OBSERVED', 'evidence_ids': ['E-2'], 'evidence_line_refs': ['L-2'],
+            'reason': "'독립적으로 판독된 근거'가 확인됩니다."})
+        contract = {'obligation_checks': [{'obligation_id': 'O1'}, {'obligation_id': 'O2'}],
+            'obligation_logic': {'any': [{'ref': 'O1'}, {'ref': 'O2'}]}}
+        payload['rules'][0]['condition_contract'] = contract
+        before = copy.deepcopy(answer)
+        audit = apply_reading_guard(payload, parsed)
+        self.assertEqual(audit[0]['original_result'], before)
+        self.assertEqual(answer['requirement_checks'][0]['status'], 'UNDETERMINED')
+        self.assertEqual(answer['requirement_checks'][1]['status'], 'SATISFIED')
+        self.assertEqual(answer['verdict'], 'COMPLIANT')
+        self.assertEqual(answer['evidence_line_refs'], ['L-2'])
 
     def test_clear_complete_absence_is_still_a_violation(self):
         row, payload, parsed = self.setup_case(uncertain=False)

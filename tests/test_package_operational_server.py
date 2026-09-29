@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 import tarfile
 import tempfile
 import unittest
@@ -32,6 +34,10 @@ class OperationalPackageTests(unittest.TestCase):
 
             with tarfile.open(output, "r:gz") as archive:
                 names = set(archive.getnames())
+                manifest = json.load(archive.extractfile("source-manifest.json"))["sha256"]
+                self.assertEqual(names, set(manifest) | {"source-manifest.json"})
+                for name, digest in manifest.items():
+                    self.assertEqual(hashlib.sha256(archive.extractfile(name).read()).hexdigest(), digest)
             self.assertIn("private/nh-parser/run.py", names)
             self.assertIn("private/nh-parser/pyproject.toml", names)
             self.assertIn("private/nh-parser/nh_parser_fin/__init__.py", names)
@@ -39,6 +45,15 @@ class OperationalPackageTests(unittest.TestCase):
             for name in ("canonical-execution-plans-v2.json", "operational-catalog-migration-v1.json",
                          "operational-rule-dispositions-v1.json"):
                 self.assertIn("rag-pipeline/config/" + name, names)
+            for name in ("scripts/operational_runtime.py", "infra/operational/runtime-files.json",
+                         "rag-pipeline/tools/build_silver_requests.py",
+                         "rag-pipeline/tools/recover_operational_judgments.py"):
+                self.assertIn(name, names)
+            for name in ("scripts/doc_guard.py", "scripts/package_operational_server.py",
+                         "rag-pipeline/tools/ingest_template_hwpx.py",
+                         "rag-pipeline/tools/compile_current_execution_plans.py",
+                         "apps/backend/migrations/env.py"):
+                self.assertNotIn(name, names)
 
     def test_legacy_parser_layout_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

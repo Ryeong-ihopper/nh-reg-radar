@@ -8,6 +8,11 @@ import json
 import tarfile
 from pathlib import Path
 
+try:
+    from scripts.operational_runtime import runtime_files
+except ModuleNotFoundError:
+    from operational_runtime import runtime_files
+
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED = {".git", ".venv", "node_modules", "dist", "__pycache__", ".pytest_cache", ".ruff_cache",
             "visual-artifacts", "playwright-report", "test-results"}
@@ -25,10 +30,11 @@ def files(root: Path):
 
 def package(output: Path, parser_root: Path, document_processor_root: Path):
     sources = []
-    for folder in ("apps/frontend", "apps/backend/src", "packages/ai-providers/src",
-                   "packages/parser-contracts/src", "rag-pipeline/rag", "rag-pipeline/tools",
-                   "rag-pipeline/schemas", "rag-pipeline/config", "scripts", "infra/operational"):
+    for folder in ("apps/frontend", "infra/operational"):
         sources.extend((p, Path(folder) / r) for p, r in files(ROOT / folder))
+    sources.extend((p, Path(name)) for p, name in runtime_files(ROOT)
+                   if not name.startswith("infra/operational/"))
+    sources.append((ROOT / "scripts/operational_runtime.py", Path("scripts/operational_runtime.py")))
     sources.append((ROOT / "rag-pipeline/requirements-rag.txt", Path("rag-pipeline/requirements-rag.txt")))
     parser_fin = (parser_root / "run.py").is_file() and (
         parser_root / "nh_parser_fin/__init__.py"

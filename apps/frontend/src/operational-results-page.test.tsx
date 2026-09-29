@@ -31,11 +31,11 @@ vi.mock("@tanstack/react-query", () => ({
 describe("operational result titles", () => {
   it("hides internal IDs while keeping equally named rules selectable and filterable", () => {
     const { container } = render(<MemoryRouter><OperationalResultsPage /></MemoryRouter>);
-    const cards = container.querySelectorAll("article.single-regulation");
+    const cards = container.querySelectorAll("tr.single-regulation");
     expect(cards).toHaveLength(4);
     expect(screen.getByRole("button", { name: "전체 4" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: /우선 검토|규제목록/ })).not.toBeInTheDocument();
-    expect(screen.getAllByText("예시 상품 · 안내")).toHaveLength(2);
+    expect(within(screen.getByRole("table")).getAllByText("예시 상품 · 안내")).toHaveLength(2);
     expect(container.textContent).not.toMatch(/C-999|TPL-synthetic|C-998|C-EXCLUDED/);
     expect(screen.queryByText("적용 제외 내역 1건")).not.toBeInTheDocument();
     expect(screen.getByText("항목 1 · 모델 응답 형식 또는 원문 근거 연결 실패")).toBeTruthy();
@@ -44,12 +44,12 @@ describe("operational result titles", () => {
     fireEvent.focus(cards[1]);
     expect(cards[0].getAttribute("data-active")).toBe("false");
     expect(cards[1].getAttribute("data-active")).toBe("true");
-    fireEvent.click(within(screen.getByLabelText("판정 상태 필터")).getByRole("button", { name: "판단불가 2" }));
-    expect(container.querySelectorAll("article.single-regulation")).toHaveLength(2);
-    expect(screen.getByText("추가 확인 항목")).toBeInTheDocument();
-    fireEvent.click(within(screen.getByLabelText("판정 상태 필터")).getByRole("button", { name: "충족 1" }));
-    expect(container.querySelectorAll("article.single-regulation")).toHaveLength(1);
-    expect(container.querySelector("article.single-regulation")?.textContent).toContain("충족");
+    fireEvent.click(within(screen.getByLabelText("판정 상태 필터")).getByRole("button", { name: "확인필요 2" }));
+    expect(container.querySelectorAll("tr.single-regulation")).toHaveLength(2);
+    expect(within(screen.getByRole("table")).getByText("추가 확인 항목")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByLabelText("판정 상태 필터")).getByRole("button", { name: "적정 1" }));
+    expect(container.querySelectorAll("tr.single-regulation")).toHaveLength(1);
+    expect(container.querySelector("tr.single-regulation")?.textContent).toContain("적정");
   });
 
   it("does not place deletion controls on the result page", () => {
@@ -64,6 +64,6 @@ describe("operational result titles", () => {
     expect(screen.getByRole("link", { name: "진행 기록" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "결과 JSON 다운로드" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "PDF 저장·인쇄" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "광고물 목록" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "추천 문구·수정 초안 →" })).toBeInTheDocument();
   });
 });

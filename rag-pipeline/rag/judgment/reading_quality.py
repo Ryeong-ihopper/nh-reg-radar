@@ -10,8 +10,11 @@ import copy
 import re
 from typing import Any
 
+from .obligation_logic import aggregate_obligations
+from .review_program import refresh_program_trace
 
-VERSION = "reading-quality-gate-v4"
+
+VERSION = "reading-quality-gate-v5"
 
 
 def claims_disclosure_absence(check: dict[str, Any], result_reason: str = "") -> bool:
@@ -105,6 +108,18 @@ def uncertain_ad_readings(ad: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
+def unresolved_scope_readings(payload: dict[str, Any], item_id: str) -> list[dict[str, Any]]:
+    """Return unreadable source views not superseded within this item's scope."""
+    scope = (payload.get("evidence_scope") or {}).get(item_id) or {}
+    ids = scope.get("evidence_ids")
+    documents = [doc for doc in payload.get("documents") or []
+        if not isinstance(ids, list) or doc.get("evidence_id") in ids]
+    clean_refs = {str(ref) for doc in documents if not needs_reading_review(doc)
+                  for ref in doc.get("line_refs") or []}
+    return [doc for doc in documents if needs_reading_review(doc)
+        and (not doc.get("line_refs") or any(str(ref) not in clean_refs for ref in doc["line_refs"]))]
+
+
 def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict[str, Any]]:
     """Find determinations which depend on explicitly uncertain source evidence."""
     documents = payload.get("documents") or []
@@ -128,6 +143,10 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
         if str(ref) not in clean_refs
     }
     scope = (payload.get("evidence_scope") or {}).get(result.get("item_id")) or {}
+    # A completed scan only establishes that the input was visited. Absence
+    # also requires readable text across this item's advertisement scope.
+    # Fully aligned clean lines can supersede an uncertain region fallback.
+    unresolved = unresolved_scope_readings(payload, result.get("item_id"))
     incomplete = (
         payload.get("parser_coverage") == "PARTIAL"
         or scope.get("complete_ad_scan") is False
@@ -160,6 +179,11 @@ def reading_issues(payload: dict[str, Any], result: dict[str, Any]) -> list[dict
         if absence and incomplete:
             issues.append({"location": location, "code": "INCOMPLETE_READING_ABSENCE",
                 "evidence_ids": [], "line_refs": []})
+        elif absence and unresolved:
+            issues.append({"location": location, "code": "UNCERTAIN_READING_ABSENCE",
+                "evidence_ids": sorted({str(doc.get("evidence_id")) for doc in unresolved}),
+                "line_refs": sorted({str(ref) for doc in unresolved
+                    for ref in doc.get("line_refs") or [] if str(ref) in unsafe_refs})})
         elif check.get("finding_basis") == "OBSERVED":
             check_refs(check, location)
     return issues
@@ -172,6 +196,7 @@ def apply_reading_guard(payload: dict[str, Any], parsed: dict[str, Any]) -> list
     in the returned audit. Structural/ID errors remain subject to validation.
     """
     audit = []
+    rules = {rule["item_id"]: rule for rule in payload.get("rules") or []}
     for result in parsed.get("results") or []:
         if not isinstance(result, dict):
             continue
@@ -207,6 +232,16 @@ def apply_reading_guard(payload: dict[str, Any], parsed: dict[str, Any]) -> list
             for check in result.get("requirement_checks") or []
             if check.get("status") in {"VIOLATED", "MISSING"}) + " / " + reason
             if has_independent_violation else reason)
+        contract = (rules.get(result.get("item_id")) or {}).get("condition_contract") or {}
+        if not gate_issue and contract.get("obligation_logic") and result.get("applicability") == "APPLICABLE":
+            result["verdict"] = aggregate_obligations(
+                contract, result.get("requirement_checks"), result.get("condition_checks"))
+            result["needs_researcher_review"] = result["verdict"] != "COMPLIANT"
+            if result["verdict"] == "COMPLIANT":
+                result["reason"] = "판독이 불확실한 대안은 미확정으로 남기고, 별도의 충족된 대안을 판단식으로 확인했습니다."
+            elif result["verdict"] == "UNDETERMINED":
+                result["reason"] = reason
+        refresh_program_trace(contract, result, "reading_quality_guard")
         result["reading_quality_review"] = {"policy": VERSION, "issues": issues}
         result.update(project_reading_citations(result))
         audit.append({"item_id": result.get("item_id"), "policy": VERSION,
