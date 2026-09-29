@@ -10,7 +10,7 @@ COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-102}"
 EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-17}"
 EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-85}"
-EXPECTED_EXCLUDED_MARKDOWN_COUNT="${EXPECTED_EXCLUDED_MARKDOWN_COUNT:-17}"
+EXPECTED_EXCLUDED_MARKDOWN_COUNT="${EXPECTED_EXCLUDED_MARKDOWN_COUNT:-32}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 PAGE_MAP_PATH="${NOTION_PAGE_MAP_PATH:-governance/notion-page-map.json}"
 SYNC_BASE_SHA="${NOTION_SYNC_BASE_SHA:-}"
@@ -36,11 +36,14 @@ list_tracked_markdown_files() {
 list_excluded_markdown_files() {
   # Repository-internal handoff, audit and work-log documents are Git source
   # material, but are not part of the established 102-page Notion share set.
-  # ADR-0084/0085 likewise remain excluded until page IDs are provisioned and
+  # ADR-0084 through ADR-0088 remain excluded until page IDs are provisioned and
   # the publication contract is deliberately expanded.
   printf '%s\n' \
     docs/adr/ADR-0084-python-311-dual-gpu-runtime-profiles.md \
     docs/adr/ADR-0085-source-structure-and-evidence-bundles.md \
+    docs/adr/ADR-0086-source-bound-review-program-runtime.md \
+    docs/adr/ADR-0087-product-composition-and-evidence-policy.md \
+    docs/adr/ADR-0088-hwp-html-review-display.md \
     docs/codebase-structure-current.md \
     docs/custom-parser-audit-current.md \
     docs/decisions.md \
@@ -48,14 +51,26 @@ list_excluded_markdown_files() {
     docs/first-review-local-spark-guide.md \
     docs/handoff-current.md \
     docs/intake-routing-template-review-2026-09-09.md \
+    docs/new-team-member-overview.md \
     docs/parser-agent-handoff.md \
     docs/parser-handoff-quickstart.md \
     docs/parser-integration-audit-2026-09-10.md \
+    docs/parser-integration-audit-2026-09-22.md \
     docs/parser-schema-change-request-current.md \
+    docs/parser-schema-current-2026-09-28.md \
     docs/pipeline-design-review-current.md \
+    docs/review-flow-and-structuring-2026-09-28.md \
+    docs/rule-execution-contract-current.md \
+    docs/runtime-wiring-audit-2026-09-22.md \
+    docs/session-resume-prompt.md \
     docs/work-log-2026-09-14.md \
     docs/work-log-2026-09-15.md \
-    docs/work-log-2026-09-16.md
+    docs/work-log-2026-09-16.md \
+    docs/work-log-2026-09-17.md \
+    docs/work-log-2026-09-18.md \
+    docs/work-log-2026-09-21.md \
+    docs/work-log-2026-09-22.md \
+    docs/work-log-2026-09-28.md
 }
 
 list_general_files() {
