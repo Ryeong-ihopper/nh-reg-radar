@@ -7,8 +7,10 @@ NH농협은행 금융상품 광고의 사전 심의를 보조하는 규칙·근�
 
 이 저장소는 기존 NH 제품 개발 기반에 정본 규칙 실행, 운영 웹 연결, 원문 근거 표시,
 규칙 구조화와 독립 평가 기능을 확장한 작업 저장소입니다.
-현재 업로드 대상은 **[Ryeong-ihopper/nh-reg-radar](https://github.com/Ryeong-ihopper/nh-reg-radar)**입니다.
-현재 작업 브랜치는 `feat/regulation-collection-viewer`이며 운영 적용과 저장소의 변경 상태는
+개인 저장소는 **[Ryeong-ihopper/nh-reg-radar](https://github.com/Ryeong-ihopper/nh-reg-radar)의 `main`**에서 관리합니다.
+2026-09-29까지의 변경은 회사 저장소의
+[`feat/regulation-collection-viewer`](https://github.com/CGINSIDE-ROOKIES/nh-ad-compliance/tree/feat/regulation-collection-viewer)에도 반영합니다.
+운영 적용과 저장소의 변경 상태는
 [인수인계](docs/handoff-current.md)에서 구별해 확인합니다.
 
 ## 주요 기능
@@ -102,7 +104,7 @@ openapi/                   API 계약과 생성 타입의 원천
 파서의 Python3.13 환경은 애플리케이션 환경과 분리합니다.
 
 ```bash
-git clone --branch feat/regulation-collection-viewer https://github.com/Ryeong-ihopper/nh-reg-radar.git
+git clone --branch main https://github.com/Ryeong-ihopper/nh-reg-radar.git
 cd nh-reg-radar
 uv sync --all-packages --dev
 uv pip install -r rag-pipeline/requirements-rag-dev.txt
