@@ -251,6 +251,13 @@ def test_saved_wrong_phrase_citation_is_withheld_without_changing_raw_or_guessin
         doc.update(text='가상통장', line_texts={'FILE-b::L1': '가상통장'})
         row = saved_workspace(raw, requests, source(), 'ADV')['rows'][0]
         assert row['verdict'] == '충족' and len(row['evidence_locations']) == 1
+        judgment['requirement_checks'][0]['reason'] = "광고에 '가상통장' 및 '가상은행' 명칭이 확인됩니다."
+        row = saved_workspace(raw, requests, source(), 'ADV')['rows'][0]
+        assert row['verdict'] == '판단불가'
+        assert row['model_assessment']['status'] == 'WITHHELD_BY_GROUNDING_GUARD'
+        doc.update(text='가상통장 가상은행', line_texts={'FILE-b::L1': '가상통장 가상은행'})
+        row = saved_workspace(raw, requests, source(), 'ADV')['rows'][0]
+        assert row['verdict'] == '충족' and len(row['evidence_locations']) == 1
 
 
 def test_unassigned_and_asset_local_page_are_preserved():

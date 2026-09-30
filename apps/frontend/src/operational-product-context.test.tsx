@@ -154,6 +154,7 @@ test("choosing a known retirement product clears the no-product choice", async (
 test("explicit LMS selection is preserved in the registered media metadata", async () => {
   const calls = renderAdvertisementCreatePage();
   await fillAdvertisementDetails();
+  expect(screen.queryByText("심의 흐름과 적용 기준 보기")).not.toBeInTheDocument();
   expect(screen.getByRole("option", { name: "장문 문자(LMS)" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "멀티미디어 문자(MMS)" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "배너·팝업" })).toHaveValue("WEB_BANNER");
@@ -172,6 +173,7 @@ test("the worklist distinguishes current plans, design candidates, and source ho
   vi.stubGlobal("fetch", vi.fn(async () => response({ counts: { templates: 239, supplement_32: 32, additional_34: 34 }, rows: [{ id: "synthetic-source", label: "판본 확인 검사", kind: "ADDITIONAL_34", scope: "투자성", status: "SOURCE_VERSION_HOLD", note: "판본 확인 후 구조화", owner: "사람", source: { 판정기준: "원문 보존" } }] })));
   render(<MemoryRouter initialEntries={["/review-criteria"]}><App initialSession={session} /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "판본 확인 검사" })).toBeInTheDocument();
+  expect(screen.getByText("심의 흐름과 적용 기준 보기")).toBeInTheDocument();
   expect(screen.getByText(/자동 판정에 일괄 활성화되지/)).toBeInTheDocument();
   expect(screen.getAllByText(/판본 확인 보류/).length).toBeGreaterThan(0);
 });

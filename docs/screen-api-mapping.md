@@ -1,5 +1,13 @@
 # 화면-API 매핑표
 
+## 운영 결과 목록 필터와 위치 이동 — 2026-09-30
+
+`GET /operational/reviews/{review_id}/workspace`의 저장 판정 행을 클라이언트에서 전체·적정·부적정·확인필요로 필터링한다. 행의 저장 사유를 카드에 요약하고 `evidence_locations` 또는 판단불가의 `review_locations`를 원문 이미지 bbox 이동에 사용한다. 저장 좌표가 빈 행은 임의 위치로 연결하지 않는다. 결과 화면의 내보내기 버튼은 표시하지 않지만 기존 JSON 응답과 저장 결과는 유지한다. 새 API 호출이나 데이터 변경 요청은 없다.
+
+## 광고 등록 안내 블록 제거 — 2026-09-30
+
+등록 화면의 심의 흐름 안내는 표시 전용으로 API 입력값이 아니다. 해당 블록을 제거해도 capabilities 조회, 상품·매체 선택, 광고 등록과 운영 intake 요청은 그대로 유지한다. 구조화 작업대장 경로 `/review-criteria`는 별도 화면에서 유지한다.
+
 ## 광고 매체 대표 선택지와 전송 코드 — 2026-09-30
 
 운영 등록은 API의 활성 코드 중 `SMS`, `LMS`, `MMS`, `PUSH`, `EMAIL`, `ALIMTALK`, `WEB_BANNER`, `WEB_PRODUCT_PAGE`, `SOCIAL_MEDIA`, `NOTICE`, `VIDEO`만 표시한다. 배너·팝업은 `WEB_BANNER`, 웹·앱 상세·이벤트는 `WEB_PRODUCT_PAGE`, SNS·검색은 `SOCIAL_MEDIA`, 문서·인쇄·현장·옥외는 `NOTICE`를 대표 코드로 사용한다. `OTHER`는 등록 화면에서 제외한다. 선택된 코드를 `POST /advertisements`와 운영 intake의 `media_codes[]`에 동일하게 전달한다. 과거 광고의 상세 코드는 읽기·표시·재현할 수 있도록 API와 저장소에 유지한다.

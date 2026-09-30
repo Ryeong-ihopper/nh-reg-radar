@@ -12,11 +12,13 @@ export function OperationalReviewDetail({ row, reviewId, onLocate, showSuggestio
   const guidance = row.verdict === "위반" ? row.template_violation_guidance : row.template_review_guidance;
   const criteria = reviewSourceCriterion(row);
   const checks = row.display_checks ?? [];
+  const noStoredPosition = row.evidence_locations !== undefined && !row.evidence_locations.length && !(row.verdict === "판단불가" && row.review_locations?.length);
   return <article className="review-selected-detail" aria-label={`선택 항목 상세 ${row.title}`}>
     <header className="review-detail-heading"><div><p className="eyebrow">선택 항목 상세</p><h3>{reviewItemTitle(row)}</h3>{row.source_product ? <small className="review-product-context">{row.source_product}</small> : null}</div><VerdictBadge value={row.verdict} /></header>
     <div className="review-detail-section review-decision-reason"><h4>{row.verdict === "판단불가" ? "확인이 필요한 이유" : "판정 사유"}</h4><p>{row.reason || "저장된 판정 사유가 없습니다."}</p></div>
-    <div className="review-detail-section"><div className="review-section-heading"><h4>광고물 내 문구</h4><button type="button" className="button-secondary" onClick={onLocate}>원문 위치 보기 ↗</button></div>
+    <div className="review-detail-section"><div className="review-section-heading"><h4>광고물 내 문구</h4><button type="button" className="button-secondary" onClick={onLocate} disabled={noStoredPosition} title={noStoredPosition ? missingSourceLabel(row).replace(/bbox/g, "위치") : undefined}>{noStoredPosition ? "원문 위치 없음" : "원문 위치 보기 ↗"}</button></div>
       {row.evidence?.trim() ? <blockquote className="review-source-quote">{row.evidence}</blockquote> : <p className="review-empty-note">{missingSourceLabel(row).replace(/bbox/g, "위치")}</p>}
+      {noStoredPosition && row.evidence?.trim() ? <p className="review-empty-note">{missingSourceLabel(row).replace(/bbox/g, "위치")}</p> : null}
     </div>
     <div className="review-detail-section"><h4>기준표 조건 대조</h4>
       {criteria ? <p className="review-source-criterion">{criteria}</p> : <p className="review-empty-note">이 결과에 저장된 기준표 조건이 없습니다.</p>}

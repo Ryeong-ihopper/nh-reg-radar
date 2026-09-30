@@ -9,7 +9,6 @@ import { advertisementTypeLabel, productGroupLabel } from "../components/display
 import { PageHeader } from "../components/PageHeader";
 import { ErrorState, LoadingState } from "../components/RequestState";
 import { WorkflowSteps } from "../components/WorkflowSteps";
-import { ReviewFlowGuide } from "../components/ReviewFlowGuide";
 
 const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "pdf", "hwp", "hwpx"]);
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -248,7 +247,6 @@ export function AdvertisementCreatePage() {
     <WorkflowSteps current={1} />
     <PageHeader headingId="advertisement-create-heading" eyebrow="1단계 · 광고 등록" title="광고물 등록"
       description={operationalMode ? "광고별로 기본정보와 원본 파일을 묶어 한 번에 등록하고 독립적으로 자동심의를 시작합니다." : "검토할 광고 원본을 필수로 등록하고, 상품설명서·약관을 함께 첨부하면 정합성 검토 정확도를 높일 수 있습니다."} />
-    {operationalMode ? <ReviewFlowGuide capabilities={capabilities.data} /> : null}
     {codesPending ? <LoadingState label="등록 선택값을 불러오는 중입니다." /> : null}
     {codesError ? <ErrorState error={codesError} /> : null}
     {!codesPending && !codesError ? <form className="form-layout" onSubmit={submit} noValidate>

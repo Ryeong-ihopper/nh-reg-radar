@@ -1614,6 +1614,10 @@ class ExecutionBridge:
             with self.parser_slots:
                 batch_returncode = self.execute_parser(source_dir, output, directory / "parser.log", template_id=template_id)
             completed, missing = self.parsed_assets(files, source_by_file, output)
+            for file in files:
+                if file.file_id in completed:
+                    p1_path, p3_path = completed[file.file_id]
+                    self.capture_parser_page_images(file, p1_path, p3_path, directory)
         retry_attempts = []
         if missing:
             recovered, retry_attempts = self.retry_missing_parser_assets(files, source_by_file, missing, directory, template_id=template_id)

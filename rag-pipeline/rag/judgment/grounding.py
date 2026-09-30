@@ -34,7 +34,7 @@ _RATIO = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:%p|%|퍼센트|프로)|(?<!
 # somewhere else in its region. Rule quotations and descriptions of absence
 # are not assertions that the quoted wording occurs in the advertisement.
 _POSITIVE_QUOTE = re.compile(
-    r"[‘'\"“]([^’'\"”\n]{2,100})[’'\"”]([^.!?\n]{0,100})")
+    r"[‘'\"“]([^’'\"”\n]{2,100})[’'\"”](?=([^.!?\n]{0,100}))")
 
 # A direct observed finding needs at least one auditable source excerpt.  Four
 # non-space characters avoids accepting punctuation or a one-letter token as

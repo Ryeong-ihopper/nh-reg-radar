@@ -93,6 +93,11 @@ class NumericGroundingTests(unittest.TestCase):
             self.assertEqual(len(ungrounded_source_quotes(reason, '심의필번호 안내')), 1)
         self.assertEqual(ungrounded_source_quotes("예시에 '가상은행'이 기재되어 있습니다.", '다른 문장'), [])
 
+    def test_each_observed_quote_must_appear_in_the_cited_lines(self):
+        reason = "광고에 '표본상품' 및 '표본은행' 명칭이 확인됩니다."
+        self.assertEqual(ungrounded_source_quotes(reason, "표본상품"), ["표본은행"])
+        self.assertEqual(ungrounded_source_quotes(reason, "표본상품 표본은행"), [])
+
     def test_explicit_ellipsis_preserves_only_source_ordered_fragments(self):
         source = '상품 가입 전에 설명서와 약관을 읽고 문의하시기 바랍니다.'
         for quote in ['상품 가입 전에...', '상품 가입 전에…문의하시기 바랍니다.', '…약관을 읽고']:
