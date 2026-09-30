@@ -10,7 +10,7 @@ COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 EXPECTED_MARKDOWN_COUNT="${EXPECTED_MARKDOWN_COUNT:-102}"
 EXPECTED_GENERAL_COUNT="${EXPECTED_GENERAL_COUNT:-17}"
 EXPECTED_ADR_COUNT="${EXPECTED_ADR_COUNT:-85}"
-EXPECTED_EXCLUDED_MARKDOWN_COUNT="${EXPECTED_EXCLUDED_MARKDOWN_COUNT:-32}"
+EXPECTED_EXCLUDED_MARKDOWN_COUNT="${EXPECTED_EXCLUDED_MARKDOWN_COUNT:-33}"
 EXPECTED_PARENT_TITLE="${EXPECTED_NOTION_PARENT_TITLE:-개발 문서}"
 PAGE_MAP_PATH="${NOTION_PAGE_MAP_PATH:-governance/notion-page-map.json}"
 SYNC_BASE_SHA="${NOTION_SYNC_BASE_SHA:-}"
@@ -36,7 +36,7 @@ list_tracked_markdown_files() {
 list_excluded_markdown_files() {
   # Repository-internal handoff, audit and work-log documents are Git source
   # material, but are not part of the established 102-page Notion share set.
-  # ADR-0084 through ADR-0088 remain excluded until page IDs are provisioned and
+  # ADR-0084 through ADR-0089 remain excluded until page IDs are provisioned and
   # the publication contract is deliberately expanded.
   printf '%s\n' \
     docs/adr/ADR-0084-python-311-dual-gpu-runtime-profiles.md \
@@ -44,6 +44,7 @@ list_excluded_markdown_files() {
     docs/adr/ADR-0086-source-bound-review-program-runtime.md \
     docs/adr/ADR-0087-product-composition-and-evidence-policy.md \
     docs/adr/ADR-0088-hwp-html-review-display.md \
+    docs/adr/ADR-0089-irp-fund-component-composition.md \
     docs/codebase-structure-current.md \
     docs/custom-parser-audit-current.md \
     docs/decisions.md \
