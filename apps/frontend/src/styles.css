@@ -1787,7 +1787,7 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .review-item-panel h3 { margin:0; font-size:1rem; }
 .review-item-panel h3 small, .legal-reference-list h3 small, .review-hub-ads h3 small { margin-left:.3rem; color:var(--muted); font-size:.75rem; font-weight:400; }
 .review-item-panel > header p { margin:.4rem 0; color:var(--muted); font-size:.78rem; line-height:1.6; }
-.review-verdict-filters { display:flex; flex-wrap:wrap; justify-content:center; gap:.4rem; margin-top:.7rem; }
+.review-verdict-filters { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:.4rem; margin-top:.7rem; }
 .review-verdict-filters button { --filter-ink:#344658; --filter-tint:#eef2f6; --filter-border:#9aaabb; display:inline-flex; flex:none; align-items:center; justify-content:center; gap:.3rem; width:auto; min-height:2.35rem; margin:0; padding:.4rem .75rem; border:1px solid var(--filter-border); border-radius:7px; background:#fff; color:var(--filter-ink); font-size:.78rem; font-weight:650; line-height:1.2; box-shadow:none; white-space:nowrap; }
 .review-verdict-filters button[data-verdict="적정"] { --filter-ink:#17613f; --filter-tint:#eaf6ee; --filter-border:#79ad8b; }
 .review-verdict-filters button[data-verdict="부적정"] { --filter-ink:#a33028; --filter-tint:#fff0ee; --filter-border:#d69892; }
