@@ -43,6 +43,7 @@ from operational_locations import (extraction_status, frozen_rule_metadata, load
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
 from rag.parsing.prepare_inputs import combine  # noqa: E402
+from rag.parsing.parser_contract_adapter import PARSER_FIN_PROFILES  # noqa: E402
 from rag.parsing.source_structure import namespace_structure  # noqa: E402
 from rag.templates.catalog import TemplateCatalog  # noqa: E402
 from rag.contracts.validation import validate_ad_intake, validate_integrated_input  # noqa: E402
@@ -178,7 +179,7 @@ def parser_runner_layout(config: dict) -> dict[str, str]:
         return {"runner": runner, "p1_dir": "evidence", "p3_dir": "review-input", "raw_dir": "parse"}
     if runner == "nh_parser_fin":
         profile = config.get("parser_contract_profile", "region-v6")
-        if profile not in {"region-v6", "region-v9"}:
+        if profile not in PARSER_FIN_PROFILES:
             raise ValueError("unsupported parser_contract_profile")
         return {"runner": runner, "p1_dir": "final", "p3_dir": "final", "raw_dir": "raw",
                 "contract_profile": profile}
@@ -385,7 +386,7 @@ class ExecutionBridge:
         if runner == "nh_parser_fin":
             command = [self.config["parser_python"], "-u", str(root / "run.py"),
                        "--input", str(source_dir), "--run-name", output.name]
-            command.append("--compact-output" if self.parser_layout_config.get("contract_profile") == "region-v9"
+            command.append("--compact-output" if self.parser_layout_config.get("contract_profile") in {"region-v9", "region-v10"}
                            else "--with-vlm")
             return command
         if not visual:
@@ -469,7 +470,7 @@ class ExecutionBridge:
         if self.parser_layout_config["runner"] == "nh_parser_fin":
             env["NH_OUTPUT_ROOT"] = str(Path(output).resolve().parent)
             env.setdefault("NH_MEDIA_DIR", str((Path(output).resolve().parent / "media")))
-            if self.parser_layout_config.get("contract_profile") == "region-v9":
+            if self.parser_layout_config.get("contract_profile") in {"region-v9", "region-v10"}:
                 env["HWP_RENDER_DIR"] = str(Path(output).resolve() / "render")
                 env["HWP_REVIEW_DIR"] = str(Path(output).resolve() / "review-html")
         env["PYTHONIOENCODING"] = "utf-8"
@@ -681,9 +682,11 @@ class ExecutionBridge:
             return static_hwp_html(raw.decode('utf-8-sig'))
 
     def capture_parser_page_images(self, file, p1_path, p3_path, directory):
-        """Keep the exact compact-output PNG used to establish each v9 canvas."""
+        """Keep the exact compact-output PNG used to establish each page canvas."""
         p3 = read_json(p3_path)
-        if (p3.get("contract") or {}).get("version") != "nh-ad-region-review-input-v9":
+        if (p3.get("contract") or {}).get("version") not in {
+            PARSER_FIN_PROFILES[profile][1] for profile in ("region-v9", "region-v10")
+        }:
             return
         from PIL import Image
         output = Path(p1_path).parent.parent
@@ -736,7 +739,7 @@ class ExecutionBridge:
     def with_parser_preview_paths(review_id, layout, integrated):
         current_assets = {row["file_id"] for row in (integrated.get("diagnostics") or {}).get("assets", [])
                           if (row.get("source_parser_contracts") or {}).get("source_p3_contract")
-                          == "nh-ad-region-review-input-v9"}
+                          in {PARSER_FIN_PROFILES[profile][1] for profile in ("region-v9", "region-v10")}}
         value = copy.deepcopy(layout)
         for page in value.get("pages", []):
             if page.get("asset_id") in current_assets:
@@ -1418,22 +1421,22 @@ class ExecutionBridge:
 
     def parser_intake(self, template_id):
         intake = {"version": "user-template-labeling-v5", "template_id": template_id}
-        if self.parser_layout_config.get("contract_profile") == "region-v9":
+        profile = self.parser_layout_config.get("contract_profile")
+        if profile in {"region-v9", "region-v10"}:
             revision = self.config.get("parser_revision")
             if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
-                raise ValueError("PARSER_REVISION_REQUIRED: region-v9 requires a pinned upstream commit")
-            intake.update(version="user-template-labeling-v6", parser_contract_profile="region-v9",
+                raise ValueError(f"PARSER_REVISION_REQUIRED: {profile} requires a pinned upstream commit")
+            intake.update(version="user-template-labeling-v6", parser_contract_profile=profile,
                           parser_revision=revision)
         return intake
 
     def validate_parser_template(self, p1_path, p3_path, template_id):
         if self.parser_layout_config["runner"] == "nh_parser_fin":
-            if self.parser_layout_config.get("contract_profile") == "region-v9":
+            profile = self.parser_layout_config.get("contract_profile")
+            if profile in {"region-v9", "region-v10"}:
                 p1, p3 = read_json(p1_path), read_json(p3_path)
-                if ((p1.get("contract") or {}).get("version"), (p3.get("contract") or {}).get("version")) != (
-                    "nh-ad-parse-evidence-v4", "nh-ad-region-review-input-v9"
-                ):
-                    raise ValueError("PARSER_CONTRACT_MISMATCH: region-v9 requires P1 v4/P3 v9")
+                if ((p1.get("contract") or {}).get("version"), (p3.get("contract") or {}).get("version")) != PARSER_FIN_PROFILES[profile]:
+                    raise ValueError(f"PARSER_CONTRACT_MISMATCH: {profile} requires {PARSER_FIN_PROFILES[profile]}")
             p1_template = read_json(p1_path).get("template") or {}
             p3_template = (read_json(p3_path).get("document") or {}).get("template") or {}
             if p1_template != p3_template:

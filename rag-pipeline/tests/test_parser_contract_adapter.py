@@ -182,6 +182,31 @@ def parser_fin_current_pair():
 
 
 class ParserContractAdapterTests(unittest.TestCase):
+    def test_v5_v10_preserves_each_file_route_and_digital_corrections(self):
+        for file_type, source in (("hwp", "hwp"), ("pdf", "digital"), ("pdf", "ocr"), ("image", "ocr")):
+            with self.subTest(file_type=file_type, source=source):
+                p1, p3 = parser_fin_current_pair()
+                p1["contract"]["version"] = "nh-ad-parse-evidence-v5"
+                p3["contract"].update(version="nh-ad-region-review-input-v10",
+                                      source_evidence_version="nh-ad-parse-evidence-v5")
+                p1["file_type"] = p3["document"]["file_type"] = file_type
+                region = p1["pages"][0]["regions"][0]
+                region["digital_anchor"] = {"missing_lines": ["source addition"]}
+                p1["pages"][0]["digital_anchor_stats"] = {"missing": 1}
+                p3["pages"][0]["regions"][0]["text_source"] = source
+                before = copy.deepcopy((p1, p3))
+                adapted, selected = adapt_p1_p3(p1, p3)
+                self.assertEqual((p1, p3), before)
+                actual = adapted["pages"][0]["regions"][0]
+                self.assertEqual(actual["bbox"], region["bbox"])
+                self.assertEqual(actual["lines"][0]["bbox"], region["lines"][0]["bbox"])
+                observation = selected["pages"][0]["regions"][0]["parser_observations"]
+                self.assertEqual(observation["digital_anchor"], region["digital_anchor"])
+                self.assertEqual(observation["page_digital_anchor_stats"], {"missing": 1})
+                p3["pages"][0]["regions"][0]["bbox"] = [1, 2, 3, 4]
+                with self.assertRaisesRegex(ValueError, "bbox mismatch"):
+                    adapt_p1_p3(p1, p3)
+
     def test_current_layout_and_coordinate_provenance_reach_model_without_attestation(self):
         from run_operational_e2e import evidence_documents
         from run_gemma_exhaustive_dgx import _compact_model_request
@@ -307,7 +332,9 @@ class ParserContractAdapterTests(unittest.TestCase):
         for first, third in [
             ("nh-ad-parse-evidence-v3", "nh-ad-region-review-input-v9"),
             ("nh-ad-parse-evidence-v4", "nh-ad-region-review-input-v6"),
-            ("nh-ad-parse-evidence-v5", "nh-ad-region-review-input-v10"),
+            ("nh-ad-parse-evidence-v6", "nh-ad-region-review-input-v11"),
+            ("nh-ad-parse-evidence-v4", "nh-ad-region-review-input-v10"),
+            ("nh-ad-parse-evidence-v5", "nh-ad-region-review-input-v9"),
         ]:
             with self.subTest(pair=(first, third)):
                 p1, p3 = parser_fin_current_pair()

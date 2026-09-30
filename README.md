@@ -29,6 +29,7 @@ AI 수정 문구 자동 생성·채택 결과 저장, 법령 전체 조문·개�
 
 | 영역 | 주요 파일 |
 | --- | --- |
+| 광고 목록·검색·선택 | [`AdvertisementListPage.tsx`](apps/frontend/src/pages/AdvertisementListPage.tsx), [`AdvertisementDetailPage.tsx`](apps/frontend/src/pages/AdvertisementDetailPage.tsx) |
 | 광고 등록 | [`AdvertisementCreatePage.tsx`](apps/frontend/src/pages/AdvertisementCreatePage.tsx) |
 | 결과 화면 | [`OperationalReviewReportPage.tsx`](apps/frontend/src/pages/OperationalReviewReportPage.tsx) |
 | 결과 상세·원문 | [`OperationalReviewDetail.tsx`](apps/frontend/src/components/OperationalReviewDetail.tsx), [`OperationalOriginalPanel.tsx`](apps/frontend/src/components/OperationalOriginalPanel.tsx) |
@@ -36,8 +37,29 @@ AI 수정 문구 자동 생성·채택 결과 저장, 법령 전체 조문·개�
 | 화면 API 계약 | [`operational.ts`](apps/frontend/src/api/operational.ts), [`openapi.yaml`](openapi/openapi.yaml) |
 | 상품 조합 | [`product-contexts-v1.json`](rag-pipeline/config/product-contexts-v1.json), [`product_context.py`](rag-pipeline/rag/judgment/product_context.py) |
 | 운영 연결·이미지 범위 | [`operational_web_bridge.py`](scripts/operational_web_bridge.py), [`runtime-files.json`](infra/operational/runtime-files.json) |
+| 파서 계약 변환·근거 위치 | [`parser_contract_adapter.py`](rag-pipeline/rag/parsing/parser_contract_adapter.py), [`prepare_inputs.py`](rag-pipeline/rag/parsing/prepare_inputs.py), [`operational_locations.py`](scripts/operational_locations.py) |
 
 프런트엔드는 React·TypeScript·Vite, 웹 API와 판정기는 Python을 사용합니다. 별도 private 파서, 검색·모델 서비스, 비공개 운영 설정은 이 저장소에 포함되지 않습니다. 생성기·평가기·회귀 테스트·이행 코드는 저장소에 보존하고 최종 운영 이미지의 실행 파일 목록과 구분합니다.
+
+## 광고 목록·렌더링 담당자 안내
+
+운영 모드의 결과 화면은 `OperationalReviewReportPage.tsx`입니다. 일반 모드의 `ReviewResultsPage.tsx`와 진입점이 다르므로 [`App.tsx`](apps/frontend/src/App.tsx)의 라우팅과 `.env.operational`을 먼저 확인하세요. 목록 API는 `api/client.ts`, 운영 심의 API는 `api/operational.ts`, 화면 배치는 `styles.css`에서 관리합니다.
+
+결과 화면은 다음 세 데이터를 연결합니다. 아래 경로의 앞에는 `/api/v1/operational`이 붙습니다.
+
+| 응답 | 화면에서 쓰는 내용 |
+| --- | --- |
+| `reviews/{reviewId}/workspace` | 항목별 판정·사유·인용문, `evidence_locations`(직접 근거), `review_locations`(사람 확인 대상) |
+| `reviews/{reviewId}/parser-layout` | 파일·페이지 연결, 영역·줄·좌표, 페이지별 `canvas_w/h`, `preview_path` |
+| `reviews/{reviewId}/parser-page/{pageNo}` | 해당 P1/P3와 원본 해시에 결합된 실제 파서 페이지 이미지 |
+
+`OperationalOriginalPanel`은 이미지를 그리고 좌표를 페이지 캔버스 크기로 나눠 표시합니다. 결과의 페이지 번호와 원본 파일의 페이지 번호는 다를 수 있으므로 `asset_id`·`source_page_no`를 함께 유지해야 합니다. HWP HTML 보기는 별도이며 이미지 좌표를 겹쳐 그리지 않습니다.
+
+`operationalResultModel`은 판정 표시명·위치 선택·위치 없음 안내를 담당하고, `OperationalReviewDetail`은 선택 항목의 사유·인용문·검사 상세를 표시합니다. 좌표가 없다는 이유만으로 문구 누락을 뜻하지 않습니다. 명시적으로 비어 있는 `evidence_locations`를 다른 상품의 같은 문구로 찾아 채우지 않습니다.
+
+외부 파서의 최신 확인 커밋은 [`3d3dacbf`](https://github.com/cg-wnsdud/nh-parser-fin/tree/3d3dacbf95518090c12b10874ba3d758a889f235)입니다. P1 v5·P3 v10은 `region-v10`으로 연결하며, 이전 저장 결과의 v3/v6·v4/v9도 읽습니다. 파서 업데이트 시 비공개 실행 설정의 `parser_contract_profile`과 40자리 `parser_revision`을 실제 설치본에 맞춰 함께 변경해야 합니다. 코드 지원과 운영 설치 상태는 구분하며 최신 적용 여부는 [인수인계](docs/handoff-current.md)를 확인하세요.
+
+최종 `selected_text`는 영역 단위이고 P1 OCR 줄과 다를 수 있습니다. PDF 디지털 교정이나 표 변환 후 문구를 예전 OCR 줄의 정확한 문구·좌표라고 취급하면 안 됩니다. 원본 P1/P3를 보존하고 검증 가능한 줄 또는 실제 영역 수준으로 연결합니다. 자세한 계약은 [파서 연결 명세](docs/parser-schema-current-2026-09-28.md)를 따릅니다.
 
 ## 개발·검사
 
@@ -49,6 +71,13 @@ VITE_API_PROXY_TARGET=http://127.0.0.1:5182 npm --prefix apps/frontend run dev -
 ```
 
 PowerShell에서는 `VITE_API_PROXY_TARGET`을 환경변수로 설정한 뒤 `npm` 명령을 실행합니다. 실제 심의에는 승인된 원문·파서·검색·모델 연결이 별도로 필요합니다.
+
+```powershell
+$env:VITE_API_PROXY_TARGET = "http://127.0.0.1:5182"
+npm --prefix apps/frontend run dev -- --mode operational --host 127.0.0.1
+```
+
+5182는 접속 가능한 운영 API 또는 로컬 연결이 먼저 있어야 합니다. Vite를 켜는 것만으로 파서·OCR·모델 서버가 시작되지는 않습니다. 서버 구성은 [`infra/operational/README.md`](infra/operational/README.md)를 참고하세요.
 
 변경 범위에 맞는 직접 회귀부터 실행합니다. 공통 판정·출처 계약이나 운영 배포가 바뀌면 관련 전체 검사를 추가합니다.
 

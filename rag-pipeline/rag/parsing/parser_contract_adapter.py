@@ -21,8 +21,12 @@ PARSER_FIN_P1 = "nh-ad-parse-evidence-v3"
 PARSER_FIN_P3 = "nh-ad-region-review-input-v6"
 PARSER_FIN_CURRENT_P1 = "nh-ad-parse-evidence-v4"
 PARSER_FIN_CURRENT_P3 = "nh-ad-region-review-input-v9"
-PARSER_FIN_PAIRS = {(PARSER_FIN_P1, PARSER_FIN_P3),
-                    (PARSER_FIN_CURRENT_P1, PARSER_FIN_CURRENT_P3)}
+PARSER_FIN_PROFILES = {
+    "region-v6": (PARSER_FIN_P1, PARSER_FIN_P3),
+    "region-v9": (PARSER_FIN_CURRENT_P1, PARSER_FIN_CURRENT_P3),
+    "region-v10": ("nh-ad-parse-evidence-v5", "nh-ad-region-review-input-v10"),
+}
+PARSER_FIN_PAIRS = set(PARSER_FIN_PROFILES.values())
 
 
 def adapt_p1_p3(p1: dict[str, Any], p3: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -114,7 +118,7 @@ def _adapt_parser_fin_pair(
     p3_document = source_p3.get("document") or {}
     source_p1_version = (source_p1.get("reading_evidence_contract") or source_p1.get("contract") or {}).get("version")
     source_p3_version = source_p3["contract"]["version"]
-    current = source_p3_version == PARSER_FIN_CURRENT_P3
+    current = source_p3_version in {pair[1] for name, pair in PARSER_FIN_PROFILES.items() if name != "region-v6"}
     if current:
         _validate_parser_fin_current_geometry(source_p1, source_p3)
     if source_p1.get("doc_id") != p3_document.get("doc_id"):
@@ -168,6 +172,8 @@ def _adapt_parser_fin_pair(
                     "layout_observation": copy.deepcopy(source_region.get("layout_observation") or {}),
                     "bbox_source": source_region.get("bbox_source"),
                     "bbox_quality": source_region.get("bbox_quality"),
+                    "digital_anchor": copy.deepcopy(source_region.get("digital_anchor") or {}),
+                    "page_digital_anchor_stats": copy.deepcopy(source_page.get("digital_anchor_stats") or {}),
                     "structured": copy.deepcopy(source_region.get("structured") or {}),
                     "source_line_shape": {
                         "records": len(source_region.get("lines") or []),
@@ -264,8 +270,8 @@ def _adapt_parser_fin_pair(
 
 
 def _validate_parser_fin_current_geometry(p1: dict[str, Any], p3: dict[str, Any]) -> None:
-    """v9 geometry is a projection of the same P1 page, not a second source."""
-    if p3["contract"].get("source_evidence_version") != PARSER_FIN_CURRENT_P1:
+    """v9/v10 geometry is a projection of the same P1 page, not a second source."""
+    if p3["contract"].get("source_evidence_version") != (p1.get("contract") or {}).get("version"):
         raise ValueError("nh-parser-fin P3 source evidence version mismatch")
     document = p3.get("document") or {}
     if any(p1.get(key) != document.get(key) for key in ("doc_id", "source_file", "file_type")):

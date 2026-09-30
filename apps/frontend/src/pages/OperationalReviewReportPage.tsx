@@ -56,7 +56,15 @@ export function OperationalResultsPage() {
           <div className="review-detail-scroll"><OperationalReviewDetail row={selected} reviewId={reviewId} showSuggestionLink={false} onLocate={() => setLocateRequest(value => value + 1)} /></div>
         </> : <>
           <header><h3>항목별 판정 <small>{filteredRows.length} / {rows.length}건</small></h3>
-            <div className="review-verdict-filters" role="group" aria-label="판정별 보기">{verdictFilters.map(filter => <button key={filter} type="button" aria-pressed={verdictFilter === filter} onClick={() => { setVerdictFilter(filter); setHovered(""); }}>{filter}<span>{filter === "전체" ? rows.length : rows.filter(row => reviewVerdict(row.verdict) === filter).length}</span></button>)}</div>
+            <div className="review-verdict-filters" role="group" aria-label="판정별 보기">
+              {verdictFilters.map(filter => (
+                <button key={filter} type="button" data-verdict={filter} aria-pressed={verdictFilter === filter}
+                  onClick={() => { setVerdictFilter(filter); setHovered(""); }}>
+                  <span className="review-filter-label">{filter}</span>
+                  <span className="review-filter-count">{filter === "전체" ? rows.length : rows.filter(row => reviewVerdict(row.verdict) === filter).length}</span>
+                </button>
+              ))}
+            </div>
           </header>
           <div className="review-result-list" aria-label="항목별 판정 목록">
             {omissions.length ? <aside className="state-message" role="alert"><strong>과거 실행 누락 {omissions.length}건 · 재처리 필요</strong><p>모든 대상 항목의 검토가 완료된 상태가 아닙니다.</p></aside> : null}

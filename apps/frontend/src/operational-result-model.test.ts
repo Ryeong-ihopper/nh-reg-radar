@@ -43,7 +43,7 @@ describe("single operational result", () => {
   });
   it("withholds mismatched saved source quotations instead of displaying a valid bbox", () => {
     const row = {evidence: "", evidence_locations: [], model_assessment: {status: "WITHHELD_BY_GROUNDING_GUARD", verdict: "COMPLIANT", reason: "old result"}} as unknown as ResultRow;
-    expect(missingSourceLabel(row)).toContain("설명과 원문 인용이 불일치");
+    expect(missingSourceLabel(row)).toContain("문구 누락으로 확정한 것은 아닙니다");
     expect(resultEvidenceBoxes(row, layout)).toEqual([]);
   });
   it("distinguishes missing source geometry from whole-ad assessment", () => {
@@ -58,11 +58,11 @@ describe("single operational result", () => {
     expect(missingSourceLabel(row)).toContain("근거 인용 보류");
     expect(resultEvidenceBoxes(row, layout)).toEqual([]);
     expect(missingSourceLabel({...row,evidence:"독립 근거"})).toContain("bbox 매핑 없음");
-    expect(missingSourceLabel({...row,reading_quality_review:null})).toBe("판정 응답에 원문 줄 참조 없음");
+    expect(missingSourceLabel({...row,reading_quality_review:null})).toBe("판정 근거 원문을 확인하지 못해 위치를 표시할 수 없습니다. 누락 여부는 원본 확인이 필요합니다.");
   });
   it("distinguishes a missing-content assertion from a broken source reference without certifying coverage", () => {
     const row = {verdict: "위반", evidence: ""} as ResultRow;
-    expect(missingSourceLabel(row)).toBe("판정 응답에 원문 줄 참조 없음");
+    expect(missingSourceLabel(row)).toBe("판정 근거 원문을 확인하지 못해 위치를 표시할 수 없습니다. 누락 여부는 원본 확인이 필요합니다.");
     expect(missingSourceLabel({...row, requirement_checks: [{status:"MISSING",finding_basis:"ABSENCE"}]})).toContain("원본 대조 필요");
     expect(missingSourceLabel({...row,evidence:"실제 원문"})).toContain("bbox 매핑 없음");
     expect(missingSourceLabel({...row,verdict:"미해당"})).toContain("원문 위치 불필요");

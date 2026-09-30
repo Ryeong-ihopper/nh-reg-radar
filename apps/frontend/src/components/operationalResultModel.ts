@@ -83,7 +83,7 @@ export function resultEvidenceBoxes(row: ResultRow, layout?: ParserLayout): Evid
 export function missingSourceLabel(row: ResultRow): string {
   if (row.manual_review_reasons?.length && !row.evidence.trim()) return "사람 검토 항목 · 원문 직접 확인 필요";
   if (row.model_assessment?.status === "WITHHELD_BY_GROUNDING_GUARD")
-    return "설명과 원문 인용이 불일치하여 근거 위치 표시 보류";
+    return "판정 설명과 인용 원문의 일치를 확인하지 못해 위치 표시를 보류했습니다. 문구 누락으로 확정한 것은 아닙니다.";
   if (row.evidence_location_status === "SOURCE_GEOMETRY_MISSING")
     return "판정용 원문에 좌표 없음 · 미리보기와의 위치 연결 필요";
   if (row.evidence_location_status === "UNRESOLVED_REFERENCE")
@@ -92,9 +92,9 @@ export function missingSourceLabel(row: ResultRow): string {
   if (row.reading_quality_review?.issues?.length)
     return "판독 불확실성으로 근거 인용 보류 · 원본 확인 필요";
   if (row.verdict === "미해당") return "미해당 판정으로 원문 위치 불필요";
-  if (row.requirement_checks?.some(check => check.status === "MISSING" && check.finding_basis === "ABSENCE"))
-    return "미기재로 판정한 항목 — 특정 원문 위치 없음 (원본 대조 필요)";
-  return "판정 응답에 원문 줄 참조 없음";
+  if (row.verdict === "위반" && row.requirement_checks?.some(check => check.status === "MISSING" && check.finding_basis === "ABSENCE"))
+    return "필수 문구 누락으로 판정되어 해당 문구의 원문 위치가 없습니다. 원본 대조 필요";
+  return "판정 근거 원문을 확인하지 못해 위치를 표시할 수 없습니다. 누락 여부는 원본 확인이 필요합니다.";
 }
 
 export function resultCounts(rows: ResultRow[]) {

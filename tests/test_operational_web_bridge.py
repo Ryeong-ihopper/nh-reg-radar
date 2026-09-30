@@ -381,7 +381,23 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'unsupported parser_contract_profile'):
             parser_runner_layout({'parser_runner':'nh_parser_fin','parser_contract_profile':'guess-latest'})
 
-    def test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
+    def test_parser_v10_profile_pins_revision_and_rejects_old_pair(self):
+        self.bridge.config.update(parser_runner='nh_parser_fin', parser_contract_profile='region-v10',
+                                  parser_revision='c'*40, parser_python='python', parser_root=str(self.root))
+        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        self.assertIn('--compact-output', self.bridge.parser_command(self.root, self.root/'out'))
+        self.assertEqual(self.bridge.parser_intake('template')['parser_contract_profile'], 'region-v10')
+        first, third = self.write_parser_pair(self.root/'v10-pair', 'ad.json')
+        with self.assertRaisesRegex(ValueError, 'PARSER_CONTRACT_MISMATCH'):
+            self.bridge.validate_parser_template(first, third, 'template')
+        first.write_text(json.dumps({'contract': {'version': 'nh-ad-parse-evidence-v5'}}))
+        third.write_text(json.dumps({'contract': {'version': 'nh-ad-region-review-input-v10'}}))
+        self.bridge.validate_parser_template(first, third, 'template')
+
+    def test_parser_v10_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
+        self.test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified('nh-ad-region-review-input-v10')
+
+    def test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified(self, version='nh-ad-region-review-input-v9'):
         from PIL import Image
         file=self.ad.files[0]
         bundle=self.request()
@@ -394,14 +410,14 @@ class BridgeTests(unittest.TestCase):
         p1=output/'final'/'input.p1.json'
         p3=output/'final'/'input.p3.json'
         p1.write_text(json.dumps({'source_file':'input.hwp','pages':[{'page_no':1,'canvas':[30,40]}]}),encoding='utf-8')
-        p3.write_text(json.dumps({'contract':{'version':'nh-ad-region-review-input-v9'}}),encoding='utf-8')
+        p3.write_text(json.dumps({'contract':{'version':version}}),encoding='utf-8')
         (output/'media-index.json').write_text(json.dumps([{'source_file':'input.hwp','page_no':1,'image_name':'render.png'}]))
         self.bridge.capture_parser_page_images(file,p1,p3,directory)
         integrated={'pages':[{'page_no':1,'asset_id':file.file_id,'source_page_no':1,'canvas_w':30,'canvas_h':40}],
                     'diagnostics':{'assets':[{'file_id':file.file_id,
                        'p1_sha256':hashlib.sha256(p1.read_bytes()).hexdigest(),
                        'p3_sha256':hashlib.sha256(p3.read_bytes()).hexdigest(),
-                       'source_parser_contracts':{'source_p3_contract':'nh-ad-region-review-input-v9'}}]}}
+                       'source_parser_contracts':{'source_p3_contract':version}}]}}
         (directory/'integrated.json').write_text(json.dumps(integrated))
         image=self.bridge.parser_page_image(bundle.review.review_id,1)
         self.assertEqual(image.read_bytes(),(output/'images'/'render.png').read_bytes())
