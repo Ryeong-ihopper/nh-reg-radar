@@ -65,8 +65,7 @@ export function OperationalResultsPage() {
               {verdictFilters.map(filter => (
                 <button key={filter} type="button" data-verdict={filter} aria-pressed={verdictFilter === filter}
                   onClick={() => { setVerdictFilter(filter); setHovered(""); }}>
-                  <span className="review-filter-label">{filter}</span>
-                  <span className="review-filter-count">{filter === "전체" ? rows.length : rows.filter(row => reviewVerdict(row.verdict) === filter).length}</span>
+                  {`${filter} ${filter === "전체" ? rows.length : rows.filter(row => reviewVerdict(row.verdict) === filter).length}`}
                 </button>
               ))}
             </div>

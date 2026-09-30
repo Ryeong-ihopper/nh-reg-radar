@@ -1787,15 +1787,12 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .review-item-panel h3 { margin:0; font-size:1rem; }
 .review-item-panel h3 small, .legal-reference-list h3 small, .review-hub-ads h3 small { margin-left:.3rem; color:var(--muted); font-size:.75rem; font-weight:400; }
 .review-item-panel > header p { margin:.4rem 0; color:var(--muted); font-size:.78rem; line-height:1.6; }
-.review-verdict-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.4rem; margin-top:.7rem; }
-.review-verdict-filters:has(> :nth-child(5)) { grid-template-columns:repeat(5,minmax(0,1fr)); }
-.review-verdict-filters button { --filter-ink:#344658; --filter-tint:#eef2f6; --filter-border:#9aaabb; display:flex; align-items:center; justify-content:center; gap:.35rem; width:100%; min-width:0; height:2.65rem; margin:0; padding:.35rem .3rem; border:1px solid var(--filter-border); border-radius:7px; background:#fff; color:var(--filter-ink); font-size:.78rem; font-weight:650; line-height:1; box-shadow:none; white-space:nowrap; }
+.review-verdict-filters { display:flex; flex-wrap:wrap; justify-content:center; gap:.4rem; margin-top:.7rem; }
+.review-verdict-filters button { --filter-ink:#344658; --filter-tint:#eef2f6; --filter-border:#9aaabb; display:inline-flex; flex:none; align-items:center; justify-content:center; gap:.3rem; width:auto; min-height:2.35rem; margin:0; padding:.4rem .75rem; border:1px solid var(--filter-border); border-radius:7px; background:#fff; color:var(--filter-ink); font-size:.78rem; font-weight:650; line-height:1.2; box-shadow:none; white-space:nowrap; }
 .review-verdict-filters button[data-verdict="적정"] { --filter-ink:#17613f; --filter-tint:#eaf6ee; --filter-border:#79ad8b; }
 .review-verdict-filters button[data-verdict="부적정"] { --filter-ink:#a33028; --filter-tint:#fff0ee; --filter-border:#d69892; }
 .review-verdict-filters button[data-verdict="확인필요"] { --filter-ink:#755300; --filter-tint:#fff5d6; --filter-border:#c6ac60; }
-.review-verdict-filters button { display:grid; grid-template-columns:minmax(0,1fr) 1.6rem; gap:.2rem; padding:.35rem .5rem; }
-.review-verdict-filters .review-filter-label { display:block; min-width:0; height:1.5rem; color:inherit; font-size:.78rem; line-height:1.5rem; text-align:center; }
-.review-verdict-filters .review-filter-count { display:block; width:1.6rem; height:1.5rem; padding:0; border-radius:4px; background:var(--filter-tint); color:inherit; font-size:.78rem; line-height:1.5rem; text-align:center; font-variant-numeric:tabular-nums; }
+.review-verdict-filters button { font-variant-numeric:tabular-nums; }
 .review-verdict-filters button:is(:hover,[aria-pressed="true"]) { border-color:var(--filter-ink); background:var(--filter-tint); color:var(--filter-ink); box-shadow:none; transform:none; }
 .review-verdict-filters button:focus-visible { outline:2px solid var(--filter-ink); outline-offset:2px; }
 .review-result-list, .review-detail-scroll { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; }

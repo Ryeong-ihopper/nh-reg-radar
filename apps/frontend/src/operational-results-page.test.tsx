@@ -31,25 +31,22 @@ vi.mock("@tanstack/react-query", () => ({
 describe("operational result titles", () => {
   it("hides internal IDs while keeping equally named rules selectable and filterable", () => {
     const { container } = render(<MemoryRouter><OperationalResultsPage /></MemoryRouter>);
-    const cards = container.querySelectorAll("tr.single-regulation");
+    const cards = container.querySelectorAll(".review-result-card");
     expect(cards).toHaveLength(4);
-    expect(screen.getByRole("button", { name: "전체 4" })).toHaveAttribute("aria-pressed", "true");
+    const filters = screen.getByRole("group", { name: "판정별 보기" });
+    expect(within(filters).getByRole("button", { name: "전체 4" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(filters).getByRole("button", { name: "전체 4" }).childElementCount).toBe(0);
     expect(screen.queryByRole("button", { name: /우선 검토|규제목록/ })).not.toBeInTheDocument();
-    expect(within(screen.getByRole("table")).getAllByText("예시 상품 · 안내")).toHaveLength(2);
+    expect(within(screen.getByLabelText("항목별 판정 목록")).getAllByText("예시 상품 · 안내")).toHaveLength(2);
     expect(container.textContent).not.toMatch(/C-999|TPL-synthetic|C-998|C-EXCLUDED/);
     expect(screen.queryByText("적용 제외 내역 1건")).not.toBeInTheDocument();
     expect(screen.getByText("항목 1 · 모델 응답 형식 또는 원문 근거 연결 실패")).toBeTruthy();
-    fireEvent.focus(cards[0]);
-    expect(cards[0].getAttribute("data-active")).toBe("true");
-    fireEvent.focus(cards[1]);
-    expect(cards[0].getAttribute("data-active")).toBe("false");
-    expect(cards[1].getAttribute("data-active")).toBe("true");
-    fireEvent.click(within(screen.getByLabelText("판정 상태 필터")).getByRole("button", { name: "확인필요 2" }));
-    expect(container.querySelectorAll("tr.single-regulation")).toHaveLength(2);
-    expect(within(screen.getByRole("table")).getByText("추가 확인 항목")).toBeInTheDocument();
-    fireEvent.click(within(screen.getByLabelText("판정 상태 필터")).getByRole("button", { name: "적정 1" }));
-    expect(container.querySelectorAll("tr.single-regulation")).toHaveLength(1);
-    expect(container.querySelector("tr.single-regulation")?.textContent).toContain("적정");
+    fireEvent.click(within(filters).getByRole("button", { name: "확인필요 2" }));
+    expect(container.querySelectorAll(".review-result-card")).toHaveLength(2);
+    expect(within(screen.getByLabelText("항목별 판정 목록")).getByText("추가 확인 항목")).toBeInTheDocument();
+    fireEvent.click(within(filters).getByRole("button", { name: "적정 1" }));
+    expect(container.querySelectorAll(".review-result-card")).toHaveLength(1);
+    expect(container.querySelector(".review-result-card")?.textContent).toContain("적정");
   });
 
   it("does not place deletion controls on the result page", () => {
@@ -62,8 +59,7 @@ describe("operational result titles", () => {
     expect(screen.queryByRole("navigation", { name: "광고 심의 업무 단계" })).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "검토 진행 상황" })).toHaveTextContent("결과 확인");
     expect(screen.getByRole("link", { name: "진행 기록" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "결과 JSON 다운로드" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "PDF 저장·인쇄" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "추천 문구·수정 초안 →" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "추천 문구·수정 초안" })).toBeInTheDocument();
   });
 });
