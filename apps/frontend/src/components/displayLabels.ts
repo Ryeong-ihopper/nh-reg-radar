@@ -9,12 +9,12 @@ const PRODUCT_GROUP_LABELS: Record<string, string> = {
 
 const ADVERTISEMENT_TYPE_LABELS: Record<string, string> = {
   BRANCH_FLYER: "영업점 전단",
-  NOTICE: "안내문",
+  NOTICE: "문서·인쇄·현장·옥외 광고",
   MOBILE_BANNER: "모바일 배너",
-  WEB_BANNER: "웹 배너",
-  WEB_PRODUCT_PAGE: "웹 상품상세 페이지",
+  WEB_BANNER: "배너·팝업",
+  WEB_PRODUCT_PAGE: "웹·앱 상세·이벤트 페이지",
   EVENT_PAGE: "이벤트 페이지",
-  SOCIAL_MEDIA: "SNS 게시물",
+  SOCIAL_MEDIA: "SNS·검색 광고",
   SEARCH_AD: "검색 광고",
   POPUP: "팝업 광고",
   VIDEO: "영상 광고",

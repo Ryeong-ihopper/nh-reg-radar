@@ -20,10 +20,20 @@ const PRODUCT_GROUPS = new Set<ProductGroup>([
   "DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", "INVESTMENT",
 ]);
 const ADVERTISEMENT_TYPES = new Set<AdvertisementType>(["BRANCH_FLYER", "NOTICE", "MOBILE_BANNER", "WEB_BANNER", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "SOCIAL_MEDIA", "SEARCH_AD", "POPUP", "VIDEO", "EMAIL", "OUTDOOR", "PRINT_AD", "PUSH", "SMS", "LMS", "MMS", "ALIMTALK", "OTHER"]);
-const MEDIA_GROUPS: Array<{ label: string; codes: ReadonlySet<string> }> = [
-  { label: "문자·직접 전송", codes: new Set(["SMS", "LMS", "MMS", "ALIMTALK", "EMAIL", "PUSH"]) },
-  { label: "웹·앱", codes: new Set(["MOBILE_BANNER", "WEB_BANNER", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "SOCIAL_MEDIA", "SEARCH_AD", "POPUP"]) },
-  { label: "문서·인쇄·현장·영상", codes: new Set(["BRANCH_FLYER", "NOTICE", "PRINT_AD", "OUTDOOR", "VIDEO"]) },
+const MEDIA_GROUPS: Array<{ label: string; choices: Array<{ code: AdvertisementType; label: string }> }> = [
+  { label: "직접 전송", choices: [
+    { code: "SMS", label: "단문 문자(SMS)" }, { code: "LMS", label: "장문 문자(LMS)" },
+    { code: "MMS", label: "멀티미디어 문자(MMS)" }, { code: "PUSH", label: "앱 푸시" },
+    { code: "EMAIL", label: "이메일" }, { code: "ALIMTALK", label: "알림톡" },
+  ] },
+  { label: "온라인 게시", choices: [
+    { code: "WEB_BANNER", label: "배너·팝업" },
+    { code: "WEB_PRODUCT_PAGE", label: "웹·앱 상세·이벤트 페이지" },
+    { code: "SOCIAL_MEDIA", label: "SNS·검색 광고" },
+  ] },
+  { label: "문서·현장·영상", choices: [
+    { code: "NOTICE", label: "문서·인쇄·현장·옥외 광고" }, { code: "VIDEO", label: "영상 광고" },
+  ] },
 ];
 
 type OperationalAdvertisementDraft = {
@@ -38,12 +48,11 @@ type OperationalAdvertisementDraft = {
   created?: AdvertisementCreateResponse;
 };
 
-function mediaChoices(items: CodeItem[]): Array<{ label: string; items: CodeItem[] }> {
-  const enabled = items.filter((item) => item.enabled);
-  const grouped = MEDIA_GROUPS.map((group) => ({ label: group.label, items: enabled.filter((item) => group.codes.has(item.code)) }));
-  const others = enabled.filter((item) => !MEDIA_GROUPS.some((group) => group.codes.has(item.code)));
-  if (others.length) grouped.push({ label: "기타", items: others });
-  return grouped.filter((group) => group.items.length);
+function mediaChoices(items: CodeItem[]) {
+  const enabled = new Set(items.filter((item) => item.enabled).map((item) => item.code));
+  return MEDIA_GROUPS.map((group) => ({
+    label: group.label, items: group.choices.filter((choice) => enabled.has(choice.code)),
+  })).filter((group) => group.items.length);
 }
 
 let draftSequence = 0;
@@ -249,7 +258,7 @@ export function AdvertisementCreatePage() {
           <header><div><strong>광고 {index + 1}</strong><small>{draft.created ? "광고 등록 완료 · 후속 단계만 재요청" : "독립 파싱·검색·판정 작업"}</small></div>{operationalDrafts.length > 1 ? <button type="button" className="button-secondary compact-button" disabled={submitting} onClick={() => setOperationalDrafts((current) => current.filter((item) => item.key !== draft.key))}>삭제</button> : null}</header>
           <div className="form-field-grid">
             <label htmlFor={`${draft.key}-name`}><span>광고명 *</span><input id={`${draft.key}-name`} disabled={Boolean(draft.created)} value={draft.advertisementName} onChange={(event) => updateDraft(draft.key, "advertisementName", event.target.value)} /></label>
-            <label htmlFor={`${draft.key}-type`}><span>광고 형식·매체 *</span><select id={`${draft.key}-type`} disabled={Boolean(draft.created)} value={draft.advertisementType} onChange={(event) => updateDraft(draft.key, "advertisementType", event.target.value as AdvertisementType)}><option value="" disabled>선택</option>{mediaChoices(advertisementTypes.data ?? []).map((group) => <optgroup key={group.label} label={group.label}>{group.items.map((item) => <option key={item.code} value={item.code}>{advertisementTypeLabel(item.code)}</option>)}</optgroup>)}</select></label>
+            <label htmlFor={`${draft.key}-type`}><span>광고 형식·매체 *</span><select id={`${draft.key}-type`} disabled={Boolean(draft.created)} value={draft.advertisementType} onChange={(event) => updateDraft(draft.key, "advertisementType", event.target.value as AdvertisementType)}><option value="" disabled>선택</option>{mediaChoices(advertisementTypes.data ?? []).map((group) => <optgroup key={group.label} label={group.label}>{group.items.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</optgroup>)}</select></label>
             <label htmlFor={`${draft.key}-group`}><span>상품군 *</span><select id={`${draft.key}-group`} disabled={Boolean(draft.created)} value={draft.productGroup} onChange={(event) => { updateDraft(draft.key, "productGroup", event.target.value as ProductGroup); updateDraft(draft.key, "productClassificationCode", ""); updateDraft(draft.key, "underlyingProducts", []); updateDraft(draft.key, "underlyingSelection", ""); }}><option value="" disabled>선택</option>{productGroups.data?.filter((item) => item.enabled && ["DEPOSIT", "LOAN", "INVESTMENT"].includes(item.code)).map((item) => <option key={item.code} value={item.code}>{item.code === "DEPOSIT" ? "예금성상품" : item.code === "LOAN" ? "대출성상품" : "투자성상품"}</option>)}</select></label>
             <label htmlFor={`${draft.key}-classification`}><span>상세 상품군 *</span><select id={`${draft.key}-classification`} disabled={Boolean(draft.created)} value={draft.productClassificationCode} onChange={(event) => selectClassification(draft.key, event.target.value)}><option value="" disabled>선택</option>{classificationChoiceGroups(draft.productGroup).map((group) => group.label ? <optgroup key={group.label} label={group.label}>{group.choices.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}</optgroup> : group.choices.map((item) => <option key={item.code} value={item.code}>{item.label}</option>))}</select></label>
             {capabilities.data?.productContexts?.filter((context) => context.base_template === draft.productClassificationCode).map((context) => <fieldset className="underlying-product-selection" key={context.base_template} disabled={Boolean(draft.created)}>
@@ -266,7 +275,7 @@ export function AdvertisementCreatePage() {
         <section className="form-section" aria-labelledby="advertisement-basic-heading"><div className="form-section-heading"><span>01</span><div><h3 id="advertisement-basic-heading">기본 정보</h3><p>광고를 구분하고 적용 범위를 확인하는 정보입니다.</p></div></div><div className="form-field-grid">
           <label htmlFor="advertisementName"><span>광고명 *</span><input id="advertisementName" name="advertisementName" /></label>
           <label htmlFor="productGroup"><span>상품군 *</span><select id="productGroup" name="productGroup" defaultValue=""><option value="" disabled>선택</option>{productGroups.data?.filter((item) => item.enabled).map((item) => <option key={item.code} value={item.code}>{productGroupLabel(item.code)}</option>)}</select></label>
-          <label htmlFor="advertisementType"><span>광고유형 *</span><select id="advertisementType" name="advertisementType" defaultValue=""><option value="" disabled>선택</option>{advertisementTypes.data?.filter((item) => item.enabled).map((item) => <option key={item.code} value={item.code}>{advertisementTypeLabel(item.code)}</option>)}</select></label>
+          <label htmlFor="advertisementType"><span>광고유형 *</span><select id="advertisementType" name="advertisementType" defaultValue=""><option value="" disabled>선택</option>{advertisementTypes.data?.filter((item) => item.enabled && item.code !== "OTHER").map((item) => <option key={item.code} value={item.code}>{advertisementTypeLabel(item.code)}</option>)}</select></label>
           <label htmlFor="channelType"><span>광고채널</span><select id="channelType" name="channelType" defaultValue=""><option value="">선택 안 함</option><option value="MOBILE_APP">모바일 앱</option><option value="INTERNET_BANKING">인터넷뱅킹</option><option value="BRANCH">영업점</option></select></label>
           <label><span>담당부서</span><output>{session?.user.departmentName}</output></label>
         </div></section>

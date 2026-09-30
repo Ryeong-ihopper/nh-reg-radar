@@ -20,7 +20,7 @@ function renderAdvertisementCreatePage() {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input); calls.push({ url, init });
     if (url.endsWith("/codes/product-groups")) return response([{ code: "INVESTMENT", name: "투자성", enabled: true }]);
-    if (url.endsWith("/codes/advertisement-types")) return response(["NOTICE", "SMS", "LMS", "MMS", "SEARCH_AD", "POPUP"].map((code) => ({ code, name: code, enabled: true })));
+    if (url.endsWith("/codes/advertisement-types")) return response(["BRANCH_FLYER", "NOTICE", "MOBILE_BANNER", "WEB_BANNER", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "SOCIAL_MEDIA", "SEARCH_AD", "POPUP", "VIDEO", "EMAIL", "OUTDOOR", "PRINT_AD", "PUSH", "SMS", "LMS", "MMS", "ALIMTALK", "OTHER"].map((code) => ({ code, name: code, enabled: true })));
     if (url.endsWith("/operational/capabilities")) return response({ enabled: true, productClassifications: [base, isa, irpWithoutInvestment, irpWithFund, "투자성상품-펀드", "투자성상품-ETF", "투자성상품-ELB"].map((code) => ({ code, label: code, productGroup: "INVESTMENT" })), productContexts: [context, irpContext], sourcePolicy: "template-only" });
     if (url.endsWith("/advertisements") && init?.method === "POST") return response({ advertisementId: "ADV-test", advertisementName: "시험 광고", files: [{ fileId: "F", fileName: "test.png", fileType: "ADVERTISEMENT" }] });
     if (url.includes("/operational/advertisements/ADV-test/") && init?.method === "PUT") return response({ saved: true });
@@ -156,8 +156,10 @@ test("explicit LMS selection is preserved in the registered media metadata", asy
   await fillAdvertisementDetails();
   expect(screen.getByRole("option", { name: "장문 문자(LMS)" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "멀티미디어 문자(MMS)" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "검색 광고" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "팝업 광고" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "배너·팝업" })).toHaveValue("WEB_BANNER");
+  expect(screen.getByRole("option", { name: "SNS·검색 광고" })).toHaveValue("SOCIAL_MEDIA");
+  expect(screen.queryByRole("option", { name: "기타" })).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: /광고 형식/ }).querySelectorAll("option")).toHaveLength(12);
   fireEvent.change(screen.getByRole("combobox", { name: /광고 형식/ }), { target: { value: "LMS" } });
   fireEvent.change(screen.getByRole("combobox", { name: /상세 상품군/ }), { target: { value: isa } });
   fireEvent.click(screen.getByRole("button", { name: /등록.*자동심의/ }));

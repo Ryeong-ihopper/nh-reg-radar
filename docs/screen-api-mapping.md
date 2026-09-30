@@ -1,5 +1,9 @@
 # 화면-API 매핑표
 
+## 광고 매체 대표 선택지와 전송 코드 — 2026-09-30
+
+운영 등록은 API의 활성 코드 중 `SMS`, `LMS`, `MMS`, `PUSH`, `EMAIL`, `ALIMTALK`, `WEB_BANNER`, `WEB_PRODUCT_PAGE`, `SOCIAL_MEDIA`, `NOTICE`, `VIDEO`만 표시한다. 배너·팝업은 `WEB_BANNER`, 웹·앱 상세·이벤트는 `WEB_PRODUCT_PAGE`, SNS·검색은 `SOCIAL_MEDIA`, 문서·인쇄·현장·옥외는 `NOTICE`를 대표 코드로 사용한다. `OTHER`는 등록 화면에서 제외한다. 선택된 코드를 `POST /advertisements`와 운영 intake의 `media_codes[]`에 동일하게 전달한다. 과거 광고의 상세 코드는 읽기·표시·재현할 수 있도록 API와 저장소에 유지한다.
+
 ## IRP 펀드 노출 복수 운용상품 입력 — 2026-09-30
 
 IRP 펀드상품 노출을 고르면 기존 분류 코드를 routing과 intake의 `product_classification_code`에 유지하고, 추가로 고른 ETF·ELB만 `underlying_products[]`에 보낸다. 펀드는 분류에 이미 포함돼 `FUND` 코드를 중복 전송하지 않는다. 추가 상품이 없다고 확정하면 빈 배열과 `CONFIRMED`, 기타 운용상품이 불명확하면 빈 배열과 `UNCONFIRMED`를 보낸다. 미노출 IRP의 상품 배열은 비운다. 기존 API 필드와 DB 구조를 사용한다.
@@ -123,7 +127,7 @@ S-003 운영 등록에서 `광고 형식·매체`로 표시하는 기존 `advert
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.98 |
+| 현행 버전 | v1.99 |
 | 기준일 | 2026-09-30 |
 
 ## 현행 시인성·판독 불확실성 처리 범위
@@ -140,6 +144,7 @@ operational workspace 결과 행은 활성 판정 근거를 `evidence_locations`
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.99 | 2026-09-30 | 운영 광고 매체 11개 대표 코드와 등록·입력 매핑 |
 | v1.98 | 2026-09-30 | IRP 펀드 기본 분류에 ETF·ELB 추가 코드만 전송 |
 | v1.97 | 2026-09-30 | IRP 전용 화면 묶음과 기존 라우팅·입력 코드 보존 |
 | v1.96 | 2026-09-30 | 매체 공통코드·등록·운영 입력 연결과 퇴직연금 공통/복수 체크 계약 정리 |
