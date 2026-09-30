@@ -1,6 +1,7 @@
 """Provider-free adapter tests; these fixtures are never runtime judgments."""
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -18,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from operational_web_bridge import (  # noqa: E402
     ExecutionBridge, FULL_REVIEW, PARSER_REUSE_PARENT_STATUSES,
-    ReviewPaused, parser_layout, parser_runner_layout, registration_review_date,
+    ReviewPaused, parser_fin_output_stem, parser_layout, parser_runner_layout, registration_review_date,
+    with_parser_defaults,
 )
 from nh_ad_backend.domain import Advertisement, AdvertisementFile, User  # noqa: E402
 from nh_ad_backend.main import build_services, create_app  # noqa: E402
@@ -50,77 +52,92 @@ class BridgeTests(unittest.TestCase):
             self.assertEqual(submit.call_args.args[0]["review_date"], "2026-04-11")
             self.assertEqual(submit.call_args.args[0]["review_date_basis"], "advertisement_registration_date")
 
-    def write_parser_pair(self, output, name, *, text="검토 원문", status="ok"):
-        template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
+    @staticmethod
+    def parser_fin_pair(*, text="검토 원문", status="ok"):
+        """Minimal synthetic parser-pipeline P1 v5/P3 v10 pair."""
+        template = {"template_id": "예금성상품-적립식", "source": "rules"}
+        box = [20, 40, 600, 120]
         first = {
-            "reading_evidence_contract": {"version": "nh-ad-review-evidence-v6"},
+            "contract": {"version": "nh-ad-parse-evidence-v5"},
             "doc_id": "DOC-test", "source_file": "input.pdf", "file_type": "pdf",
             "template": template,
-            "pages": [{"page_no": 1, "parse_status": status, "regions": [{
-                "region_id": "r1", "lines": [{"line_ref": "p1/r1/L1", "text": text}],
-            }]}],
+            "pages": [{"page_no": 1, "canvas": [1200, 1800], "parse_route": "ocr", "parse_status": status,
+                       "regions": [{"region_id": "p1_r001", "product_id": "product_1", "bbox": box,
+                                    "lines": [{"line_ref": "p1/r1/L1", "text": text,
+                                               "bbox": [25, 45, 580, 90], "source": "ocr"}]}],
+                       "unassigned_lines": []}],
         }
         third = {
-            "contract": {"version": "nh-ad-review-region-input-v1"},
-            "document": {"doc_id": "DOC-test", "template": template},
-            "pages": [{"page_no": 1, "regions": [{
-                "region_id": "r1", "review_text": text, "line_refs": ["p1/r1/L1"],
+            "contract": {"version": "nh-ad-region-review-input-v10",
+                         "source_evidence_version": "nh-ad-parse-evidence-v5"},
+            "document": {"doc_id": "DOC-test", "source_file": "input.pdf", "file_type": "pdf",
+                         "template": template},
+            "review_units": [{"product_id": "product_1", "region_ids": ["p1_r001"]}],
+            "pages": [{"page_no": 1, "canvas": [1200, 1800], "regions": [{
+                "region_id": "p1_r001", "product_id": "product_1", "bbox": box, "selected_text": text,
+                "labels": [], "kind": "text", "needs_review": False, "text_source": "ocr",
             }]}],
         }
+        return first, third
+
+    def write_parser_pair(self, output, source_name, *, text="검토 원문", status="ok"):
+        """Write the pair where parser-pipeline's --compact-output puts it for source_name."""
+        stem = parser_fin_output_stem(Path(source_name))
         paths = []
-        for folder, data in (("evidence", first), ("review-input", third)):
-            path = Path(output) / folder / name
+        for suffix, data in zip((".p1.json", ".p3.json"), self.parser_fin_pair(text=text, status=status)):
+            path = Path(output) / "final" / (stem + suffix)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data), encoding="utf-8")
+            path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             paths.append(path)
         return paths
 
-    def test_parser_pair_requires_text_but_not_geometry_or_complete_read(self):
+    def test_parser_pair_requires_text_but_not_complete_read(self):
         for text, status, accepted in (("원문", "ok", True), ("일부 원문", "partial", True),
                                        ("", "unreadable", False), (" \n", "ok", False)):
             with self.subTest(text=text, status=status):
-                pair = self.write_parser_pair(self.root / "pair", "input.json", text=text, status=status)
+                pair = self.write_parser_pair(self.root / "pair", "input.pdf", text=text, status=status)
                 before = [path.read_bytes() for path in pair]
                 if accepted:
                     document = self.bridge.read_parser_asset(*pair)
                     self.assertEqual(document["pages"][0]["regions"][0]["final_text"], text)
-                    self.assertIsNone(document["pages"][0]["regions"][0]["bbox"])
+                    self.assertEqual(document["pages"][0]["regions"][0]["bbox"], [20, 40, 600, 120])
                 else:
                     with self.assertRaisesRegex(ValueError, "PARSER_INPUT_UNREADABLE"):
                         self.bridge.read_parser_asset(*pair)
                 self.assertEqual(before, [path.read_bytes() for path in pair])
 
     def test_empty_or_invalid_pair_is_retryable_not_completed(self):
-        self.bridge.parser_layout_config = parser_runner_layout({"parser_runner": "nh_ad_parser_cli"})
         output = self.root / "pair"
         source = self.root / "input.pdf"
         for invalid in ("empty", "json", "ownership", "unassigned_only"):
             with self.subTest(invalid=invalid):
-                pair = self.write_parser_pair(output, "input.json", text="" if invalid == "empty" else "원문")
+                pair = self.write_parser_pair(output, source.name, text="" if invalid == "empty" else "원문")
                 if invalid == "json":
                     pair[1].write_text("{", encoding="utf-8")
                 elif invalid == "ownership":
                     data = json.loads(pair[1].read_text(encoding="utf-8"))
-                    data["pages"][0]["regions"][0]["line_refs"] = ["other"]
+                    data["pages"][0]["regions"][0]["product_id"] = "product_2"
                     pair[1].write_text(json.dumps(data), encoding="utf-8")
                 elif invalid == "unassigned_only":
                     for index, path in enumerate(pair):
                         data = json.loads(path.read_text(encoding="utf-8"))
                         page = data["pages"][0]
                         page["regions"] = []
-                        page["unassigned_lines" if index == 0 else "unassigned_text"] = [
-                            {"line_ref": "p1/unknown/L1", "text": "미배정 원문"}]
+                        if index == 0:
+                            page["unassigned_lines"] = [{"line_ref": "p1/u/L1", "text": "미배정 원문",
+                                                         "bbox": [20, 1700, 300, 1750], "source": "ocr"}]
+                        else:
+                            data["review_units"] = [{"product_id": "product_1", "region_ids": []}]
                         path.write_text(json.dumps(data), encoding="utf-8")
                 completed, missing = self.bridge.parsed_assets(self.ad.files, {"FILE-test": source}, output)
                 self.assertEqual(completed, {})
                 self.assertIn("PARSER_INPUT_UNREADABLE", missing["FILE-test"])
 
     def test_empty_parent_parser_output_is_not_reused(self):
-        self.bridge.parser_layout_config = parser_runner_layout({"parser_runner": "nh_ad_parser_cli"})
         parent = self.request()
         parent.job.status = "FAILED"
         parent_dir = self.bridge.root / "runs" / parent.review.review_id
-        self.write_parser_pair(parent_dir / "parser", "input.json", text="", status="unreadable")
+        self.write_parser_pair(parent_dir / "parser", "input.pdf", text="", status="unreadable")
         (parent_dir / "parser-intake.json").write_text(
             json.dumps(self.bridge.parser_intake("예금성상품-적립식")), encoding="utf-8")
         current = self.root / "new-run"
@@ -128,7 +145,7 @@ class BridgeTests(unittest.TestCase):
             self.ad, current, {"FILE-test": self.root / "input.pdf"}, parent.review.review_id,
             template_id="예금성상품-적립식"))
         self.assertFalse((current / "parser-reuse.json").exists())
-        self.write_parser_pair(parent_dir / "parser", "input.json", text="정상 원문", status="partial")
+        self.write_parser_pair(parent_dir / "parser", "input.pdf", text="정상 원문", status="partial")
         current.mkdir()
         self.assertIsNotNone(self.bridge.reuse_parent_parser_output(
             self.ad, current, {"FILE-test": self.root / "input.pdf"}, parent.review.review_id,
@@ -146,6 +163,7 @@ class BridgeTests(unittest.TestCase):
                          {"version": "user-template-labeling-v2", "template_id": "예금성상품-적립식"},
                          {"version": "user-template-labeling-v3", "template_id": "예금성상품-적립식"},
                          {"version": "user-template-labeling-v4", "template_id": "예금성상품-적립식"},
+                         {"version": "user-template-labeling-v5", "template_id": "예금성상품-적립식"},
                          {"version": "old-policy", "template_id": "예금성상품-적립식"}):
             if manifest is not None:
                 (parent_dir / "parser-intake.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -154,16 +172,14 @@ class BridgeTests(unittest.TestCase):
                     self.ad, current, {}, parent.review.review_id, template_id="예금성상품-적립식"))
         self.assertFalse((current / "parser-reuse.json").exists())
 
-    def test_parser_must_echo_the_user_template_in_both_outputs(self):
-        template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
-        p1, p3 = self.root / "p1.json", self.root / "p3.json"
-        p1.write_text(json.dumps({"template": template}), encoding="utf-8")
-        p3.write_text(json.dumps({"document": {"template": template}}), encoding="utf-8")
+    def test_parser_p1_and_p3_must_report_the_same_template(self):
+        p1, p3 = self.write_parser_pair(self.root / "pair", "input.pdf")
         self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
-        for bad in ({**template, "source": "rules"}, {**template, "template_id": "대출성상품-상품명 노출"}):
-            p3.write_text(json.dumps({"document": {"template": bad}}), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_MISMATCH"):
-                self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
+        data = json.loads(p3.read_text(encoding="utf-8"))
+        data["document"]["template"] = {"template_id": "대출성상품-상품명 노출", "source": "rules"}
+        p3.write_text(json.dumps(data), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_MISMATCH"):
+            self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
 
     def test_parser_reuse_accepts_successful_terminal_parents(self):
         self.assertIn("COMPLETED", PARSER_REUSE_PARENT_STATUSES)
@@ -203,6 +219,9 @@ class BridgeTests(unittest.TestCase):
             "regulation_path": str(self.root / "rules.xlsx"),
             "es_url": "http://localhost:9", "es_index": "test-only", "model": "test-only",
             "vector_cache_dir": str(self.root / "vector-cache"),
+            # Hermetic: never pick up a developer's parser-pipeline/.venv.
+            "parser_root": str(self.root / "parser-pipeline"),
+            "parser_revision": "a" * 40,
         }), encoding="utf-8")
         self.settings = Settings(app_env="test", private_storage_path=self.root / "private")
         self.services = build_services(self.settings)
@@ -264,15 +283,31 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(job["status"], "COMPLETED")
         rag.retry.assert_not_called()
 
-    def test_parser_runner_layouts_are_explicit(self):
-        legacy = parser_runner_layout({})
-        external = parser_runner_layout({"parser_runner": "nh_ad_parser_cli"})
-        parser_fin = parser_runner_layout({"parser_runner": "nh_parser_fin"})
-        self.assertEqual((legacy["p1_dir"], legacy["p3_dir"]), ("json", "review_region_input"))
-        self.assertEqual((external["p1_dir"], external["p3_dir"]), ("evidence", "review-input"))
-        self.assertEqual((parser_fin["p1_dir"], parser_fin["p3_dir"]), ("final", "final"))
-        with self.assertRaises(ValueError):
-            parser_runner_layout({"parser_runner": "unknown"})
+    def test_in_repo_parser_is_the_only_runner(self):
+        for config in ({}, {"parser_runner": "nh_parser_fin", "parser_contract_profile": "region-v10"}):
+            layout = parser_runner_layout(config)
+            self.assertEqual((layout["runner"], layout["p1_dir"], layout["p3_dir"], layout["contract_profile"]),
+                             ("nh_parser_fin", "final", "final", "region-v10"))
+        for runner in ("nh_parsing_test_batch", "nh_ad_parser_cli", "unknown"):
+            with self.subTest(runner=runner), self.assertRaisesRegex(ValueError, "unsupported parser_runner"):
+                parser_runner_layout({"parser_runner": runner})
+        # Older profiles stay readable by the adapter but are never produced by a new run.
+        for profile in ("region-v6", "region-v9", "guess-latest"):
+            with self.subTest(profile=profile), self.assertRaisesRegex(ValueError, "unsupported parser_contract_profile"):
+                parser_runner_layout({"parser_contract_profile": profile})
+
+    def test_parser_paths_default_to_parser_pipeline_but_private_config_wins(self):
+        defaults = with_parser_defaults({})
+        self.assertEqual(Path(defaults["parser_root"]), ROOT / "parser-pipeline")
+        self.assertEqual(defaults["parser_cwd"], defaults["parser_root"])
+        venv = self.root / "parser-pipeline" / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        self.assertNotIn("parser_python", with_parser_defaults({"parser_root": str(self.root / "parser-pipeline")}))
+        venv.parent.mkdir(parents=True)
+        venv.write_bytes(b"")
+        self.assertEqual(with_parser_defaults({"parser_root": str(self.root / "parser-pipeline")})["parser_python"],
+                         str(venv))
+        private = {"parser_root": "/opt/nh-parser", "parser_cwd": "/work", "parser_python": "/opt/python/bin/python"}
+        self.assertEqual(with_parser_defaults(dict(private)), private)
 
     def test_parser_timeout_and_start_error_reach_asset_retry(self):
         self.bridge.config["parser_cwd"] = str(self.root)
@@ -284,44 +319,27 @@ class BridgeTests(unittest.TestCase):
                 self.assertEqual(self.bridge.execute_parser(self.root, self.root, log), code)
                 self.assertIn("PARSER_", log.read_text(encoding="utf-8"))
 
-    def test_external_parser_command_uses_absolute_bridge_paths(self):
+    def test_parser_command_uses_absolute_bridge_paths(self):
         parser_root = self.root / "parser"
         parser_root.mkdir()
-        self.bridge.config.update({
-            "parser_runner": "nh_ad_parser_cli",
-            "parser_root": str(parser_root),
-            "parser_python": "python",
-        })
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        self.bridge.config.update({"parser_root": str(parser_root), "parser_python": "python"})
 
         command = self.bridge.parser_command(Path("relative-source"), Path("relative-output"), template_id="대출성상품-상품명 노출")
 
         self.assertEqual(command[1], "-u")
         self.assertTrue(Path(command[2]).is_absolute())
         self.assertTrue(Path(command[4]).is_absolute())
-        self.assertTrue(Path(command[6]).is_absolute())
         self.assertEqual(command[3], "--input")
-        self.assertEqual(command[5], "--out")
-        self.assertEqual(command[-2:], ["--template-id", "대출성상품-상품명 노출"])
-        with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_REQUIRED"):
-            self.bridge.parser_command(self.root, self.root)
-        visual = self.bridge.parser_command(self.root, self.root, visual=True)
-        self.assertIn("--parse-only", visual)
-        self.assertNotIn("--template-id", visual)
+        self.assertEqual(command[5:], ["--run-name", "relative-output", "--compact-output"])
 
     def test_parser_fin_command_and_output_pairing(self):
         parser_root = self.root / "parser-fin"
         parser_root.mkdir()
-        self.bridge.config.update({
-            "parser_runner": "nh_parser_fin",
-            "parser_root": str(parser_root),
-            "parser_python": "python",
-        })
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        self.bridge.config.update({"parser_root": str(parser_root), "parser_python": "python"})
         source, output = self.root / "source", self.root / "parser-output"
         command = self.bridge.parser_command(source, output, template_id="예금성상품-입출식")
         self.assertEqual(command[1:3], ["-u", str((parser_root / "run.py").resolve())])
-        self.assertEqual(command[-3:], ["--run-name", "parser-output", "--with-vlm"])
+        self.assertEqual(command[-3:], ["--run-name", "parser-output", "--compact-output"])
         final = output / "final"
         final.mkdir(parents=True)
         (final / "ad_file.png.p1.json").write_text("{}", encoding="utf-8")
@@ -345,24 +363,19 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "HWP_PHYSICAL_SCOPE_UNAVAILABLE"):
             self.bridge.apply_intake_scopes(self.ad, document, intake)
 
-    def test_parser_fin_current_command_runs_native_hwp_through_upstream_and_pins_reuse(self):
-        self.bridge.config.update(parser_runner='nh_parser_fin', parser_python='python',
-                                  parser_root=str(self.root), parser_cwd=str(self.root),
-                                  parser_contract_profile='region-v9', parser_revision='a'*40)
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+    def test_hwp_runs_through_parser_pipeline_once_and_pins_reuse(self):
+        self.bridge.config.update(parser_python='python', parser_root=str(self.root), parser_cwd=str(self.root))
         source = self.root/'current-source'
         source.mkdir()
         (source/'input.hwp').write_bytes(b'test input')
         output = self.root/'output'
-        command = self.bridge.parser_command(source, output, template_id='예금성상품-적립식')
-        self.assertIn('--compact-output', command)
-        self.assertNotIn('--with-vlm', command)
         with patch('operational_web_bridge.subprocess.run', return_value=Mock(returncode=0)) as run:
             self.assertEqual(self.bridge.execute_parser(source,output,self.root/'current.log',
                                                         template_id='예금성상품-적립식'),0)
         self.assertEqual(run.call_count,1)
-        self.assertNotIn('parse_hwp_native.py', ' '.join(run.call_args.args[0]))
+        self.assertTrue(run.call_args.args[0][2].endswith('run.py'))
         self.assertEqual(run.call_args.kwargs['env']['HWP_RENDER_DIR'],str(output/'render'))
+        self.assertEqual(run.call_args.kwargs['env']['NH_OUTPUT_ROOT'],str(output.resolve().parent))
         intake = self.bridge.parser_intake('예금성상품-적립식')
         self.assertEqual(intake['version'],'user-template-labeling-v6')
         self.assertEqual(intake['parser_revision'],'a'*40)
@@ -372,27 +385,19 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'PARSER_REVISION_REQUIRED'):
             self.bridge.parser_intake('예금성상품-적립식')
 
-    def test_parser_fin_current_profile_rejects_previous_contract_and_unknown_profile(self):
-        self.bridge.config.update(parser_runner='nh_parser_fin',parser_contract_profile='region-v9')
-        self.bridge.parser_layout_config=parser_runner_layout(self.bridge.config)
-        first,third = self.write_parser_pair(self.root/'old-pair','ad.json')
-        with self.assertRaisesRegex(ValueError,'PARSER_CONTRACT_MISMATCH'):
-            self.bridge.validate_parser_template(first,third,'예금성상품-적립식')
-        with self.assertRaisesRegex(ValueError,'unsupported parser_contract_profile'):
-            parser_runner_layout({'parser_runner':'nh_parser_fin','parser_contract_profile':'guess-latest'})
-
     def test_parser_v10_profile_pins_revision_and_rejects_old_pair(self):
-        self.bridge.config.update(parser_runner='nh_parser_fin', parser_contract_profile='region-v10',
-                                  parser_revision='c'*40, parser_python='python', parser_root=str(self.root))
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
-        self.assertIn('--compact-output', self.bridge.parser_command(self.root, self.root/'out'))
         self.assertEqual(self.bridge.parser_intake('template')['parser_contract_profile'], 'region-v10')
-        first, third = self.write_parser_pair(self.root/'v10-pair', 'ad.json')
-        with self.assertRaisesRegex(ValueError, 'PARSER_CONTRACT_MISMATCH'):
-            self.bridge.validate_parser_template(first, third, 'template')
-        first.write_text(json.dumps({'contract': {'version': 'nh-ad-parse-evidence-v5'}}))
-        third.write_text(json.dumps({'contract': {'version': 'nh-ad-region-review-input-v10'}}))
+        first, third = self.write_parser_pair(self.root/'v10-pair', 'ad.pdf')
         self.bridge.validate_parser_template(first, third, 'template')
+        for old in (('nh-ad-parse-evidence-v4', 'nh-ad-region-review-input-v9'),
+                    ('nh-ad-review-evidence-v6', 'nh-ad-review-region-input-v1')):
+            with self.subTest(old=old):
+                for path, version in zip((first, third), old):
+                    data = json.loads(path.read_text(encoding='utf-8'))
+                    data['contract']['version'] = version
+                    path.write_text(json.dumps(data), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'PARSER_CONTRACT_MISMATCH'):
+                    self.bridge.validate_parser_template(first, third, 'template')
 
     def test_parser_v10_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
         self.test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified('nh-ad-region-review-input-v10')
@@ -479,9 +484,7 @@ class BridgeTests(unittest.TestCase):
                                  checksum=hashlib.sha256(raw).hexdigest())
         file=self.ad.files[0]
         bundle=self.request()
-        self.bridge.config.update(parser_runner='nh_parser_fin',parser_python='python',
-                                 parser_root=str(self.root),parser_cwd=str(self.root))
-        self.bridge.parser_layout_config=parser_runner_layout(self.bridge.config)
+        self.bridge.config.update(parser_python='python', parser_root=str(self.root), parser_cwd=str(self.root))
         previous_links = json.loads(json.dumps(self.bridge.links))
         def render(command,**kwargs):
             output=Path(command[command.index('--output')+1])
@@ -496,31 +499,10 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse((self.bridge.root/'runs'/bundle.review.review_id/'integrated.json').exists())
         self.assertEqual(self.bridge.links, previous_links)
 
-    def test_native_hwp_success_failure_and_image_fallback(self):
-        source = self.root / "native-source"
-        source.mkdir()
-        (source / "input.hwp").write_bytes(b"synthetic")
-        self.bridge.config.update(parser_runner="nh_parser_fin", parser_python="python",
-                                  parser_root=str(self.root), parser_cwd=str(self.root))
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
-        for code, expected_calls in ((0, 1), (1, 1), (3, 2)):
-            with patch("operational_web_bridge.subprocess.run", side_effect=[Mock(returncode=code), Mock(returncode=0)]) as run:
-                result = self.bridge.execute_parser(source, self.root / "output", self.root / "native.log", template_id="selected-template")
-                self.assertEqual(run.call_count, expected_calls)
-                self.assertEqual(result, 0 if code == 3 else code)
-                self.assertIn("parse_hwp_native.py", run.call_args_list[0].args[0][1])
-        with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_REQUIRED"):
-            self.bridge.execute_parser(source, self.root / "output", self.root / "native.log")
-
     def test_missing_asset_retries_individually_and_keeps_batch_output(self):
         parser_root = self.root / "parser"
         parser_root.mkdir()
-        self.bridge.config.update({
-            "parser_runner": "nh_ad_parser_cli",
-            "parser_root": str(parser_root),
-            "parser_python": "python",
-        })
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        self.bridge.config.update({"parser_root": str(parser_root), "parser_python": "python"})
         second = AdvertisementFile("FILE-second", "ADVERTISEMENT", "second.pdf", "y", "application/pdf", 100, "def")
         self.ad.files.append(second)
         source_dir = self.root / "source"
@@ -532,10 +514,7 @@ class BridgeTests(unittest.TestCase):
         for path in sources.values():
             path.write_bytes(b"source")
         batch_output = self.root / "batch-output"
-        for name in ("evidence", "review-input"):
-            (batch_output / name).mkdir(parents=True)
-        first_output_name = f"{sources['FILE-test'].stem}.json"
-        self.write_parser_pair(batch_output, first_output_name)
+        self.write_parser_pair(batch_output, sources["FILE-test"].name)
         completed, missing = self.bridge.parsed_assets(self.ad.files, sources, batch_output)
         self.assertEqual(set(completed), {"FILE-test"})
         self.assertEqual(set(missing), {"FILE-second"})
@@ -543,7 +522,7 @@ class BridgeTests(unittest.TestCase):
         def write_retry_output(retry_source, retry_output, log_path, *, template_id=None):
             self.assertEqual(template_id, "대출성상품-상품명 노출")
             source = next(Path(retry_source).iterdir())
-            self.write_parser_pair(retry_output, f"{source.stem}.json")
+            self.write_parser_pair(retry_output, source.name)
             Path(log_path).write_text("retried", encoding="utf-8")
             return 0
 
@@ -561,13 +540,7 @@ class BridgeTests(unittest.TestCase):
     def test_multiple_assets_use_independent_bounded_parser_calls(self):
         parser_root = self.root / "parser"
         parser_root.mkdir()
-        self.bridge.config.update({
-            "parser_runner": "nh_ad_parser_cli",
-            "parser_root": str(parser_root),
-            "parser_python": "python",
-            "parser_workers": 2,
-        })
-        self.bridge.parser_layout_config = parser_runner_layout(self.bridge.config)
+        self.bridge.config.update({"parser_root": str(parser_root), "parser_python": "python", "parser_workers": 2})
         second = AdvertisementFile("FILE-second", "ADVERTISEMENT", "second.pdf", "y", "application/pdf", 100, "def")
         self.ad.files.append(second)
         source_dir = self.root / "source"
@@ -582,7 +555,7 @@ class BridgeTests(unittest.TestCase):
         def write_output(asset_source, asset_output, log_path, *, template_id=None):
             self.assertEqual(template_id, "예금성상품-적립식")
             source = next(Path(asset_source).iterdir())
-            self.write_parser_pair(asset_output, f"{source.stem}.json")
+            self.write_parser_pair(asset_output, source.name)
             Path(log_path).write_text("parsed", encoding="utf-8")
             return 0
 
@@ -595,7 +568,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(missing, {})
         self.assertEqual(returncode, 0)
         self.assertEqual(self.bridge.execute_parser.call_count, 2)
-        self.assertEqual(len(list((self.root / "run" / "parser" / "evidence").glob("*.json"))), 2)
+        self.assertEqual(len(list((self.root / "run" / "parser" / "final").glob("*.p1.json"))), 2)
+        self.assertEqual(len(list((self.root / "run" / "parser" / "final").glob("*.p3.json"))), 2)
         manifest = json.loads((self.root / "run" / "parser-initial" / "parser-initial.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["max_workers"], 2)
 

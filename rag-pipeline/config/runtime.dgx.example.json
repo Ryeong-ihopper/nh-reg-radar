@@ -15,8 +15,12 @@
   "parser_root": "/opt/nh-parser",
   "parser_cwd": "/data/parser-work",
   "parser_python": "/opt/nh-parser/.venv/bin/python",
-  "parser_runner": "nh_parsing_test_batch",
+  "parser_runner": "nh_parser_fin",
+  "parser_contract_profile": "region-v10",
+  "parser_revision": "<parser-pipeline git-subtree-split 40자리 커밋>",
   "parser_env": {
-    "REGION_READING_MODE": "shadow"
+    "PADDLEX_URL": "http://127.0.0.1:8081/layout-parsing",
+    "GEMMA_URL": "http://127.0.0.1:8102/v1/chat/completions",
+    "GEMMA_MODEL": "gemma-4-26b-NVFP4-MTP"
   }
 }

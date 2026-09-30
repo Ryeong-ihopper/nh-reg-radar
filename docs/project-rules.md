@@ -1,5 +1,11 @@
 # 프로젝트 규칙
 
+## 파서 파이프라인 편입 브랜치 — 2026-09-30
+
+사용자 요청에 따라 `integration`에서 분기한 `feat/parser-pipeline-merge`에 nh-parser-fin main(`15f730d`, Python 3.11)을 `parser-pipeline/`으로 `git subtree --squash` 편입한다. 파서 개발 정본은 nh-parser-fin 저장소이며 이후 변경은 `git subtree pull --prefix=parser-pipeline --squash`로 반영한다. 편입 중 파서 수정이 필요하면 원본 저장소에 같은 수정을 반영한다. `parser-pipeline/`은 자체 pyproject·uv.lock·가상환경(`pypdfium2==5.12.0`)으로 검사하며 루트 ruff·pytest 대상에서 제외한다.
+
+운영 연결은 `nh_parser_fin`·`region-v10` 한 가지만 실행한다. 이전 임시 실행 방식(`nh_parsing_test_batch`, `nh_ad_parser_cli`, region-v6 HWP 전용 경로, 외부 파서 패치 전달본)은 제거하고 이전 계약 저장 결과의 읽기만 유지한다. 회사 원본 parser-services·parser-contracts는 이번 범위에서 변경하지 않는다. 운영 이미지 반영과 ADR 정리는 후속 결정으로 남기며, 검증 후 PR로 개인 저장소 `integration`에 병합한다.
+
 ## 개인 integration 브랜치와 문서 분류 — 2026-09-30
 
 사용자 요청에 따라 이번 광고 등록·결과 화면 인수인계와 IRP 복수 운용상품 변경은 개인 저장소 `Ryeong-ihopper/nh-reg-radar`의 신규 `integration` 브랜치에 올린다. 회사 저장소에는 이번 변경을 푸시하지 않는다. 이전 개인 main·회사 작업 브랜치 업로드 결정은 그때 완료된 범위의 이력이다. 새 ADR-0089는 페이지 ID가 없는 내부 문서로 분류하므로 기존 Notion 게시102개를 유지하고 내부 제외 문서만33개로 늘린다.
@@ -103,13 +109,14 @@ type은 `feat`·`fix`·`hotfix`·`refactor`·`docs`·`test`·`chore`·`ci` 중 �
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.65 |
+| 현행 버전 | v1.66 |
 | 기준일 | 2026-09-30 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.66 | 2026-09-30 | 파서 파이프라인 subtree 편입 브랜치와 단일 파서 실행 방식·원본 저장소 정본 기준 |
 | v1.65 | 2026-09-30 | 개인 integration 단독 업로드와 내부 ADR 추가에 따른 Notion 제외33개 분류 |
 | v1.64 | 2026-09-29 | 개인 main·회사 작업 브랜치에 현재 수정사항 반영 승인과 로컬 보존 범위 |
 | v1.63 | 2026-09-29 | 기존 Notion 게시102개 유지와 현행 내부 문서32개 완전 분류 |

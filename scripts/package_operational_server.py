@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import io
 import json
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ except ModuleNotFoundError:
     from operational_runtime import runtime_files
 
 ROOT = Path(__file__).resolve().parents[1]
+PARSER_ROOT = ROOT / "parser-pipeline"
 EXCLUDED = {".git", ".venv", "node_modules", "dist", "__pycache__", ".pytest_cache", ".ruff_cache",
             "visual-artifacts", "playwright-report", "test-results"}
 
@@ -25,6 +27,24 @@ def files(root: Path):
                 or path.name.startswith(".env") or path.suffix in {".pyc", ".pyo", ".tsbuildinfo"}):
             continue
         if path.is_file():
+            yield path, relative
+
+
+def parser_files(root: Path):
+    """Ship only committed parser sources when the parser is a Git checkout.
+
+    Local parser runs write outputs/, samples/ and VLM caches holding customer
+    advertisements next to the source; those are untracked and must stay out.
+    """
+    listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "."],
+                            capture_output=True, check=False)
+    if listed.returncode != 0:
+        yield from files(root)
+        return
+    for name in sorted(filter(None, listed.stdout.decode("utf-8").split("\0"))):
+        path, relative = root / name, Path(name)
+        if (path.is_file() and not path.is_symlink() and not path.name.startswith(".env")
+                and not EXCLUDED.intersection(relative.parts)):
             yield path, relative
 
 
@@ -41,7 +61,7 @@ def package(output: Path, parser_root: Path, document_processor_root: Path):
     ).is_file() and (parser_root / "pyproject.toml").is_file()
     if not parser_fin:
         raise ValueError("nh-parser-fin run.py, pyproject.toml and package source are required")
-    sources.extend((p, Path("private/nh-parser") / r) for p, r in files(parser_root))
+    sources.extend((p, Path("private/nh-parser") / r) for p, r in parser_files(parser_root))
     sources.extend((p, Path("private/document-processor/src") / r)
                    for p, r in files(document_processor_root / "src"))
     if not (document_processor_root / "src/document_processor/__init__.py").is_file():
@@ -66,7 +86,7 @@ def package(output: Path, parser_root: Path, document_processor_root: Path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--parser-root", type=Path, required=True)
+    parser.add_argument("--parser-root", type=Path, default=PARSER_ROOT)
     parser.add_argument("--document-processor-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

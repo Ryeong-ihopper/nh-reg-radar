@@ -1,6 +1,7 @@
 import importlib.util
 import hashlib
 import json
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -54,6 +55,32 @@ class OperationalPackageTests(unittest.TestCase):
                          "rag-pipeline/tools/compile_current_execution_plans.py",
                          "apps/backend/migrations/env.py"):
                 self.assertNotIn(name, names)
+
+    def test_parser_checkout_ships_only_tracked_sources(self):
+        self.assertEqual(MODULE.PARSER_ROOT, ROOT / "parser-pipeline")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parser = root / "parser"
+            (parser / "nh_parser_fin").mkdir(parents=True)
+            for name in ("run.py", "pyproject.toml", "nh_parser_fin/__init__.py", ".env.example"):
+                (parser / name).write_text("[project]\nname='fixture'\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(parser)], check=True)
+            subprocess.run(["git", "-C", str(parser), "add", "."], check=True)
+            (parser / "outputs/run").mkdir(parents=True)
+            (parser / "outputs/run/ad.p1.json").write_text("{}", encoding="utf-8")
+            (parser / "samples").mkdir()
+            (parser / "samples/ad.pdf").write_bytes(b"%PDF-1.7")
+            (parser / ".env").write_text("GEMMA_URL=private", encoding="utf-8")
+            document = root / "document-processor/src/document_processor"
+            document.mkdir(parents=True)
+            (document / "__init__.py").write_text("", encoding="utf-8")
+
+            MODULE.package(root / "bundle.tgz", parser, root / "document-processor")
+
+            with tarfile.open(root / "bundle.tgz", "r:gz") as archive:
+                parser_names = {name for name in archive.getnames() if name.startswith("private/nh-parser/")}
+            self.assertEqual(parser_names, {"private/nh-parser/run.py", "private/nh-parser/pyproject.toml",
+                                            "private/nh-parser/nh_parser_fin/__init__.py"})
 
     def test_legacy_parser_layout_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

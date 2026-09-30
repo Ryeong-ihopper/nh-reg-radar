@@ -4,8 +4,8 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.0 |
-| 기준일 | 2026-09-10 |
+| 현행 버전 | v1.1 |
+| 기준일 | 2026-09-30 |
 | 목적 | 실제 운영 경로와 구형·평가·제품 코드를 구분하고 기능별 코드 검토 순서를 고정 |
 
 ## 1. 정본 저장소 경계
@@ -18,6 +18,7 @@
 | --- | --- | --- |
 | `nh-ad-compliance/rag-pipeline/` | 템플릿 중심 DGX 운영형 RAG 정본 | 코드 검토·개선 대상 |
 | `nh-ad-compliance/apps/` | 제품 Backend·Frontend·Worker·Parser 서비스 | 제품 흐름 검토 대상 |
+| `nh-ad-compliance/parser-pipeline/` | nh-parser-fin subtree. 광고 파일 → P1/P3 운영 파서 | 원본 저장소에서 개발 후 `git subtree pull --squash`로 반영 |
 | `cg_법령api/rag/` | 구형 실험, Colab, 답지·평가 생성 코드 혼합 | 운영 import 금지, 별도 legacy 보존 |
 | `cg_법령api/schemas/` | 구형 운영 계약 사본 | 사용 금지. 현행과 해시가 모두 다름 |
 | `cg_법령api/rag/schemas/대출성.json` | 구형 단일 상품군 모델 출력 형식 | 현행 JSON Schema가 아니므로 사용 금지 |
@@ -44,6 +45,8 @@ PostgreSQL·Redis·Qdrant 기반 제품 경로이고, 템플릿 중심 RAG는 �
   `document_processor_app.py`
 - 공통 파서 계약: `packages/parser-contracts/src/nh_ad_parser_contracts/`
 - 제품 Worker 호출부: `apps/worker/src/nh_ad_worker/parser_services.py`
+- 운영 파서 실행: `parser-pipeline/run.py --compact-output`을 `scripts/operational_web_bridge.py`가 파서 전용 `.venv`로 실행
+- P1 v5/P3 v10 → 내부 계약 변환: `rag-pipeline/rag/parsing/parser_contract_adapter.py`
 - P1/P3 운영 입력 결합: `rag-pipeline/rag/parsing/prepare_inputs.py`
 
 파서는 텍스트·표·bbox·스타일·시인성 관측까지 책임진다. RAG의 `prepare_inputs.py`는
@@ -192,4 +195,5 @@ rag-pipeline/
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.1 | 2026-09-30 | `parser-pipeline/` subtree와 운영 파서 실행·P1/P3 변환 경로 추가 |
 | v1.0 | 2026-09-10 | 중첩 저장소·중복 스키마·제품 Worker와 독립 RAG 경계를 조사하고 기능별 검토 순서와 목표 구조 작성 |

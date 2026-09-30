@@ -41,6 +41,10 @@ from operational_locations import (extraction_status, frozen_rule_metadata, load
                                    page_asset, saved_workspace, valid_box, with_rendered_line_locations)
 
 ROOT = Path(__file__).resolve().parents[1]
+# nh-parser-fin subtree; the upstream repository remains the parser's source of truth.
+PARSER_ROOT = ROOT / "parser-pipeline"
+PARSER_RUNNER = "nh_parser_fin"
+PARSER_CONTRACT_PROFILE = "region-v10"
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
 from rag.parsing.prepare_inputs import combine  # noqa: E402
 from rag.parsing.parser_contract_adapter import PARSER_FIN_PROFILES  # noqa: E402
@@ -171,24 +175,41 @@ def parser_layout(document, *, source: str) -> dict:
 
 
 def parser_runner_layout(config: dict) -> dict[str, str]:
-    """Describe one supported parser runner without guessing output paths."""
-    runner = str(config.get("parser_runner") or "nh_parsing_test_batch")
-    if runner == "nh_parsing_test_batch":
-        return {"runner": runner, "p1_dir": "json", "p3_dir": "review_region_input", "raw_dir": "json"}
-    if runner == "nh_ad_parser_cli":
-        return {"runner": runner, "p1_dir": "evidence", "p3_dir": "review-input", "raw_dir": "parse"}
-    if runner == "nh_parser_fin":
-        profile = config.get("parser_contract_profile", "region-v6")
-        if profile not in PARSER_FIN_PROFILES:
-            raise ValueError("unsupported parser_contract_profile")
-        return {"runner": runner, "p1_dir": "final", "p3_dir": "final", "raw_dir": "raw",
-                "contract_profile": profile}
-    raise ValueError(f"unsupported parser_runner: {runner!r}")
+    """Describe the in-repo nh-parser-fin runner without guessing output paths.
+
+    parser-pipeline/ emits exactly one contract pair. Older pairs stay readable
+    through the contract adapter, but they are never produced by a new run.
+    """
+    runner = str(config.get("parser_runner") or PARSER_RUNNER)
+    if runner != PARSER_RUNNER:
+        raise ValueError(f"unsupported parser_runner: {runner!r}")
+    profile = config.get("parser_contract_profile", PARSER_CONTRACT_PROFILE)
+    if profile != PARSER_CONTRACT_PROFILE:
+        raise ValueError("unsupported parser_contract_profile")
+    return {"runner": runner, "p1_dir": "final", "p3_dir": "final", "raw_dir": "raw",
+            "contract_profile": profile}
 
 
 def parser_fin_output_stem(source: Path) -> str:
     """Mirror nh-parser-fin's stable, filesystem-safe output basename."""
     return "".join(char if char.isalnum() or char in "-_." else "_" for char in source.name)
+
+
+def with_parser_defaults(config: dict) -> dict:
+    """Default to the in-repo parser-pipeline; private config paths still win.
+
+    parser_python falls back only to parser-pipeline's own venv, never to this
+    interpreter: the parser pins its own pypdfium2 rasterizer.
+    """
+    root = Path(config.get("parser_root") or PARSER_ROOT)
+    config.setdefault("parser_root", str(root))
+    config.setdefault("parser_cwd", str(root))
+    if not config.get("parser_python"):
+        venv = next((path for path in (root / ".venv/Scripts/python.exe", root / ".venv/bin/python")
+                     if path.is_file()), None)
+        if venv is not None:
+            config["parser_python"] = str(venv)
+    return config
 
 
 def read_json(path):
@@ -227,7 +248,7 @@ class ExecutionBridge:
         # extensionless file.
         self.root = (Path(state_dir) / "execution").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        self.config = read_json(config_path)
+        self.config = with_parser_defaults(read_json(config_path))
         self.parser_layout_config = parser_runner_layout(self.config)
         self.lock = threading.RLock()
         self.layout_lock = threading.Lock()
@@ -367,67 +388,30 @@ class ExecutionBridge:
 
         services.reviews.request = request
 
-    def parser_command(self, source_dir, output, *, visual: bool = False, template_id=None):
-        """Build the selected parser command; values come only from private config."""
-        runner = self.parser_layout_config["runner"]
+    def parser_command(self, source_dir, output, *, template_id=None):
+        """Build the parser-pipeline command; paths come only from private config."""
         root = Path(self.config["parser_root"]).resolve()
         source_dir = Path(source_dir).resolve()
         output = Path(output).resolve()
-        if runner == "nh_ad_parser_cli":
-            command = [self.config["parser_python"], "-u", str(root / "tools" / "parse.py"),
-                       "--input", str(source_dir), "--out", str(output)]
-            if visual:
-                command.extend(["--region-reading", "off", "--parse-only"])
-            else:
-                if not template_id:
-                    raise ValueError("PARSER_TEMPLATE_REQUIRED: 사용자 선택 템플릿이 필요합니다")
-                command.extend(["--template-id", template_id])
-            return command
-        if runner == "nh_parser_fin":
-            command = [self.config["parser_python"], "-u", str(root / "run.py"),
-                       "--input", str(source_dir), "--run-name", output.name]
-            command.append("--compact-output" if self.parser_layout_config.get("contract_profile") in {"region-v9", "region-v10"}
-                           else "--with-vlm")
-            return command
-        if not visual:
-            raise ValueError("PARSER_TEMPLATE_UNSUPPORTED: 사용자 템플릿을 받는 nh_ad_parser_cli가 필요합니다")
-        scope = "visual" if visual else "upload"
-        return [self.config["parser_python"], str(root / "tools" / "run_parsing_batch.py"),
-                "--input-root", f"{scope}={source_dir}", "--out", str(output), "--max-attempts", "1"]
+        return [self.config["parser_python"], "-u", str(root / "run.py"),
+                "--input", str(source_dir), "--run-name", output.name, "--compact-output"]
 
     def parser_outputs(self, output):
-        layout = self.parser_layout_config
-        if layout["runner"] == "nh_parser_fin":
-            directory = output / layout["p1_dir"]
-            return (list(directory.glob("*.p1.json")), list(directory.glob("*.p3.json")))
-        return (list((output / layout["p1_dir"]).glob("*.json")),
-                list((output / layout["p3_dir"]).glob("*.json")))
+        directory = Path(output) / self.parser_layout_config["p1_dir"]
+        return (list(directory.glob("*.p1.json")), list(directory.glob("*.p3.json")))
 
     def parser_raw_outputs(self, output):
         return list((output / self.parser_layout_config["raw_dir"]).glob("*.json"))
 
     def parser_output_name_matches(self, path, source):
-        if self.parser_layout_config["runner"] == "nh_ad_parser_cli":
-            return path.stem == source.stem
-        if self.parser_layout_config["runner"] == "nh_parser_fin":
-            return path.name == parser_fin_output_stem(source) + ".p1.json"
-        return path.name == source.name
+        return path.name == parser_fin_output_stem(source) + ".p1.json"
 
     def parser_p3_matches(self, p1_path, candidate):
-        if self.parser_layout_config["runner"] == "nh_parser_fin":
-            return candidate.name == p1_path.name.removesuffix(".p1.json") + ".p3.json"
-        return candidate.name == p1_path.name
-
-    def parser_output_root(self, output):
-        """Return the P1/P3 root for either supported parser runner."""
-        output = Path(output)
-        if self.parser_layout_config["runner"] == "nh_parsing_test_batch":
-            return output / "upload"
-        return output
+        return candidate.name == p1_path.name.removesuffix(".p1.json") + ".p3.json"
 
     def parsed_assets(self, files, source_by_file, output):
         """Accept validated, nonempty P1/P3 pairs; retain partial batch output."""
-        p1s, p3s = self.parser_outputs(self.parser_output_root(output))
+        p1s, p3s = self.parser_outputs(output)
         completed, missing = {}, {}
         for file in files:
             matches = [path for path in p1s if self.parser_output_name_matches(path, source_by_file[file.file_id])]
@@ -467,31 +451,15 @@ class ExecutionBridge:
         """Run one parser input directory and retain its raw log for audit."""
         env = dict(os.environ)
         env.update(self.config.get("parser_env", {}))
-        if self.parser_layout_config["runner"] == "nh_parser_fin":
-            env["NH_OUTPUT_ROOT"] = str(Path(output).resolve().parent)
-            env.setdefault("NH_MEDIA_DIR", str((Path(output).resolve().parent / "media")))
-            if self.parser_layout_config.get("contract_profile") in {"region-v9", "region-v10"}:
-                env["HWP_RENDER_DIR"] = str(Path(output).resolve() / "render")
-                env["HWP_REVIEW_DIR"] = str(Path(output).resolve() / "review-html")
+        # Keep every parser artifact inside this run instead of parser-pipeline/outputs.
+        env["NH_OUTPUT_ROOT"] = str(Path(output).resolve().parent)
+        env.setdefault("NH_MEDIA_DIR", str((Path(output).resolve().parent / "media")))
+        env["HWP_RENDER_DIR"] = str(Path(output).resolve() / "render")
+        env["HWP_REVIEW_DIR"] = str(Path(output).resolve() / "review-html")
         env["PYTHONIOENCODING"] = "utf-8"
         with Path(log_path).open("w", encoding="utf-8") as log:
             try:
                 command = self.parser_command(source_dir, output, template_id=template_id)
-                sources = list(Path(source_dir).iterdir())
-                if (self.parser_layout_config["runner"] == "nh_parser_fin"
-                        and self.parser_layout_config.get("contract_profile") == "region-v6" and len(sources) == 1
-                        and sources[0].suffix.lower() in {".hwp", ".hwpx"}):
-                    if not template_id:
-                        raise ValueError("PARSER_TEMPLATE_REQUIRED: native HWP requires the selected template")
-                    native = subprocess.run([
-                        self.config["parser_python"], str(ROOT / "scripts/parse_hwp_native.py"),
-                        "--source", str(sources[0].resolve()), "--output", str(Path(output).resolve()),
-                        "--parser-root", str(self.config["parser_root"]), "--template-id", str(template_id),
-                    ], cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
-                        stdout=log, stderr=subprocess.STDOUT, timeout=3600,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-                    if native.returncode != 3:
-                        return native.returncode
                 return subprocess.run(
                     command,
                     cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
@@ -648,7 +616,7 @@ class ExecutionBridge:
             path = directory / 'hwp-html' / f'{asset_id}.html'
             metadata = path.with_suffix('.json')
             if not metadata.is_file():
-                if self.parser_layout_config['runner'] != 'nh_parser_fin' or not self.config.get('parser_python'):
+                if not self.config.get('parser_python'):
                     raise ServiceError(503, 'HWP_HTML_UNAVAILABLE', '현재 파서의 HTML 본문 생성을 사용할 수 없습니다.')
                 # Older reviews have no saved parser HTML. Materialize the same
                 # immutable original and create only its HTML, never a new verdict.
@@ -1420,38 +1388,26 @@ class ExecutionBridge:
         return result
 
     def parser_intake(self, template_id):
-        intake = {"version": "user-template-labeling-v5", "template_id": template_id}
-        profile = self.parser_layout_config.get("contract_profile")
-        if profile in {"region-v9", "region-v10"}:
-            revision = self.config.get("parser_revision")
-            if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
-                raise ValueError(f"PARSER_REVISION_REQUIRED: {profile} requires a pinned upstream commit")
-            intake.update(version="user-template-labeling-v6", parser_contract_profile=profile,
-                          parser_revision=revision)
-        return intake
+        profile = self.parser_layout_config["contract_profile"]
+        revision = self.config.get("parser_revision")
+        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+            raise ValueError(f"PARSER_REVISION_REQUIRED: {profile} requires a pinned upstream commit")
+        return {"version": "user-template-labeling-v6", "template_id": template_id,
+                "parser_contract_profile": profile, "parser_revision": revision}
 
     def validate_parser_template(self, p1_path, p3_path, template_id):
-        if self.parser_layout_config["runner"] == "nh_parser_fin":
-            profile = self.parser_layout_config.get("contract_profile")
-            if profile in {"region-v9", "region-v10"}:
-                p1, p3 = read_json(p1_path), read_json(p3_path)
-                if ((p1.get("contract") or {}).get("version"), (p3.get("contract") or {}).get("version")) != PARSER_FIN_PROFILES[profile]:
-                    raise ValueError(f"PARSER_CONTRACT_MISMATCH: {profile} requires {PARSER_FIN_PROFILES[profile]}")
-            p1_template = read_json(p1_path).get("template") or {}
-            p3_template = (read_json(p3_path).get("document") or {}).get("template") or {}
-            if p1_template != p3_template:
-                raise ValueError("PARSER_TEMPLATE_MISMATCH: nh-parser-fin P1/P3 observations differ")
-            # nh-parser-fin currently infers its own template and has no CLI
-            # option for the user's selection.  The saved intake value remains
-            # authoritative downstream; inferred semantic labels are not
-            # promoted to exact evidence by the contract adapter.
-            return
-        for template in (
-            read_json(p1_path).get("template") or {},
-            (read_json(p3_path).get("document") or {}).get("template") or {},
-        ):
-            if template.get("template_id") != template_id or template.get("source") != "user_provided":
-                raise ValueError("PARSER_TEMPLATE_MISMATCH: 파서 템플릿이 사용자 선택값과 다릅니다")
+        profile = self.parser_layout_config["contract_profile"]
+        p1, p3 = read_json(p1_path), read_json(p3_path)
+        if ((p1.get("contract") or {}).get("version"), (p3.get("contract") or {}).get("version")) != PARSER_FIN_PROFILES[profile]:
+            raise ValueError(f"PARSER_CONTRACT_MISMATCH: {profile} requires {PARSER_FIN_PROFILES[profile]}")
+        p1_template = p1.get("template") or {}
+        p3_template = (p3.get("document") or {}).get("template") or {}
+        if p1_template != p3_template:
+            raise ValueError("PARSER_TEMPLATE_MISMATCH: nh-parser-fin P1/P3 observations differ")
+        # nh-parser-fin currently infers its own template and has no CLI
+        # option for the user's selection.  The saved intake value remains
+        # authoritative downstream; inferred semantic labels are not
+        # promoted to exact evidence by the contract adapter.
 
     def reuse_parent_parser_output(self, ad, directory, source_by_file, parent_review_id, *, template_id=None):
         """Reuse a terminal parent's complete parser boundary after strict validation.
@@ -1485,15 +1441,8 @@ class ExecutionBridge:
                 intake_path = parent_directory / "parser-intake.json"
                 if not intake_path.is_file() or read_json(intake_path) != self.parser_intake(template_id):
                     return None
-            parent_output = parent_directory / "parser"
-            if self.parser_layout_config["runner"] == "nh_parsing_test_batch":
-                parent_output = parent_output / "upload"
-            p1s, p3s = self.parser_outputs(parent_output)
-            p3_by_name = {
-                (path.name.removesuffix(".p3.json") + ".p1.json"
-                 if self.parser_layout_config["runner"] == "nh_parser_fin" else path.name): path
-                for path in p3s
-            }
+            p1s, p3s = self.parser_outputs(parent_directory / "parser")
+            p3_by_name = {path.name.removesuffix(".p3.json") + ".p1.json": path for path in p3s}
             if len(p1s) == len(files) and set(path.name for path in p1s) == set(p3_by_name):
                 break
             reuse_path = parent_directory / "parser-reuse.json"
@@ -1790,7 +1739,7 @@ class ExecutionBridge:
             env.update(self.config.get("parser_env", {}))
             env["REGION_READING_MODE"] = "off"
             env["PYTHONIOENCODING"] = "utf-8"
-            command = self.parser_command(visual_input, output, visual=True)
+            command = self.parser_command(visual_input, output)
             with (directory / "parser-visual.log").open("w", encoding="utf-8") as log:
                 result = subprocess.run(
                     command,
@@ -1801,8 +1750,7 @@ class ExecutionBridge:
                     timeout=3600,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
-            raw_root = output / "visual" if self.parser_layout_config["runner"] == "nh_parsing_test_batch" else output
-            outputs = self.parser_raw_outputs(raw_root)
+            outputs = self.parser_raw_outputs(output)
             if result.returncode or len(outputs) != 1:
                 raise RuntimeError("PARSER_VISUAL_LAYOUT_FAILED: HWP bbox 보강에 실패했습니다.")
             visual = read_json(outputs[0])
