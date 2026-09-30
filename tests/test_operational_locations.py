@@ -8,7 +8,50 @@ from operational_locations import (load_template_appropriate_judgments, resolve_
                                    local_reading_review, resolve_review_locations,
                                    resolve_chunk_locations, saved_workspace, valid_box, with_rendered_line_locations,
                                    verified_separate_notice_lines)
-from operational_locations import display_condition_checks
+from operational_locations import display_condition_checks, grouped_review_rows
+
+
+def test_frozen_alternative_group_counts_once_without_mutating_originals():
+    rows = [{'scope_id': 'S', 'item_id': item, 'title': 'Rate', 'verdict': '위반',
+             'logical_group': {'logical_group_id': 'A', 'logical_group_members': ['A', 'B', 'C']}}
+            for item in ['A', 'B', 'C']]
+    independent = dict(rows[0], item_id='D', logical_group={})
+    rows.append(independent)
+    original = copy.deepcopy(rows)
+    output = grouped_review_rows(rows)
+    assert len(output) == 2
+    assert output[0]['group_members'] == rows[:3]
+    assert output[1] == independent
+    assert original == rows
+    assert len(grouped_review_rows(rows + [dict(r, scope_id='OTHER') for r in rows])) == 4
+
+
+def test_incomplete_or_conflicting_alternative_group_is_not_a_confirmed_finding():
+    rows = [{'scope_id': 'S', 'item_id': item, 'title': 'Rate', 'verdict': '충족',
+             'display_checks': [{'status': 'SATISFIED'}], 'evidence': 'text',
+             'logical_group': {'logical_group_id': 'A', 'logical_group_members': ['A', 'B']}}
+            for item in ['A', 'B']]
+    for case in [rows[:1], rows + [rows[0]], [rows[0], dict(rows[1], verdict='위반')]]:
+        result = grouped_review_rows(case)[0]
+        assert result['verdict'] == '판단불가'
+        assert result['evidence'] == ''
+        assert result['display_checks'] == []
+
+
+def test_source_segments_do_not_borrow_whole_region_coordinates():
+    doc = source()
+    line = doc['pages'][0]['regions'][0]['lines'][0]
+    ref = line['line_ref']
+    raw = {'ads': [{'ad_id': 'ADV', 'candidates': [{'item_id': 'R', 'judgment': {
+        'verdict': 'UNDETERMINED', 'reason': 'Synthetic', 'evidence_ids': ['E'],
+        'evidence_line_refs': [ref], 'requirement_checks': []}}]}]}
+    requests = [{'ad_id': 'ADV', 'documents': [{'evidence_id': 'E', 'line_refs': [ref],
+        'line_texts': {ref: line['text']}}], 'rules': [{'item_id': 'R'}]}]
+    before = copy.deepcopy((doc, raw, requests))
+    row = saved_workspace(raw, requests, doc, 'ADV')['rows'][0]
+    assert row['evidence_segments'] == [{'line_ref': ref, 'text': line['text'],
+        'locations': resolve_locations(doc, {'evidence_line_refs': [ref]}, {})}]
+    assert (doc, raw, requests) == before
 
 
 def test_display_checks_use_frozen_wording_and_do_not_invent_missing_verdicts():

@@ -881,12 +881,20 @@ def _expand_model_response(
         ]))
         reason = model_result.get("reason")
         program = contract.get('review_program') or {}
-        if program and verdict != model_result.get('verdict'):
+        if program and (verdict != model_result.get('verdict') or program.get('logical_group_id')
+                        or program.get('prerequisite_group_id')):
             labels = {'COMPLIANT': '적정', 'VIOLATION': '부적정', 'UNDETERMINED': '확인 필요', 'NOT_APPLICABLE': '적용 제외'}
             reason = '원문 판단식과 검증된 입력으로 종합한 결과: ' + labels.get(verdict, str(verdict)) + '.'
             relevant = [c for c in checks if c.get('status') in
                         ({'VIOLATED', 'MISSING'} if verdict == 'VIOLATION' else {'UNDETERMINED'} if verdict == 'UNDETERMINED' else set())]
             reason += ' ' + ' / '.join(str(c.get('reason') or '') for c in relevant)
+            if verdict == 'UNDETERMINED' and program.get('prerequisite_obligations'):
+                prerequisites = [c for c in checks if c.get('obligation_ref') in program['prerequisite_obligations']
+                                 and c.get('status') != 'SATISFIED']
+                if prerequisites:
+                    reason = ('공통 금리 요건이 확인되지 않아 적용금액 기재·생략 조건을 확정하지 못했습니다. '
+                              '공통 요건의 실패를 별도 적용금액 위반으로 집계하지 않습니다.\n' +
+                              '\n'.join(str(c.get('reason') or '') for c in prerequisites))
         if verdict == 'UNDETERMINED' and 'VIOLATION' not in program.get('allowed_outcomes', ['VIOLATION']):
             reason = '출처가 자동 부적정 확정을 허용하지 않습니다. 확인 항목을 사람이 검토해야 합니다.'
         if applicability == "NOT_APPLICABLE" and closed_absence_facts:

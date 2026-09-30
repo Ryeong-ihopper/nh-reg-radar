@@ -34592,15 +34592,19 @@
         }
       ],
       "obligation_logic": {
-        "all": [
+        "if": [
           {
-            "ref": "O7"
-          },
-          {
-            "ref": "O8"
-          },
-          {
-            "ref": "O9"
+            "all": [
+              {
+                "ref": "O7"
+              },
+              {
+                "ref": "O8"
+              },
+              {
+                "ref": "O9"
+              }
+            ]
           },
           {
             "any": [
@@ -34670,6 +34674,9 @@
                 ]
               }
             ]
+          },
+          {
+            "unknown": "SHARED_RATE_REQUIREMENTS_NOT_CONFIRMED"
           }
         ]
       },
@@ -34713,10 +34720,16 @@
           "absence_requires_complete_readable_scope": true,
           "dense_status": "PENDING_ITEM_LEVEL_COMPARISON"
         },
+        "prerequisite_obligations": [
+          "O7",
+          "O8",
+          "O9"
+        ],
+        "prerequisite_group_id": "MTH-DEPOSIT-DEMAND-R07",
         "schema_version": "review-program-v1",
         "source_sha256": "89fbbdcd1b0e7d4278e4d8264e0ed5f35d58bd7fea75ffa3d954a5d143d205b9",
-        "program_sha256": "38327377972a8cbed30faff62ac28edf14e8a1f236f2560b9275f23a12f59ca3",
-        "execution_sha256": "05acd8870a3aff0507a4bccba0a0dc853c131f2c0bf137b800e4bef84eb228ec"
+        "program_sha256": "e28a0feb4eaf2b5d05fbc88fc49359172bb4c5db012701c43ee3853467e22061",
+        "execution_sha256": "3b76442af0599d71df423f242e819fd9c3121902e5efe90acb934a569206c114"
       }
     },
     {
@@ -41076,9 +41089,9 @@
       }
     }
   ],
-  "source_binding_sha256": "281e2010bf5e624bd12488c2e9595d270bddefd55962d411fb6a82025da1ad16",
+  "source_binding_sha256": "8794383b88de44bae7a059d7b115f424ec118d22ea1e29f3064f5a6a270aedad",
   "review_program_source_binding": {
     "base_binding": "965e7fd6347ae137d4b8ca74444ccaeb52a507aadfa3bc2769ccedb17f1b03ff",
-    "policies_sha256": "0b1e683a8abab6ed2ee0c59320455f09d1f4967ebcfb932c69f74087958ecc41"
+    "policies_sha256": "b98c05dcc0fb7e7b1d94f0d35d8352eb3fe4eb05b80e182aadafd3a09771d3ed"
   }
 }

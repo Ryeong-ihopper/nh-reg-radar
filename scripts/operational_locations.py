@@ -524,6 +524,7 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                     "template_section": (candidate.get("template_basis") or {}).get("template_section"),
                     "template_requirement": (candidate.get("template_basis") or {}).get("requirement_mode"),
                     "requirement_checks": prediction.get("requirement_checks", []),
+                    "logical_group": copy.deepcopy((rule.get('condition_contract') or {}).get('review_program') or {}),
                     "display_checks": display_condition_checks(rule, prediction),
                     "template_violation_guidance": (
                         ((rule.get("canonical_execution_plan") or {}).get("source_criteria") or {}).get("violation_guidance", "")
@@ -534,6 +535,12 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
                     "verdict": {"VIOLATION": "위반", "COMPLIANT": "충족",
                                 "UNDETERMINED": "판단불가", "NOT_APPLICABLE": "미해당"}.get(prediction["verdict"], prediction["verdict"]),
                     "reason": prediction.get("reason", ""), "evidence": text,
+                    "evidence_segments": [
+                        {"line_ref": ref, "text": texts[ref],
+                         "locations": resolve_locations(document, {"evidence_line_refs": [ref]}, {})}
+                        for ref in dict.fromkeys(prediction.get('evidence_line_refs') or [])
+                        if texts.get(ref)
+                    ],
                     "evidence_ids": prediction.get("evidence_ids", []),
                     "evidence_line_refs": prediction.get("evidence_line_refs", []),
                     "evidence_locations": locations,
@@ -620,13 +627,52 @@ def saved_workspace(raw, requests, document, advertisement_id, discovery=None, r
             "judgment_scope": "TEXT_ONLY",
             "model_assessment": None,
         })
-    return {"rows": rows, "review_candidate_rows": [], "excluded_rows": excluded,
+    return {"rows": grouped_review_rows(rows), "review_candidate_rows": [], "excluded_rows": excluded,
             "execution_omissions": omissions,
             "template_coverage": [value for value in coverage if value],
             "source_ads": ads,
             "output_failure_pairs": [pair for pair in raw.get("output_failure_pairs", [])
                                      if pair.get("ad_id") == advertisement_id],
             "deferred_rules": []}
+
+
+def grouped_review_rows(rows):
+    """Count source-authored alternative groups once; preserve every member.
+
+    Only frozen logical-group metadata permits consolidation. Never deduplicate
+    merely equal explanations, labels, dates or references across independent
+    requirements or product scopes.
+    """
+    grouped, output = {}, []
+    for row in rows:
+        program = row.get('logical_group') or {}
+        group_id = program.get('logical_group_id')
+        members = program.get('logical_group_members') or []
+        if not group_id or row['item_id'] not in members or group_id not in members:
+            output.append(row)
+            continue
+        key = (row.get('scope_id'), group_id, tuple(members))
+        if key not in grouped:
+            representative = copy.deepcopy(row)
+            representative['group_members'] = []
+            grouped[key] = representative
+            output.append(representative)
+        grouped[key]['group_members'].append(copy.deepcopy(row))
+    for (_, group_id, expected), row in grouped.items():
+        members = row['group_members']
+        row['row_id'] = f"{row.get('scope_id')}:logical-group:{group_id}"
+        row['item_id'] = group_id
+        row['item_title'] = row['title'] + ' · 기재 방식 종합'
+        if (len(members) != len(expected)
+                or {member['item_id'] for member in members} != set(expected)
+                or len({member['verdict'] for member in members}) != 1):
+            row['verdict'] = '판단불가'
+            row['reason'] = '같은 기재 방식 묶음의 검사 결과가 일치하지 않거나 일부 기록이 없습니다. 방식별 원문과 검사 내역을 함께 확인해야 합니다.'
+            row['evidence'] = ''
+            for field in ('evidence_ids', 'evidence_line_refs', 'evidence_locations', 'evidence_segments', 'display_checks', 'review_locations'):
+                row[field] = []
+            row['evidence_location_status'] = 'NO_CITATION'
+    return output
 
 
 def verified_separate_notice_lines(document, entry):

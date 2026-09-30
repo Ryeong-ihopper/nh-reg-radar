@@ -5,7 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { operationalRequest } from "../api/operational";
 import { useAuth } from "../auth/useAuth";
-import { type ResultWorkspace, reviewItemTitle, reviewVerdict } from "../components/operationalResultModel";
+import { type ResultWorkspace, type ResultRow, reviewItemTitle, reviewVerdict } from "../components/operationalResultModel";
 import { OperationalOriginalPanel } from "../components/OperationalOriginalPanel";
 import { OperationalReviewDetail, VerdictBadge } from "../components/OperationalReviewDetail";
 import { ErrorState, LoadingState } from "../components/RequestState";
@@ -21,6 +21,7 @@ export function OperationalResultsPage() {
   const [hovered, setHovered] = useState("");
   const [verdictFilter, setVerdictFilter] = useState("전체");
   const [locateRequest, setLocateRequest] = useState(0);
+  const [focusedEvidence, setFocusedEvidence] = useState<ResultRow | null>(null);
   const [decisionComment, setDecisionComment] = useState("");
   const status = useQuery({queryKey: ["review-progress", reviewId], queryFn: () => api.getReviewStatus(token, reviewId)});
   const adId = status.data?.advertisementId ?? "";
@@ -32,7 +33,7 @@ export function OperationalResultsPage() {
   });
   const rows = useMemo(() => (workspace.data?.rows ?? []).filter(row => VERDICTS.includes(row.verdict as typeof VERDICTS[number])), [workspace.data]);
   const selected = rows.find(row => (row.row_id ?? row.item_id) === active);
-  const previewRow = rows.find(row => (row.row_id ?? row.item_id) === hovered) ?? selected;
+  const previewRow = rows.find(row => (row.row_id ?? row.item_id) === hovered) ?? (selected ? focusedEvidence ?? selected : undefined);
   const filteredRows = rows.filter(row => verdictFilter === "전체" || reviewVerdict(row.verdict) === verdictFilter);
   const verdictFilters = ["전체", "적정", "부적정", "확인필요", ...(rows.some(row => reviewVerdict(row.verdict) === "해당없음") ? ["해당없음"] : [])];
   const omissions = workspace.data?.execution_omissions ?? [];
@@ -53,7 +54,11 @@ export function OperationalResultsPage() {
       <section className="review-item-panel" aria-label="항목별 판정">
         {selected ? <>
           <header className="review-detail-nav"><button type="button" className="button-secondary" onClick={() => setActive("")}>← 항목 목록</button><span>{rows.findIndex(row => (row.row_id ?? row.item_id) === active) + 1} / {rows.length}</span></header>
-          <div className="review-detail-scroll"><OperationalReviewDetail row={selected} reviewId={reviewId} showSuggestionLink={false} onLocate={() => setLocateRequest(value => value + 1)} /></div>
+          <div className="review-detail-scroll"><OperationalReviewDetail row={selected} reviewId={reviewId} showSuggestionLink={false} onLocate={segment => {
+            setFocusedEvidence(segment ? {...selected, row_id: `${selected.row_id ?? selected.item_id}:${segment.line_ref}`,
+              evidence: segment.text, evidence_locations: segment.locations, review_locations: []} : null);
+            setLocateRequest(value => value + 1);
+          }} /></div>
         </> : <>
           <header><h3>항목별 판정 <small>{filteredRows.length} / {rows.length}건</small></h3>
             <div className="review-verdict-filters" role="group" aria-label="판정별 보기">
@@ -71,7 +76,7 @@ export function OperationalResultsPage() {
             {workspace.data.output_failure_count ? <aside className="state-message" role="alert"><strong>판정 처리 실패 {workspace.data.output_failure_count}건</strong><p>{workspace.data.partial_result_warning}</p><details><summary>실패 항목 확인</summary><ul>{workspace.data.output_failure_pairs?.map((failure, index) => <li key={`${failure.scope_id ?? failure.ad_id}:${failure.item_id}`}>항목 {index + 1} · 모델 응답 형식 또는 원문 근거 연결 실패</li>)}</ul></details></aside> : null}
             {filteredRows.map((row) => {
               const rowId = row.row_id ?? row.item_id;
-              return <button type="button" className="review-result-card" key={rowId} onMouseEnter={() => setHovered(rowId)} onMouseLeave={() => setHovered("")} onFocus={() => setHovered(rowId)} onBlur={() => setHovered("")} onClick={() => { setActive(rowId); setHovered(""); }}>
+              return <button type="button" className="review-result-card" key={rowId} onMouseEnter={() => setHovered(rowId)} onMouseLeave={() => setHovered("")} onFocus={() => setHovered(rowId)} onBlur={() => setHovered("")} onClick={() => { setActive(rowId); setHovered(""); setFocusedEvidence(null); }}>
                 <span className="review-item-number">{String(rows.indexOf(row) + 1).padStart(2, "0")}</span>
                 <span className="review-result-copy"><strong>{reviewItemTitle(row)}</strong><span className="review-result-summary">{row.reason?.trim() || "저장된 판정 사유가 없습니다."}</span></span>
                 <VerdictBadge value={row.verdict} />

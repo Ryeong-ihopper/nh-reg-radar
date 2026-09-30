@@ -1824,6 +1824,9 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .review-section-heading button { min-height:1.8rem; padding:.2rem .5rem; font-size:.73rem; border-color:#dce5df; box-shadow:none; }
 .review-section-heading button:disabled { cursor:not-allowed; }
 .review-source-quote { margin:0; padding:.8rem 1rem; border:1px solid #e2e9e4; border-left:3px solid #82af96; border-radius:6px; background:#f7faf8; color:#304e3d; font-size:.84rem; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.review-evidence-segment { display:grid; gap:.4rem; margin:.6rem 0; justify-items:start; width:100%; }
+.review-evidence-segment .review-source-quote { width:100%; box-sizing:border-box; }
+.review-decision-reason p { white-space:pre-line; }
 .review-detail-section p.review-source-criterion { padding:.8rem; border-radius:6px; background:#f6f8f7; color:#495e51; font-size:.78rem; }
 .review-empty-note { color:var(--muted); font-size:.78rem !important; line-height:1.7; }
 .review-condition-list { display:grid; gap:.8rem; list-style:none; margin:1rem 0 0; padding:0; }

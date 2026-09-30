@@ -1,7 +1,7 @@
 {
   "schema_version": "operational-rule-dispositions-v1",
   "scope": "DEPOSIT_LOAN_INVESTMENT",
-  "canonical_source_binding_sha256": "281e2010bf5e624bd12488c2e9595d270bddefd55962d411fb6a82025da1ad16",
+  "canonical_source_binding_sha256": "8794383b88de44bae7a059d7b115f424ec118d22ea1e29f3064f5a6a270aedad",
   "policy": {
     "template_support_does_not_create_duplicate_results": true,
     "aliases_share_one_result_with_target": true,

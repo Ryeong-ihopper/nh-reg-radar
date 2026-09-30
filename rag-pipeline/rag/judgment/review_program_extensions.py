@@ -8,7 +8,7 @@ import re
 def extend_policies(document, policies):
     result = copy.deepcopy(policies)
     if result.get('review_extension_version') == 'composition-evidence-and-line-v1':
-        return result
+        return _separate_rate_prerequisites(document, result)
     plans = {p['plan_id']: p for p in document['plans']}
     for policy in result['plans']:
         plan = plans[policy['plan_id']]
@@ -63,7 +63,38 @@ def extend_policies(document, policies):
             if '예금성' in str(plan['source'].get('product_template')) and '대출 유의사항' in clause:
                 program['line_scope_conflict'] = 'DEPOSIT_SOURCE_NAMES_LOAN_WARNING; DO_NOT_REINTERPRET'
     result['review_extension_version'] = 'composition-evidence-and-line-v1'
-    return result
+    return _separate_rate_prerequisites(document, result)
+
+
+def _separate_rate_prerequisites(document, policies):
+    """Keep shared rate validity as a prerequisite, not another bonus breach.
+
+    The source's amount-limit row refers to the three rate display methods.
+    Failure of their common date/tax/year prerequisites cannot independently
+    establish that the bonus amount-limit disclosure itself is missing.
+    """
+    if policies.get('rate_prerequisite_version') == 'shared-rate-prerequisites-v1':
+        return policies
+    plans = {p['plan_id']: p for p in document['plans']}
+    for policy in policies['plans']:
+        if policy['plan_id'] != 'MTH-DEPOSIT-DEMAND-R11':
+            continue
+        plan = plans[policy['plan_id']]
+        source = plan['source']['source_fields']['satisfied']
+        if 'c8셀의 방식 2 또는 c9셀의 방식 3' not in source or '어느금액까지' not in source:
+            raise ValueError('bonus amount source revision requires review')
+        logic = policy.get('obligation_logic', plan['obligation_logic'])
+        nodes = logic.get('all') or []
+        common = [{'ref': ref} for ref in ('O7', 'O8', 'O9')]
+        if nodes[:3] != common or len(nodes) != 4:
+            raise ValueError('unexpected shared rate prerequisite formula')
+        policy['obligation_logic'] = {'if': [
+            {'all': common}, copy.deepcopy(nodes[3]),
+            {'unknown': 'SHARED_RATE_REQUIREMENTS_NOT_CONFIRMED'}]}
+        policy['program']['prerequisite_obligations'] = ['O7', 'O8', 'O9']
+        policy['program']['prerequisite_group_id'] = 'MTH-DEPOSIT-DEMAND-R07'
+    policies['rate_prerequisite_version'] = 'shared-rate-prerequisites-v1'
+    return policies
 
 
 def _atom(ref, text, owner):

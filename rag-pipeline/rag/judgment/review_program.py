@@ -107,18 +107,38 @@ def date_check(adapter, check, payload, item_id):
     allowed = set((payload.get("evidence_scope", {}).get(item_id) or {}).get("evidence_ids") or [])
     refs = set(check.get("evidence_line_refs") or [])
     observed = []
+    cited_rates = set()
     for doc in payload.get("documents") or []:
         if doc.get("evidence_id") not in allowed:
             continue
         for ref, text in (doc.get("line_texts") or {}).items():
-            if ref not in refs or ref not in (doc.get("line_refs") or []) or "기준" not in text:
+            if ref not in refs or ref not in (doc.get("line_refs") or []):
+                continue
+            roles = re.findall(r'(?:기본|우대|최저|최고)금리', re.sub(r'\s+', '', text))
+            if '%' in text:
+                cited_rates.update(roles)
+            if '기준' not in text:
                 continue
             for match in re.finditer(r"(?<!\d)(20\d{2})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})(?:일)?", text):
                 try:
                     observed.append((date(*map(int, match.groups())), doc["evidence_id"], ref, text))
                 except ValueError:
                     return unknown
-    if len({row[0] for row in observed}) != 1:
+    # Retrieval chunks may overlap, but two distinct original lines are not
+    # interchangeable operands merely because they print the same date.
+    observed = list({(row[2], row[0], row[3]): row for row in observed}.values())
+    # A line with competing dates, or a detached date among several rates,
+    # has no authenticated rate/date pairing. Never infer it from adjacency.
+    def roles_for(row):
+        return re.findall(r'(?:기본|우대|최저|최고)금리', re.sub(r'\s+', '', row[3]))
+    paired = all(len(roles_for(row)) == 1 and '%' in row[3] for row in observed)
+    dated_rates = {role for row in observed for role in roles_for(row)}
+    if (not observed or len({row[2] for row in observed}) != len(observed)
+            or (len(observed) > 1 and not paired)
+            or (len(cited_rates) > 1 and (not paired or cited_rates != dated_rates))):
+        unknown['reason'] = '금리별 기준일과 원문 줄의 연결을 하나로 확정할 수 없습니다. 기본금리·우대금리 등 서로 다른 금리의 날짜는 각각 확인해야 합니다.'
+        unknown['evidence_ids'] = list(dict.fromkeys(row[1] for row in observed))
+        unknown['evidence_line_refs'] = list(dict.fromkeys(row[2] for row in observed))
         return unknown
     if adapter["unit"] == "CALENDAR_MONTH":
         month = reviewed.month - 1 or 12
@@ -128,11 +148,14 @@ def date_check(adapter, check, payload, item_id):
         earliest = reviewed - timedelta(days=int(adapter["amount"]))
     else:
         raise ValueError("unsupported date comparison unit")
-    value, evidence_id, ref, text = observed[0]
-    satisfied = earliest <= value <= reviewed
+    satisfied = all(earliest <= row[0] <= reviewed for row in observed)
     return {"status": "SATISFIED" if satisfied else "VIOLATED", "finding_basis": "OBSERVED",
-            "evidence_ids": [evidence_id], "evidence_line_refs": [ref],
-            "reason": f'기준일 근거: "{text}". 심의일 대비 원문 기간 기준을 ' + ("충족합니다." if satisfied else "벗어납니다.")}
+            "evidence_ids": list(dict.fromkeys(row[1] for row in observed)),
+            "evidence_line_refs": [row[2] for row in observed],
+            "reason": '\n'.join(
+                f'기준일 근거: "{text}". 심의 기준일 {reviewed.isoformat()}, 허용 기간 {earliest.isoformat()}~{reviewed.isoformat()} 대비 ' +
+                ('기간을 충족합니다.' if earliest <= value <= reviewed else '기간을 벗어납니다.')
+                for value, _, _, text in observed)}
 
 
 def computed_check(adapter, check, payload, item_id):

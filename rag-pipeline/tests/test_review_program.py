@@ -698,6 +698,45 @@ class ComputedObservationTests(unittest.TestCase):
         payload['evidence_scope']['SYNTHETIC']['complete_ad_scan'] = False
         self.assertEqual('UNDETERMINED', self.check(adapter, payload))
 
+    def test_rate_dates_keep_original_line_identity_and_require_pairing(self):
+        adapter = {'kind': 'BASIS_DATE_WITHIN', 'unit': 'CALENDAR_MONTH', 'amount': 1}
+        payload = self.payload('기본금리 연 1%(2026.03.20. 기준)')
+        doc = payload['documents'][0]
+        doc['line_refs'].append('L2')
+        doc['line_texts']['L2'] = '우대금리 연 2%(2026.03.20. 기준)'
+        check = {'evidence_line_refs': ['L1', 'L2']}
+        original = copy.deepcopy(payload)
+        result = computed_check(adapter, check, payload, 'SYNTHETIC')
+        self.assertEqual('SATISFIED', result['status'])
+        self.assertEqual(['L1', 'L2'], result['evidence_line_refs'])
+        self.assertEqual(2, result['reason'].count('기준일 근거:'))
+        self.assertEqual(original, payload)
+        doc['line_texts']['L2'] = '우대금리 연 2%(2026.01.20. 기준)'
+        result = computed_check(adapter, check, payload, 'SYNTHETIC')
+        self.assertEqual('VIOLATED', result['status'])
+        self.assertIn('기간을 충족합니다.', result['reason'])
+        self.assertIn('기간을 벗어납니다.', result['reason'])
+        doc['line_texts']['L2'] = '(2026.03.20. 기준)'
+        result = computed_check(adapter, check, payload, 'SYNTHETIC')
+        self.assertEqual('UNDETERMINED', result['status'])
+        self.assertEqual(['L1', 'L2'], result['evidence_line_refs'])
+        # Overlapping retrieval chunks with identical source lines are harmless.
+        payload['documents'].append(copy.deepcopy(doc))
+        self.assertEqual(result, computed_check(adapter, check, payload, 'SYNTHETIC'))
+
+    def test_conflicting_text_for_same_date_line_is_not_silently_selected(self):
+        adapter = {'kind': 'BASIS_DATE_WITHIN', 'unit': 'CALENDAR_MONTH', 'amount': 1}
+        payload = self.payload('기본금리 연 1%(2026.03.20. 기준)')
+        other = copy.deepcopy(payload['documents'][0])
+        other['line_texts']['L1'] = '우대금리 연 2%(2026.03.20. 기준)'
+        payload['documents'].append(other)
+        self.assertEqual('UNDETERMINED', self.check(adapter, payload))
+
+    def test_two_rate_roles_do_not_share_one_unbound_date(self):
+        adapter = {'kind': 'BASIS_DATE_WITHIN', 'unit': 'CALENDAR_MONTH', 'amount': 1}
+        payload = self.payload('기본금리 연 1%(2026.03.20. 기준), 우대금리 연 2%')
+        self.assertEqual('UNDETERMINED', self.check(adapter, payload))
+
 
 class NodeRetrievalTests(unittest.TestCase):
     def test_authored_query_reaches_lexical_search_without_dense_or_other_product_evidence(self):
@@ -974,7 +1013,7 @@ class DepositReviewedBranchesTests(unittest.TestCase):
              {**r11, 'O1': sat}, {**base_facts, 'B3': sat}, 'UNDETERMINED'),
             ('method1 missing mandatory tax', self.R11,
              {**r11, 'O1': sat, 'O2': sat, 'O8': missing},
-             {**base_facts, 'B1': sat, 'B3': sat}, 'VIOLATION'),
+             {**base_facts, 'B1': sat, 'B3': sat}, 'UNDETERMINED'),
             ('method role unresolved', self.R11, {**r11, 'O1': sat},
              {**base_facts, 'B3': unknown, 'B4': unknown, 'B5': unknown}, 'UNDETERMINED'),
             ('method2 basis date unresolved', self.R11,
@@ -1055,13 +1094,15 @@ class DepositReviewedBranchesTests(unittest.TestCase):
                 self.assertEqual('UNDETERMINED', conditions['B2'])
 
     def test_method1_observed_bonus_uses_amount_without_an_external_no_bonus_assumption(self):
-        text = self.RATE_TEXT + ', 우대금리 연 0.5%p는 100만원까지 적용'
+        # This branch test supplies an amount condition, not a second rate with
+        # an unbound date. The latter has a separate uncertainty boundary test.
+        text = self.RATE_TEXT + ', 우대조건 충족 시 100만원까지 적용'
         facts = {'B1': 'SATISFIED', 'B2': 'UNDETERMINED', 'B3': 'SATISFIED',
                  'B4': 'NOT_SATISFIED', 'B5': 'NOT_SATISFIED'}
         statuses = {f'O{i}': 'MISSING' for i in range(1, 10)}
         statuses.update(O1='SATISFIED', O7='SATISFIED', O8='SATISFIED', O9='SATISFIED')
         for cap, expected in (('SATISFIED', 'COMPLIANT'), ('MISSING', 'VIOLATION')):
             with self.subTest(cap=cap):
-                observed = text if cap == 'SATISFIED' else text.replace('는 100만원까지 적용', '')
+                observed = text if cap == 'SATISFIED' else text.replace('100만원까지 적용', '우대 적용')
                 _, result = self.wire(self.R11, observed, {**statuses, 'O2': cap}, facts)
                 self.assertEqual(expected, result['verdict'])

@@ -15888,7 +15888,13 @@
           "retrieval_miss_is_absence": false,
           "absence_requires_complete_readable_scope": true,
           "dense_status": "PENDING_ITEM_LEVEL_COMPARISON"
-        }
+        },
+        "prerequisite_obligations": [
+          "O7",
+          "O8",
+          "O9"
+        ],
+        "prerequisite_group_id": "MTH-DEPOSIT-DEMAND-R07"
       },
       "applicability_inputs": [
         {
@@ -16152,15 +16158,19 @@
         }
       ],
       "obligation_logic": {
-        "all": [
+        "if": [
           {
-            "ref": "O7"
-          },
-          {
-            "ref": "O8"
-          },
-          {
-            "ref": "O9"
+            "all": [
+              {
+                "ref": "O7"
+              },
+              {
+                "ref": "O8"
+              },
+              {
+                "ref": "O9"
+              }
+            ]
           },
           {
             "any": [
@@ -16230,6 +16240,9 @@
                 ]
               }
             ]
+          },
+          {
+            "unknown": "SHARED_RATE_REQUIREMENTS_NOT_CONFIRMED"
           }
         ]
       }
@@ -19949,5 +19962,6 @@
       }
     }
   ],
-  "review_extension_version": "composition-evidence-and-line-v1"
+  "review_extension_version": "composition-evidence-and-line-v1",
+  "rate_prerequisite_version": "shared-rate-prerequisites-v1"
 }

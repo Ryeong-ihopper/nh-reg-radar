@@ -107,7 +107,8 @@ def quarantine_unsupported_observations(request, response, validate):
         violations = [c for i,c in enumerate(checks) if i not in indexes and c.get("status") in {"VIOLATED", "MISSING"}]
         result.update(verdict="VIOLATION" if violations else "UNDETERMINED", confidence="LOW",
                       needs_researcher_review=True,
-                      reason=" / ".join([c.get("reason", "") for c in violations]+[reason]))
+                      reason=('확정된 미충족: ' + ' / '.join(c.get('reason', '') for c in violations)
+                              + '\n별도 확인필요: ' + reason) if violations else reason)
         contract = (rules.get(result['item_id']) or {}).get('condition_contract') or {}
         if contract.get('obligation_logic') and result.get('applicability') == 'APPLICABLE':
             result['verdict'] = aggregate_obligations(contract, checks, result.get('condition_checks'))

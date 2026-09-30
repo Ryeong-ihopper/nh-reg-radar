@@ -228,9 +228,9 @@ def apply_reading_guard(payload: dict[str, Any], parsed: dict[str, Any]) -> list
             for check in result.get("requirement_checks") or [] if isinstance(check, dict))
         result.update(verdict="VIOLATION" if has_independent_violation else "UNDETERMINED",
             needs_researcher_review=True, confidence="LOW")
-        result["reason"] = (" / ".join(str(check.get("reason") or "")
+        result["reason"] = ("확정된 미충족: " + " / ".join(str(check.get("reason") or "")
             for check in result.get("requirement_checks") or []
-            if check.get("status") in {"VIOLATED", "MISSING"}) + " / " + reason
+            if check.get("status") in {"VIOLATED", "MISSING"}) + "\n별도 확인필요: " + reason
             if has_independent_violation else reason)
         contract = (rules.get(result.get("item_id")) or {}).get("condition_contract") or {}
         if not gate_issue and contract.get("obligation_logic") and result.get("applicability") == "APPLICABLE":
