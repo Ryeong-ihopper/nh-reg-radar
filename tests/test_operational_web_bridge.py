@@ -55,7 +55,7 @@ class BridgeTests(unittest.TestCase):
     @staticmethod
     def parser_fin_pair(*, text="검토 원문", status="ok"):
         """Minimal synthetic parser-pipeline P1 v5/P3 v10 pair."""
-        template = {"template_id": "예금성상품-적립식", "source": "rules"}
+        template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
         box = [20, 40, 600, 120]
         first = {
             "contract": {"version": "nh-ad-parse-evidence-v5"},
@@ -164,6 +164,8 @@ class BridgeTests(unittest.TestCase):
                          {"version": "user-template-labeling-v3", "template_id": "예금성상품-적립식"},
                          {"version": "user-template-labeling-v4", "template_id": "예금성상품-적립식"},
                          {"version": "user-template-labeling-v5", "template_id": "예금성상품-적립식"},
+                         # v6 outputs were labelled with a parser-chosen template.
+                         {**self.bridge.parser_intake("예금성상품-적립식"), "version": "user-template-labeling-v6"},
                          {"version": "old-policy", "template_id": "예금성상품-적립식"}):
             if manifest is not None:
                 (parent_dir / "parser-intake.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -172,14 +174,69 @@ class BridgeTests(unittest.TestCase):
                     self.ad, current, {}, parent.review.review_id, template_id="예금성상품-적립식"))
         self.assertFalse((current / "parser-reuse.json").exists())
 
-    def test_parser_p1_and_p3_must_report_the_same_template(self):
-        p1, p3 = self.write_parser_pair(self.root / "pair", "input.pdf")
-        self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
-        data = json.loads(p3.read_text(encoding="utf-8"))
-        data["document"]["template"] = {"template_id": "대출성상품-상품명 노출", "source": "rules"}
-        p3.write_text(json.dumps(data), encoding="utf-8")
+    def test_parser_must_echo_the_user_template_in_both_outputs(self):
+        template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
+        for bad in ({**template, "source": "rules"}, {**template, "source": "vlm"},
+                    {**template, "template_id": "대출성상품-상품명 노출"}):
+            for index in (0, 1):
+                with self.subTest(bad=bad, output="P1" if index == 0 else "P3"):
+                    pair = self.write_parser_pair(self.root / "pair", "input.pdf")
+                    self.bridge.validate_parser_template(*pair, "예금성상품-적립식")
+                    data = json.loads(pair[index].read_text(encoding="utf-8"))
+                    if index == 0:
+                        data["template"] = bad
+                    else:
+                        data["document"]["template"] = bad
+                    pair[index].write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_MISMATCH"):
+                        self.bridge.validate_parser_template(*pair, "예금성상품-적립식")
+
+    def test_app_template_name_is_translated_to_the_parser_catalog(self):
+        self.bridge.config.update({"parser_python": "python"})
+        eld = "예금성상품-지수연동예금(ELD)"
+        command = self.bridge.parser_command(self.root, self.root / "out", template_id=eld)
+        self.assertEqual(command[-2:], ["--template-id", "예금성상품-지수연동예금"])
+        self.assertEqual(self.bridge.parser_intake(eld)["parser_template_id"], "예금성상품-지수연동예금")
+        pair = self.write_parser_pair(self.root / "eld", "input.pdf")
+        for path, key in zip(pair, ("template", "document")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            parent = data if key == "template" else data["document"]
+            parent["template"] = {"template_id": "예금성상품-지수연동예금", "source": "user_provided"}
+            path.write_text(json.dumps(data), encoding="utf-8")
+        self.bridge.validate_parser_template(*pair, eld)
+
+    def test_template_missing_from_parser_catalog_falls_back_to_parser_choice(self):
+        catalog = self.root / "parser-pipeline" / "nh_parser_fin" / "templates" / "ad_templates.json"
+        catalog.parent.mkdir(parents=True)
+        catalog.write_text(json.dumps({"templates": {"예금성상품-적립식": {}, "예금성상품-지수연동예금": {}}},
+                                      ensure_ascii=False), encoding="utf-8")
+        self.bridge.config.update({"parser_python": "python"})
+        for template, expected in (("예금성상품-적립식", "예금성상품-적립식"),
+                                   ("예금성상품-지수연동예금(ELD)", "예금성상품-지수연동예금"),
+                                   ("투자성상품-ETF", None), ("투자성상품-ELB", None)):
+            with self.subTest(template=template):
+                command = self.bridge.parser_command(self.root, self.root / "out", template_id=template)
+                self.assertEqual(command[-1] if expected else None, expected)
+                self.assertEqual("--template-id" in command, expected is not None)
+                self.assertEqual(self.bridge.parser_intake(template)["parser_template_id"], expected)
+        # The parser's own choice is accepted when P1 and P3 agree.
+        pair = self.write_parser_pair(self.root / "etf", "input.pdf")
+        for path, key in zip(pair, ("template", "document")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            parent = data if key == "template" else data["document"]
+            parent["template"] = {"template_id": "투자성상품-퇴직연금 일반", "source": "vlm"}
+            path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.bridge.validate_parser_template(*pair, "투자성상품-ETF")
         with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_MISMATCH"):
-            self.bridge.validate_parser_template(p1, p3, "예금성상품-적립식")
+            self.bridge.validate_parser_template(*pair, "예금성상품-적립식")
+        data = json.loads(pair[1].read_text(encoding="utf-8"))
+        data["document"]["template"] = {"template_id": "투자성상품-펀드", "source": "vlm"}
+        pair[1].write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "PARSER_TEMPLATE_MISMATCH"):
+            self.bridge.validate_parser_template(*pair, "투자성상품-ETF")
+        with patch("operational_web_bridge.subprocess.run", return_value=Mock(returncode=0)):
+            self.bridge.execute_parser(self.root, self.root / "out", self.root / "etf.log", template_id="투자성상품-ETF")
+        self.assertIn("PARSER_TEMPLATE_AUTO", (self.root / "etf.log").read_text(encoding="utf-8"))
 
     def test_parser_reuse_accepts_successful_terminal_parents(self):
         self.assertIn("COMPLETED", PARSER_REUSE_PARENT_STATUSES)
@@ -330,7 +387,9 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(Path(command[2]).is_absolute())
         self.assertTrue(Path(command[4]).is_absolute())
         self.assertEqual(command[3], "--input")
-        self.assertEqual(command[5:], ["--run-name", "relative-output", "--compact-output"])
+        self.assertEqual(command[5:], ["--run-name", "relative-output", "--compact-output",
+                                       "--template-id", "대출성상품-상품명 노출"])
+        self.assertNotIn("--template-id", self.bridge.parser_command(Path("s"), Path("o")))
 
     def test_parser_fin_command_and_output_pairing(self):
         parser_root = self.root / "parser-fin"
@@ -339,7 +398,8 @@ class BridgeTests(unittest.TestCase):
         source, output = self.root / "source", self.root / "parser-output"
         command = self.bridge.parser_command(source, output, template_id="예금성상품-입출식")
         self.assertEqual(command[1:3], ["-u", str((parser_root / "run.py").resolve())])
-        self.assertEqual(command[-3:], ["--run-name", "parser-output", "--compact-output"])
+        self.assertEqual(command[-5:], ["--run-name", "parser-output", "--compact-output",
+                                        "--template-id", "예금성상품-입출식"])
         final = output / "final"
         final.mkdir(parents=True)
         (final / "ad_file.png.p1.json").write_text("{}", encoding="utf-8")
@@ -377,7 +437,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['env']['HWP_RENDER_DIR'],str(output/'render'))
         self.assertEqual(run.call_args.kwargs['env']['NH_OUTPUT_ROOT'],str(output.resolve().parent))
         intake = self.bridge.parser_intake('예금성상품-적립식')
-        self.assertEqual(intake['version'],'user-template-labeling-v6')
+        self.assertEqual(intake['version'],'user-template-labeling-v7')
+        self.assertIn('--template-id', run.call_args.args[0])
         self.assertEqual(intake['parser_revision'],'a'*40)
         self.bridge.config['parser_revision']='b'*40
         self.assertNotEqual(intake,self.bridge.parser_intake('예금성상품-적립식'))
@@ -388,7 +449,7 @@ class BridgeTests(unittest.TestCase):
     def test_parser_v10_profile_pins_revision_and_rejects_old_pair(self):
         self.assertEqual(self.bridge.parser_intake('template')['parser_contract_profile'], 'region-v10')
         first, third = self.write_parser_pair(self.root/'v10-pair', 'ad.pdf')
-        self.bridge.validate_parser_template(first, third, 'template')
+        self.bridge.validate_parser_template(first, third, '예금성상품-적립식')
         for old in (('nh-ad-parse-evidence-v4', 'nh-ad-region-review-input-v9'),
                     ('nh-ad-review-evidence-v6', 'nh-ad-review-region-input-v1')):
             with self.subTest(old=old):
@@ -397,7 +458,7 @@ class BridgeTests(unittest.TestCase):
                     data['contract']['version'] = version
                     path.write_text(json.dumps(data), encoding='utf-8')
                 with self.assertRaisesRegex(ValueError, 'PARSER_CONTRACT_MISMATCH'):
-                    self.bridge.validate_parser_template(first, third, 'template')
+                    self.bridge.validate_parser_template(first, third, '예금성상품-적립식')
 
     def test_parser_v10_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
         self.test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified('nh-ad-region-review-input-v10')

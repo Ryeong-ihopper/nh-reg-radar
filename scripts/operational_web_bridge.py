@@ -45,6 +45,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PARSER_ROOT = ROOT / "parser-pipeline"
 PARSER_RUNNER = "nh_parser_fin"
 PARSER_CONTRACT_PROFILE = "region-v10"
+# The app's canonical execution plans name one template differently from the
+# parser catalog, which keeps the source HWPX section title.
+PARSER_TEMPLATE_ALIASES = {"예금성상품-지수연동예금(ELD)": "예금성상품-지수연동예금"}
 sys.path[:0] = [str(ROOT / "rag-pipeline"), str(ROOT / "rag-pipeline/tools")]
 from rag.parsing.prepare_inputs import combine  # noqa: E402
 from rag.parsing.parser_contract_adapter import PARSER_FIN_PROFILES  # noqa: E402
@@ -193,6 +196,20 @@ def parser_runner_layout(config: dict) -> dict[str, str]:
 def parser_fin_output_stem(source: Path) -> str:
     """Mirror nh-parser-fin's stable, filesystem-safe output basename."""
     return "".join(char if char.isalnum() or char in "-_." else "_" for char in source.name)
+
+
+def parser_template_id(template_id: str) -> str:
+    """Translate the user's intake template into the parser catalog's ID."""
+    return PARSER_TEMPLATE_ALIASES.get(template_id, template_id)
+
+
+def parser_catalog_templates(parser_root) -> set[str] | None:
+    """Template IDs the parser accepts, or None when its catalog is unreadable."""
+    try:
+        catalog = read_json(Path(parser_root) / "nh_parser_fin/templates/ad_templates.json")
+    except (OSError, ValueError):
+        return None
+    return set(catalog.get("templates") or {})
 
 
 def with_parser_defaults(config: dict) -> dict:
@@ -389,12 +406,33 @@ class ExecutionBridge:
         services.reviews.request = request
 
     def parser_command(self, source_dir, output, *, template_id=None):
-        """Build the parser-pipeline command; paths come only from private config."""
+        """Build the parser-pipeline command; paths come only from private config.
+
+        The user's template is authoritative: the parser labels every product
+        with it instead of choosing its own.
+        """
         root = Path(self.config["parser_root"]).resolve()
         source_dir = Path(source_dir).resolve()
         output = Path(output).resolve()
-        return [self.config["parser_python"], "-u", str(root / "run.py"),
-                "--input", str(source_dir), "--run-name", output.name, "--compact-output"]
+        command = [self.config["parser_python"], "-u", str(root / "run.py"),
+                   "--input", str(source_dir), "--run-name", output.name, "--compact-output"]
+        parser_template = self.parser_template_for(template_id)
+        if parser_template:
+            command.extend(["--template-id", parser_template])
+        return command
+
+    def parser_template_for(self, template_id):
+        """Parser catalog ID for the user's template, or None to let the parser choose.
+
+        Some app templates (투자성상품-ETF·ELB) have execution plans but no parser
+        catalog entry. Those fall back to the parser's own selection; judgment
+        still uses the user's template through the routing override.
+        """
+        if not template_id:
+            return None
+        mapped = parser_template_id(template_id)
+        known = parser_catalog_templates(self.config["parser_root"])
+        return mapped if known is None or mapped in known else None
 
     def parser_outputs(self, output):
         directory = Path(output) / self.parser_layout_config["p1_dir"]
@@ -460,6 +498,9 @@ class ExecutionBridge:
         with Path(log_path).open("w", encoding="utf-8") as log:
             try:
                 command = self.parser_command(source_dir, output, template_id=template_id)
+                if template_id and self.parser_template_for(template_id) is None:
+                    log.write(f"PARSER_TEMPLATE_AUTO: {template_id}은 파서 카탈로그에 없어 파서가 템플릿을 자동 선택합니다\n")
+                    log.flush()
                 return subprocess.run(
                     command,
                     cwd=Path(self.config["parser_cwd"]).resolve(), env=env,
@@ -1392,7 +1433,12 @@ class ExecutionBridge:
         revision = self.config.get("parser_revision")
         if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
             raise ValueError(f"PARSER_REVISION_REQUIRED: {profile} requires a pinned upstream commit")
-        return {"version": "user-template-labeling-v6", "template_id": template_id,
+        # v7: the parser receives the user's template (--template-id). Earlier
+        # intakes recorded parser-chosen templates and must never be reused.
+        # parser_template_id is None when the parser catalog has no such template
+        # and the parser chose its own.
+        return {"version": "user-template-labeling-v7", "template_id": template_id,
+                "parser_template_id": self.parser_template_for(template_id),
                 "parser_contract_profile": profile, "parser_revision": revision}
 
     def validate_parser_template(self, p1_path, p3_path, template_id):
@@ -1400,14 +1446,16 @@ class ExecutionBridge:
         p1, p3 = read_json(p1_path), read_json(p3_path)
         if ((p1.get("contract") or {}).get("version"), (p3.get("contract") or {}).get("version")) != PARSER_FIN_PROFILES[profile]:
             raise ValueError(f"PARSER_CONTRACT_MISMATCH: {profile} requires {PARSER_FIN_PROFILES[profile]}")
-        p1_template = p1.get("template") or {}
-        p3_template = (p3.get("document") or {}).get("template") or {}
-        if p1_template != p3_template:
-            raise ValueError("PARSER_TEMPLATE_MISMATCH: nh-parser-fin P1/P3 observations differ")
-        # nh-parser-fin currently infers its own template and has no CLI
-        # option for the user's selection.  The saved intake value remains
-        # authoritative downstream; inferred semantic labels are not
-        # promoted to exact evidence by the contract adapter.
+        templates = (p1.get("template") or {}, (p3.get("document") or {}).get("template") or {})
+        expected = self.parser_template_for(template_id)
+        if expected is None:
+            # Parser-chosen template: labels stay retrieval hints only.
+            if templates[0] != templates[1]:
+                raise ValueError("PARSER_TEMPLATE_MISMATCH: nh-parser-fin P1/P3 observations differ")
+            return
+        for template in templates:
+            if template.get("template_id") != expected or template.get("source") != "user_provided":
+                raise ValueError("PARSER_TEMPLATE_MISMATCH: 파서 템플릿이 사용자 선택값과 다릅니다")
 
     def reuse_parent_parser_output(self, ad, directory, source_by_file, parent_review_id, *, template_id=None):
         """Reuse a terminal parent's complete parser boundary after strict validation.

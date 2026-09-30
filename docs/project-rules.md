@@ -2,7 +2,7 @@
 
 ## 파서 파이프라인 편입 브랜치 — 2026-09-30
 
-사용자 요청에 따라 `integration`에서 분기한 `feat/parser-pipeline-merge`에 nh-parser-fin main(`15f730d`, Python 3.11)을 `parser-pipeline/`으로 `git subtree --squash` 편입한다. 파서 개발 정본은 nh-parser-fin 저장소이며 이후 변경은 `git subtree pull --prefix=parser-pipeline --squash`로 반영한다. 편입 중 파서 수정이 필요하면 원본 저장소에 같은 수정을 반영한다. `parser-pipeline/`은 자체 pyproject·uv.lock·가상환경(`pypdfium2==5.12.0`)으로 검사하며 루트 ruff·pytest 대상에서 제외한다.
+사용자 요청에 따라 `integration`에서 분기한 `feat/parser-pipeline-merge`에 nh-parser-fin main(`15f730d`, Python 3.11)을 `parser-pipeline/`으로 `git subtree --squash` 편입하고, 사용자 템플릿 `--template-id`를 반영한 main `4968fa5`로 갱신한다. 파서 개발 정본은 nh-parser-fin 저장소이며 이후 변경은 `git subtree pull --prefix=parser-pipeline --squash`로 반영한다. 편입 중 파서 수정이 필요하면 원본 저장소에 같은 수정을 반영한다. `parser-pipeline/`은 자체 pyproject·uv.lock·가상환경(`pypdfium2==5.12.0`)으로 검사하며 루트 ruff·pytest 대상에서 제외한다.
 
 운영 연결은 `nh_parser_fin`·`region-v10` 한 가지만 실행한다. 이전 임시 실행 방식(`nh_parsing_test_batch`, `nh_ad_parser_cli`, region-v6 HWP 전용 경로, 외부 파서 패치 전달본)은 제거하고 이전 계약 저장 결과의 읽기만 유지한다. 회사 원본 parser-services·parser-contracts는 이번 범위에서 변경하지 않는다. 운영 이미지 반영과 ADR 정리는 후속 결정으로 남기며, 검증 후 PR로 개인 저장소 `integration`에 병합한다.
 
