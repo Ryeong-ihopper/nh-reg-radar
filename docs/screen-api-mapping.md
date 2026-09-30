@@ -1,8 +1,20 @@
 # 화면-API 매핑표
 
+## IRP 펀드 노출 복수 운용상품 입력 — 2026-09-30
+
+IRP 펀드상품 노출을 고르면 기존 분류 코드를 routing과 intake의 `product_classification_code`에 유지하고, 추가로 고른 ETF·ELB만 `underlying_products[]`에 보낸다. 펀드는 분류에 이미 포함돼 `FUND` 코드를 중복 전송하지 않는다. 추가 상품이 없다고 확정하면 빈 배열과 `CONFIRMED`, 기타 운용상품이 불명확하면 빈 배열과 `UNCONFIRMED`를 보낸다. 미노출 IRP의 상품 배열은 비운다. 기존 API 필드와 DB 구조를 사용한다.
+
+## IRP 전용 분류의 화면 연결 — 2026-09-30
+
+`GET /operational/capabilities`에서 받은 IRP 미노출·펀드 노출 분류는 일반 심의방법과 다른 화면 묶음에 표시한다. 선택하면 기존과 같이 해당 IRP 분류 코드를 `PUT routing`과 `PUT intake.products[].product_classification_code`에 그대로 보낸다. 일반 퇴직연금 공통 분류의 `underlying_products[]` 복수 체크로 자동 치환하지 않는다. 선택지 아래 설명 문구는 API 입력값이 아니다.
+
+## 광고 매체·운용상품 선택 연결 — 2026-09-30
+
+등록 화면의 매체 선택은 `GET /codes/advertisement-types`의 활성 코드에서 가져온다. 기존 코드와 신규 `LMS`·`MMS`·`SEARCH_AD`·`POPUP`을 묶어 표시하되 등록 `POST /advertisements`의 `advertisementType`과 운영 `PUT /operational/advertisements/{id}/intake`의 `media_codes[]`에 동일한 코드를 전달한다. 퇴직연금 상세 상품군은 일반 공통 분류만 고르고 `GET /operational/capabilities`의 연결된 펀드·ETF·ELB를 체크한다. 기존 routing에는 공통 분류, intake에는 `FUND`·`ETF`·`ELB` 복수 배열과 확정 상태를 전송한다. 정기예금 등 기타는 빈 배열과 `UNCONFIRMED`로 남겨 사람 확인 대상에 둔다.
+
 ## 운용상품 선택 표시 정리 — 2026-09-29
 
-등록 화면의 상세 상품군 직접 선택과 아래 복수 체크는 같은 운용상품 상태를 표시한다. 추가 선택만으로 한 광고의 복수 상품을 구성한다. CSS 선택칸 표시와 안내를 정리하며 기존 capabilities·routing·intake 연결을 사용한다. 비보호 안내문구/로고 판단은 등록 안내문에서 새로 결정하지 않는다.
+등록 화면의 이전 상세 상품군 직접 선택과 아래 복수 체크는 같은 운용상품 상태를 표시했다. 현재는 상세 상품군에서 퇴직연금 일반만 선택하고 아래 체크로 복수 운용상품을 구성한다. CSS 선택칸 표시와 기존 capabilities·routing·intake 연결을 사용한다. 비보호 안내문구/로고 판단은 등록 안내문에서 새로 결정하지 않는다.
 
 ## 추출 상태의 진행·결과 연결 — 2026-09-29
 
@@ -35,7 +47,7 @@
 
 사이트 `/review-criteria`에239+32+34 작업대장을 연결했다. 보완32·추가34는 의미·범위·판본·예외·입력 확인이 필요한 구조화 작업 대상이며 자동 판정에 일괄 활성화하지 않는다. 추가34는 잔여19·공유3·시각7·정책1·범위 보류2·판본 보류2다. 기존 상태·결과와 P1/P3·정답 격리를 유지한다.
 
-등록 화면 → PUT routing → PUT intake(운용상품 선택 포함) → POST review 순서를 유지한다. 퇴직연금 펀드·ETF·ELB 직접 선택지의 화면 값은 API 상품코드로 보내지 않고 `product_classification_code`를 퇴직연금 일반, `underlying_products`를 선택한 운용상품 코드로 전달한다. 다른 상세 상품군으로 변경하면 운용상품 선택을 비운다. 구조화 작업대장 `/review-criteria` → GET `/operational/review-worklist`, 등록 선택지 → GET `/operational/capabilities`다. 작업대장은 판정 요청에 전송하지 않는다.
+등록 화면 → PUT routing → PUT intake(운용상품 선택 포함) → POST review 순서를 유지한다. `product_classification_code`는 퇴직연금 일반, `underlying_products`는 체크한 운용상품 코드로 전달한다. 다른 상세 상품군으로 변경하면 운용상품 선택을 비운다. 구조화 작업대장 `/review-criteria` → GET `/operational/review-worklist`, 등록 선택지 → GET `/operational/capabilities`다. 작업대장은 판정 요청에 전송하지 않는다.
 
 ## 광고 단위 삭제 연결 — 2026-09-23
 
@@ -111,8 +123,8 @@ S-003 운영 등록에서 `광고 형식·매체`로 표시하는 기존 `advert
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.95 |
-| 기준일 | 2026-09-29 |
+| 현행 버전 | v1.98 |
+| 기준일 | 2026-09-30 |
 
 ## 현행 시인성·판독 불확실성 처리 범위
 
@@ -128,6 +140,9 @@ operational workspace 결과 행은 활성 판정 근거를 `evidence_locations`
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.98 | 2026-09-30 | IRP 펀드 기본 분류에 ETF·ELB 추가 코드만 전송 |
+| v1.97 | 2026-09-30 | IRP 전용 화면 묶음과 기존 라우팅·입력 코드 보존 |
+| v1.96 | 2026-09-30 | 매체 공통코드·등록·운영 입력 연결과 퇴직연금 공통/복수 체크 계약 정리 |
 | v1.95 | 2026-09-29 | 운용상품 선택 표시 정리 |
 | v1.94 | 2026-09-29 | 추출 상태의 진행·결과 연결 |
 | v1.93 | 2026-09-29 | 운영 사이드바·결과 표/선택 상세·추천 초안·TEMPLATE 근거 검색의 기존 읽기 API 연결 |

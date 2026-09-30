@@ -1904,12 +1904,16 @@ components:
         - WEB_PRODUCT_PAGE
         - EVENT_PAGE
         - SOCIAL_MEDIA
+        - SEARCH_AD
+        - POPUP
         - VIDEO
         - EMAIL
         - OUTDOOR
         - PRINT_AD
         - PUSH
         - SMS
+        - LMS
+        - MMS
         - ALIMTALK
         - OTHER
       type: string

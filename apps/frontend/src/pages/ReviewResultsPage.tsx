@@ -20,7 +20,7 @@ import { WorkflowSteps } from "../components/WorkflowSteps";
 import { OperationalExecutionNotice } from "../components/OperationalExecutionNotice";
 import { operationalMode, operationalRequest, type ParserLayout } from "../api/operational";
 import { advertisementTypeLabel, annotationStatusLabel, productGroupLabel, reviewTypeLabel } from "../components/displayLabels";
-import { OperationalResultsPage } from "./OperationalResultsPage";
+import { OperationalResultsPage } from "./OperationalReviewReportPage";
 
 const RISK_LABELS = {
   HIGH: "높음",

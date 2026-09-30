@@ -117,6 +117,8 @@ ADR은 다음 원칙으로 관리한다.
 
 | [ADR-0088](ADR-0088-hwp-html-review-display.md) | Accepted | HWP HTML 검토 본문 직접 표시 | 후보051·Q81 사용자 사이트 적용 요청 |
 
+| [ADR-0089](ADR-0089-irp-fund-component-composition.md) | Accepted | IRP 펀드 광고의 ETF·ELB 복수 노출 | 후보052·Q82 사용자 추가 요청 |
+
 ## 결정 대기 질문지
 
 | 문서 | 용도 |

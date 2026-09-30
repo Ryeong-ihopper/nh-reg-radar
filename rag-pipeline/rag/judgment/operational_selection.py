@@ -9,7 +9,7 @@ from typing import Any, Iterable
 CONFIRMED = {"provided", "confirmed", "verified"}
 ELECTRONIC = {"PUSH", "SMS", "MMS", "LMS", "ALIMTALK", "EMAIL"}
 ONLINE = {"WEB", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "MOBILE_WEB", "MOBILE_APP",
-          "WEB_BANNER", "MOBILE_BANNER", "POPUP", "SEARCH_AD", "SNS"}
+          "WEB_BANNER", "MOBILE_BANNER", "POPUP", "SEARCH_AD", "SNS", "SOCIAL_MEDIA"}
 BANNER_POPUP = {"WEB_BANNER", "MOBILE_BANNER", "POPUP"}
 
 

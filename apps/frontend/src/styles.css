@@ -959,6 +959,8 @@ progress {
   --primary: #166a4b;
   --primary-strong: #0e5139;
   --primary-soft: #eaf6f0;
+  --primary-ink: #fff;
+  --primary-soft-ink: var(--ink);
   --danger: #c83b4b;
   --warning: #a55d00;
   --focus: #2864dc;
@@ -1029,8 +1031,8 @@ main section h3 { margin-top: 1.6rem; font-size: 1rem; letter-spacing: -0.02em; 
 .page-heading { align-items: flex-end; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
 .page-heading h2 { margin: 0; }
 
-button, .button-link { min-height: 2.55rem; border-color: var(--primary); border-radius: 0.58rem; color: #fff; background: var(--primary); box-shadow: 0 1px 1px rgb(16 63 50 / 12%); font-size: 0.88rem; font-weight: 750; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
-button:hover:not(:disabled), .button-link:hover, .button-secondary:hover:not(:disabled), .text-highlight-view button:hover:not(:disabled) { border-color: var(--primary-strong); color: #fff; background: var(--primary-strong); box-shadow: 0 5px 12px rgb(16 63 50 / 14%); transform: translateY(-1px); }
+button, .button-link { min-height: 2.55rem; border-color: var(--primary); border-radius: 0.58rem; color: var(--primary-ink); background: var(--primary); box-shadow: 0 1px 1px rgb(16 63 50 / 12%); font-size: 0.88rem; font-weight: 750; transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+button:hover:not(:disabled), .button-link:hover, .button-secondary:hover:not(:disabled), .text-highlight-view button:hover:not(:disabled) { border-color: var(--primary-strong); color: var(--primary-ink); background: var(--primary-strong); box-shadow: 0 5px 12px rgb(16 63 50 / 14%); transform: translateY(-1px); }
 .button-secondary { border-color: #d5dbe6; color: #445065; background: #fff; box-shadow: none; }
 .button-danger { border-color: var(--danger); background: var(--danger); }
 button:disabled { opacity: 0.5; }
@@ -1084,7 +1086,7 @@ tbody tr:hover { background: #f8fafc; }
 .review-steps li[data-status="FAILED"] { border-color: #f2c6cd; background: #fff6f7; }
 .result-layout, .annotation-layout { gap: 1.25rem; }
 .result-detail { background: var(--surface-subtle); }
-.result-list li[data-selected="true"], .annotation-list-button[aria-pressed="true"], .text-highlight-view button[aria-pressed="true"] { border-color: #9fd4bb; background: #f4fbf7; }
+.result-list li[data-selected="true"], .annotation-list-button[aria-pressed="true"], .text-highlight-view button[aria-pressed="true"] { border-color: #9fd4bb; color: var(--primary-soft-ink); background: #f4fbf7; }
 button.result-item-button { min-height: 0; border: 0; color: inherit; background: transparent; box-shadow: none; transform: none; }
 button.result-item-button:hover:not(:disabled), .result-list li[data-selected="true"] button.result-item-button { border: 0; color: inherit; background: transparent; box-shadow: none; transform: none; }
 button.annotation-box:hover:not(:disabled), button.annotation-box:focus-visible { border-color: #b42318; background: rgb(244 67 54 / 16%); box-shadow: none; transform: none; }
@@ -1753,7 +1755,7 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .criteria-workbench { display: grid; grid-template-columns: minmax(240px, 32%) minmax(0, 1fr); gap: 1rem; }
 .criteria-workbench nav { max-height: 75vh; overflow-y: auto; }
 .criteria-workbench nav button { display: grid; gap: .35rem; width: 100%; text-align: left; margin-bottom: .4rem; padding: .8rem; border: 1px solid #d8e6dd; border-radius: 8px; background: #fff; color: #172019; cursor: pointer; }
-.criteria-workbench nav button[aria-pressed="true"] { border-color: #145a41; background: #eaf4ee; }
+.criteria-workbench nav button:is(:hover, :focus-visible, [aria-pressed="true"]) { border-color: var(--primary); color: var(--primary-soft-ink); background: var(--primary-soft); box-shadow: none; transform: none; }
 .criteria-workbench nav button span, .criteria-workbench nav button small { font-size: .8rem; }
 .criteria-detail { padding: 1.2rem; border: 1px solid #d8e6dd; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
 .criteria-detail dl > div { margin: 1rem 0; }
@@ -1788,8 +1790,8 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .review-stat-cards button[data-verdict="판단불가"] strong { color:#846200; }
 .review-stat-cards button[data-verdict="충족"] strong { color:#1b6549; }
 .review-stat-cards button[data-verdict="미해당"] strong { color:#66768a; }
-.review-stat-cards button[aria-pressed="true"] { border-color:var(--primary); background:#f2f8f4; box-shadow:0 0 0 1px var(--primary); }
-.review-stat-cards button:hover:not(:disabled) { background:#f7faf8; color:inherit; transform:none; }
+.review-stat-cards button[aria-pressed="true"] { border-color:var(--primary); color:var(--primary-soft-ink); background:#f2f8f4; box-shadow:0 0 0 1px var(--primary); }
+.review-stat-cards button:hover:not(:disabled) { background:#f7faf8; color:var(--primary-soft-ink); transform:none; }
 .review-report-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.7rem; margin-bottom:1rem; font-size:.85rem; }
 .review-view-switch { display:flex; padding:.25rem; gap:.2rem; border:1px solid #dce5df; border-radius:8px; background:#fff; }
 .review-view-switch button { border:0; background:transparent; color:#697b70; padding:.4rem .8rem; font-size:.85rem; }
@@ -1866,8 +1868,8 @@ main > section { border-radius: 0.65rem; box-shadow: none; }
 .legal-reference-list h3, .review-hub-ads h3 { margin:0; font-size:.95rem; }
 .legal-reference-list nav, .review-hub-ads nav { padding:.6rem; max-height:65vh; overflow:auto; }
 .legal-reference-list nav button, .review-hub-ads nav button { display:grid; gap:.35rem; width:100%; padding:1rem; border:1px solid transparent; border-radius:7px; color:#3b5344; background:#fff; text-align:left; box-shadow:none; }
-.legal-reference-list nav button:hover, .review-hub-ads nav button:hover { background:#f6faf7; transform:none; }
-.legal-reference-list nav button[aria-pressed="true"], .review-hub-ads nav button[aria-pressed="true"] { border-color:#cadfd2; background:#eff7f2; }
+.legal-reference-list nav button:is(:hover, :focus-visible, [aria-pressed="true"]), .review-hub-ads nav button:is(:hover, :focus-visible, [aria-pressed="true"]) { border-color:#cadfd2; color:var(--primary-soft-ink); background:var(--primary-soft); box-shadow:none; transform:none; }
+.legal-reference-list nav button:is(:hover, :focus-visible, [aria-pressed="true"]) span, .review-hub-ads nav button:is(:hover, :focus-visible, [aria-pressed="true"]) span { color:inherit; }
 .legal-reference-list nav strong, .review-hub-ads nav strong { font-size:.83rem; font-weight:650; line-height:1.7; overflow-wrap:anywhere; }
 .legal-reference-list nav span, .review-hub-ads nav span { color:#7b8d81; font-size:.73rem; font-weight:400; }
 .legal-reference-detail, .review-hub-history { padding:1.4rem; }

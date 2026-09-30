@@ -19,6 +19,8 @@ from run_gemma_exhaustive_dgx import _compact_model_request, _expand_model_respo
 
 
 BASE = '투자성상품-퇴직연금 일반'
+IRP_FUND = '투자성상품-퇴직연금(IRP) 펀드상품 노출'
+IRP_NO_INVESTMENT = '투자성상품-퇴직연금(IRP) 금융투자상품 미노출'
 def field(value, status='provided'):
     return {'value': value, 'status': status, 'source': 'synthetic_intake'}
 
@@ -243,6 +245,30 @@ class ProductContextReviewTests(unittest.TestCase):
         for status, complete in [('UNCONFIRMED', False), ('CONFIRMED', True)]:
             self.assertEqual(([BASE], 'RETIREMENT', complete), resolve_product_templates({
                 'product_classification_code': BASE, 'underlying_products_status': status}))
+
+    def test_irp_fund_composes_etf_and_elb_without_duplicate_fund_template(self):
+        for codes in ([], ['ETF'], ['ELB'], ['ETF', 'ELB']):
+            with self.subTest(codes=codes):
+                selected, context, complete = resolve_product_templates({
+                    'product_classification_code': IRP_FUND,
+                    'underlying_products': codes,
+                    'underlying_products_status': 'CONFIRMED',
+                })
+                self.assertEqual([IRP_FUND, *('투자성상품-' + code for code in codes)], selected)
+                self.assertEqual('RETIREMENT', context)
+                self.assertTrue(complete)
+                self.assertNotIn('투자성상품-펀드', selected)
+                self.assertEqual(selected, confirmed_templates({
+                    'template_id': field(IRP_FUND), 'selected_templates': field(selected),
+                }))
+        with self.assertRaises(ValueError):
+            resolve_product_templates({'product_classification_code': IRP_FUND,
+                                       'underlying_products': ['FUND'],
+                                       'underlying_products_status': 'CONFIRMED'})
+        with self.assertRaises(ValueError):
+            resolve_product_templates({'product_classification_code': IRP_NO_INVESTMENT,
+                                       'underlying_products': ['ETF'],
+                                       'underlying_products_status': 'CONFIRMED'})
 
     def test_arbitrary_unions_and_standalone_method_reuse_fail_closed(self):
         with self.assertRaises(ValueError):

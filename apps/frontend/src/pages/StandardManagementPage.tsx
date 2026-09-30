@@ -25,7 +25,7 @@ const RULE_TYPES: RuleType[] = ["REQUIRED", "PROHIBITED", "RECOMMENDED", "REFERE
 const PRODUCT_GROUPS: ProductGroup[] = [
   "DEPOSIT", "SAVINGS", "DEMAND_DEPOSIT", "EVENT", "LOAN", "INVESTMENT",
 ];
-const ADVERTISEMENT_TYPES: AdvertisementType[] = ["BRANCH_FLYER", "NOTICE", "MOBILE_BANNER", "WEB_BANNER", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "SOCIAL_MEDIA", "VIDEO", "EMAIL", "OUTDOOR", "PRINT_AD", "PUSH", "SMS", "ALIMTALK", "OTHER"];
+const ADVERTISEMENT_TYPES: AdvertisementType[] = ["BRANCH_FLYER", "NOTICE", "MOBILE_BANNER", "WEB_BANNER", "WEB_PRODUCT_PAGE", "EVENT_PAGE", "SOCIAL_MEDIA", "SEARCH_AD", "POPUP", "VIDEO", "EMAIL", "OUTDOOR", "PRINT_AD", "PUSH", "SMS", "LMS", "MMS", "ALIMTALK", "OTHER"];
 
 type Panel = "create" | "detail" | "edit" | "deactivate" | "history" | "chunks" | "reindex" | null;
 

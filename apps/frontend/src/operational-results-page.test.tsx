@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { OperationalResultsPage } from "./pages/OperationalResultsPage";
+import { OperationalResultsPage } from "./pages/OperationalReviewReportPage";
 
 vi.mock("./auth/useAuth", () => ({ useAuth: () => ({ session: {
   accessToken: "test",
