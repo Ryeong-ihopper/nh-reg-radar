@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { legalBasisEntries, legalBasisLines, evidenceBoxes, resultChunkBoxes, resultEvidenceBoxes, resultCounts, missingSourceLabel, type ResultRow } from "./components/operationalResultModel";
+import { legalBasisEntries, legalBasisLines, evidenceBoxes, resultChunkBoxes, resultEvidenceBoxes, resultHighlightBoxes, resultCounts, missingSourceLabel, type ResultRow } from "./components/operationalResultModel";
 import type { ParserLayout } from "./api/operational";
 
 const layout: ParserLayout = {schema_version: "operational-parser-layout-v1", source: "test", coordinate_basis: "rendered_original_200dpi",
@@ -85,6 +85,23 @@ describe("single operational result", () => {
     expect(resultEvidenceBoxes(row, layout)).toEqual([]);
     const region = {key:"R",pageNo:2,bbox:[0,0,100,100],width:100,height:200,precision:"REGION" as const};
     expect(resultEvidenceBoxes({...row,evidence_locations:[region]}, layout)).toEqual([region]);
+  });
+  it("highlights the parser region containing each cited line once, instead of the line", () => {
+    const line = {key:"new-ref",pageNo:1,bbox:[10,20,90,30],width:100,height:200,precision:"LINE" as const,asset_id:"FILE-1",source_page_no:1};
+    const region = {key:"region:1:R",pageNo:1,bbox:[0,0,100,100],width:100,height:200,precision:"REGION",asset_id:"FILE-1",source_page_no:1};
+    expect(resultHighlightBoxes([line, {...line}], layout)).toEqual([region]);
+    expect(resultHighlightBoxes([], layout)).toEqual([]);
+  });
+  it("keeps a location's own box when no parser region contains it", () => {
+    const line = {key:"new-ref",pageNo:1,bbox:[10,20,90,30],width:100,height:200,precision:"LINE" as const};
+    const other = {...line,key:"other-ref"};
+    expect(resultHighlightBoxes([other], layout)).toEqual([other]);
+    expect(resultHighlightBoxes([{...line,width:50}], layout)).toEqual([{...line,width:50}]);
+    const saved = {...line,key:"region:2:S",pageNo:2,precision:"REGION" as const};
+    expect(resultHighlightBoxes([saved], layout)).toEqual([saved]);
+    expect(resultHighlightBoxes([line], undefined)).toEqual([line]);
+    const unassigned: ParserLayout = {...layout, pages:[{...layout.pages[0], regions:[{...layout.pages[0].regions[0], region_id:"unassigned:new-ref"}]}]};
+    expect(resultHighlightBoxes([line], unassigned)).toEqual([line]);
   });
   it("shows an uncertain region as a review target without calling it judgment evidence", () => {
     const review = {key:"review",pageNo:1,bbox:[1,2,3,4],width:100,height:200,precision:"LINE" as const};
