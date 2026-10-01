@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { getOperationalHwpHtml, getOperationalParserPreview, operationalRequest, type ParserLayout } from "../api/operational";
 import { hwpHtmlPreview } from "./hwpHtmlPreview";
-import { missingSourceLabel, resultChunkBoxes, resultEvidenceBoxes, type ResultRow } from "./operationalResultModel";
+import { missingSourceLabel, resultChunkBoxes, resultEvidenceBoxes, resultHighlightBoxes, type ResultRow } from "./operationalResultModel";
 import { ErrorState, LoadingState } from "./RequestState";
 
 export function OperationalOriginalPanel({ reviewId, token, row, locateRequest = 0 }: {reviewId: string; token: string; row?: ResultRow; locateRequest?: number}) {
@@ -30,7 +30,7 @@ export function OperationalOriginalPanel({ reviewId, token, row, locateRequest =
   const showHwpHtml=isHwp && hwpView==="HTML";
   const hwpHtml=useQuery({queryKey:["result-hwp-html",reviewId,original?.fileId],queryFn:()=>getOperationalHwpHtml(token,reviewId,original!.fileId),enabled:Boolean(original)&&showHwpHtml,retry:false});
   const preview=useQuery({queryKey:["result-preview",reviewId,original?.fileId,sourcePageNo,layoutPage?.preview_path],queryFn:()=>layoutPage?.preview_path ? getOperationalParserPreview(token,layoutPage.preview_path) : api.getFilePreviewAsset(token,original!.fileId,sourcePageNo),enabled:Boolean(original)&&!layout.isPending&&!showHwpHtml});
-  const currentBoxes=useMemo(()=>row ? resultEvidenceBoxes(row,layout.data):[],[row,layout.data]);
+  const currentBoxes=useMemo(()=>row ? resultHighlightBoxes(resultEvidenceBoxes(row,layout.data),layout.data):[],[row,layout.data]);
   const currentChunks=useMemo(()=>row ? resultChunkBoxes(row):[],[row]);
   const selectedId=row?.row_id ?? row?.item_id;
   const htmlPreview=useMemo(()=>hwpHtml.data ? hwpHtmlPreview(hwpHtml.data,(row?.evidence ?? "").split(/\r?\n/).map(t=>t.trim()).filter(Boolean),zoom):null,[hwpHtml.data,row,zoom]);
@@ -89,7 +89,7 @@ export function OperationalOriginalPanel({ reviewId, token, row, locateRequest =
           {showHwpHtml && htmlPreview ? <iframe title="HWP HTML 원문" sandbox="" srcDoc={htmlPreview.html} className="hwp-html-preview" /> : null}
           {!showHwpHtml && previewUrl && !preview.isPending ? <div className="single-advertisement-canvas" style={{width:zoom && naturalWidth ? `${naturalWidth * zoom}px` : "100%"}}><img src={previewUrl} alt="심의 광고 원본" onLoad={event => setNaturalWidth(event.currentTarget.naturalWidth)} />
             {showSearchAreas && currentChunks.filter((box) => box.pageNo === pageNo).map((box) => <span data-testid="active-evidence-chunk" key={box.key} className="review-evidence-chunk" title="모델에 제공된 검색 청크 범위" style={{ left: `${box.bbox[0] / box.width * 100}%`, top: `${box.bbox[1] / box.height * 100}%`, width: `${(box.bbox[2] - box.bbox[0]) / box.width * 100}%`, height: `${(box.bbox[3] - box.bbox[1]) / box.height * 100}%` }} />)}
-            {currentBoxes.filter((box) => box.pageNo === pageNo).map((box) => <span data-testid="active-evidence-box" key={box.key} className="review-evidence-highlight" style={{ left: `${box.bbox[0] / box.width * 100}%`, top: `${box.bbox[1] / box.height * 100}%`, width: `${(box.bbox[2] - box.bbox[0]) / box.width * 100}%`, height: `${(box.bbox[3] - box.bbox[1]) / box.height * 100}%` }} />)}
+            {currentBoxes.filter((box) => box.pageNo === pageNo).map((box) => <span data-testid="active-evidence-box" data-precision={box.precision} key={box.key} className="review-evidence-highlight" title={box.precision === "REGION" ? "판정 근거가 있는 파서 영역" : "판정 근거 위치"} style={{ left: `${box.bbox[0] / box.width * 100}%`, top: `${box.bbox[1] / box.height * 100}%`, width: `${(box.bbox[2] - box.bbox[0]) / box.width * 100}%`, height: `${(box.bbox[3] - box.bbox[1]) / box.height * 100}%` }} />)}
           </div> : null}
         </div>
       </aside>;

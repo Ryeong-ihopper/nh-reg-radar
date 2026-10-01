@@ -81,6 +81,25 @@ export function resultEvidenceBoxes(row: ResultRow, layout?: ParserLayout): Evid
   return evidenceBoxes(row.evidence, layout);
 }
 
+/** Show where a judgment is: the parser region containing each cited line, once per region.
+ * A location with no containing parser region keeps its own box so the row never loses its position. */
+export function resultHighlightBoxes(boxes: EvidenceBox[], layout?: ParserLayout): EvidenceBox[] {
+  const highlights = new Map<string, EvidenceBox>();
+  for (const box of boxes) {
+    const page = layout?.pages.find(item => item.page_no === box.pageNo);
+    // Unassigned OCR lines are their own display region, so they keep the line box.
+    const region = box.precision !== "REGION" && page && page.canvas_w === box.width && page.canvas_h === box.height
+      ? page.regions.find(item => !item.region_id?.startsWith("unassigned:")
+        && item.lines.some(line => line.line_ref === box.key))
+      : undefined;
+    const highlight = region && page ? {key: `region:${page.page_no}:${region.region_id}`, pageNo: page.page_no,
+      bbox: region.bbox, width: page.canvas_w, height: page.canvas_h, precision: "REGION" as const,
+      asset_id: box.asset_id, source_page_no: box.source_page_no} : box;
+    if (!highlights.has(highlight.key)) highlights.set(highlight.key, highlight);
+  }
+  return [...highlights.values()];
+}
+
 export function missingSourceLabel(row: ResultRow): string {
   if (row.manual_review_reasons?.length && !row.evidence.trim()) return "사람 검토 항목 · 원문 직접 확인 필요";
   if (row.model_assessment?.status === "WITHHELD_BY_GROUNDING_GUARD")
