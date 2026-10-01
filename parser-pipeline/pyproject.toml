@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nh-parser-fin"
+version = "1.0.0"
+description = "NH 광고물 파싱 파이프라인 — 입력(PDF/이미지/HWP) → 영역·구분값·최종 텍스트 JSON"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    # **정확한 버전으로 못박는다.** pdfium 은 마이너 버전 사이에서도 같은 PDF 를 다른
+    # 픽셀로 래스터화하고, 그러면 OCR 이 다르게 읽는다. 실측(2026-08-24): 5.12.0 과
+    # 5.13.0 이 같은 페이지를 같은 dpi 로 렌더했는데 픽셀 해시가 달랐고 파싱 결과가
+    # 69줄 중 글자 3건·좌표 13건 갈렸다. 개발·시연·납품이 같은 결과를 내야 한다.
+    "pypdfium2==5.12.0",
+    "pillow>=10.0",
+    "requests>=2.32",
+]
+
+# HWP/HWPX HTML 렌더에는 사내 `document-processor` 설치가 필요하다. 사설 저장소라
+# 공용 필수 의존성에 넣지 않는다. HTML 렌더와 구조 파싱은 지연 import하며, 렌더는
+# LibreOffice로 폴백할 수 있다. PDF·이미지 경로에는 이 패키지가 필요 없다.
+# document-processor는 `requires-python >=3.13`으로 선언돼 있지만 3.11에서 결과가 같음을
+# 확인했다(2026-09-30). 설치할 때 버전 검사만 건너뛴다 — 명령은 docs/HWP_INPUT.md.
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["nh_parser_fin"]

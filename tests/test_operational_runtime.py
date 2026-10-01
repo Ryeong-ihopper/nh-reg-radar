@@ -71,7 +71,7 @@ class OperationalRuntimeTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
             required = {"rag-pipeline/tools/build_silver_requests.py",
                         "rag-pipeline/tools/recover_operational_judgments.py",
-                        "scripts/parse_hwp_native.py", "scripts/render_hwp_review_html.py"}
+                        "scripts/render_hwp_review_html.py"}
             self.assertTrue(required.issubset(actual))
             for name in ("rag-pipeline/tools/ingest_template_hwpx.py",
                          "rag-pipeline/tools/compile_current_execution_plans.py",
@@ -92,8 +92,7 @@ class OperationalRuntimeTests(unittest.TestCase):
 root = pathlib.Path.cwd()
 for name in ("scripts/serve-operational-review.py", "rag-pipeline/tools/serve_operational_api.py",
              "rag-pipeline/tools/run_operational_e2e.py", "rag-pipeline/tools/run_gemma_exhaustive_dgx.py",
-             "rag-pipeline/tools/recover_operational_judgments.py", "scripts/parse_hwp_native.py",
-             "scripts/render_hwp_review_html.py"):
+             "rag-pipeline/tools/recover_operational_judgments.py", "scripts/render_hwp_review_html.py"):
     spec = importlib.util.spec_from_file_location(pathlib.Path(name).stem.replace("-", "_"), root / name)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

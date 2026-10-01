@@ -79,15 +79,16 @@ PDF는 200 DPI로 렌더링하고 입력의 실제 line_ref 좌표로 위치를 
 빌드 및 production PostgreSQL/Redis worker에는 영향을 주지 않습니다.
 
 설정 파일 필수 항목은 `regulation_path`, `es_url`, `es_index`, `model`,
-`parser_root`, `parser_cwd`, `parser_python`입니다. 선택 항목은 `dgx_host`,
-`dgx_key`, `parser_env`이며 실제 주소·경로·인증은 비공개 설정으로만 주입합니다.
-기본 `parser_runner`는 `nh_parsing_test_batch`이며 P1 evidence-v6/P3
-region-input-v1을 출력하는 `tools/run_parsing_batch.py`를 사용합니다. 새
-`nh-ad-parser`를 쓸 때만 `parser_runner: nh_ad_parser_cli`를 명시합니다. 이 경로는
-`tools/parse.py`의 `evidence/`와 `review-input/` 원본을 보존한 뒤, 줄 소유권을 검증하면서
-정본 P1/P3 계약으로 변환합니다. 임의 출력 형식은 허용하지 않습니다.
+`parser_revision`입니다. 선택 항목은 `dgx_host`, `dgx_key`, `parser_env`이며 실제
+주소·경로·인증은 비공개 설정으로만 주입합니다.
+파서는 저장소의 `parser-pipeline/`(nh-parser-fin subtree)만 사용합니다. `parser_runner`는
+`nh_parser_fin`, `parser_contract_profile`은 `region-v10`만 허용하며 `run.py --compact-output`의
+`final/*.p1.json`·`*.p3.json`(P1 v5/P3 v10)을 정본 P1/P3 계약으로 변환합니다.
+`parser_revision`에는 `parser-pipeline` squash 커밋의 `git-subtree-split` 40자리 값을 넣습니다.
+`parser_root`·`parser_cwd`를 생략하면 `parser-pipeline/`을, `parser_python`을 생략하면 그
+폴더의 `.venv`를 사용합니다. 이전 계약(v3/v6, v4/v9)의 저장 결과는 읽기만 지원합니다.
 웹 Python에는 backend 의존성과 `pypdfium2`, `Pillow`, `numpy`, `openpyxl`, `requests`가,
-파서 Python에는 해당 파서의 별도 의존성과 GPU 서비스 설정이 필요합니다.
+파서 Python에는 `parser-pipeline`의 별도 의존성(`pypdfium2==5.12.0`)과 GPU 서비스 설정이 필요합니다.
 
 Python 기준은 3.11이다. 운영 의존성은 `requirements-rag.txt`, 테스트·Ruff까지 포함한
 개발 의존성은 `requirements-rag-dev.txt`로 설치한다. 중간 보고는

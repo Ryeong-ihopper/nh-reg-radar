@@ -127,7 +127,6 @@
     "scripts/operational_locations.py",
     "scripts/operational_server_config.py",
     "scripts/operational_web_bridge.py",
-    "scripts/parse_hwp_native.py",
     "scripts/render_hwp_review_html.py",
     "scripts/serve-operational-review.py"
   ]

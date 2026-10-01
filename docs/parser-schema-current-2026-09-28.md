@@ -4,11 +4,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.3 |
+| 현행 버전 | v1.4 |
 | 기준일 | 2026-09-30 |
-| 확인한 저장소 | [nh-parser-fin](https://github.com/cg-wnsdud/nh-parser-fin/tree/3d3dacbf95518090c12b10874ba3d758a889f235) |
-| 확인한 main | `3d3dacbf95518090c12b10874ba3d758a889f235` |
+| 확인한 저장소 | [nh-parser-fin](https://github.com/cg-wnsdud/nh-parser-fin/tree/4968fa526d32183d656d011f9e986cdd9fd7b637) |
+| 확인한 main | `4968fa526d32183d656d011f9e986cdd9fd7b637`(Python 3.11·`--template-id`, `parser-pipeline/` subtree) |
 | 최신 외부 계약 | P1 `nh-ad-parse-evidence-v5` / P3 `nh-ad-region-review-input-v10` |
+
+## 2026-09-30 저장소 편입과 사용자 템플릿
+
+파서는 저장소의 `parser-pipeline/`(nh-parser-fin subtree)로 편입했다. 새 실행은 `nh_parser_fin`·`region-v10`만 사용하며, 아래 region-v9·외부 checkout 기록은 당시 운영 배포 이력이다. 브리지는 사용자 선택 템플릿을 `run.py --template-id`로 전달하고, 파서는 상품 소유권만 판정한 뒤 모든 상품·공통·미확정 영역에 그 템플릿의 구분값을 쓴다. P1 `template`과 P3 `document.template`이 `source: user_provided`로 사용자 값과 같아야 심의를 진행한다. 앱 이름 `예금성상품-지수연동예금(ELD)`는 파서 카탈로그 이름 `예금성상품-지수연동예금`으로 바꿔 전달한다. 파서 카탈로그에 없는 `투자성상품-ETF`·`-ELB`는 `--template-id` 없이 파서 자동 선택으로 실행하고 P1/P3 템플릿 일치만 검사한다. `--template-id`는 nh-parser-fin main `4968fa5`(PR #4)에 반영됐고 `parser-pipeline/`은 그 커밋과 트리가 같다.
 
 ## 2026-09-30 최신 계약 연결
 
@@ -77,6 +81,7 @@ P1은 원문 줄·좌표·판독 후보·경고·표 셀을 남기는 근거 원
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.4 | 2026-09-30 | `parser-pipeline/` subtree(15f730d→4968fa5) 편입, 단일 실행 프로필과 사용자 템플릿 `--template-id` 전달·검사 |
 | v1.3 | 2026-09-30 | 최신3d3dacbf·P1 v5/P3 v10 연결, 디지털 교정 관찰·실제 파서 이미지와 기존 계약 보존 |
 | v1.2 | 2026-09-29 | 최신 레이아웃·추출 경로·좌표 화면의 모델 입력 전달, 논리 본문 청킹과 물리 줄 검증 구별 |
 | v1.1 | 2026-09-28 | README 전용9733d9f 갱신·코드 해시 동일성·r11b 최종 배포 |

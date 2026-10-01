@@ -32,7 +32,8 @@ nh-ad-worker = { workspace = true }
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["rag-pipeline/legacy"]
+# parser-pipeline/은 nh-parser-fin subtree다. 자체 pyproject·uv.lock·테스트로 검사한다.
+extend-exclude = ["rag-pipeline/legacy", "parser-pipeline"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -48,6 +49,11 @@ files = [
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
+# pytest 기본값에 parser-pipeline(별도 환경에서 실행하는 파서 subtree)만 추가한다.
+norecursedirs = [
+  "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+  "parser-pipeline",
+]
 markers = [
   "external_ai: requires an external AI provider",
   "slow: long-running test excluded from the PR gate",

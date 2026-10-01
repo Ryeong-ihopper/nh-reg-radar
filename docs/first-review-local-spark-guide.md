@@ -4,18 +4,18 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.5 |
-| 기준일 | 2026-09-15 |
+| 현행 버전 | v1.7 |
+| 기준일 | 2026-09-30 |
 | 대상 | 코드를 받아 광고 1건을 처음 실행할 사용자와 실행을 도울 Claude |
 | 환경 | Windows PowerShell, 심의 앱 Python 3.11, Node.js 22, 별도 Spark 서비스 |
 | 목표 | 실제 광고 등록 → 파싱 → 규칙 검색 → 판정 → 결과 JSON 다운로드 |
 | 검증 범위 | 현재 로컬 코드·설정·CLI와 대조한 안내. 새 PC에서의 설치/E2E 성공은 아직 검증하지 않음 |
 
-## 파서 전달본 확인: 사용자 템플릿 입력 지원 필수
+## 파서: 저장소의 parser-pipeline 사용
 
-사용자가 고른 상세 상품군(예: 대출성상품-상품명 노출)은 파서에도 전달된다. 파서는 템플릿을 자동 분류하지 않고 회사명·상품명·우대금리·부대비용·대출금리 등 하위 라벨만 붙인다.
+파서는 심의 앱 저장소의 `parser-pipeline/`(nh-parser-fin subtree)에 포함된다. 별도 파서 checkout이나 패치 전달본은 필요 없다. 파서 개발 정본은 nh-parser-fin 저장소이며 이 폴더는 `git subtree pull --prefix=parser-pipeline --squash`로 갱신한다.
 
-별도 파서 전달본에는 `tools/parse.py --template-id`와 `process_file(..., classify_document=False)` 지원이 필요하다. 기존 파서 원본을 받았다면 심의 앱의 `scripts/parser-patches/user-template-labeling.patch`를 전달하고 [패치 적용 안내](../scripts/parser-patches/README.md)에 따라 확인한다. 파서 설치 후 `python tools/parse.py --help`에 `--template-id`가 보이는지 확인한다. 지원 없이 예전 자동분류로 우회하지 않는다. 심의 앱 코드는 Git으로 전달되지만 별도 파서 checkout에도 변경을 적용해야 한다.
+사용자가 고른 상세 상품군(예: 대출성상품-상품명 노출)은 파서에도 `--template-id`로 전달된다. 파서는 상품 소유권만 판정하고 템플릿을 자동 선택하지 않으며, 찾은 모든 상품에 그 템플릿의 구분값을 붙인다. P1/P3의 템플릿이 `source: user_provided`로 사용자 값과 일치하지 않으면 심의를 진행하지 않는다. 앱과 파서 카탈로그의 이름이 다른 `예금성상품-지수연동예금(ELD)`는 파서 이름 `예금성상품-지수연동예금`으로 바꿔 전달한다. 파서 카탈로그에 없는 `투자성상품-ETF`·`-ELB`는 파서가 템플릿을 자동 선택하고(`PARSER_TEMPLATE_AUTO` 로그), 판정은 계속 사용자 템플릿으로 한다.
 
 브라우저에서는 이전처럼 상세 상품군을 선택하면 된다. 원문이 깨졌거나 선택 문장/라벨의 근거 범위를 확정할 수 없는 부분과 시인성은 사람 확인 대상으로 남는다. 과거 자동분류 결과를 재사용하지 않으므로 첫 재분석은 원문을 다시 파싱할 수 있다.
 
@@ -51,7 +51,7 @@
 | 준비물 | 확인할 내용 |
 | --- | --- |
 | 심의 앱 코드 | 이 문서와 아래 실행 파일이 포함된 동일한 전달본/commit |
-| 별도 파서 코드 | 현재 웹 연결이 지원하는 `nh-ad-parser`의 확인된 버전 또는 기존 batch 파서 |
+| 파서 코드 | 심의 앱 저장소의 `parser-pipeline/`. HWP/HWPX 광고 파싱에만 사내 `document-processor`가 추가로 필요 |
 | 규제목록 | `NH_광고심의_에이전트_규제목록_v2.xlsx` 원본 |
 | 일반 템플릿 | 전달자가 지정한 일반 광고 템플릿 HWPX 원본. 심의사례 답지 HWPX로 대체하지 않음 |
 | 테스트 광고 | 본인이 실행할 PDF 또는 PNG/JPG 1건과 정확한 상세 상품군 |
@@ -148,36 +148,27 @@ if ($LASTEXITCODE -ne 0) { throw '앱 실행 진입점 확인 실패' }
 
 가상환경 활성화 명령은 필요 없다. 이후에도 **반드시 `.venv311/Scripts/python.exe`를 직접 지정**한다. 작업 관리자에 보이는 시스템 Python 경로를 복사해 서버를 시작하면 가상환경의 패키지를 찾지 못할 수 있다.
 
-### 4.2 별도 파서 — 앱과 다른 환경
+### 4.2 파서 — parser-pipeline 전용 환경
 
-이 안내의 기본 파서는 `parser_runner: nh_ad_parser_cli`와 `tools/parse.py`를 사용하는 전달본이다. `nh-custon-parser`의 KL/ETL 경로와 같은 것으로 취급하지 않는다.
-
-현재 확인한 파서의 `pyproject.toml`은 Python `>=3.11,<3.12`이지만 README에는 예전 3.13 설명이 남아 있었다. **전달받은 파서의 실제 `pyproject.toml`과 버전을 확인한다.** 3.13만 요구하는 다른 전달본이면 이 문서의 3.11 환경에 강제 설치하거나 메타데이터를 바꾸지 말고, 호환 전달본을 확인한다.
+파서는 저장소의 `parser-pipeline/`이며 Python 3.11 기준이다. 앱과 같은 버전이지만 **파서 폴더의 `uv.lock`으로 만든 별도 `.venv`를 사용한다.** 파서는 PDF 렌더 결과를 고정하려고 `pypdfium2==5.12.0`을 사용하므로 앱 Python에 파서를 함께 설치해 버전을 덮어쓰지 않는다.
 
 ```powershell
-$parserRoot = 'C:/work/nh-ad-parser'
-if (-not (Test-Path -LiteralPath (Join-Path $parserRoot 'tools/parse.py'))) { throw '파서 실행 파일이 없습니다.' }
-Get-Content -Encoding UTF8 (Join-Path $parserRoot 'pyproject.toml')
-py -3.11 -m venv (Join-Path $parserRoot '.venv311')
+$parserRoot = Join-Path $projectRoot 'parser-pipeline'
+if (-not (Test-Path -LiteralPath (Join-Path $parserRoot 'run.py'))) { throw '파서 실행 파일이 없습니다.' }
+uv sync --project $parserRoot
 if ($LASTEXITCODE -ne 0) { throw '파서 가상환경 생성 실패' }
-$parserPython = Join-Path $parserRoot '.venv311/Scripts/python.exe'
-& $parserPython -m pip install -e $parserRoot
-if ($LASTEXITCODE -ne 0) { throw '파서 패키지 설치 실패' }
-& $parserPython -m pip check
-if ($LASTEXITCODE -ne 0) { throw '파서 패키지 호환성 확인 실패' }
-& $parserPython (Join-Path $parserRoot 'tools/parse.py') --help
+$parserPython = Join-Path $parserRoot '.venv/Scripts/python.exe'
+& $parserPython (Join-Path $parserRoot 'run.py') --help
 if ($LASTEXITCODE -ne 0) { throw '파서 실행 진입점 확인 실패' }
 ```
 
-별도 환경을 쓰는 이유가 있다. 현재 앱과 파서는 PDF 읽기 라이브러리의 고정 버전도 다르다. 앱 Python에 파서를 함께 설치해 버전을 덮어쓰지 않는다.
-
-기존 `nh_parsing_test_batch` 실행기는 사용자 선택 템플릿을 파싱 전에 받는 계약이 없어 현재 운영 심의에 사용하지 않는다. `--template-id`를 지원하는 `nh_ad_parser_cli` 전달본으로 준비한다.
+심의 앱은 설정에 파서 경로가 없으면 `parser-pipeline/`과 이 `.venv`를 사용한다. PaddleX·이미지 판독 모델 주소는 5절의 `parser_env` 또는 `parser-pipeline/.env`(Git 제외)에 넣는다.
 
 첫 실행 광고는 PDF 또는 PNG/JPG를 사용한다. HWP/HWPX **광고 파싱**에는 별도 사내 문서 처리 패키지가 필요할 수 있다. 일반 템플릿 HWPX를 심의 기준으로 읽는 기능과는 별개다.
 
 ## 5. 본인 PC의 설정 파일 만들기
 
-아래 예시는 별도 파서 `nh_ad_parser_cli` 기준이다. 창 A에서 `temp` 폴더를 만들고, 편집기로 `temp/operational-config.local.json`을 **UTF-8, BOM 없이** 저장한다. 기존 파일이 있으면 먼저 내용을 확인하고 본인의 필요한 값만 수정한다.
+아래 예시는 저장소 파서 `parser-pipeline/` 기준이다. 창 A에서 `temp` 폴더를 만들고, 편집기로 `temp/operational-config.local.json`을 **UTF-8, BOM 없이** 저장한다. 기존 파일이 있으면 먼저 내용을 확인하고 본인의 필요한 값만 수정한다.
 
 ```powershell
 New-Item -ItemType Directory -Force -Path temp | Out-Null
@@ -198,15 +189,13 @@ New-Item -ItemType Directory -Force -Path temp | Out-Null
     "NH_GPU_GEMMA_MODEL": "REPLACE_JUDGE_MODEL_ID",
     "NH_JUDGE_RESPONSE_FORMAT": "json_schema"
   },
-  "parser_root": "C:/work/nh-ad-parser",
-  "parser_cwd": "C:/work/nh-ad-parser",
-  "parser_python": "C:/work/nh-ad-parser/.venv311/Scripts/python.exe",
-  "parser_runner": "nh_ad_parser_cli",
+  "parser_runner": "nh_parser_fin",
+  "parser_contract_profile": "region-v10",
+  "parser_revision": "REPLACE_PARSER_SUBTREE_SPLIT",
   "parser_env": {
     "PADDLEX_URL": "http://127.0.0.1:18081/layout-parsing",
     "GEMMA_URL": "http://127.0.0.1:18102/v1/chat/completions",
-    "GEMMA_MODEL": "REPLACE_VISION_MODEL_ID",
-    "REGION_READING_MODE": "shadow"
+    "GEMMA_MODEL": "REPLACE_VISION_MODEL_ID"
   }
 }
 ```
@@ -216,8 +205,8 @@ New-Item -ItemType Directory -Force -Path temp | Out-Null
 | `regulation_path` | 내 PC에 있는 지정 규제목록의 절대 경로 |
 | `template_source_path` | 내 PC에 있는 지정 일반 템플릿의 절대 경로 |
 | `template_appropriate_judgment_path` | 선택 사항. TPL 결과 화면에 표시할 일반 업무 가이드 XLSX의 절대 경로. 검색·모델 판정에는 사용하지 않음 |
-| `parser_root`, `parser_cwd` | 별도 파서 코드 폴더. 처음에는 둘 다 파서 루트로 지정 |
-| `parser_python` | 별도 파서 환경의 Python 실행 파일 |
+| `parser_revision` | `git log -1 --format=%B --grep="git-subtree-dir: parser-pipeline"`의 `git-subtree-split` 40자리 값 |
+| `parser_root`, `parser_cwd`, `parser_python` | 생략하면 `parser-pipeline/`과 그 `.venv`. 다른 위치의 파서를 쓸 때만 지정 |
 | `model`, `NH_GPU_GEMMA_MODEL` | 판정 서비스에서 제공하는 동일한 모델 ID |
 | `parser_env.GEMMA_MODEL` | 이미지 판독 서비스의 모델 ID |
 | `es_index` | 담당자가 허용한 인덱스 접두사. 소문자 사용 |
@@ -360,19 +349,16 @@ Gemma 판정 모델 ID(model / NH_GPU_GEMMA_MODEL): [실제 서비스의 모델 
 Set-Location -LiteralPath $projectRoot
 $configPath = Join-Path $projectRoot 'temp/operational-config.local.json'
 $cfg = Get-Content -Raw -Encoding UTF8 -LiteralPath $configPath | ConvertFrom-Json
-foreach ($field in @('regulation_path', 'template_source_path', 'parser_python')) {
+foreach ($field in @('regulation_path', 'template_source_path')) {
   if (-not (Test-Path -LiteralPath $cfg.$field -PathType Leaf)) { throw "파일 경로 오류: $field" }
 }
-foreach ($field in @('parser_root', 'parser_cwd')) {
-  if (-not (Test-Path -LiteralPath $cfg.$field -PathType Container)) { throw "폴더 경로 오류: $field" }
-}
+$parserPython = if ($cfg.parser_python) { $cfg.parser_python } else { Join-Path $projectRoot 'parser-pipeline/.venv/Scripts/python.exe' }
+if (-not (Test-Path -LiteralPath $parserPython -PathType Leaf)) { throw '파서 가상환경이 없습니다. 4.2절을 실행하세요.' }
 if ((Get-Content -Raw -Encoding UTF8 -LiteralPath $configPath) -match 'REPLACE_') {
   throw '설정에 아직 예시 값이 남아 있습니다.'
 }
 if ($cfg.model -ne $cfg.model_env.NH_GPU_GEMMA_MODEL) { throw '판정 모델 ID 두 값을 일치시키세요.' }
-if ($cfg.parser_runner -eq 'nh_ad_parser_cli' -and -not (Test-Path -LiteralPath (Join-Path $cfg.parser_root 'tools/parse.py'))) {
-  throw '선택한 파서 실행 파일이 없습니다.'
-}
+if ($cfg.parser_revision -notmatch '^[0-9a-f]{40}$') { throw 'parser_revision에 40자리 커밋을 넣으세요.' }
 Write-Host 'LOCAL_PATHS_OK'
 ```
 
@@ -541,6 +527,8 @@ Claude가 서버를 백그라운드로 시작할 때는 같은 가상환경 Pyth
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.7 | 2026-09-30 | 사용자 선택 템플릿을 파서 `--template-id`로 전달하고 파서 결과의 사용자 템플릿 일치 검사 추가 |
+| v1.6 | 2026-09-30 | 별도 파서 전달본·패치 대신 저장소 `parser-pipeline/`과 전용 환경·기본 경로·`parser_revision` 설정으로 전환 |
 | v1.5 | 2026-09-15 | 사용자 템플릿 지원 파서 전달·패치 적용·첫 재분석 주의점 추가 |
 | v1.4 | 2026-09-15 | 인덱스 접두사·모델 ID는 인증 비밀이 아님을 명확화, 실행 파일 포함 커밋과 수신 브랜치 명시 |
 | v1.3 | 2026-09-15 | 개인키 비공개 강조·사용자 직접 터널 연결 절차, 인덱스 접두사/모델 ID의 확인 책임과 비공개 전달 방법 추가 |
