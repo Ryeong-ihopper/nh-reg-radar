@@ -1,5 +1,9 @@
 # 프로젝트 규칙
 
+## 파서 PR #5 동기화 — 2026-10-02
+
+`nh-parser-fin` main `8862581`을 `parser-pipeline/`에 subtree squash로 반영한다. 새 실행은 P1 v6/P3 v11(`region-v11`)만 받으며 v5/v10 이하 저장 결과는 읽기 전용으로 유지한다. P3 표 칸 구조는 같은 P1 `table_view`와 일치할 때만 통합 입력에 보존한다. 운영 배포와 기존 결과 재파싱은 이 브랜치 범위에 포함하지 않는다.
+
 ## 파서 파이프라인 편입 브랜치 — 2026-09-30
 
 사용자 요청에 따라 `integration`에서 분기한 `feat/parser-pipeline-merge`에 nh-parser-fin main(`15f730d`, Python 3.11)을 `parser-pipeline/`으로 `git subtree --squash` 편입하고, 사용자 템플릿 `--template-id`를 반영한 main `4968fa5`로 갱신한다. 파서 개발 정본은 nh-parser-fin 저장소이며 이후 변경은 `git subtree pull --prefix=parser-pipeline --squash`로 반영한다. 편입 중 파서 수정이 필요하면 원본 저장소에 같은 수정을 반영한다. `parser-pipeline/`은 자체 pyproject·uv.lock·가상환경(`pypdfium2==5.12.0`)으로 검사하며 루트 ruff·pytest 대상에서 제외한다.
@@ -109,13 +113,14 @@ type은 `feat`·`fix`·`hotfix`·`refactor`·`docs`·`test`·`chore`·`ci` 중 �
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.66 |
-| 기준일 | 2026-09-30 |
+| 현행 버전 | v1.67 |
+| 기준일 | 2026-10-02 |
 
 ## 변경 이력
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.67 | 2026-10-02 | 파서 PR #5 subtree 동기화, v11 실행 계약과 v10 저장 결과 보존 |
 | v1.66 | 2026-09-30 | 파서 파이프라인 subtree 편입 브랜치와 단일 파서 실행 방식·원본 저장소 정본 기준 |
 | v1.65 | 2026-09-30 | 개인 integration 단독 업로드와 내부 ADR 추가에 따른 Notion 제외33개 분류 |
 | v1.64 | 2026-09-29 | 개인 main·회사 작업 브랜치에 현재 수정사항 반영 승인과 로컬 보존 범위 |

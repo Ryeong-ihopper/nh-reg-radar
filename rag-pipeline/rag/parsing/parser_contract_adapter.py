@@ -25,6 +25,7 @@ PARSER_FIN_PROFILES = {
     "region-v6": (PARSER_FIN_P1, PARSER_FIN_P3),
     "region-v9": (PARSER_FIN_CURRENT_P1, PARSER_FIN_CURRENT_P3),
     "region-v10": ("nh-ad-parse-evidence-v5", "nh-ad-region-review-input-v10"),
+    "region-v11": ("nh-ad-parse-evidence-v6", "nh-ad-region-review-input-v11"),
 }
 PARSER_FIN_PAIRS = set(PARSER_FIN_PROFILES.values())
 
@@ -164,6 +165,10 @@ def _adapt_parser_fin_pair(
                 "labels": [],
                 "parser_label_hints": copy.deepcopy(region.get("labels") or []),
                 "kind": region.get("kind", "text"),
+                "table": (
+                    copy.deepcopy(region.get("table"))
+                    if source_p3_version == PARSER_FIN_PROFILES["region-v11"][1] else None
+                ),
                 "parser_observations": {
                     "product_id": region.get("product_id"),
                     "label_scope": "REGION_HINT_ONLY",
@@ -270,7 +275,7 @@ def _adapt_parser_fin_pair(
 
 
 def _validate_parser_fin_current_geometry(p1: dict[str, Any], p3: dict[str, Any]) -> None:
-    """v9/v10 geometry is a projection of the same P1 page, not a second source."""
+    """Current P3 geometry and table views must match the same P1 evidence."""
     if p3["contract"].get("source_evidence_version") != (p1.get("contract") or {}).get("version"):
         raise ValueError("nh-parser-fin P3 source evidence version mismatch")
     document = p3.get("document") or {}
@@ -307,7 +312,10 @@ def _validate_parser_fin_current_geometry(p1: dict[str, Any], p3: dict[str, Any]
                     or type(row.get("needs_review")) is not bool
                     or not isinstance(row.get("labels"), list)
                     or any(not isinstance(label, str) for label in row["labels"])):
-                raise ValueError("nh-parser-fin invalid v9 region fields")
+                raise ValueError("nh-parser-fin invalid current region fields")
+            if p3["contract"]["version"] == PARSER_FIN_PROFILES["region-v11"][1]:
+                if row.get("table") != original.get("table_view"):
+                    raise ValueError("nh-parser-fin P1/P3 table view mismatch")
 
 
 def _adapt_parser_fin_p1_page(page: dict[str, Any]) -> dict[str, Any]:

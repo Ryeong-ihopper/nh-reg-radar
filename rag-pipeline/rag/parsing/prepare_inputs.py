@@ -270,7 +270,7 @@ def combine(p1_path: Path, p3_path: Path) -> dict[str, Any]:
                     else "mixed"
                 ),
                 "visibility": region.get("visibility"),
-                "table": region.get("table"),
+                "table": copy.deepcopy(region_p3.get("table") or region.get("table")),
             })
 
         unassigned = []

@@ -82,11 +82,11 @@ PDF는 200 DPI로 렌더링하고 입력의 실제 line_ref 좌표로 위치를 
 `parser_revision`입니다. 선택 항목은 `dgx_host`, `dgx_key`, `parser_env`이며 실제
 주소·경로·인증은 비공개 설정으로만 주입합니다.
 파서는 저장소의 `parser-pipeline/`(nh-parser-fin subtree)만 사용합니다. `parser_runner`는
-`nh_parser_fin`, `parser_contract_profile`은 `region-v10`만 허용하며 `run.py --compact-output`의
-`final/*.p1.json`·`*.p3.json`(P1 v5/P3 v10)을 정본 P1/P3 계약으로 변환합니다.
+`nh_parser_fin`, `parser_contract_profile`은 `region-v11`만 허용하며 `run.py --compact-output`의
+`final/*.p1.json`·`*.p3.json`(P1 v6/P3 v11)을 정본 P1/P3 계약으로 변환합니다.
 `parser_revision`에는 `parser-pipeline` squash 커밋의 `git-subtree-split` 40자리 값을 넣습니다.
 `parser_root`·`parser_cwd`를 생략하면 `parser-pipeline/`을, `parser_python`을 생략하면 그
-폴더의 `.venv`를 사용합니다. 이전 계약(v3/v6, v4/v9)의 저장 결과는 읽기만 지원합니다.
+폴더의 `.venv`를 사용합니다. 이전 계약(v3/v6, v4/v9, v5/v10)의 저장 결과는 읽기만 지원합니다.
 웹 Python에는 backend 의존성과 `pypdfium2`, `Pillow`, `numpy`, `openpyxl`, `requests`가,
 파서 Python에는 `parser-pipeline`의 별도 의존성(`pypdfium2==5.12.0`)과 GPU 서비스 설정이 필요합니다.
 

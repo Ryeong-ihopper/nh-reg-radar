@@ -182,6 +182,36 @@ def parser_fin_current_pair():
 
 
 class ParserContractAdapterTests(unittest.TestCase):
+    def test_v6_v11_preserves_canonical_table_cells_and_rejects_mismatch(self):
+        p1, p3 = parser_fin_current_pair()
+        p1["contract"]["version"] = "nh-ad-parse-evidence-v6"
+        p3["contract"].update(version="nh-ad-region-review-input-v11",
+                              source_evidence_version="nh-ad-parse-evidence-v6")
+        table = {"table_id": "table-1", "source": "hwp", "cells": [
+            {"row": 0, "col": 0, "row_span": 1, "col_span": 1,
+             "is_header": True, "text": "항목"},
+            {"row": 1, "col": 0, "row_span": 1, "col_span": 1,
+             "is_header": False, "text": "금리"},
+        ], "row_texts": ["항목: 금리"]}
+        p1_region = p1["pages"][0]["regions"][0]
+        p3_region = p3["pages"][0]["regions"][0]
+        p1_region["kind"] = p3_region["kind"] = "table"
+        p1_region["table_view"] = copy.deepcopy(table)
+        p3_region["table"] = copy.deepcopy(table)
+        original = copy.deepcopy((p1, p3))
+
+        with tempfile.TemporaryDirectory() as directory:
+            first, third = Path(directory) / "p1.json", Path(directory) / "p3.json"
+            first.write_text(json.dumps(p1), encoding="utf-8")
+            third.write_text(json.dumps(p3), encoding="utf-8")
+            integrated = combine(first, third)
+        self.assertEqual((p1, p3), original)
+        self.assertEqual(integrated["pages"][0]["regions"][0]["table"], table)
+
+        p3_region["table"]["cells"][1]["text"] = "변조"
+        with self.assertRaisesRegex(ValueError, "table view mismatch"):
+            adapt_p1_p3(p1, p3)
+
     def test_v5_v10_preserves_each_file_route_and_digital_corrections(self):
         for file_type, source in (("hwp", "hwp"), ("pdf", "digital"), ("pdf", "ocr"), ("image", "ocr")):
             with self.subTest(file_type=file_type, source=source):
@@ -332,7 +362,7 @@ class ParserContractAdapterTests(unittest.TestCase):
         for first, third in [
             ("nh-ad-parse-evidence-v3", "nh-ad-region-review-input-v9"),
             ("nh-ad-parse-evidence-v4", "nh-ad-region-review-input-v6"),
-            ("nh-ad-parse-evidence-v6", "nh-ad-region-review-input-v11"),
+            ("nh-ad-parse-evidence-v5", "nh-ad-region-review-input-v11"),
             ("nh-ad-parse-evidence-v4", "nh-ad-region-review-input-v10"),
             ("nh-ad-parse-evidence-v5", "nh-ad-region-review-input-v9"),
         ]:

@@ -44,7 +44,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # nh-parser-fin subtree; the upstream repository remains the parser's source of truth.
 PARSER_ROOT = ROOT / "parser-pipeline"
 PARSER_RUNNER = "nh_parser_fin"
-PARSER_CONTRACT_PROFILE = "region-v10"
+PARSER_CONTRACT_PROFILE = "region-v11"
 # The app's canonical execution plans name one template differently from the
 # parser catalog, which keeps the source HWPX section title.
 PARSER_TEMPLATE_ALIASES = {"예금성상품-지수연동예금(ELD)": "예금성상품-지수연동예금"}
@@ -694,7 +694,7 @@ class ExecutionBridge:
         """Keep the exact compact-output PNG used to establish each page canvas."""
         p3 = read_json(p3_path)
         if (p3.get("contract") or {}).get("version") not in {
-            PARSER_FIN_PROFILES[profile][1] for profile in ("region-v9", "region-v10")
+            PARSER_FIN_PROFILES[profile][1] for profile in ("region-v9", "region-v10", "region-v11")
         }:
             return
         from PIL import Image
@@ -739,7 +739,7 @@ class ExecutionBridge:
                 write_json_atomic(manifest, {"version": "operational-parser-page-images-v1",
                     "pages": [row for row in previous if row["asset_id"] != file.file_id] + captured})
         except (OSError, ValueError, KeyError) as exc:
-            # Valid semantic evidence survives a presentation failure. Its v9
+            # Valid semantic evidence survives a presentation failure. Its
             # preview URL fails explicitly instead of showing another render.
             write_json_atomic(destination / f"{file.file_id}-error.json",
                               {"code": "PARSER_PAGE_IMAGE_UNAVAILABLE", "detail": str(exc)})
@@ -748,7 +748,7 @@ class ExecutionBridge:
     def with_parser_preview_paths(review_id, layout, integrated):
         current_assets = {row["file_id"] for row in (integrated.get("diagnostics") or {}).get("assets", [])
                           if (row.get("source_parser_contracts") or {}).get("source_p3_contract")
-                          in {PARSER_FIN_PROFILES[profile][1] for profile in ("region-v9", "region-v10")}}
+                          in {PARSER_FIN_PROFILES[profile][1] for profile in ("region-v9", "region-v10", "region-v11")}}
         value = copy.deepcopy(layout)
         for page in value.get("pages", []):
             if page.get("asset_id") in current_assets:
