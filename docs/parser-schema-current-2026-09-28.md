@@ -4,17 +4,21 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 현행 버전 | v1.4 |
-| 기준일 | 2026-09-30 |
-| 확인한 저장소 | [nh-parser-fin](https://github.com/cg-wnsdud/nh-parser-fin/tree/4968fa526d32183d656d011f9e986cdd9fd7b637) |
-| 확인한 main | `4968fa526d32183d656d011f9e986cdd9fd7b637`(Python 3.11·`--template-id`, `parser-pipeline/` subtree) |
-| 최신 외부 계약 | P1 `nh-ad-parse-evidence-v5` / P3 `nh-ad-region-review-input-v10` |
+| 현행 버전 | v1.5 |
+| 기준일 | 2026-10-02 |
+| 확인한 저장소 | [nh-parser-fin](https://github.com/cg-wnsdud/nh-parser-fin/tree/8862581bde585f940debe9c596fee3e5556d9ef4) |
+| 확인한 main | `8862581bde585f940debe9c596fee3e5556d9ef4`(PR #5, `parser-pipeline/` subtree) |
+| 최신 외부 계약 | P1 `nh-ad-parse-evidence-v6` / P3 `nh-ad-region-review-input-v11` |
 
-## 2026-09-30 저장소 편입과 사용자 템플릿
+## 2026-10-02 PR #5 계약 연결
+
+새 파서 실행은 `region-v11`을 사용한다. P1 v6은 표 칸 근거와 페이지 표 색인을 추가하고, P3 v11은 표 영역마다 `table.cells`·`row_texts`, 페이지마다 표와 영역 ID의 연결을 제공한다. HWP는 원본 구조의 셀, PDF·이미지는 VLM HTML에서 추정한 셀을 `source`로 구별한다. 브리지는 사용자 템플릿·영역 소유권·bbox·canvas와 P1/P3 판본 쌍을 확인한다. 어댑터는 P3 표 보기가 동일 P1 `table_view`와 일치할 때만 셀을 통합 입력으로 전달하며, 셀 문구를 원문 줄의 검증된 위치·의무 충족 증거로 승격하지 않는다. 원본 P1/P3와 해시를 보존하고 이전 v5/v10 결과는 읽기만 지원한다. 실제 운영 적용 여부는 인수인계의 운영 기록을 따른다.
+
+## 2026-09-30 저장소 편입과 사용자 템플릿 — 이전 연결 기록
 
 파서는 저장소의 `parser-pipeline/`(nh-parser-fin subtree)로 편입했다. 새 실행은 `nh_parser_fin`·`region-v10`만 사용하며, 아래 region-v9·외부 checkout 기록은 당시 운영 배포 이력이다. 브리지는 사용자 선택 템플릿을 `run.py --template-id`로 전달하고, 파서는 상품 소유권만 판정한 뒤 모든 상품·공통·미확정 영역에 그 템플릿의 구분값을 쓴다. P1 `template`과 P3 `document.template`이 `source: user_provided`로 사용자 값과 같아야 심의를 진행한다. 앱 이름 `예금성상품-지수연동예금(ELD)`는 파서 카탈로그 이름 `예금성상품-지수연동예금`으로 바꿔 전달한다. 파서 카탈로그에 없는 `투자성상품-ETF`·`-ELB`는 `--template-id` 없이 파서 자동 선택으로 실행하고 P1/P3 템플릿 일치만 검사한다. `--template-id`는 nh-parser-fin main `4968fa5`(PR #4)에 반영됐고 `parser-pipeline/`은 그 커밋과 트리가 같다.
 
-## 2026-09-30 최신 계약 연결
+## 2026-09-30 v5/v10 계약 연결 기록
 
 최신 `export.py`는 P1 v5/P3 v10을 내보낸다. P3의 영역 ID·소유 상품·bbox·최종 문구·라벨·표 구분·확인필요·문구 출처와 페이지 canvas 구조는 유지된다. `region-v10` 프로필을 추가하고 v3/v6·v4/v9 과거 저장본 읽기를 보존한다. 버전 쌍이 섞이거나 P1/P3의 소유권·좌표·캔버스가 다르면 차단한다. 실행 프로필과 40자리 파서 커밋을 intake에 함께 저장해 이전 파서 캐시를 새 결과로 재사용하지 않는다.
 
@@ -81,6 +85,7 @@ P1은 원문 줄·좌표·판독 후보·경고·표 셀을 남기는 근거 원
 
 | 버전 | 기준일 | 변경 내용 |
 | --- | --- | --- |
+| v1.5 | 2026-10-02 | nh-parser-fin PR #5 `8862581`, P1 v6/P3 v11 표 칸 계약과 이전 결과 보존 |
 | v1.4 | 2026-09-30 | `parser-pipeline/` subtree(15f730d→4968fa5) 편입, 단일 실행 프로필과 사용자 템플릿 `--template-id` 전달·검사 |
 | v1.3 | 2026-09-30 | 최신3d3dacbf·P1 v5/P3 v10 연결, 디지털 교정 관찰·실제 파서 이미지와 기존 계약 보존 |
 | v1.2 | 2026-09-29 | 최신 레이아웃·추출 경로·좌표 화면의 모델 입력 전달, 논리 본문 청킹과 물리 줄 검증 구별 |

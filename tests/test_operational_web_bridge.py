@@ -54,11 +54,11 @@ class BridgeTests(unittest.TestCase):
 
     @staticmethod
     def parser_fin_pair(*, text="검토 원문", status="ok"):
-        """Minimal synthetic parser-pipeline P1 v5/P3 v10 pair."""
+        """Minimal synthetic parser-pipeline P1 v6/P3 v11 pair."""
         template = {"template_id": "예금성상품-적립식", "source": "user_provided"}
         box = [20, 40, 600, 120]
         first = {
-            "contract": {"version": "nh-ad-parse-evidence-v5"},
+            "contract": {"version": "nh-ad-parse-evidence-v6"},
             "doc_id": "DOC-test", "source_file": "input.pdf", "file_type": "pdf",
             "template": template,
             "pages": [{"page_no": 1, "canvas": [1200, 1800], "parse_route": "ocr", "parse_status": status,
@@ -68,8 +68,8 @@ class BridgeTests(unittest.TestCase):
                        "unassigned_lines": []}],
         }
         third = {
-            "contract": {"version": "nh-ad-region-review-input-v10",
-                         "source_evidence_version": "nh-ad-parse-evidence-v5"},
+            "contract": {"version": "nh-ad-region-review-input-v11",
+                         "source_evidence_version": "nh-ad-parse-evidence-v6"},
             "document": {"doc_id": "DOC-test", "source_file": "input.pdf", "file_type": "pdf",
                          "template": template},
             "review_units": [{"product_id": "product_1", "region_ids": ["p1_r001"]}],
@@ -341,15 +341,15 @@ class BridgeTests(unittest.TestCase):
         rag.retry.assert_not_called()
 
     def test_in_repo_parser_is_the_only_runner(self):
-        for config in ({}, {"parser_runner": "nh_parser_fin", "parser_contract_profile": "region-v10"}):
+        for config in ({}, {"parser_runner": "nh_parser_fin", "parser_contract_profile": "region-v11"}):
             layout = parser_runner_layout(config)
             self.assertEqual((layout["runner"], layout["p1_dir"], layout["p3_dir"], layout["contract_profile"]),
-                             ("nh_parser_fin", "final", "final", "region-v10"))
+                             ("nh_parser_fin", "final", "final", "region-v11"))
         for runner in ("nh_parsing_test_batch", "nh_ad_parser_cli", "unknown"):
             with self.subTest(runner=runner), self.assertRaisesRegex(ValueError, "unsupported parser_runner"):
                 parser_runner_layout({"parser_runner": runner})
         # Older profiles stay readable by the adapter but are never produced by a new run.
-        for profile in ("region-v6", "region-v9", "guess-latest"):
+        for profile in ("region-v6", "region-v9", "region-v10", "guess-latest"):
             with self.subTest(profile=profile), self.assertRaisesRegex(ValueError, "unsupported parser_contract_profile"):
                 parser_runner_layout({"parser_contract_profile": profile})
 
@@ -446,11 +446,12 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'PARSER_REVISION_REQUIRED'):
             self.bridge.parser_intake('예금성상품-적립식')
 
-    def test_parser_v10_profile_pins_revision_and_rejects_old_pair(self):
-        self.assertEqual(self.bridge.parser_intake('template')['parser_contract_profile'], 'region-v10')
-        first, third = self.write_parser_pair(self.root/'v10-pair', 'ad.pdf')
+    def test_parser_v11_profile_pins_revision_and_rejects_old_pair(self):
+        self.assertEqual(self.bridge.parser_intake('template')['parser_contract_profile'], 'region-v11')
+        first, third = self.write_parser_pair(self.root/'v11-pair', 'ad.pdf')
         self.bridge.validate_parser_template(first, third, '예금성상품-적립식')
-        for old in (('nh-ad-parse-evidence-v4', 'nh-ad-region-review-input-v9'),
+        for old in (('nh-ad-parse-evidence-v5', 'nh-ad-region-review-input-v10'),
+                    ('nh-ad-parse-evidence-v4', 'nh-ad-region-review-input-v9'),
                     ('nh-ad-review-evidence-v6', 'nh-ad-review-region-input-v1')):
             with self.subTest(old=old):
                 for path, version in zip((first, third), old):
@@ -462,6 +463,9 @@ class BridgeTests(unittest.TestCase):
 
     def test_parser_v10_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
         self.test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified('nh-ad-region-review-input-v10')
+
+    def test_parser_v11_page_preview_is_review_owned_canvas_bound_and_hash_verified(self):
+        self.test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified('nh-ad-region-review-input-v11')
 
     def test_parser_page_preview_is_review_owned_canvas_bound_and_hash_verified(self, version='nh-ad-region-review-input-v9'):
         from PIL import Image

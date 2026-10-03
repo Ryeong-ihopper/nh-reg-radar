@@ -14,7 +14,7 @@
   "parser_cwd": "/data/parser-work",
   "parser_python": "/opt/nh-parser/.venv/bin/python",
   "parser_runner": "nh_parser_fin",
-  "parser_contract_profile": "region-v10",
+  "parser_contract_profile": "region-v11",
   "parser_revision": "<parser-pipeline git-subtree-split 40자리 커밋>",
   "parser_env": {
     "PADDLEX_URL": "http://paddlex.internal:8081/layout-parsing",
